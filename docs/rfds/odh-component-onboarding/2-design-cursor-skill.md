@@ -1,4 +1,4 @@
-# Approach 1: Cursor / Claude Code Skill
+# Approach 2: Cursor / Claude Code Skill
 
 ## Overview
 

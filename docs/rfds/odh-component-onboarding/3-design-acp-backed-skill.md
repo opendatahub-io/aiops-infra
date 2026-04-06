@@ -1,4 +1,4 @@
-# Approach 5: ACP-Backed ODH Onboarding Skill (Hybrid)
+# Approach 3: ACP-Backed ODH Onboarding Skill (Hybrid)
 
 ## Overview
 

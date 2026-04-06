@@ -1,4 +1,4 @@
-# Approach 4: Jira-Triggered Automation Pipeline
+# Approach 1: Jira-Triggered Automation Pipeline
 
 ## Overview
 
