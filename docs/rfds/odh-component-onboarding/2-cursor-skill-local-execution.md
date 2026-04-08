@@ -597,7 +597,7 @@ sequenceDiagram
 ## Cons
 
 - **Single-user execution** -- only the engineer running the Cursor session can drive the workflow. Other team members observe via Jira but cannot co-drive the session.
-- **Local environment dependency** -- requires `oc`, `kustomize`, `gh`, `glab` installed locally, plus VPN connected. Every engineer must set this up.
+- **Local environment dependency** -- Needs VPN connected, along with setting up all the tools needed for MCP server execution on local env if any. Every engineer must set this up.
 - **MCP setup burden** -- every engineer must independently configure all seven MCP servers with proper authentication. This is mitigated by the MCP Setup Documentation deliverable but remains a real onboarding cost.
 - **MCP server gaps** -- Konflux MCP, Konflux Docs MCP, and Google Sheets MCP do not exist yet and must be built or worked around with CLI fallbacks.
 - **VPN dependency** -- the engineer must be on VPN for internal services. Disconnection mid-workflow pauses progress (though `status.md` enables clean resume).

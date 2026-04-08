@@ -2,7 +2,9 @@
 
 ## Overview
 
-This approach uses **Jira as the single entry point and progress tracker** for ODH component onboarding. A scrum team member creates a Jira ticket in the **RHOAIENG** project using a structured template that captures all onboarding parameters as custom fields. A **Jira Automation Rule** fires on ticket creation, validates the inputs, and calls the **Ambient Code Platform (ACP) public API** (`POST /v1/sessions`) to create a new session running the dedicated **`odh-onboarding` ACP workflow**. The ACP session is automatically shared with all Jira issue watchers. As the agent completes each phase, it updates the Jira ticket with comments (including MR/PR links) and transitions the ticket through a defined status workflow. All human-in-the-loop coordination -- PR review requests, missing-input collection, and questions -- flows through **Jira comments**, with corresponding status changes to make the ticket's state immediately visible. This provides a complete audit trail, integrates with existing team workflows in Jira, and makes onboarding status visible to everyone without requiring access to ACP.
+This approach uses **Jira as the single entry point and progress tracker** for ODH component onboarding. A scrum team member creates a standard Jira ticket (Story or Task) in the **RHOAIENG** project with the **title prefix `odh-onboarding:`** and fills in a **structured description template** containing all onboarding parameters. A **Jira Automation Rule** fires when it detects a new issue whose summary starts with `odh-onboarding:`, parses the inputs from the description, and calls the **Ambient Code Platform (ACP) public API** (`POST /v1/sessions`) to create a new session running the dedicated **`odh-onboarding` ACP workflow**. The ACP session is automatically shared with all Jira issue watchers.
+
+As the agent completes each phase, it updates the Jira ticket by **adding labels** (e.g., `onboarding:quay-mr-raised`) to reflect granular progress and posting **explicit comments** with MR/PR links and status summaries. The ticket uses **standard Jira statuses** (To Do, In Progress, Needs Info, Done) rather than a custom workflow with dozens of phase-specific statuses. This eliminates the need for custom issue types, custom fields, and custom workflows -- making adoption far simpler while still providing a complete audit trail in Jira.
 
 ---
 
@@ -11,9 +13,9 @@ This approach uses **Jira as the single entry point and progress tracker** for O
 ```mermaid
 flowchart TD
     subgraph jiraLayer [Jira — RHOAIENG Project]
-        Ticket["Onboarding Ticket\n(Component Onboarding type)"]
-        AutomationRule["Jira Automation Rule\n(Issue Created trigger)"]
-        StatusWorkflow["Status Workflow"]
+        Ticket["Onboarding Ticket\n(title: odh-onboarding: ...)\n(inputs in description template)"]
+        AutomationRule["Jira Automation Rule\n(summary prefix trigger)"]
+        Labels["Labels\n(granular progress tracking)"]
         Comments["Ticket Comments\n(HITL coordination)"]
     end
 
@@ -51,15 +53,15 @@ flowchart TD
         Watchers([Issue Watchers])
     end
 
-    ScrumTeam -->|Creates ticket| Ticket
-    Ticket -->|Triggers| AutomationRule
+    ScrumTeam -->|Creates ticket with\nodh-onboarding: prefix| Ticket
+    Ticket -->|Summary prefix match| AutomationRule
     AutomationRule -->|POST /v1/sessions\nwith workflow param| ACPAPI
     ACPAPI -->|Creates| Session
     Session -->|Loads| Workflow
     Workflow --> Amber
     Session -.->|Shared with| Watchers
 
-    Amber --> JiraMCP -->|Updates ticket,\nposts comments| Ticket
+    Amber --> JiraMCP -->|Adds labels,\nposts comments| Ticket
     Amber --> GitLabMCP --> AppInterface
     Amber --> GitLabMCP --> KonfluxRD
     Amber --> GitHubMCP --> ODHKonflux
@@ -71,6 +73,7 @@ flowchart TD
 
     Amber -->|Posts PR review requests| Comments
     Amber -->|Asks for missing inputs| Comments
+    Amber -->|Adds progress labels| Labels
     Reviewer -->|Reviews PRs,\nresponds in comments| Comments
     Comments -->|Agent detects| Amber
 ```
@@ -81,14 +84,16 @@ flowchart TD
 
 | # | Prerequisite | Details |
 |---|-------------|---------|
-| 1 | **RHOAIENG Jira project configured** | The RHOAIENG Jira project must have a custom issue type "Component Onboarding" with custom fields for all input parameters (see User Inputs section). |
-| 2 | **Jira status workflow** | A custom workflow with statuses matching each onboarding phase (see Jira Workflow section below). |
-| 3 | **Jira Automation Rule** | A project-level automation rule triggered on "Issue created" for issue type "Component Onboarding". The rule calls the ACP public API to create a session. See Jira Automation Rule section below. |
+| 1 | **RHOAIENG Jira project** | The standard RHOAIENG Jira project. No custom issue type or custom fields required. |
+| 2 | **Jira description template** | A shared description template (pinned in Confluence, Slack, or Jira's issue template feature) that the scrum team copies when creating an onboarding ticket. |
+| 3 | **Jira Automation Rule** | A project-level automation rule that triggers when a new issue's summary starts with `odh-onboarding:`. The rule calls the ACP public API. See Automation Rule section below. |
 | 4 | **ACP instance with workspace** | An ACP workspace with all required MCP servers configured and Red Hat internal network access enabled. |
 | 5 | **Dedicated `odh-onboarding` ACP workflow** | A custom ACP workflow defined for the ODH onboarding pipeline, loadable via the `workflow` parameter in the `POST /v1/sessions` API. |
-| 6 | **ACP API credentials in Jira** | The ACP API URL and authentication token must be accessible to the Jira Automation Rule (stored as rule configuration or via a relay endpoint). |
+| 6 | **ACP API credentials in Jira** | The ACP API URL and authentication token accessible to the Jira Automation Rule. |
 | 7 | **All MCP servers configured in ACP** | Jira, GitLab, GitHub, Quay, Konflux, Konflux Docs, Google Sheets MCP servers must all be registered in the ACP workspace. |
-| 8 | **Red Hat internal network access** | ACP sessions and MCP servers must be able to reach Red Hat internal services (GitLab `gitlab.cee.redhat.com`, Konflux, etc.). |
+| 8 | **Red Hat internal network access** | ACP sessions and MCP servers must be able to reach Red Hat internal services. |
+
+> **Key simplification**: No custom issue type, no custom fields, and no custom Jira workflow are required. The ticket is a standard Story or Task, inputs live in the description, and progress is tracked via labels + standard statuses.
 
 ---
 
@@ -105,7 +110,7 @@ flowchart TD
 
 | MCP Server | Status | Required Network | Role in this approach |
 |-----------|--------|-----------------|----------------------|
-| **Jira MCP** | Available (`user-Jira`, 20+ tools) | External (Jira Cloud) | Read ticket fields, post comments, transition statuses, collect missing inputs |
+| **Jira MCP** | Available (`user-Jira`, 20+ tools) | External (Jira Cloud) | Read description, post comments, add/remove labels, transition statuses |
 | **GitLab MCP** | **Needs configuration in ACP** | **Red Hat internal** (`gitlab.cee.redhat.com`) | Raise MRs to `app-interface` and `konflux-release-data` |
 | **GitHub MCP** | **Needs integration in ACP** | External (github.com) | Raise PRs, trigger workflows, read CI status |
 | **Quay MCP** | Available (`user-quay`) | External (quay.io) | Validate repos, get image digests |
@@ -117,49 +122,75 @@ flowchart TD
 
 | Requirement | Detail | Status |
 |------------|--------|--------|
-| **`workflow` parameter in `POST /v1/sessions`** | The ACP public API must accept a `workflow` parameter so the Jira Automation Rule can specify which workflow to load (e.g., `odh-onboarding`). This is critical for the Jira-to-ACP integration since the automation rule cannot interactively select a workflow. | **Required — confirm with ACP team** |
-| **Red Hat internal network access** | ACP sessions must be able to reach `gitlab.cee.redhat.com`, Konflux APIs, and other internal Red Hat services. MCP servers (GitLab MCP, Konflux MCP) also need this access. | **Required — confirm ACP network policy** |
-| **Session sharing via API** | The `POST /v1/sessions` API (or a follow-up call) must support sharing the session with a list of users (derived from Jira issue watchers). | **Required — confirm API capability** |
-| **GitLab MCP integration** | A GitLab MCP server must be available in ACP workspaces, configured to authenticate against `gitlab.cee.redhat.com`. | **Needs to be enabled in ACP** |
-| **GitHub MCP integration** | A GitHub MCP server (or native ACP GitHub integration) must be available in ACP workspaces for interacting with `opendatahub-io` repos. | **Needs to be enabled in ACP** |
-| **Konflux MCP server** | A new MCP server providing tools for Konflux component queries, build status monitoring, and log retrieval. Must operate within Red Hat internal network. | **Needs to be built** |
-| **Konflux Docs MCP server** | A new MCP server providing searchable access to Konflux documentation for diagnosing build failures. | **Needs to be built** |
-| **Google Sheets MCP server** | A new MCP server providing tools to read/write Google Sheets (for the ODH Component Images spreadsheet). | **Needs to be built** |
+| **`workflow` parameter in `POST /v1/sessions`** | The ACP public API must accept a `workflow` parameter so the Jira Automation Rule can specify which workflow to load. | **Required — confirm with ACP team** |
+| **Red Hat internal network access** | ACP sessions must reach `gitlab.cee.redhat.com`, Konflux APIs, and other internal services. | **Required — confirm ACP network policy** |
+| **Session sharing via API** | The `POST /v1/sessions` API must support sharing the session with users derived from Jira watchers. | **Required — confirm API capability** |
+| **GitLab MCP integration** | Must be available in ACP, configured for `gitlab.cee.redhat.com`. | **Needs to be enabled in ACP** |
+| **GitHub MCP integration** | Must be available in ACP for `opendatahub-io` repos. | **Needs to be enabled in ACP** |
+| **Konflux MCP server** | Needs to be built. Must operate within Red Hat internal network. | **Needs to be built** |
+| **Konflux Docs MCP server** | Needs to be built. | **Needs to be built** |
+| **Google Sheets MCP server** | Needs to be built. | **Needs to be built** |
 
 ---
 
 ## User Inputs and Configuration
 
-### Jira Issue Type: "Component Onboarding" (RHOAIENG project)
+### Title Convention
 
-A custom Jira issue type in the RHOAIENG project with these fields:
+The ticket summary must start with the prefix `odh-onboarding:` followed by a brief description:
 
-| Field | Type | Required | Example |
-|-------|------|----------|---------|
-| Summary | Text | Yes | "Onboard odh-dashboard to ODH CI builds" |
-| Component Name | Text (custom) | Yes | `odh-dashboard-ci` |
-| Repository URL | URL (custom) | Yes | `https://github.com/opendatahub-io/odh-dashboard` |
-| Quay Repo Name | Text (custom) | Yes | `odh-dashboard` |
-| Context Path | Text (custom) | No (default: `./`) | `./` |
-| Dockerfile Path | Text (custom) | No (default: `Dockerfile`) | `Dockerfile` |
-| Branch | Text (custom) | No (default: `main`) | `main` |
-| Is Operator | Checkbox (custom) | No (default: unchecked) | unchecked |
-| Operator Manifest Src | Text (custom) | Conditional | `config/manifests` |
-| Operator Manifest Dest | Text (custom) | Conditional | `odh-dashboard` |
-| Watchers | User list | Recommended | Reviewers and stakeholders who should have ACP session access |
+```
+odh-onboarding: Onboard odh-dashboard to ODH CI builds
+```
+
+The Jira Automation Rule triggers on this prefix. Any standard issue type (Story, Task, etc.) can be used.
+
+### Description Template
+
+All onboarding inputs are provided in the Jira description body using a structured YAML block inside a code fence. The scrum team copies this template when creating the ticket:
+
+```yaml
+# ODH Component Onboarding Request
+# Fill in the fields below. Remove comments before submitting.
+
+component_name: odh-dashboard-ci
+repo_url: https://github.com/opendatahub-io/odh-dashboard
+quay_repo: odh-dashboard
+context_path: ./                    # optional, default: ./
+dockerfile_path: Dockerfile         # optional, default: Dockerfile
+branch: main                       # optional, default: main
+is_operator: false                  # true if this component is an operator
+# operator_manifest_src: config/manifests   # required if is_operator: true
+# operator_manifest_dest: odh-dashboard     # required if is_operator: true
+```
+
+**Example full ticket:**
+
+> **Summary**: `odh-onboarding: Onboard odh-dashboard to ODH CI builds`
+>
+> **Description**:
+> ```yaml
+> component_name: odh-dashboard-ci
+> repo_url: https://github.com/opendatahub-io/odh-dashboard
+> quay_repo: odh-dashboard
+> context_path: ./
+> dockerfile_path: Dockerfile
+> branch: main
+> is_operator: false
+> ```
+
+The ACP agent parses this YAML block from the description at session startup. If any required field is missing or malformed, the agent posts a comment asking for clarification and transitions the ticket to "Needs Info".
 
 ### Jira Automation Rule Configuration
 
 A project-level Jira Automation Rule in RHOAIENG:
 
 ```
-RULE: Create ACP onboarding session on ticket creation
+RULE: Trigger ODH onboarding on ticket creation
 │
 ├── TRIGGER: Issue created
 │
-├── CONDITION: Issue Type = "Component Onboarding"
-│
-├── CONDITION: Component Name (custom field) is not empty
+├── CONDITION: Summary contains "odh-onboarding:"
 │
 ├── ACTION: Send web request
 │   ├── POST  <ACP_URL>/v1/sessions
@@ -171,63 +202,83 @@ RULE: Create ACP onboarding session on ticket creation
 │         "workflow": "odh-onboarding",
 │         "environment": {
 │           "JIRA_TICKET_KEY": "{{issue.key}}",
-│           "COMPONENT_NAME": "{{issue.customfield_XXXXX}}",
-│           "REPO_URL": "{{issue.customfield_XXXXX}}",
-│           "QUAY_REPO_NAME": "{{issue.customfield_XXXXX}}",
-│           "CONTEXT_PATH": "{{issue.customfield_XXXXX}}",
-│           "DOCKERFILE_PATH": "{{issue.customfield_XXXXX}}",
-│           "BRANCH": "{{issue.customfield_XXXXX}}",
-│           "IS_OPERATOR": "{{issue.customfield_XXXXX}}",
-│           "OPERATOR_MANIFEST_SRC": "{{issue.customfield_XXXXX}}",
-│           "OPERATOR_MANIFEST_DEST": "{{issue.customfield_XXXXX}}",
-│           "WATCHERS": "{{issue.watchers}}"
+│           "JIRA_DESCRIPTION": "{{issue.description}}"
 │         },
 │         "share_with": ["{{issue.watchers}}"]
 │       }
 │
 ├── IF: Response status = 200 or 201
-│   └── ACTION: Add comment
-│       "ACP onboarding session created. Session link: {{webhookResponse.body.session_url}}"
+│   ├── ACTION: Add comment
+│   │   "ACP onboarding session created. Session link: {{webhookResponse.body.session_url}}"
+│   └── ACTION: Add label "onboarding:session-created"
 │
 └── ELSE:
     ├── ACTION: Add comment
     │   "Failed to create ACP session (HTTP {{webhookResponse.status}}). Please contact DevOps."
-    └── ACTION: Transition to "Failed"
+    └── ACTION: Add label "onboarding:session-failed"
 ```
 
-> **Note**: Replace `customfield_XXXXX` with actual Jira custom field IDs. The `share_with` parameter assumes ACP supports sharing sessions with a list of user identifiers derived from Jira watchers.
+> **Key simplification**: The rule matches on the summary prefix (`odh-onboarding:`), not on a custom issue type. It passes the raw description to the ACP session, which parses the YAML block itself. No custom field IDs need to be mapped.
 
-### Jira Workflow (Status Transitions)
+### Progress Tracking: Labels + Standard Statuses
+
+Instead of a custom Jira workflow with 14+ statuses, the approach uses **two mechanisms**:
+
+#### Standard Jira Statuses (high-level)
+
+Only 4 standard statuses are used, matching what most RHOAIENG workflows already have:
+
+| Jira Status | Meaning | When |
+|-------------|---------|------|
+| **To Do** | Ticket created, automation not yet triggered | Initial state |
+| **In Progress** | ACP session is actively working | After session starts |
+| **Needs Info** | Agent is waiting for input from the scrum team | Missing fields, question, or approval needed |
+| **Done** | All onboarding steps complete | Final state |
+
+#### Labels (granular progress)
+
+The agent adds and removes labels to track exactly which phase the onboarding is in. Labels follow the convention `onboarding:<step>-<state>`:
+
+| Label | Meaning |
+|-------|---------|
+| `onboarding:session-created` | ACP session successfully created |
+| `onboarding:inputs-validated` | All inputs parsed and validated |
+| `onboarding:quay-mr-raised` | Quay repo MR raised to app-interface |
+| `onboarding:quay-mr-merged` | Quay repo MR merged, repo verified |
+| `onboarding:konflux-mr-raised` | Konflux release-data MR raised |
+| `onboarding:konflux-mr-merged` | Konflux MR merged, component verified |
+| `onboarding:tekton-pr-raised` | Tekton + Onboarder PR raised |
+| `onboarding:tekton-pr-merged` | Tekton PR merged |
+| `onboarding:ci-build-triggered` | Onboarder workflow triggered |
+| `onboarding:ci-build-pr-merged` | Onboarder PR merged |
+| `onboarding:build-verifying` | Konflux build in progress |
+| `onboarding:build-succeeded` | Konflux build passed |
+| `onboarding:build-failed` | Konflux build failed |
+| `onboarding:bundle-pr-raised` | Bundle patch PR raised |
+| `onboarding:bundle-pr-merged` | Bundle patch PR merged |
+| `onboarding:operator-pr-raised` | Operator PR raised (if applicable) |
+| `onboarding:operator-pr-merged` | Operator PR merged |
+| `onboarding:spreadsheet-updated` | Spreadsheet updated |
+| `onboarding:complete` | All steps done |
+
+Each label addition is accompanied by an **explicit Jira comment** explaining what happened, including relevant links. This provides both machine-readable state (labels) and human-readable context (comments).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Created
-    Created --> NeedsInfo: Missing inputs detected
-    NeedsInfo --> Created: Inputs provided
-    Created --> InProgress: ACP session started
-    InProgress --> QuayMRRaised: Agent raises MR
-    QuayMRRaised --> QuayMRMerged: Reviewer merges MR
-    QuayMRMerged --> KonfluxMRRaised: Agent raises MR
-    KonfluxMRRaised --> KonfluxMRMerged: Reviewer merges MR
-    KonfluxMRMerged --> TektonPRRaised: Agent raises PR
-    TektonPRRaised --> TektonPRMerged: Reviewer merges PR
-    TektonPRMerged --> CIBuildTriggered: Agent triggers workflow
-    CIBuildTriggered --> CIBuildPRMerged: Reviewer merges onboarder PR
-    CIBuildPRMerged --> BuildVerifying: Agent monitors build
-    BuildVerifying --> BuildSucceeded: Build passes
-    BuildVerifying --> BuildFailed: Build fails
-    BuildFailed --> BuildVerifying: Agent proposes fix
-    BuildSucceeded --> BundlePRRaised: Agent raises PR
-    BundlePRRaised --> BundlePRMerged: Reviewer merges PR
-    BundlePRMerged --> OperatorPRRaised: Agent raises PR (if operator)
-    BundlePRMerged --> SpreadsheetUpdated: Agent updates sheet (if not operator)
-    OperatorPRRaised --> OperatorPRMerged: Reviewer merges PR
-    OperatorPRMerged --> SpreadsheetUpdated: Agent updates sheet
-    SpreadsheetUpdated --> Done
-    Done --> [*]
-```
+    [*] --> ToDo
+    ToDo --> InProgress: Automation fires, ACP session created
+    InProgress --> NeedsInfo: Missing inputs or awaiting approval
+    NeedsInfo --> InProgress: Inputs provided or approval given
+    InProgress --> Done: All steps complete
 
-Status transitions reflect the **current state of the onboarding process**. Unlike the previous design where status transitions serve as approval gates, this design uses **Jira comments** for all HITL coordination (PR review requests, input collection, questions). The agent transitions the ticket status to keep it accurate, and monitors comments for reviewer responses.
+    note right of InProgress
+        Granular progress tracked via labels:
+        onboarding:quay-mr-raised
+        onboarding:quay-mr-merged
+        onboarding:tekton-pr-raised
+        ... etc.
+    end note
+```
 
 ---
 
@@ -237,89 +288,83 @@ Status transitions reflect the **current state of the onboarding process**. Unli
 
 | Aspect | Detail |
 |--------|--------|
-| **Trigger** | A scrum team member creates a "Component Onboarding" ticket in the RHOAIENG Jira project with all required fields and adds relevant reviewers/stakeholders as watchers. |
-| **Jira Automation** | The automation rule fires on issue creation. It validates the issue type, sends a `POST /v1/sessions` request to the ACP API with the `workflow: "odh-onboarding"` parameter and all ticket field values as environment variables, and requests the session be shared with all issue watchers. |
-| **Session startup** | ACP creates a session running the `odh-onboarding` workflow. The session is shared with all Jira issue watchers. The automation rule posts the session link as a Jira comment. |
-| **Agent action** | Agent reads `JIRA_TICKET_KEY` from env, uses Jira MCP `getJiraIssue` to fetch all custom field values. Posts a comment: "Onboarding session started. Beginning input validation." Transitions ticket to "In Progress". |
-| **Input validation** | Agent validates all required fields. If any are missing or invalid, it posts a comment listing the missing fields with a request to provide them, transitions to "Needs Info", and polls for a response comment. When the scrum team member responds with the missing values in a comment, the agent reads them, transitions back to "Created" → "In Progress", and proceeds. |
+| **Trigger** | A scrum team member creates a ticket in RHOAIENG with summary starting with `odh-onboarding:` and pastes the description template with all inputs filled in. Adds reviewers as watchers. |
+| **Jira Automation** | The automation rule fires on the summary prefix match. It sends a `POST /v1/sessions` request to the ACP API with `workflow: "odh-onboarding"` and the full description as an environment variable. It requests the session be shared with all watchers. |
+| **Session startup** | ACP creates a session running the `odh-onboarding` workflow. The session is shared with all Jira issue watchers. The automation rule adds label `onboarding:session-created` and posts the session link as a comment. |
+| **Agent action** | Agent reads `JIRA_TICKET_KEY` and `JIRA_DESCRIPTION` from env. Parses the YAML block from the description to extract all input fields. Transitions ticket to "In Progress". Posts comment: *"Onboarding session started. Parsing inputs from description."* |
+| **Input validation** | Agent validates all required fields. If any are missing, it posts a comment listing them with a request to provide them, transitions to "Needs Info", and polls for a response comment. When the scrum team responds, the agent reads the values, transitions back to "In Progress", and adds label `onboarding:inputs-validated`. |
 
 ### Step 1: Create Quay Repository
 
 | Aspect | Detail |
 |--------|--------|
-| **Agent action** | Use GitLab MCP to raise MR to `app-interface` (`gitlab.cee.redhat.com`). Post MR link as a Jira comment with a review request: *"MR raised for Quay repo creation: [MR link]. Requesting review and merge."* Transition ticket to "Quay MR Raised". |
-| **MCP tools** | GitLab MCP, Jira MCP (`addCommentToJiraIssue`, `transitionJiraIssue`) |
-| **HITL gate** | Reviewer sees the Jira comment (notified as a watcher), reviews the MR in GitLab, merges it, and replies in the Jira comment: *"MR merged"* (or the agent detects the MR merge status via GitLab MCP polling). |
-| **Agent detection** | Agent polls MR status via GitLab MCP. On merge detection, transitions ticket to "Quay MR Merged". |
-| **Validation** | Quay MCP `get_repository` confirms repo exists. Agent posts confirmation comment. |
+| **Agent action** | Use GitLab MCP to raise MR to `app-interface` (`gitlab.cee.redhat.com`). Post MR link as a Jira comment: *"Step 1/9 — Quay repo creation: MR raised: [link]. Please review and merge."* Add label `onboarding:quay-mr-raised`. |
+| **MCP tools** | GitLab MCP, Jira MCP |
+| **HITL gate** | Reviewer sees comment (notified as watcher), reviews MR in GitLab, merges. Agent detects merge via GitLab MCP polling. |
+| **On completion** | Post comment: *"Step 1/9 — Quay repo created and verified."* Replace label `onboarding:quay-mr-raised` with `onboarding:quay-mr-merged`. |
+| **Validation** | Quay MCP `get_repository` confirms repo exists. |
 
 ### Step 2: Add to konflux-release-data
 
 | Aspect | Detail |
 |--------|--------|
-| **Agent action** | Render Konflux Component YAML. Raise MR to `konflux-release-data` (`gitlab.cee.redhat.com`). Post MR link and review request as Jira comment. Transition to "Konflux MR Raised". |
+| **Agent action** | Render Konflux Component YAML. Raise MR to `konflux-release-data`. Post comment: *"Step 2/9 — Konflux release-data: MR raised: [link]. Please review and merge."* Add label `onboarding:konflux-mr-raised`. |
 | **MCP tools** | GitLab MCP, Jira MCP |
 | **HITL gate** | Reviewer merges MR. Agent detects via GitLab MCP polling. |
-| **Agent detection** | On merge detection, transition to "Konflux MR Merged". Post confirmation comment. |
-| **Validation** | Konflux MCP confirms component registration (`oc get component`). Agent posts confirmation. |
+| **On completion** | Comment: *"Step 2/9 — Konflux component registered and verified."* Replace label with `onboarding:konflux-mr-merged`. |
+| **Validation** | Konflux MCP confirms component registration. |
 
 ### Steps 3-4: Tekton Changes + Onboarder Update
 
 | Aspect | Detail |
 |--------|--------|
-| **Agent action** | Generate pipelinerun YAMLs (on-push and pull-request). Add repo to the onboarder workflow file. Raise PR to `odh-konflux-central`. Post PR link and review request as Jira comment. Transition to "Tekton PR Raised". |
+| **Agent action** | Generate pipelinerun YAMLs. Add repo to onboarder. Raise PR to `odh-konflux-central`. Post comment: *"Steps 3-4/9 — Tekton + Onboarder: PR raised: [link]. Please review and merge."* Add label `onboarding:tekton-pr-raised`. |
 | **MCP tools** | GitHub MCP, Jira MCP |
 | **HITL gate** | Reviewer reviews and merges PR. Agent detects via GitHub MCP polling. |
-| **Agent detection** | On merge detection, transition to "Tekton PR Merged". Post confirmation comment. |
-| **Validation** | PR CI passes before merge. |
+| **On completion** | Comment: *"Steps 3-4/9 — Tekton PR merged."* Replace label with `onboarding:tekton-pr-merged`. |
 
 ### Step 5: Run CI Build Onboarding
 
 | Aspect | Detail |
 |--------|--------|
-| **Agent action** | Trigger `odh-konflux-onboarder.yml` workflow via GitHub MCP. Post workflow run link as Jira comment. Transition to "CI Build Triggered". When workflow completes and raises a PR, post the PR link as a comment requesting review. |
+| **Agent action** | Trigger `odh-konflux-onboarder.yml` workflow via GitHub MCP. Post comment: *"Step 5/9 — CI Build: Onboarder workflow triggered: [run link]."* Add label `onboarding:ci-build-triggered`. When workflow raises a PR, post PR link and request review. |
 | **MCP tools** | GitHub MCP, Jira MCP |
-| **HITL gate** | Reviewer merges the onboarder PR. Agent detects via GitHub MCP polling. |
-| **Agent detection** | On merge detection, transition to "CI Build PR Merged". Post confirmation comment. |
-| **Validation** | Workflow completes successfully. |
+| **HITL gate** | Reviewer merges the onboarder PR. Agent detects via GitHub MCP. |
+| **On completion** | Comment: *"Step 5/9 — Onboarder PR merged."* Replace label with `onboarding:ci-build-pr-merged`. |
 
 ### Step 6: Verify Konflux Build
 
 | Aspect | Detail |
 |--------|--------|
-| **Agent action** | Monitor build status via Konflux MCP. Post status updates as Jira comments. Transition to "Build Verifying". If build succeeds, transition to "Build Succeeded". If build fails, post error details and a suggested fix (using Konflux Docs MCP for diagnosis), transition to "Build Failed". |
+| **Agent action** | Monitor build status via Konflux MCP. Add label `onboarding:build-verifying`. Post periodic status comments. If build fails, post error details + suggested fix, add label `onboarding:build-failed`, transition to "Needs Info" to request approval for the fix. |
 | **MCP tools** | Konflux MCP, Konflux Docs MCP, Quay MCP, Jira MCP |
-| **HITL gate** | If a fix is needed, agent posts the proposed fix as a Jira comment and asks for approval. Reviewer replies with approval or an alternative. Agent applies fix, pushes, and re-monitors. |
-| **Validation** | Build succeeds. Image present in Quay. |
+| **HITL gate** | If fix needed: post proposed fix as comment, wait for approval. On approval, apply fix and re-monitor. |
+| **On completion** | Comment: *"Step 6/9 — Konflux build succeeded. Image verified in Quay."* Replace label with `onboarding:build-succeeded`. Transition back to "In Progress" if was in "Needs Info". |
 
 ### Step 7: Bundle Patch Changes
 
 | Aspect | Detail |
 |--------|--------|
-| **Agent action** | Get image digest from Quay MCP. Add `relatedImages` entry to `bundle-patch.yaml`. Raise PR to `ODH-Build-Config`. Post PR link and review request as Jira comment. Transition to "Bundle PR Raised". |
+| **Agent action** | Get image digest from Quay MCP. Add `relatedImages` entry. Raise PR to `ODH-Build-Config`. Post comment: *"Step 7/9 — Bundle patch: PR raised: [link]. Please review and merge."* Add label `onboarding:bundle-pr-raised`. |
 | **MCP tools** | Quay MCP, GitHub MCP, Jira MCP |
 | **HITL gate** | Reviewer reviews and merges PR. Agent detects via GitHub MCP. |
-| **Agent detection** | On merge detection, transition to "Bundle PR Merged". Post confirmation. |
-| **Validation** | PR CI passes. |
+| **On completion** | Comment: *"Step 7/9 — Bundle patch PR merged."* Replace label with `onboarding:bundle-pr-merged`. |
 
 ### Step 8: Operator Changes (conditional)
 
 | Aspect | Detail |
 |--------|--------|
-| **Agent action** | If `IS_OPERATOR = true`: edit `manifests-config.yaml` in `opendatahub-operator`, raise PR, post link and review request as Jira comment, transition to "Operator PR Raised". If not operator: skip to Step 9. |
+| **Agent action** | If `is_operator = true`: edit `manifests-config.yaml`, raise PR, post comment: *"Step 8/9 — Operator config: PR raised: [link]."* Add label `onboarding:operator-pr-raised`. If not operator: post comment *"Step 8/9 — Skipped (not an operator component)."* |
 | **MCP tools** | GitHub MCP, Jira MCP |
-| **HITL gate** | Reviewer merges PR. Agent detects via GitHub MCP. |
-| **Agent detection** | On merge detection, transition to "Operator PR Merged". Post confirmation. |
-| **Validation** | PR CI passes. |
+| **HITL gate** | Reviewer merges PR. |
+| **On completion** | Comment + replace label with `onboarding:operator-pr-merged`. |
 
 ### Step 9: Update Spreadsheet
 
 | Aspect | Detail |
 |--------|--------|
-| **Agent action** | Update ODH Component Images Google Sheet via Google Sheets MCP. Post confirmation comment. Transition ticket to "Done". |
+| **Agent action** | Update ODH Component Images spreadsheet via Google Sheets MCP. Post comment: *"Step 9/9 — Spreadsheet updated. Onboarding complete!"* Add label `onboarding:spreadsheet-updated` and `onboarding:complete`. Transition ticket to "Done". |
 | **MCP tools** | Google Sheets MCP, Jira MCP |
-| **HITL gate** | None (final step). |
-| **Validation** | Spreadsheet row present with correct values. |
 
 ---
 
@@ -333,47 +378,50 @@ sequenceDiagram
     participant ACP as ACP Session
     participant Ext as External Systems
 
-    Team->>Jira: Create onboarding ticket
-    Team->>Jira: Add reviewers as watchers
-    Jira->>Auto: Automation rule fires
+    Team->>Jira: Create ticket (odh-onboarding: ...)
+    Team->>Jira: Paste description template + add watchers
+    Jira->>Auto: Summary prefix match fires rule
     Auto->>ACP: POST /v1/sessions (workflow=odh-onboarding)
-    ACP-->>Jira: Session shared with watchers
+    Auto->>Jira: Label: onboarding:session-created
     Auto->>Jira: Comment: session link
+    ACP-->>Jira: Session shared with watchers
 
-    ACP->>Jira: Read ticket fields
-    ACP->>Jira: Transition: "In Progress"
+    ACP->>Jira: Parse description, validate inputs
+    ACP->>Jira: Transition: In Progress
+    ACP->>Jira: Label: onboarding:inputs-validated
 
     alt Missing inputs
         ACP->>Jira: Comment: "Missing fields: X, Y. Please provide."
-        ACP->>Jira: Transition: "Needs Info"
+        ACP->>Jira: Transition: Needs Info
         Team->>Jira: Comment: provides missing values
         ACP->>Jira: Reads comment, resumes
-        ACP->>Jira: Transition: "In Progress"
+        ACP->>Jira: Transition: In Progress
     end
 
-    loop Each onboarding phase
+    loop Each onboarding step
         ACP->>Ext: Raise MR/PR
-        ACP->>Jira: Comment: "MR/PR raised: [link]. Please review and merge."
-        ACP->>Jira: Transition: "Phase X Raised"
+        ACP->>Jira: Comment: "Step N/9 — MR/PR raised: [link]"
+        ACP->>Jira: Label: onboarding:step-raised
         Team->>Ext: Review and merge MR/PR
         ACP->>Ext: Poll detects merge
-        ACP->>Jira: Comment: "MR/PR merged. Validated. Proceeding to next step."
-        ACP->>Jira: Transition: "Phase X Merged"
+        ACP->>Jira: Comment: "Step N/9 — Merged and validated."
+        ACP->>Jira: Label: onboarding:step-merged
     end
 
-    ACP->>Jira: Transition: "Done"
+    ACP->>Jira: Label: onboarding:complete
+    ACP->>Jira: Transition: Done
     ACP->>Jira: Comment: "Onboarding complete!"
 ```
 
 ### Key Characteristics
 
-- **Jira comments as the HITL channel**: All coordination happens through Jira comments -- PR review requests, missing-input collection, questions, fix approvals, and status updates. Watchers are notified automatically on every comment.
-- **Status reflects reality**: The agent transitions status to accurately reflect the current phase. Statuses are informational, not approval gates.
-- **MR/PR merge detection via MCP polling**: The agent detects when MRs/PRs are merged by polling GitLab MCP and GitHub MCP, rather than waiting for a human to transition the Jira status. This removes friction for reviewers.
-- **Missing-input collection**: If inputs are incomplete, the agent transitions to "Needs Info" and posts a specific question as a Jira comment. The scrum team responds in a comment. The agent reads the response and resumes.
-- **Session shared with watchers**: All Jira issue watchers get access to the ACP session for full visibility into the agent's actions.
-- **Asynchronous**: The agent runs in ACP and polls for MR/PR merges and Jira comment responses. Reviewers act on their own schedule.
-- **Full audit trail**: Every action, question, response, and artifact link is recorded as a Jira comment.
+- **No custom Jira configuration**: Uses a standard issue type with a title prefix convention. No custom fields, no custom workflow. Any RHOAIENG team member can create a ticket.
+- **Description-based inputs**: All parameters are in a YAML block in the description. Easy to copy-paste from a template. The agent parses them at runtime.
+- **Labels for granular tracking**: `onboarding:*` labels provide machine-readable progress without requiring custom statuses. Labels can be used in JQL queries and Jira board filters (e.g., `labels = "onboarding:build-verifying"`).
+- **Standard statuses for high-level state**: Only To Do → In Progress → Needs Info → Done. Compatible with any existing RHOAIENG workflow.
+- **Comments for context**: Every label change is accompanied by an explicit comment with links and explanations. Comments are the primary HITL channel.
+- **Asynchronous**: The agent runs in ACP and polls for MR/PR merges and Jira comment responses.
+- **Full audit trail**: Labels + comments provide a complete history.
 
 ---
 
@@ -381,45 +429,48 @@ sequenceDiagram
 
 | Failure Scenario | Detection | Recovery |
 |-----------------|-----------|----------|
-| Missing Jira fields | Agent reads ticket, finds nulls | Agent posts comment listing missing fields with specific questions. Transitions to "Needs Info". Scrum team responds in a comment. Agent reads response and resumes. |
-| Jira Automation Rule fails | Automation audit log shows failure | Automation rule has built-in retry. If all retries fail, the rule posts a failure comment on the ticket. Manual re-trigger by transitioning the ticket back to "Created". |
-| ACP session fails to create | `POST /v1/sessions` returns non-2xx | Automation rule posts the error as a Jira comment. DevOps team investigates. Retry by re-triggering the automation rule (e.g., clone the ticket or manually call the API). |
-| ACP session cannot reach internal network | MCP tool calls to GitLab/Konflux fail | Agent posts error as Jira comment: "Cannot reach gitlab.cee.redhat.com. Please verify ACP network configuration." Transitions to "Blocked". |
-| MR/PR CI fails | Agent polls CI status via GitLab/GitHub MCP | Agent posts failure logs as Jira comment. Proposes fix. Asks for approval in a comment. Pushes amended commit after approval. |
-| Konflux build fails | Build status polling via Konflux MCP | Agent posts error + suggested fix (from Konflux Docs MCP) as Jira comment. Transitions to "Build Failed". After fix is applied, transitions back to "Build Verifying". |
-| Agent loses track of state | Session restart | Agent reads ticket status and comment history from Jira to determine the current phase. Resumes from the correct step. Jira ticket is the single source of truth. |
-| Reviewer does not act | MR/PR stays open, no merge detected | Agent posts reminder comments after a configurable delay (e.g., 24 hours). Can mention specific watchers. |
-| MCP server unavailable | Tool call error | Agent falls back to direct API calls via shell `curl` where possible. Posts fallback notice as Jira comment. |
+| Description missing YAML block | Agent parses description, finds no YAML | Agent posts comment: *"No onboarding config found in description. Please add the YAML template."* Transition to "Needs Info". |
+| Required fields missing in YAML | Agent validates parsed values | Agent posts comment listing missing fields. Transition to "Needs Info". Scrum team responds in a comment. Agent reads response and resumes. |
+| Jira Automation Rule fails | Automation audit log shows failure | Built-in retry. If all retries fail, rule posts failure comment. Manual re-trigger by editing and re-saving the ticket summary. |
+| ACP session fails to create | `POST /v1/sessions` returns non-2xx | Automation rule posts error as comment and adds label `onboarding:session-failed`. DevOps investigates. |
+| ACP session cannot reach internal network | MCP tool calls to GitLab/Konflux fail | Agent posts error comment. Adds label `onboarding:blocked`. |
+| MR/PR CI fails | Agent polls CI status | Agent posts failure logs as comment. Proposes fix. Transition to "Needs Info" for approval. |
+| Konflux build fails | Build status polling | Agent posts error + suggested fix as comment. Adds label `onboarding:build-failed`. Transition to "Needs Info". After fix, back to "In Progress". |
+| Agent loses track of state | Session restart | Agent reads ticket labels and comment history to determine current phase. Labels are the machine-readable source of truth. Resumes from last completed step. |
+| Reviewer does not act | MR/PR stays open, no merge detected | Agent posts reminder comments after configurable delay (e.g., 24 hours). |
+| MCP server unavailable | Tool call error | Agent falls back to direct API calls via shell `curl`. Posts fallback notice as comment. |
 
 ---
 
 ## Pros
 
-- **Jira-native experience** -- scrum teams create tickets in RHOAIENG, a project they already use. No new tools or interfaces to learn for initiating onboarding.
-- **Comment-based HITL** -- all coordination (PR reviews, questions, missing inputs) happens in Jira comments. Watchers are automatically notified. No need for reviewers to learn Jira status transitions as an approval mechanism.
-- **Full audit trail** -- every action, question, response, and artifact link is recorded as a Jira comment with timestamps.
-- **Broad visibility** -- managers, stakeholders, and scrum team members who don't use ACP can track onboarding progress in Jira.
-- **Session sharing** -- all Jira watchers get access to the ACP session for deep inspection when needed.
-- **Asynchronous by design** -- the agent and reviewers operate on different schedules. No requirement for simultaneous presence.
-- **Single source of truth for state** -- the Jira ticket status + comment history is the canonical record. If the ACP session restarts, it reads the ticket to resume.
-- **Scalable tracking** -- multiple onboarding tickets can be tracked independently on a Jira board.
-- **No GitHub Actions dependency** -- the Jira Automation Rule calls ACP directly, removing the GitHub Actions intermediary layer.
-- **Dedicated ACP workflow** -- a purpose-built `odh-onboarding` workflow encapsulates all pipeline logic, making it versionable, testable, and reusable.
+- **Zero Jira admin overhead** -- no custom issue types, no custom fields, no custom workflows. Uses standard Stories/Tasks with a title prefix and description template.
+- **Easy to adopt** -- any team member who can create a Jira ticket can trigger onboarding. Just copy-paste the description template.
+- **Label-based tracking avoids status explosion** -- 4 standard statuses instead of 14+. Granular progress is captured in labels, which are queryable via JQL without requiring workflow changes.
+- **Jira-native experience** -- scrum teams create tickets in RHOAIENG, a project they already use.
+- **Full audit trail** -- labels + comments provide complete history with timestamps and links.
+- **Broad visibility** -- anyone with Jira access can track progress by looking at labels and comments.
+- **Session sharing** -- all Jira watchers get access to the ACP session.
+- **Asynchronous by design** -- no requirement for simultaneous presence.
+- **Resumable** -- labels serve as machine-readable state. If ACP session restarts, it reads labels and comments to determine where to resume.
+- **JQL-queryable progress** -- `labels in ("onboarding:build-verifying")` finds all tickets currently waiting on builds. Useful for dashboards.
+- **No GitHub Actions dependency** -- Jira Automation Rule calls ACP directly.
+- **Dedicated ACP workflow** -- purpose-built, versionable, testable.
 
 ---
 
 ## Cons
 
-- **ACP API requirements** -- the `POST /v1/sessions` API must support the `workflow` parameter and session sharing. These may not be available today and require ACP team coordination.
-- **Red Hat internal network access** -- ACP sessions and MCP servers must reach `gitlab.cee.redhat.com`, Konflux APIs, etc. Network policy changes may be needed.
-- **Missing MCP servers** -- Konflux MCP, Konflux Docs MCP, and Google Sheets MCP need to be built. GitLab MCP and GitHub MCP need to be configured/enabled in the ACP workspace.
-- **Jira configuration overhead** -- creating custom issue types, fields, and workflows in RHOAIENG requires coordination with Jira admins.
-- **Status explosion** -- the Jira workflow has many statuses (14+). This can feel heavyweight for a process that happens a few times per quarter.
-- **Polling latency** -- the agent polls for MR/PR merges and comment responses. There is an inherent delay between a reviewer action and the agent detecting it.
-- **Not interactive** -- unlike the Cursor Skill or Manual Ambient approaches, the scrum team cannot have a real-time conversation with the agent. Communication is through Jira comments (asynchronous, less fluid).
-- **Jira Automation security** -- the ACP API token is stored in the Jira Automation Rule configuration. This is less secure than a secrets manager. A relay endpoint can mitigate this.
+- **ACP API requirements** -- the `POST /v1/sessions` API must support the `workflow` parameter and session sharing. These may not be available today.
+- **Red Hat internal network access** -- ACP sessions and MCP servers must reach `gitlab.cee.redhat.com`, Konflux APIs, etc.
+- **Missing MCP servers** -- Konflux MCP, Konflux Docs MCP, and Google Sheets MCP need to be built. GitLab MCP and GitHub MCP need to be configured in ACP.
+- **Description parsing fragility** -- the agent must parse a YAML block from a free-text Jira description. Users may format it incorrectly (wrong indentation, missing code fence, extra text). The agent must handle these gracefully.
+- **No input validation at creation time** -- unlike custom fields (which enforce types and required-ness), the description template relies on the user to fill it correctly. Validation happens at runtime, not at ticket creation.
+- **Polling latency** -- inherent delay between a reviewer action and the agent detecting it.
+- **Not interactive** -- communication is through async Jira comments, not a real-time conversation.
+- **Jira Automation security** -- the ACP API token is stored in the rule configuration.
 - **Dual-platform dependency** -- depends on both Jira and ACP being operational.
-- **Debugging distance** -- if something goes wrong in the ACP session, the team member must leave Jira and inspect the ACP session. Jira comments provide a summary but not full diagnostic detail (though session sharing helps).
+- **Debugging distance** -- if something goes wrong in ACP, the team member must leave Jira and inspect the session.
 
 ---
 
@@ -427,10 +478,10 @@ sequenceDiagram
 
 | Work Item | Effort |
 |-----------|--------|
-| Configure Jira (RHOAIENG): custom issue type, fields, workflow | 2-3 days |
-| Create Jira Automation Rule (trigger + ACP API call) | 1 day |
-| Develop dedicated `odh-onboarding` ACP workflow | 4-5 days |
-| Build Jira-aware agent logic (comment-based HITL, input collection, status management) | 3-4 days |
+| Create description template + team documentation | 0.5 day |
+| Create Jira Automation Rule (summary prefix trigger + ACP API call) | 1 day |
+| Develop dedicated `odh-onboarding` ACP workflow (including YAML description parser) | 4-5 days |
+| Build Jira-aware agent logic (comment-based HITL, label management, input parsing) | 3-4 days |
 | Configure ACP workspace with all MCP servers | 2-3 days |
 | Enable ACP internal network access (coordinate with ACP team) | 1-2 days |
 | Confirm/implement `workflow` parameter in ACP `POST /v1/sessions` API | 1-2 days (coordination) |
@@ -438,15 +489,17 @@ sequenceDiagram
 | Build / source missing MCP servers (Konflux, Konflux Docs, Google Sheets) | 3-5 days each |
 | Enable GitLab MCP and GitHub MCP in ACP workspace | 1-2 days |
 | End-to-end testing with a real component | 3-4 days |
-| Documentation and team onboarding | 1-2 days |
-| **Total** | **~5-7 weeks** |
+| Documentation and team onboarding | 1 day |
+| **Total** | **~4-6 weeks** |
+
+> **Reduced from 5-7 weeks** in the previous version because Jira configuration (custom issue type, custom fields, custom workflow) is eliminated entirely.
 
 ### Critical Path Items (ACP Team Dependencies)
 
 | Item | Dependency | Impact if Blocked |
 |------|-----------|-------------------|
-| `workflow` parameter in `POST /v1/sessions` | ACP team must implement or confirm availability | **Blocker** -- cannot create sessions from Jira Automation without this |
-| Red Hat internal network access from ACP | ACP team / network team | **Blocker** -- GitLab MCP and Konflux MCP cannot function without internal network |
-| Session sharing API | ACP team | **Degraded** -- watchers would need manual session link sharing |
-| GitLab MCP in ACP | ACP team must enable | **Blocker** -- cannot raise MRs to internal GitLab repos |
-| GitHub MCP in ACP | ACP team must enable | **Blocker** -- cannot raise PRs or trigger workflows |
+| `workflow` parameter in `POST /v1/sessions` | ACP team must implement or confirm | **Blocker** |
+| Red Hat internal network access from ACP | ACP team / network team | **Blocker** |
+| Session sharing API | ACP team | **Degraded** -- manual link sharing |
+| GitLab MCP in ACP | ACP team must enable | **Blocker** |
+| GitHub MCP in ACP | ACP team must enable | **Blocker** |
