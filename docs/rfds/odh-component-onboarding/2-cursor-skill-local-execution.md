@@ -108,13 +108,13 @@ flowchart LR
 
 | MCP Server | Status | Required Network | Fallback if unavailable |
 |-----------|--------|-----------------|------------------------|
-| **Jira MCP** | Available (`user-Jira`, 20+ tools) | VPN / SSO | Direct Jira REST API via `curl` |
+| **Jira MCP** | Available (`user-Jira`, 20+ tools) | VPN / SSO | **Preferred for writes**: `jira_comment.sh` / `jira_transition.sh` / `jira_update_field.py` (see Script-Based Write Utilities). MCP used for reads; scripts preferred for writes. |
 | **GitLab MCP** | Available (`user-GitLab`) -- needs config | **VPN required** | `glab` CLI via Shell tool |
 | **Quay MCP** | Available (`user-quay`) -- 70+ tools | Public | Direct Quay API calls via Shell |
 | **GitHub MCP** | Not configured as MCP; use `gh` CLI | Public | `gh` CLI via Shell tool (fully functional) |
 | **Konflux MCP** | **Needs to be built** | **VPN required** | `oc` CLI commands via Shell tool |
 | **Konflux Docs MCP** | **Needs to be built** | Public or internal | Web search or embedded docs in skill |
-| **Google Sheets MCP** | **Needs to be built** | Public (Google APIs) | Manual update (prompt user) |
+| **Google Sheets MCP** | **Needs to be built** | Public (Google APIs) | **Preferred**: `sheets_update.py` script (see Script-Based Write Utilities). Manual update as last resort. |
 
 ### Software Tools
 
@@ -122,6 +122,25 @@ flowchart LR
 - `glab` CLI (GitLab CLI) -- installed and authenticated (or use GitLab MCP)
 - `oc` CLI (OpenShift) -- for Konflux component verification (requires VPN)
 - `kustomize` -- for running `build-single.sh`
+
+### Script-Based Write Utilities (Preferred for Jira & Google Sheets)
+
+For **write operations** to Jira and Google Sheets, the preferred approach is to use **lightweight Python/bash helper scripts** invoked by the agent via the Shell tool, rather than relying on MCP servers. MCP servers remain a valid alternative but introduce additional setup burden and dependency; scripts are self-contained, version-controlled alongside the skill, and easier for engineers to debug and extend.
+
+| Script | Purpose | Invocation |
+|--------|---------|------------|
+| `jira_comment.sh` | Post a comment to a Jira ticket | `bash jira_comment.sh RHOAIENG-1234 "Step 1 complete. MR: <link>"` |
+| `jira_transition.sh` | Transition a Jira ticket to a new status | `bash jira_transition.sh RHOAIENG-1234 "In Progress"` |
+| `jira_update_field.py` | Update custom fields on a Jira ticket | `python jira_update_field.py RHOAIENG-1234 --field component_name --value odh-dashboard-ci` |
+| `sheets_update.py` | Append/update a row in the ODH Component Images spreadsheet | `python sheets_update.py --component odh-dashboard-ci --quay-repo odh-dashboard --status complete` |
+
+**Implementation notes:**
+
+- **Jira scripts** use the Jira REST API (`https://issues.redhat.com/rest/api/2/`) with a Personal Access Token stored in the `JIRA_API_TOKEN` environment variable. Bash scripts use `curl`; the Python script uses the `jira` library for complex field updates.
+- **Google Sheets script** uses the `gspread` Python library with a Google Service Account JSON key (path in `GOOGLE_SA_KEY_PATH` env var) or OAuth credentials. It can also fall back to `curl` calls against the Google Sheets API v4.
+- All scripts are stored in the skill directory (`~/.cursor/skills/odh-onboarding/scripts/`) and are version-controlled.
+- The agent invokes these scripts via the Shell tool, passing arguments derived from the onboarding context.
+- **Alternative**: If Jira MCP or Google Sheets MCP are configured and available, the agent may use those instead. The skill instructions should prefer scripts but allow MCP as a fallback.
 
 ---
 
@@ -173,7 +192,7 @@ The engineer invokes the skill by referencing the Jira ticket key:
 Onboard component from RHOAIENG-1234
 ```
 
-The agent reads the skill instructions, then uses Jira MCP to fetch the ticket fields. If any required field is missing or ambiguous, the agent asks the engineer interactively in the Cursor chat and **writes the collected value back to the Jira ticket** (via Jira MCP `updateJiraIssue` or `addCommentToJiraIssue`) to keep all sources synchronized.
+The agent reads the skill instructions, then uses Jira MCP to fetch the ticket fields. If any required field is missing or ambiguous, the agent asks the engineer interactively in the Cursor chat and **writes the collected value back to the Jira ticket** (preferred: `jira_update_field.py` via Shell tool; alternative: Jira MCP `updateJiraIssue`) to keep all sources synchronized.
 
 ### YAML Configuration File (alternative)
 
@@ -255,12 +274,15 @@ Step 4: Tekton + Onboarder changes
 
 | Aspect | Detail |
 |--------|--------|
-| **Agent action** | Read the skill instructions. Use Jira MCP `getJiraIssue` to fetch all fields from the RHOAIENG ticket. Validate that all required fields are present and correctly formatted. If any are missing, ask the engineer interactively in the Cursor chat, then write the values back to the Jira ticket via Jira MCP. |
-| **MCP tools** | Jira MCP (`getJiraIssue`, `updateJiraIssue`) |
+| **Agent action** | Read the skill instructions. Use Jira MCP `getJiraIssue` to fetch all fields from the RHOAIENG ticket. Validate that all required fields are present and correctly formatted. If any are missing, ask the engineer interactively in the Cursor chat, then write the values back to the Jira ticket. |
+| **MCP tools** | Jira MCP (`getJiraIssue`) for **reading** ticket fields. |
+| **Jira writes** | **Preferred**: `jira_update_field.py` to write back missing values; `jira_comment.sh` to post session-started comment; `jira_transition.sh` to move ticket to "In Progress". **Alternative**: Jira MCP (`updateJiraIssue`, `addCommentToJiraIssue`). |
 | **HITL gate** | Engineer confirms the collected/parsed inputs before proceeding. |
 | **Jira update** | Post a comment: *"Onboarding session started by [engineer]. Inputs validated. Beginning with Quay repo creation."* Transition ticket to "In Progress". |
 | **status.md** | Create `status.md` with the full plan, inputs, and Step 0 marked complete. |
 | **Validation** | Verify repo URL is accessible. Verify component name follows naming conventions (no POC or version identifiers). |
+
+> **Note — Jira write pattern for all steps**: Every subsequent step posts Jira comments and transitions ticket status. Unless otherwise noted, the preferred method is the **script-based approach** (`jira_comment.sh` and `jira_transition.sh` via Shell tool), with **Jira MCP** as the alternative. The "Jira update" row in each step describes *what* is written; the *how* follows this pattern throughout.
 
 ### Step 1: Create Quay Repository
 
@@ -496,11 +518,11 @@ status: {}
 | Aspect | Detail |
 |--------|--------|
 | **Agent action** | Update the [ODH Component Images spreadsheet](https://docs.google.com/spreadsheets/d/1L9DLtULjhoTGmkOVnjXKJAihIDu2eDrvemYsqArth9c/edit?gid=0#gid=0) with the new component details. |
-| **MCP tools** | Google Sheets MCP (if available), Jira MCP |
-| **HITL gate** | If Google Sheets MCP is unavailable, the agent provides the data in a formatted table in both Jira comment and Cursor chat and asks the user to paste it manually. |
-| **Jira update** | Comment confirming spreadsheet update. Transition ticket to "Done". |
+| **Sheets write** | **Preferred**: `sheets_update.py` via Shell tool — appends a row with component name, Quay repo, image digest, onboarding date, and Jira ticket key. Uses `gspread` + Google Service Account credentials. **Alternative**: Google Sheets MCP (if available). |
+| **Fallback** | If neither script nor MCP can authenticate, the agent provides the data in a formatted table in both Jira comment and Cursor chat and asks the user to paste it manually. |
+| **Jira update** | Comment confirming spreadsheet update. Transition ticket to "Done". (Via `jira_comment.sh` / `jira_transition.sh`; alternative: Jira MCP.) |
 | **status.md** | Mark step complete. Mark overall onboarding as "Done". |
-| **Validation** | Verify the row was added (if MCP available). |
+| **Validation** | Verify the row was added by reading the sheet back (via `sheets_update.py --verify` or Google Sheets MCP read). |
 
 ---
 
@@ -579,6 +601,63 @@ sequenceDiagram
 
 ---
 
+## Modular Skill Architecture (Future Enhancement)
+
+While this document describes the onboarding workflow as a **single monolithic skill**, the pipeline naturally decomposes into independent steps that could each be developed and maintained as a **separate Cursor Agent Skill**. This section outlines how such a modular architecture would work at a high level.
+
+### Concept
+
+Each of the 10 steps (Step 0 – Step 9) becomes its own skill with its own `SKILL.md`, templates, and helper scripts. A thin **orchestrator skill** chains them together, passing context via `status.md` and the Jira ticket.
+
+```
+~/.cursor/skills/odh-onboarding/
+├── SKILL.md                      # Orchestrator — reads status.md, invokes step skills in order
+├── status.md                     # Shared state (unchanged from current design)
+├── scripts/                      # Shared helper scripts (jira_comment.sh, sheets_update.py, etc.)
+├── step-0-validate-inputs/
+│   └── SKILL.md
+├── step-1-create-quay-repo/
+│   └── SKILL.md
+├── step-2-konflux-release-data/
+│   └── SKILL.md
+├── step-3-tekton-pipelineruns/
+│   ├── SKILL.md
+│   └── templates/
+├── step-4-update-onboarder/
+│   └── SKILL.md
+├── step-5-run-ci-build/
+│   └── SKILL.md
+├── step-6-verify-build/
+│   └── SKILL.md
+├── step-7-bundle-patch/
+│   ├── SKILL.md
+│   └── templates/
+├── step-8-operator-config/
+│   ├── SKILL.md
+│   └── templates/
+└── step-9-update-spreadsheet/
+    └── SKILL.md
+```
+
+### Benefits of Modular Skills
+
+- **Independent development and testing** — each step can be built, tested, and iterated on separately without touching other steps.
+- **Standalone invocation** — an engineer can invoke a single step skill directly (e.g., `Run step-7-bundle-patch for RHOAIENG-1234`) for re-runs or one-off tasks.
+- **Easier maintenance** — when a step's process changes (e.g., Konflux API changes), only that step's skill needs updating.
+- **Parallel development** — different team members can work on different step skills simultaneously.
+- **Composability** — step skills can be reused in other workflows beyond onboarding.
+
+### Trade-offs
+
+- **Added complexity** — managing 10+ skill directories vs. one monolithic file; the orchestrator must handle inter-step context passing correctly.
+- **Not required for Phase 1** — the monolithic skill described in this document is sufficient for initial delivery. Modular decomposition is a natural evolution once the workflow stabilizes.
+
+### Recommendation
+
+Start with the **monolithic skill** as described in this document. After 3–5 successful onboardings, identify which steps change most frequently or are most useful standalone, and extract those into separate skills first. The `status.md` contract and script-based utilities already provide the clean boundaries needed for future decomposition.
+
+---
+
 ## Pros
 
 - **Lowest infrastructure footprint** -- no additional CI/CD pipelines, servers, or platforms needed beyond Cursor + MCP configuration + VPN.
@@ -612,12 +691,13 @@ sequenceDiagram
 |-----------|--------|
 | Write SKILL.md with full workflow instructions (Jira integration, dual-channel HITL, `status.md` logic) | 3-4 days |
 | Create parameterized YAML templates | 1 day |
+| Write script-based write utilities (`jira_comment.sh`, `jira_transition.sh`, `jira_update_field.py`, `sheets_update.py`) | 1-2 days |
 | Write MCP Server Setup Documentation (`mcp-setup-guide.md`) | 2-3 days |
-| Build / source missing MCP servers (Konflux, Konflux Docs, Google Sheets) | 3-5 days each |
+| Build / source missing MCP servers (Konflux, Konflux Docs; Google Sheets MCP optional if using `sheets_update.py`) | 3-5 days each |
 | Configure and test all MCP integrations in Cursor | 2-3 days |
 | Configure RHOAIENG Jira project (custom issue type, fields, workflow) | 2-3 days |
 | End-to-end testing with a real component | 2-3 days |
 | Team onboarding (walk-through + MCP setup support) | 1-2 days |
 | **Total** | **~3-4 weeks** |
 
-If missing MCP servers are replaced with CLI fallbacks, the timeline drops to approximately **2 weeks** (excluding the Jira configuration, which is shared across approaches).
+If missing MCP servers are replaced with CLI fallbacks and script-based utilities (recommended for Jira writes and Google Sheets), the timeline drops to approximately **2 weeks** (excluding the Jira configuration, which is shared across approaches).
