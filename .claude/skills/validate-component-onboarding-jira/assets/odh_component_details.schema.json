@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ODH Component Details",
+  "description": "Input parameters for onboarding an ODH component onto the Konflux CI/build platform",
+  "type": "object",
+  "required": ["inputs"],
+  "additionalProperties": false,
+  "properties": {
+    "inputs": {
+      "type": "object",
+      "required": [
+        "component_name",
+        "repo_url",
+        "repo_branch",
+        "context_path",
+        "dockerfile_path",
+        "is_operator"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "component_name": {
+          "type": "string",
+          "description": "Unique kebab-case name for the ODH component",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "minLength": 1
+        },
+        "repo_url": {
+          "type": "string",
+          "description": "Full HTTPS URL of the component's GitHub repository",
+          "format": "uri",
+          "pattern": "^https://github\\.com/.+/.+$"
+        },
+        "repo_branch": {
+          "type": "string",
+          "description": "Branch to build from",
+          "minLength": 1
+        },
+        "context_path": {
+          "type": "string",
+          "description": "Docker build context path relative to the repo root (use ./ for root)",
+          "minLength": 1
+        },
+        "dockerfile_path": {
+          "type": "string",
+          "description": "Path to the Dockerfile relative to the context path",
+          "minLength": 1
+        },
+        "is_operator": {
+          "type": "boolean",
+          "description": "Whether the component is an operator or controller; controls whether operator manifest paths are required"
+        },
+        "operator_manifest_src_path": {
+          "type": "string",
+          "description": "Path to component manifests within the repo (required when is_operator is true)",
+          "minLength": 1
+        },
+        "operator_manifest_dest_path": {
+          "type": "string",
+          "description": "Destination path in the odh-operator container image where manifests are copied (required when is_operator is true)",
+          "minLength": 1
+        }
+      },
+      "if": {
+        "properties": {
+          "is_operator": { "const": true }
+        }
+      },
+      "then": {
+        "required": ["operator_manifest_src_path", "operator_manifest_dest_path"]
+      }
+    }
+  }
+}
