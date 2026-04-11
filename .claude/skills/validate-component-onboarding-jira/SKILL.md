@@ -37,6 +37,7 @@ The user may also say "validate RHOAIENG-1234" or paste the URL. If only a key i
 ## Implementation
 
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
+COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts` (i.e., the `common/scripts` directory next to this skill).
 
 ## Step 0: Check prerequisites
 
@@ -75,8 +76,23 @@ Run from inside the working directory so the output file lands there:
 ```
 
 On success: `<issue_id>/odh_component_details.json` is created.
-On failure (exit code 1): display the script's stderr and stop:
-`"ERROR in Step 1 (Fetch Jira Details): <message>. Aborting."`
+On failure (exit code 1): display the script's stderr, then attempt a best-effort Jira update (it may also fail if credentials are the root cause — suppress any error from the update call), then stop:
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+  --add-label "validation-failed" \
+  --remove-label "validation-successful" \
+  --comment "Validation failed at Step 1 (Fetch Jira Details).
+
+Could not fetch issue details. This is typically caused by:
+- An invalid or expired JIRA_API_TOKEN
+- An incorrect issue key
+- A network or permissions issue
+
+Please check your credentials and issue key, then re-run /validate-component-onboarding-jira." 2>/dev/null || true
+```
+
+Then stop with: `"ERROR in Step 1 (Fetch Jira Details): <message>. Aborting."`
 
 ### Step 4: Download YAML attachment
 
@@ -87,8 +103,20 @@ Run from inside the working directory:
 ```
 
 On success: `<issue_id>/odh_component_details.yaml` is created.
-On failure (exit code 1): display stderr and stop:
-`"ERROR in Step 2 (Download Attachment): <message>. Aborting."`
+On failure (exit code 1): display stderr, update the Jira issue, then stop:
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+  --add-label "validation-failed" \
+  --remove-label "validation-successful" \
+  --comment "Validation failed at Step 2 (Download Attachment).
+
+The required attachment 'odh_component_details.yaml' was not found on this issue.
+
+Please attach a valid 'odh_component_details.yaml' file to this ticket and re-run /validate-component-onboarding-jira."
+```
+
+Then stop with: `"ERROR in Step 2 (Download Attachment): <message>. Aborting."`
 
 ### Step 5: Validate YAML against schema
 
@@ -98,11 +126,45 @@ uv run --script <SKILL_DIR>/scripts/validate_yaml_schema.py \
   <SKILL_DIR>/assets/odh_component_details.schema.json
 ```
 
-On success (exit code 0): print "Validation passed."
-On failure (exit code 1): display all errors from stderr and stop:
-`"ERROR in Step 3 (Schema Validation): The YAML failed validation. See errors above. Aborting."`
+On success (exit code 0): print "Validation passed." and continue to Step 6.
+On failure (exit code 1): capture all stderr output as `<validation_errors>`, display them, update the Jira issue with the specific errors, then stop:
 
-### Step 6: Report success
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+  --add-label "validation-failed" \
+  --remove-label "validation-successful" \
+  --comment "Validation failed at Step 3 (Schema Validation).
+
+The 'odh_component_details.yaml' attachment did not pass schema validation.
+
+Errors found:
+<validation_errors>
+
+Please fix the YAML, re-upload it as an attachment to this ticket, and re-run /validate-component-onboarding-jira."
+```
+
+Then stop with: `"ERROR in Step 3 (Schema Validation): The YAML failed validation. See errors above. Aborting."`
+
+### Step 6: Update Jira on success and report
+
+Update the Jira issue to reflect successful validation, then print the completion summary.
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+  --add-label "validation-successful" \
+  --remove-label "validation-failed" \
+  --comment "Validation passed for <issue_id>.
+
+All pre-flight checks completed successfully:
+- Jira issue details fetched
+- odh_component_details.yaml attachment downloaded
+- Schema validation passed
+
+This ticket is ready for onboarding automation. Moving to In Progress." \
+  --status "In-Progress"
+```
+
+Then print:
 
 ```
 Validation complete for <issue_id>.
@@ -110,6 +172,7 @@ Validation complete for <issue_id>.
   odh_component_details.json  — Jira issue details saved
   odh_component_details.yaml  — Attachment downloaded
   Schema validation            — PASSED
+  Jira issue updated           — label: validation-successful, status: In-Progress
 
 The Jira ticket is valid and ready for onboarding automation.
 Output files are in: ./<issue_id>/

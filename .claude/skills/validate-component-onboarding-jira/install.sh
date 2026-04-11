@@ -77,8 +77,10 @@ else
 fi
 
 # ── Step 2: Copy skill files ───────────────────────────────────────────────────
+COMMON_SCRIPTS_SRC="${SCRIPT_DIR}/../common/scripts"
+
 info "Creating skill directory..."
-mkdir -p "${TARGET_DIR}/scripts" "${TARGET_DIR}/assets"
+mkdir -p "${TARGET_DIR}/scripts" "${TARGET_DIR}/assets" "${TARGET_DIR}/../common/scripts"
 success "Directory ready: ${TARGET_DIR}"
 
 info "Copying skill files..."
@@ -88,12 +90,25 @@ cp "${SCRIPT_DIR}/scripts/download_jira_attachment.py"       "${TARGET_DIR}/scri
 cp "${SCRIPT_DIR}/scripts/validate_yaml_schema.py"           "${TARGET_DIR}/scripts/validate_yaml_schema.py"
 cp "${SCRIPT_DIR}/assets/odh_component_details.schema.json"  "${TARGET_DIR}/assets/odh_component_details.schema.json"
 
+info "Copying common scripts..."
+if [[ -f "${COMMON_SCRIPTS_SRC}/update_jira_issue.py" ]]; then
+  cp "${COMMON_SCRIPTS_SRC}/update_jira_issue.py" "${TARGET_DIR}/../common/scripts/update_jira_issue.py"
+  success "Common script installed: common/scripts/update_jira_issue.py"
+else
+  die "Common script not found: ${COMMON_SCRIPTS_SRC}/update_jira_issue.py
+  Ensure the full skills directory is present, not just this skill subdirectory."
+fi
+
 # Make Python scripts executable (optional — uv run handles this, but good practice)
 chmod +x "${TARGET_DIR}/scripts/"*.py
+chmod +x "${TARGET_DIR}/../common/scripts/"*.py
 
 success "Files copied:"
 find "${TARGET_DIR}" -type f | sort | while read -r f; do
   echo "    ${f#"${TARGET_DIR}/"}"
+done
+find "${TARGET_DIR}/../common/scripts" -type f | sort | while read -r f; do
+  echo "    common/scripts/${f##*/}"
 done
 
 # ── Step 3: Install Python dependencies ───────────────────────────────────────
@@ -102,15 +117,15 @@ done
 # so the first real invocation is instant.
 info "Installing Python dependencies..."
 
-declare -A SCRIPT_DEPS=(
+declare -A SKILL_SCRIPT_DEPS=(
   ["fetch_jira_details.py"]="jira>=3.0.0"
   ["download_jira_attachment.py"]="jira>=3.0.0, requests>=2.31.0"
   ["validate_yaml_schema.py"]="jsonschema>=4.23.0, pyyaml>=6.0.0"
 )
 
 ALL_DEPS_OK=true
-for script in "${!SCRIPT_DEPS[@]}"; do
-  deps="${SCRIPT_DEPS[$script]}"
+for script in "${!SKILL_SCRIPT_DEPS[@]}"; do
+  deps="${SKILL_SCRIPT_DEPS[$script]}"
   echo -n "    ${script} (${deps}) ... "
   if uv run --script "${TARGET_DIR}/scripts/${script}" --help >/dev/null 2>&1; then
     echo -e "${GREEN}OK${RESET}"
@@ -120,6 +135,15 @@ for script in "${!SCRIPT_DEPS[@]}"; do
     ALL_DEPS_OK=false
   fi
 done
+
+echo -n "    update_jira_issue.py (jira>=3.0.0) ... "
+if uv run --script "${TARGET_DIR}/../common/scripts/update_jira_issue.py" --help >/dev/null 2>&1; then
+  echo -e "${GREEN}OK${RESET}"
+else
+  echo -e "${RED}FAILED${RESET}"
+  warn "Could not pre-install deps for update_jira_issue.py. They will be fetched on first use."
+  ALL_DEPS_OK=false
+fi
 
 if $ALL_DEPS_OK; then
   success "All Python dependencies installed and cached."
@@ -145,6 +169,15 @@ for f in "${REQUIRED_FILES[@]}"; do
     ALL_OK=false
   fi
 done
+
+COMMON_SCRIPT="${TARGET_DIR}/../common/scripts/update_jira_issue.py"
+if [[ -f "${COMMON_SCRIPT}" ]]; then
+  success "common/scripts/update_jira_issue.py"
+else
+  error "Missing: common/scripts/update_jira_issue.py"
+  ALL_OK=false
+fi
+
 $ALL_OK || die "Installation incomplete — some files are missing."
 
 # ── Step 5: Check environment variables ───────────────────────────────────────
