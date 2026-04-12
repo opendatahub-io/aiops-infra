@@ -161,7 +161,7 @@ All pre-flight checks completed successfully:
 - Schema validation passed
 
 This ticket is ready for onboarding automation. Moving to In Progress." \
-  --status "In-Progress"
+  --status "In Progress"
 ```
 
 Then print:
@@ -172,7 +172,7 @@ Validation complete for <issue_id>.
   odh_component_details.json  — Jira issue details saved
   odh_component_details.yaml  — Attachment downloaded
   Schema validation            — PASSED
-  Jira issue updated           — label: validation-successful, status: In-Progress
+  Jira issue updated           — label: validation-successful, status: In Progress
 
 The Jira ticket is valid and ready for onboarding automation.
 Output files are in: ./<issue_id>/
