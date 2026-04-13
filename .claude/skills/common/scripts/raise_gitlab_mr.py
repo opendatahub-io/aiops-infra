@@ -65,10 +65,16 @@ def parse_project_path(url: str) -> str:
     return parsed.path.strip("/").removesuffix(".git")
 
 
+def _ssl_verify() -> bool:
+    val = os.environ.get("GITLAB_SSL_VERIFY", "true").strip().lower()
+    return val not in ("0", "false", "no", "off")
+
+
 def get_gitlab_client(base_url: str, token: str) -> gitlab.Gitlab:
     """Create and authenticate a python-gitlab client."""
+    verify = _ssl_verify()
     try:
-        gl = gitlab.Gitlab(url=base_url, private_token=token)
+        gl = gitlab.Gitlab(url=base_url, private_token=token, ssl_verify=verify)
         gl.auth()
         return gl
     except GitlabAuthenticationError:
@@ -76,6 +82,10 @@ def get_gitlab_client(base_url: str, token: str) -> gitlab.Gitlab:
         sys.exit(1)
     except Exception as exc:
         msg = str(exc).lower()
+        if "ssl" in msg or "certificate" in msg:
+            print(f"ERROR: SSL certificate verification failed for {base_url}.", file=sys.stderr)
+            print("  Set GITLAB_SSL_VERIFY=false to skip verification for internal CAs.", file=sys.stderr)
+            sys.exit(1)
         if any(k in msg for k in ("connection", "timeout", "name resolution", "no route")):
             print(f"ERROR: Cannot reach {base_url}. Ensure VPN is active.", file=sys.stderr)
         else:
@@ -188,7 +198,7 @@ def main() -> None:
             "target_branch":     dest_branch,
             "title":             args.title,
             "description":       args.description,
-            "remove_source_branch": False,
+            "remove_source_branch": True,
         })
     except GitlabError as exc:
         response_code = getattr(exc, "response_code", None)

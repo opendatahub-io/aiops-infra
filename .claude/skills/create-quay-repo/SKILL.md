@@ -372,22 +372,20 @@ The script polls every 60 seconds and writes progress to stderr.
 
 Read the **stdout** result:
 
-- **`merged`** (exit 0): Quay repo is being created. If `--jira-url` provided:
+- **`merged`** (exit 0): MR is merged; GitOps reconciliation will create the Quay repo shortly. If `--jira-url` provided:
   ```bash
   uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --add-label "quay-repo-created" \
     --remove-label "quay-mr-raised" \
     --comment "MR merged: $MR_URL
 
-quay.io/<org>/<repo> has been created (or will be created shortly by app-interface's GitOps reconciliation).
-
-Step 2 (Create Quay Repo) is complete."
+app-interface GitOps reconciliation is in progress. Monitoring quay.io/<org>/<repo> for creation..."
   ```
   Then print:
   ```
-  ✓ quay.io/<org>/<repo> created successfully.
-    MR merged: <MR_URL>
+  MR merged: <MR_URL>
+  Proceeding to monitor Quay repo creation...
   ```
+  **Continue to Step 11.**
 
 - **`closed`** (exit 1): MR was closed without merging. If `--jira-url` provided:
   ```bash
@@ -430,6 +428,78 @@ Please check the MR status manually and re-run /create-quay-repo if needed."
 
 ---
 
+## Step 11: Monitor Quay Repo Creation
+
+This step runs only when the MR was successfully merged in Step 10. Poll `check_quay_repo.sh`
+every 60 seconds for up to 30 minutes until the repo appears on Quay.
+
+```bash
+QUAY_REPO="quay.io/<org>/<repo>"
+POLL_INTERVAL=60      # seconds between checks
+MAX_WAIT=1800         # 30 minutes
+ELAPSED=0
+
+echo "Monitoring $QUAY_REPO for creation (timeout: 30 minutes)..."
+
+while true; do
+  bash <COMMON_SCRIPTS_DIR>/check_quay_repo.sh "$QUAY_REPO"
+  CHECK_EXIT=$?
+
+  if [[ $CHECK_EXIT -eq 0 ]]; then
+    # Repo exists
+    break
+  elif [[ $CHECK_EXIT -eq 2 ]]; then
+    echo "WARNING: check_quay_repo.sh returned a tool error. Retrying..."
+  fi
+  # Exit 1 = not yet created; keep polling
+
+  if [[ $ELAPSED -ge $MAX_WAIT ]]; then
+    # Timeout
+    CHECK_EXIT=3
+    break
+  fi
+
+  REMAINING=$(( (MAX_WAIT - ELAPSED) / 60 ))
+  echo "  quay.io/<org>/<repo> not yet available (elapsed=${ELAPSED}s, remaining≈${REMAINING}m). Retrying in ${POLL_INTERVAL}s..."
+  sleep $POLL_INTERVAL
+  ELAPSED=$(( ELAPSED + POLL_INTERVAL ))
+done
+```
+
+Handle the result:
+
+- **`CHECK_EXIT=0`** (repo created): If `--jira-url` provided:
+  ```bash
+  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+    --add-label "quay-repo-created" \
+    --comment "Quay repository successfully created: quay.io/<org>/<repo>
+
+Confirmed by skopeo after GitOps reconciliation completed.
+Step 2 (Create Quay Repo) is complete."
+  ```
+  Then print:
+  ```
+  ✓ quay.io/<org>/<repo> is live on Quay.
+    Step 2 (Create Quay Repo) complete.
+  ```
+
+- **`CHECK_EXIT=3`** (30-minute timeout, repo not yet visible): If `--jira-url` provided:
+  ```bash
+  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+    --comment "Quay repo monitoring timed out after 30 minutes. quay.io/<org>/<repo> has not yet appeared.
+
+The MR was merged ($MR_URL) so reconciliation may still be in progress.
+Re-run /create-quay-repo to re-check — it will short-circuit at Step 3 once the repo exists."
+  ```
+  Then print:
+  ```
+  WARNING: quay.io/<org>/<repo> not visible after 30 minutes.
+  The MR was merged so app-interface reconciliation may still be running.
+  Re-run this skill later — it will short-circuit at Step 3 once the repo exists.
+  ```
+
+---
+
 ## Error Reference
 
 | Error | Where | Action |
@@ -445,3 +515,4 @@ Please check the MR status manually and re-run /create-quay-repo if needed."
 | MR creation fails 3x | Step 9 | Check VPN; inspect stderr; manual fallback |
 | MR closed without merge | Step 10 | Review the MR; re-run after fixing |
 | Pipeline failed | Step 10 | Fix pipeline issues; re-run |
+| Quay repo not visible after 30m | Step 11 | Reconciliation may still be running; re-run to re-check |
