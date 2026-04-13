@@ -31,6 +31,9 @@ Examples:
 - `JIRA_API_TOKEN` — Atlassian API token (https://id.atlassian.com/manage-profile/security/api-tokens)
 - `uv` — Python runner (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - `oc` — OpenShift CLI (https://console.redhat.com/openshift/downloads)
+- `yamllint` — YAML linter (`pip install yamllint` or `brew install yamllint`)
+- `kustomize` v5.7.1 — required by `build-manifests.sh`/`verify-manifests.sh`; if not installed, `install.sh` creates a shim at `~/.local/bin/kustomize` backed by `kubectl`'s built-in kustomize
+- `kubectl` — needed if `kustomize` is not installed (provides built-in kustomize v5.7.1)
 - Optional: `KONFLUX_RELEASE_DATA_REPO_URL` (default: `https://gitlab.cee.redhat.com/releng/konflux-release-data.git`)
 - Optional: `JIRA_SERVER` (default: `https://redhat.atlassian.net`)
 - Optional: `OC_TOKEN` — cluster login token if no matching kubeconfig context is found
@@ -61,6 +64,12 @@ VALIDATE_SKILL_DIR is `<SKILL_DIR>/../validate-component-onboarding-jira`.
 
 2. Set `KRD_URL` to `$KONFLUX_RELEASE_DATA_REPO_URL` if set, else
    `https://gitlab.cee.redhat.com/releng/konflux-release-data.git`.
+
+> **IMPORTANT — `KRD_URL` is the single source of truth for all Git operations.**
+> Use `$KRD_URL` for every Git operation in this skill: sparse clone (`--src-url`), push
+> remote (`origin`), MR source URL (`--src-url`), and MR destination URL (`--dest-url`).
+> **Never substitute a hardcoded URL or the upstream URL in place of `$KRD_URL`**, even if
+> `$KRD_URL` appears to point to a personal fork. The user configured it intentionally.
 
 ---
 
@@ -102,6 +111,27 @@ fi
 # 6. oc
 if ! command -v oc &>/dev/null; then
   echo "ERROR: oc CLI is not installed. https://console.redhat.com/openshift/downloads"
+  exit 1
+fi
+
+# 7. yamllint
+if ! command -v yamllint &>/dev/null; then
+  echo "ERROR: yamllint is not installed. pip install yamllint  OR  brew install yamllint"
+  exit 1
+fi
+
+# 8. kustomize (required by build-manifests.sh and verify-manifests.sh)
+# Accept: standalone kustomize binary, OR the shim at ~/.local/bin/kustomize installed by install.sh
+KUSTOMIZE_BIN=""
+if command -v kustomize &>/dev/null; then
+  KUSTOMIZE_BIN="kustomize"
+elif [[ -x "${HOME}/.local/bin/kustomize" ]]; then
+  KUSTOMIZE_BIN="${HOME}/.local/bin/kustomize"
+  export PATH="${HOME}/.local/bin:${PATH}"
+else
+  echo "ERROR: kustomize is not installed and no shim found at ~/.local/bin/kustomize."
+  echo "  Run install.sh to auto-create a shim from kubectl's built-in kustomize, OR"
+  echo "  install kustomize v5.7.1: https://kubectl.docs.kubernetes.io/installation/kustomize/"
   exit 1
 fi
 ```
@@ -252,31 +282,13 @@ Parse stdout:
       --comment "Found existing open GitLab MR for $KONFLUX_COMPONENT_NAME: <found-url>. Monitoring it."
     ```
   - Print: `Found existing open MR: <found-url>. Skipping MR creation and jumping to monitor.`
-  - Set `MR_URL=<found-url>` and **jump directly to Step 11** (Monitor MR).
+  - Set `MR_URL=<found-url>` and **jump directly to Step 10** (Monitor MR).
 
 If no matching open MR is found, continue to Step 7.
 
 ---
 
-## Step 7: Fork konflux-release-data
-
-```bash
-FORK_URL=$(GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/setup_gitlab_fork.py \
-  --gitlab-repo-url "$KRD_URL")
-```
-
-On exit 1: display stderr and stop with:
-```
-ERROR in Step 7 (Fork KRD): Could not fork konflux-release-data. See details above.
-  Check GITLAB_TOKEN permissions (needs 'api' scope) and that VPN is active.
-```
-
-On success, `FORK_URL` holds the HTTPS URL of your fork (e.g.,
-`https://gitlab.cee.redhat.com/<GITLAB_USER>/konflux-release-data`).
-
----
-
-## Step 8: Set Up Playpen (Sparse Clone)
+## Step 7: Set Up Playpen (Sparse Clone)
 
 Run from inside `$WORKDIR`:
 
@@ -285,20 +297,19 @@ cd "$WORKDIR"
 
 PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
   --src-url "$KRD_URL" \
-  --dest-url "$FORK_URL" \
   --src-branch main \
   --dest-branch "<jira-id>" \
   --sparse-files "$SPARSE_PATHS")
 ```
 
 Parse `PLAYPEN_OUTPUT`:
-- Line 1 → `CLONE_DIR` (absolute path to the clone directory — will be named
-  `app-interface-playpen` inside `$WORKDIR`, which is the playpen script's fixed output name)
-- Line 2 → `DEST_BRANCH` (the branch created and pushed to the fork)
+- Line 1 → `CLONE_DIR` (absolute path to the clone directory — derived from the repo name,
+  e.g. `konflux-release-data-playpen` inside `$WORKDIR`)
+- Line 2 → `DEST_BRANCH` (the branch created and pushed)
 
 On exit 1: display stderr and stop with:
 ```
-ERROR in Step 8 (Playpen setup): Clone or push failed. See details above.
+ERROR in Step 7 (Playpen setup): Clone or push failed. See details above.
   Check VPN connectivity and GITLAB_TOKEN write_repository scope.
 ```
 
@@ -306,19 +317,19 @@ If the initial push fails with "shallow update not allowed", unshallow and retry
 ```bash
 cd "$CLONE_DIR"
 git fetch --unshallow origin
-git push dest "<jira-id>"
+git push origin "<jira-id>"
 ```
 
 ---
 
-## Step 9: Modify the Target YAML File
+## Step 8: Modify the Target YAML File
 
 Use the `Read` tool to read `$CLONE_DIR/$TARGET_YAML`.
 
 **Idempotency check:** Search the file for any occurrence of `name: $KONFLUX_COMPONENT_NAME`.
 If found:
 - Print: `Component entry '$KONFLUX_COMPONENT_NAME' already present in $TARGET_YAML — skipping append.`
-- Continue to Step 10.
+- Continue to Step 9.
 
 If the entry does NOT exist, compose the new YAML document to append (note: the file uses
 `---` document separators; append a new document at the end):
@@ -357,40 +368,82 @@ After editing, use the `Read` tool to re-read the file and verify:
 
 If the file looks malformed, fix it with another `Edit` call before proceeding.
 
----
+**8d. Run `build-manifests.sh`** to regenerate the `auto-generated/` directory.
+Pass `$KUSTOMIZE_BIN` (resolved in Step 1) so the script uses the correct binary or shim:
 
-## Step 10: Commit and Raise MR (up to 3 attempts)
+```bash
+cd "$CLONE_DIR/tenants-config"
+./build-manifests.sh "$KUSTOMIZE_BIN"
+```
 
-**Commit:**
+On non-zero exit: display the output and stop with:
+```
+ERROR in Step 8d (build-manifests): Manifest generation failed. See output above. Fix the issue before proceeding.
+```
+
+**8e. Run `yamllint`** from the playpen root to catch any YAML issues introduced:
 
 ```bash
 cd "$CLONE_DIR"
-git add "$TARGET_YAML"
+yamllint -s -f colored .gitlab-ci.yml .gitlab tenants-config/cluster
+```
+
+If `yamllint` reports errors:
+- Read the error output — it lists the file path and line number for each violation.
+- Use the `Read` tool on the offending file and the `Edit` tool to fix the indentation,
+  trailing spaces, or line-length issues.
+- Re-run `yamllint` after each fix until it exits 0 before continuing.
+
+**8f. Stage and commit all changes** (source YAML + auto-generated manifests):
+
+```bash
+cd "$CLONE_DIR"
+git add -A
 git commit -m "Add $KONFLUX_COMPONENT_NAME Component to konflux-release-data"
 ```
 
-**Push** (remote is named `dest` since fork URL != src URL):
+**8g. Run `verify-manifests.sh`** to validate the generated manifests:
 
 ```bash
-git push dest "$DEST_BRANCH"
+cd "$CLONE_DIR/tenants-config"
+./verify-manifests.sh "$KUSTOMIZE_BIN"
+```
+
+If `verify-manifests.sh` exits non-zero:
+- Read its error output to identify which manifest file is invalid.
+- Use the `Read` tool on the reported file and the `Edit` tool to fix the issue.
+- Re-run `./verify-manifests.sh` after each fix until it exits 0.
+- If you had to make additional file edits, re-stage and amend the commit:
+  ```bash
+  cd "$CLONE_DIR"
+  git add -A
+  git commit --amend --no-edit
+  ```
+
+**8h. Push the branch to the remote:**
+
+```bash
+cd "$CLONE_DIR"
+git push origin "$DEST_BRANCH"
 ```
 
 If push fails with "shallow update not allowed":
 ```bash
 git fetch --unshallow origin
-git push dest "$DEST_BRANCH"
+git push origin "$DEST_BRANCH"
 ```
 
-If push fails with "already exists on remote", try force-with-lease:
-```bash
-git push --force-with-lease dest "$DEST_BRANCH"
-```
+---
+
+## Step 9: Raise MR (up to 3 attempts)
+
+Step 8 already committed and pushed all changes. Proceed directly to raising the MR.
 
 **Raise MR** — attempt up to 3 times:
 
 ```bash
 MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/raise_gitlab_mr.py \
-  --src-url "$FORK_URL" \
+  --src-url "$KRD_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$KRD_URL" \
   --dest-branch main \
@@ -407,13 +460,13 @@ Jira: <jira-url>")
 On success: `MR_URL` is set.
 
 On failure:
-- "Branch not found on fork" → re-run the push and retry
+- "Branch not found" → re-run the push and retry
 - "Connection error / VPN" → tell user to check VPN and retry
 - Any other error → retry (up to 3 times total)
 
 After 3 failures, stop with:
 ```
-ERROR in Step 10 (Raise MR): Could not create MR after 3 attempts. See errors above. Aborting.
+ERROR in Step 9 (Raise MR): Could not create MR after 3 attempts. See errors above. Aborting.
 ```
 
 After a successful MR creation, update Jira:
@@ -427,9 +480,13 @@ MR URL: $MR_URL
 The Component will be provisioned on the Konflux cluster once this MR is merged."
 ```
 
+> **CRITICAL: Proceed immediately to Step 10.** Do NOT stop here. Steps 10 and 11 are
+> mandatory follow-through after every successful MR creation. The skill is not complete
+> until the MR is merged (Step 10) and the Component is confirmed on the cluster (Step 11).
+
 ---
 
-## Step 11: Monitor MR
+## Step 10: Monitor MR
 
 ```bash
 GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/monitor_gitlab_mr.py \
@@ -452,7 +509,7 @@ Konflux GitOps pipeline is provisioning Component '$KONFLUX_COMPONENT_NAME' on t
 Monitoring for creation..."
   ```
   Print: `MR merged. Proceeding to verify Konflux Component creation...`
-  **Continue to Step 12.**
+  **Continue to Step 11.**
 
 - **`closed`** (exit 1): MR was closed without merging.
   ```bash
@@ -463,7 +520,7 @@ Please review the MR and re-run /onboard-component-to-konflux-release-data if ne
   ```
   Stop with:
   ```
-  ERROR in Step 11 (Monitor MR): MR was closed without merging. Check the MR: <MR_URL>.
+  ERROR in Step 10 (Monitor MR): MR was closed without merging. Check the MR: <MR_URL>.
   ```
 
 - **`pipeline_failed`** or **`pipeline_canceled`** (exit 1): Pipeline failed.
@@ -474,7 +531,7 @@ Please review the MR and re-run /onboard-component-to-konflux-release-data if ne
   # Fix the YAML with Edit tool, then:
   git add "$TARGET_YAML"
   git commit -m "Fix $KONFLUX_COMPONENT_NAME Component definition"
-  git push dest "$DEST_BRANCH"
+  git push origin "$DEST_BRANCH"
   ```
   Update Jira:
   ```bash
@@ -483,10 +540,10 @@ Please review the MR and re-run /onboard-component-to-konflux-release-data if ne
 
 Please review the MR pipeline and re-run if the issue persists."
   ```
-  **Jump back to Step 11** to re-monitor the updated MR (once).
+  **Jump back to Step 10** to re-monitor the updated MR (once).
   If the pipeline fails again, stop with:
   ```
-  ERROR in Step 11 (Monitor MR): Pipeline failed after fix attempt. Manual intervention needed.
+  ERROR in Step 10 (Monitor MR): Pipeline failed after fix attempt. Manual intervention needed.
   MR: <MR_URL>
   ```
 
@@ -507,7 +564,7 @@ to resume — it will skip MR creation and jump straight to monitoring."
 
 ---
 
-## Step 12: Monitor Konflux Component Creation
+## Step 11: Monitor Konflux Component Creation
 
 After the MR is merged, poll `check_konflux_component.sh` every 60 seconds for up to
 30 minutes until the Component appears on the Konflux cluster.
@@ -595,12 +652,11 @@ at Step 5 once the Component exists."
 | `uv` not installed | Step 1 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | `oc` not installed | Step 1 | Download from console.redhat.com/openshift/downloads |
 | `odh_component_details.yaml` not attached to Jira | Step 3b | Upload the YAML to the Jira issue |
-| VPN not active | Steps 5, 7, 8, 10, 11 | Activate VPN and re-run |
+| VPN not active | Steps 5, 7, 9, 10 | Activate VPN and re-run |
 | `OC_TOKEN` not set | Step 5 | `export OC_TOKEN=<token-from-openshift-console>` |
-| Fork creation fails | Step 7 | Check GITLAB_TOKEN `api` scope |
-| Shallow push rejected | Steps 8, 10 | `git fetch --unshallow origin` then retry push |
-| Clone fails | Step 8 | Check VPN and GITLAB_TOKEN `write_repository` scope |
-| MR creation fails 3× | Step 10 | Check VPN; inspect stderr; fix manually |
-| MR pipeline fails | Step 11 | YAML fix attempted automatically; check MR if it fails again |
-| MR closed without merge | Step 11 | Review the MR; re-run after fixing |
-| Component not visible after 30m | Step 12 | GitOps pipeline may still be running; re-run to re-check |
+| Shallow push rejected | Steps 7, 9 | `git fetch --unshallow origin` then retry push |
+| Clone fails | Step 7 | Check VPN and GITLAB_TOKEN `write_repository` scope |
+| MR creation fails 3× | Step 9 | Check VPN; inspect stderr; fix manually |
+| MR pipeline fails | Step 10 | YAML fix attempted automatically; check MR if it fails again |
+| MR closed without merge | Step 10 | Review the MR; re-run after fixing |
+| Component not visible after 30m | Step 11 | GitOps pipeline may still be running; re-run to re-check |

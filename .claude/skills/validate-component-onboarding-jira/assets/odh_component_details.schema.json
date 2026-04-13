@@ -14,6 +14,7 @@
         "repo_branch",
         "context_path",
         "dockerfile_path",
+        "build_type",
         "is_operator"
       ],
       "additionalProperties": false,
@@ -44,6 +45,11 @@
           "type": "string",
           "description": "Path to the Dockerfile relative to the context path",
           "minLength": 1
+        },
+        "build_type": {
+          "type": "string",
+          "description": "Whether the component is being onboarded for CI or Release",
+          "enum": ["CI", "Release"]
         },
         "is_operator": {
           "type": "boolean",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Install the onboard-component-to-konflux-release-data Claude Code skill
+# install.sh — Install the update-component-using-odh-konflux-central Claude Code skill
 #
 # Usage:
 #   ./install.sh              # installs to ~/.claude/skills/ (global, default)
@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-SKILL_NAME="onboard-component-to-konflux-release-data"
+SKILL_NAME="update-component-using-odh-konflux-central"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Colours ────────────────────────────────────────────────────────────────────
@@ -85,92 +85,11 @@ else
   success "git $(git --version | awk '{print $3}') (already installed)"
 fi
 
-# oc — detect only (platform-specific, cannot auto-install)
-if ! command -v oc &>/dev/null; then
-  warn "oc (OpenShift CLI) is not installed. This skill requires it to check Konflux cluster state."
-  warn "  Download from: https://console.redhat.com/openshift/downloads"
-  warn "  (Installation continues — you will need oc at runtime)"
+# curl — needed for GitHub API checks in Step 5 of the skill
+if ! command -v curl &>/dev/null; then
+  die "curl is not installed. Install curl before continuing."
 else
-  success "oc $(oc version --client --short 2>/dev/null | awk '{print $3}' || echo "(version unknown)") (already installed)"
-fi
-
-# yamllint — auto-install via pip3 or brew
-if ! command -v yamllint &>/dev/null; then
-  warn "'yamllint' is not installed. Attempting to install it now..."
-  if command -v pip3 &>/dev/null; then
-    pip3 install --quiet yamllint
-    export PATH="${HOME}/.local/bin:${PATH}"
-  elif command -v brew &>/dev/null; then
-    brew install yamllint
-  else
-    die "Cannot install 'yamllint': neither pip3 nor brew is available.
-    Install manually: pip3 install yamllint  OR  brew install yamllint"
-  fi
-  if ! command -v yamllint &>/dev/null; then
-    die "'yamllint' was installed but is not on PATH. Open a new terminal and re-run, or:
-    export PATH=\"\${HOME}/.local/bin:\${PATH}\""
-  fi
-  success "yamllint $(yamllint --version 2>/dev/null | awk '{print $2}') (just installed)"
-else
-  success "yamllint $(yamllint --version 2>/dev/null | awk '{print $2}') (already installed)"
-fi
-
-# kustomize v5.7.1 — required by build-manifests.sh and verify-manifests.sh
-# Strategy: use the standalone binary if present; otherwise create a shim around
-# kubectl's built-in kustomize (which ships v5.7.1 in recent kubectl releases).
-REQUIRED_KUSTOMIZE_VERSION="v5.7.1"
-KUSTOMIZE_SHIM_PATH="${HOME}/.local/bin/kustomize"
-
-install_kustomize_shim() {
-  # Write a persistent shim that delegates to `kubectl kustomize`
-  mkdir -p "${HOME}/.local/bin"
-  cat > "$KUSTOMIZE_SHIM_PATH" <<'SHIM'
-#!/usr/bin/env bash
-# kustomize shim — delegates to kubectl's built-in kustomize
-if [[ "${1:-}" == "version" ]]; then
-  echo "v5.7.1"
-  exit 0
-fi
-# Strip the 'build' subcommand — kubectl kustomize takes the path directly
-if [[ "${1:-}" == "build" ]]; then
-  shift
-fi
-exec kubectl kustomize "$@"
-SHIM
-  chmod +x "$KUSTOMIZE_SHIM_PATH"
-  export PATH="${HOME}/.local/bin:${PATH}"
-}
-
-if command -v kustomize &>/dev/null; then
-  KVER=$(kustomize version 2>/dev/null | tr -d '\n')
-  success "kustomize ${KVER} (already installed)"
-  # Warn if version is older than required
-  KVER_OK=$({ echo "$KVER"; echo "$REQUIRED_KUSTOMIZE_VERSION"; } | sort --version-sort | head -1)
-  if [[ "$KVER_OK" != "$REQUIRED_KUSTOMIZE_VERSION" ]]; then
-    warn "kustomize version '$KVER' is older than required '$REQUIRED_KUSTOMIZE_VERSION'."
-    warn "  build-manifests.sh may fail. Consider upgrading kustomize."
-  fi
-else
-  warn "'kustomize' standalone binary not found. Checking kubectl built-in..."
-  if command -v kubectl &>/dev/null; then
-    KUBECTL_KVER=$(kubectl version --client 2>/dev/null | grep -i kustomize | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    if [[ -z "$KUBECTL_KVER" ]]; then
-      warn "Could not determine kubectl's built-in kustomize version."
-      warn "  Install kustomize $REQUIRED_KUSTOMIZE_VERSION from: https://kubectl.docs.kubernetes.io/installation/kustomize/"
-      warn "  (Installation continues — build-manifests.sh will fail at runtime without kustomize)"
-    else
-      info "kubectl has built-in kustomize ${KUBECTL_KVER}. Creating shim at ${KUSTOMIZE_SHIM_PATH}..."
-      install_kustomize_shim
-      success "kustomize shim installed at ${KUSTOMIZE_SHIM_PATH} (delegates to kubectl kustomize ${KUBECTL_KVER})"
-      warn "  NOTE: build-manifests.sh must be called as: ./build-manifests.sh ${KUSTOMIZE_SHIM_PATH}"
-      warn "  The skill handles this automatically."
-    fi
-  else
-    warn "Neither 'kustomize' nor 'kubectl' found."
-    warn "  Install kustomize $REQUIRED_KUSTOMIZE_VERSION: https://kubectl.docs.kubernetes.io/installation/kustomize/"
-    warn "  OR install kubectl (which bundles kustomize): https://kubernetes.io/docs/tasks/tools/"
-    warn "  (Installation continues — build-manifests.sh will fail at runtime without kustomize)"
-  fi
+  success "curl $(curl --version | head -1 | awk '{print $2}') (already installed)"
 fi
 
 # ── Step 2: Create directories ─────────────────────────────────────────────────
@@ -189,13 +108,10 @@ success "Copied: SKILL.md"
 info "Copying common scripts..."
 
 COMMON_SCRIPTS=(
-  "setup_gitlab_fork.py"
-  "setup_gitlab_playpen.sh"
-  "raise_gitlab_mr.py"
-  "monitor_gitlab_mr.py"
+  "setup_github_playpen.sh"
+  "raise_github_pr.py"
+  "monitor_github_pr.py"
   "update_jira_issue.py"
-  "login_to_konflux_cluster.sh"
-  "check_konflux_component.sh"
 )
 
 for script in "${COMMON_SCRIPTS[@]}"; do
@@ -230,9 +146,7 @@ done
 
 # ── Step 6: Set permissions ────────────────────────────────────────────────────
 info "Setting permissions..."
-chmod +x "${COMMON_DIR}/setup_gitlab_playpen.sh"
-chmod +x "${COMMON_DIR}/login_to_konflux_cluster.sh"
-chmod +x "${COMMON_DIR}/check_konflux_component.sh"
+chmod +x "${COMMON_DIR}/setup_github_playpen.sh"
 for pyfile in "${COMMON_DIR}"/*.py "${VALIDATE_SKILL_DIR}/scripts"/*.py; do
   [[ -f "$pyfile" ]] && chmod +x "$pyfile"
 done
@@ -257,15 +171,14 @@ pre_warm() {
   fi
 }
 
-# python-gitlab scripts
-pre_warm "setup_gitlab_fork.py"   "${COMMON_DIR}/setup_gitlab_fork.py"
-pre_warm "raise_gitlab_mr.py"     "${COMMON_DIR}/raise_gitlab_mr.py"
-pre_warm "monitor_gitlab_mr.py"   "${COMMON_DIR}/monitor_gitlab_mr.py"
+# GitHub scripts (PyGithub)
+pre_warm "raise_github_pr.py"   "${COMMON_DIR}/raise_github_pr.py"
+pre_warm "monitor_github_pr.py" "${COMMON_DIR}/monitor_github_pr.py"
 
-# jira scripts
-pre_warm "update_jira_issue.py"       "${COMMON_DIR}/update_jira_issue.py"
-pre_warm "fetch_jira_details.py"      "${VALIDATE_SKILL_DIR}/scripts/fetch_jira_details.py"
-pre_warm "download_jira_attachment.py" "${VALIDATE_SKILL_DIR}/scripts/download_jira_attachment.py"
+# Jira scripts
+pre_warm "update_jira_issue.py"           "${COMMON_DIR}/update_jira_issue.py"
+pre_warm "fetch_jira_details.py"          "${VALIDATE_SKILL_DIR}/scripts/fetch_jira_details.py"
+pre_warm "download_jira_attachment.py"    "${VALIDATE_SKILL_DIR}/scripts/download_jira_attachment.py"
 
 if $ALL_DEPS_OK; then
   success "All Python dependencies installed and cached."
@@ -278,13 +191,10 @@ info "Verifying installation..."
 
 REQUIRED_FILES=(
   "${TARGET_DIR}/SKILL.md"
-  "${COMMON_DIR}/setup_gitlab_fork.py"
-  "${COMMON_DIR}/setup_gitlab_playpen.sh"
-  "${COMMON_DIR}/raise_gitlab_mr.py"
-  "${COMMON_DIR}/monitor_gitlab_mr.py"
+  "${COMMON_DIR}/setup_github_playpen.sh"
+  "${COMMON_DIR}/raise_github_pr.py"
+  "${COMMON_DIR}/monitor_github_pr.py"
   "${COMMON_DIR}/update_jira_issue.py"
-  "${COMMON_DIR}/login_to_konflux_cluster.sh"
-  "${COMMON_DIR}/check_konflux_component.sh"
   "${VALIDATE_SKILL_DIR}/scripts/fetch_jira_details.py"
   "${VALIDATE_SKILL_DIR}/scripts/download_jira_attachment.py"
 )
@@ -292,7 +202,6 @@ REQUIRED_FILES=(
 ALL_OK=true
 for f in "${REQUIRED_FILES[@]}"; do
   if [[ -f "$f" ]]; then
-    # Print path relative to parent of TARGET_DIR for readability
     success "${f#"${TARGET_DIR}/../"}"
   else
     error "Missing: $f"
@@ -324,19 +233,19 @@ check_var() {
   fi
 }
 
-check_var "GITLAB_USER"      "export GITLAB_USER=yourusername"
-check_var "GITLAB_TOKEN"     "Needs 'api' and 'write_repository' scopes" "true"
-check_var "JIRA_USER_EMAIL"  "export JIRA_USER_EMAIL=you@redhat.com"
-check_var "JIRA_API_TOKEN"   "Create at: https://id.atlassian.com/manage-profile/security/api-tokens" "true"
+check_var "GITHUB_USER"     "export GITHUB_USER=yourusername"
+check_var "GITHUB_TOKEN"    "Needs 'repo' scope (read and write)" "true"
+check_var "JIRA_USER_EMAIL" "export JIRA_USER_EMAIL=you@redhat.com"
+check_var "JIRA_API_TOKEN"  "Create at: https://id.atlassian.com/manage-profile/security/api-tokens" "true"
 
 echo ""
 info "Checking optional environment variables..."
 
-if [[ -z "${KONFLUX_RELEASE_DATA_REPO_URL:-}" ]]; then
-  warn "KONFLUX_RELEASE_DATA_REPO_URL is not set — will default to:"
-  warn "  https://gitlab.cee.redhat.com/releng/konflux-release-data.git"
+if [[ -z "${ODH_KONFLUX_CENTRAL_REPO_URL:-}" ]]; then
+  warn "ODH_KONFLUX_CENTRAL_REPO_URL is not set — will default to:"
+  warn "  https://github.com/opendatahub-io/odh-konflux-central.git"
 else
-  success "KONFLUX_RELEASE_DATA_REPO_URL=${KONFLUX_RELEASE_DATA_REPO_URL}"
+  success "ODH_KONFLUX_CENTRAL_REPO_URL=${ODH_KONFLUX_CENTRAL_REPO_URL}"
 fi
 
 if [[ -z "${JIRA_SERVER:-}" ]]; then
@@ -345,28 +254,20 @@ else
   success "JIRA_SERVER=${JIRA_SERVER}"
 fi
 
-if [[ -z "${OC_TOKEN:-}" ]]; then
-  warn "OC_TOKEN is not set — required only if no matching kubeconfig context is found."
-  warn "  Get a token from the OpenShift web console if needed."
-else
-  success "OC_TOKEN=<set>"
-fi
-
 if ! $CREDS_OK; then
   echo ""
   echo -e "${YELLOW}Add the following to your shell profile (e.g. ~/.zshrc or ~/.bashrc):${RESET}"
   echo ""
-  echo "    export GITLAB_USER='yourusername'"
-  echo "    export GITLAB_TOKEN='your-gitlab-token'       # needs: api, write_repository scopes"
+  echo "    export GITHUB_USER='yourusername'"
+  echo "    export GITHUB_TOKEN='your-github-token'         # needs: repo scope"
   echo "    export JIRA_USER_EMAIL='you@redhat.com'"
   echo "    export JIRA_API_TOKEN='your-jira-api-token'"
   echo ""
   echo "    # Optional overrides:"
-  echo "    # export KONFLUX_RELEASE_DATA_REPO_URL='https://gitlab.cee.redhat.com/releng/konflux-release-data.git'"
+  echo "    # export ODH_KONFLUX_CENTRAL_REPO_URL='https://github.com/opendatahub-io/odh-konflux-central.git'"
   echo "    # export JIRA_SERVER='https://redhat.atlassian.net'"
-  echo "    # export OC_TOKEN='<token-from-openshift-console>'"
   echo ""
-  echo "  Create GitLab token: GitLab → User Settings → Access Tokens"
+  echo "  Create GitHub token: GitHub → Settings → Developer settings → Personal access tokens"
   echo "  Create Jira token:   https://id.atlassian.com/manage-profile/security/api-tokens"
 fi
 
@@ -376,10 +277,10 @@ echo -e "${GREEN}${BOLD}Installation complete!${RESET}"
 echo ""
 echo "  Restart Claude Code (or open a new session), then run:"
 echo ""
-echo "    /onboard-component-to-konflux-release-data https://redhat.atlassian.net/browse/RHOAIENG-1234"
+echo "    /update-component-using-odh-konflux-central https://redhat.atlassian.net/browse/RHOAIENG-1234"
 echo ""
 echo "  NOTE: This skill requires:"
-echo "    - VPN access to gitlab.cee.redhat.com (for KRD repo)"
-echo "    - VPN access to the Konflux OpenShift cluster (for component checks)"
+echo "    - Public internet access to github.com (no VPN needed)"
+echo "    - GITHUB_TOKEN with 'repo' scope (read + write on odh-konflux-central)"
 echo "    - 'odh_component_details.yaml' attached to the Jira issue"
 echo ""

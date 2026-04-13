@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# setup_gitlab_playpen.sh — Sparse-clone a GitLab repo, create a new branch, and push it.
+# setup_github_playpen.sh — Clone a GitHub repo, create a new branch, and push it.
 #
 # Usage:
-#   setup_gitlab_playpen.sh \
-#     --src-url <url>           # mandatory: source GitLab repo to clone
+#   setup_github_playpen.sh \
+#     --src-url <url>           # mandatory: source GitHub repo to clone
 #     [--dest-url <url>]        # optional: remote to push branch to (default: same as src)
-#     [--src-branch <name>]     # optional: branch to clone (default: master)
-#     [--dest-branch <name>]    # optional: new branch to create (default: $GITLAB_USER-<timestamp>)
+#     [--src-branch <name>]     # optional: branch to clone (default: main)
+#     [--dest-branch <name>]    # optional: new branch to create (default: $GITHUB_USER-<timestamp>)
 #     [--sparse-files <paths>]  # optional: space-separated list of files/dirs for sparse checkout
 #     [--clone-dir <name>]      # optional: clone directory name (default: <repo-name>-playpen)
 #
 # Environment:
-#   GITLAB_TOKEN  — required; used for git authentication via oauth2
-#   GITLAB_USER   — required; used in default dest-branch name
+#   GITHUB_TOKEN  — required; used for git authentication via x-access-token
+#   GITHUB_USER   — required; used in default dest-branch name and git config
 #
 # Output (stdout):
-#   Line 1: absolute path to the clone directory (<repo-name>-playpen inside CWD, or --clone-dir value)
+#   Line 1: absolute path to the clone directory
 #   Line 2: dest-branch name that was created and pushed
 #
 # Exit codes:
@@ -33,15 +33,15 @@ die()   { error "$*"; exit 1; }
 # ── Parse arguments ────────────────────────────────────────────────────────────
 SRC_URL=""
 DEST_URL=""
-SRC_BRANCH="master"
+SRC_BRANCH="main"
 DEST_BRANCH=""
 SPARSE_FILES=""
 CLONE_DIR_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --src-url)        SRC_URL="${2:?--src-url requires a value}";      shift 2 ;;
-    --dest-url)       DEST_URL="${2:?--dest-url requires a value}";    shift 2 ;;
+    --src-url)        SRC_URL="${2:?--src-url requires a value}";       shift 2 ;;
+    --dest-url)       DEST_URL="${2:?--dest-url requires a value}";     shift 2 ;;
     --src-branch)     SRC_BRANCH="${2:?--src-branch requires a value}"; shift 2 ;;
     --dest-branch)    DEST_BRANCH="${2:?--dest-branch requires a value}"; shift 2 ;;
     --sparse-files)   SPARSE_FILES="${2:?--sparse-files requires a value}"; shift 2 ;;
@@ -64,11 +64,11 @@ if [[ -z "$CLONE_DIR_NAME" ]]; then
 fi
 
 # ── Validate environment variables ─────────────────────────────────────────────
-GITLAB_TOKEN="${GITLAB_TOKEN:-}"
-GITLAB_USER="${GITLAB_USER:-}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+GITHUB_USER="${GITHUB_USER:-}"
 
-[[ -z "$GITLAB_TOKEN" ]] && die "GITLAB_TOKEN is not set. Export it before running this script."
-[[ -z "$GITLAB_USER" ]]  && die "GITLAB_USER is not set. Export it before running this script."
+[[ -z "$GITHUB_TOKEN" ]] && die "GITHUB_TOKEN is not set. Export it before running this script."
+[[ -z "$GITHUB_USER" ]]  && die "GITHUB_USER is not set. Export it before running this script."
 
 # ── Defaults ───────────────────────────────────────────────────────────────────
 if [[ -z "$DEST_URL" ]]; then
@@ -77,25 +77,23 @@ fi
 
 if [[ -z "$DEST_BRANCH" ]]; then
   TIMESTAMP=$(date +%Y%m%d%H%M%S)
-  DEST_BRANCH="${GITLAB_USER}-${TIMESTAMP}"
+  DEST_BRANCH="${GITHUB_USER}-${TIMESTAMP}"
 fi
 
 # ── Inject token into remote URLs ──────────────────────────────────────────────
-# Converts https://<host>/<path> → https://oauth2:<token>@<host>/<path>
+# Converts https://github.com/<path> → https://x-access-token:<token>@github.com/<path>
 # The token is masked in all log output.
 inject_auth() {
   local url="$1"
-  # Extract host and path from URL
   local scheme host_path
   scheme="${url%%://*}"
   host_path="${url#*://}"
-  echo "${scheme}://oauth2:${GITLAB_TOKEN}@${host_path}"
+  echo "${scheme}://x-access-token:${GITHUB_TOKEN}@${host_path}"
 }
 
 mask_url() {
-  # Replace the token in a URL with *** for display purposes
   local url="$1"
-  echo "$url" | sed "s/${GITLAB_TOKEN}/***REDACTED***/g"
+  echo "$url" | sed "s/${GITHUB_TOKEN}/***REDACTED***/g"
 }
 
 AUTH_SRC_URL=$(inject_auth "$SRC_URL")
@@ -118,8 +116,8 @@ if [[ -n "$SPARSE_FILES" ]]; then
   info "Cloning with sparse checkout (--no-checkout --depth 1)..."
 
   if ! git clone --no-checkout --depth 1 --branch "$SRC_BRANCH" "$AUTH_SRC_URL" "$CLONE_DIR_NAME" 2>&1 | \
-       sed "s/${GITLAB_TOKEN}/***REDACTED***/g" >&2; then
-    die "git clone failed. Check VPN connectivity and GITLAB_TOKEN permissions."
+       sed "s/${GITHUB_TOKEN}/***REDACTED***/g" >&2; then
+    die "git clone failed. Check network connectivity and GITHUB_TOKEN permissions."
   fi
 
   cd "$CLONE_DIR"
@@ -138,12 +136,16 @@ else
   info "Cloning (normal checkout, --depth 1)..."
 
   if ! git clone --depth 1 --branch "$SRC_BRANCH" "$AUTH_SRC_URL" "$CLONE_DIR_NAME" 2>&1 | \
-       sed "s/${GITLAB_TOKEN}/***REDACTED***/g" >&2; then
-    die "git clone failed. Check VPN connectivity and GITLAB_TOKEN permissions."
+       sed "s/${GITHUB_TOKEN}/***REDACTED***/g" >&2; then
+    die "git clone failed. Check network connectivity and GITHUB_TOKEN permissions."
   fi
 
   cd "$CLONE_DIR"
 fi
+
+# Configure git identity for commits
+git config user.email "${GITHUB_USER}@users.noreply.github.com" 2>&1 >&2
+git config user.name  "${GITHUB_USER}" 2>&1 >&2
 
 info "Clone complete: ${CLONE_DIR}"
 
@@ -153,7 +155,7 @@ DEST_REMOTE="origin"
 if [[ "$DEST_URL" != "$SRC_URL" ]]; then
   DEST_REMOTE="dest"
   info "Registering remote '${DEST_REMOTE}': $(mask_url "$DEST_URL")"
-  git remote add "$DEST_REMOTE" "$AUTH_DEST_URL" 2>&1 | sed "s/${GITLAB_TOKEN}/***REDACTED***/g" >&2
+  git remote add "$DEST_REMOTE" "$AUTH_DEST_URL" 2>&1 | sed "s/${GITHUB_TOKEN}/***REDACTED***/g" >&2
 fi
 
 # ── Create and push new branch ─────────────────────────────────────────────────
@@ -161,8 +163,8 @@ info "Creating branch: ${DEST_BRANCH}"
 git checkout -b "$DEST_BRANCH" 2>&1 >&2
 
 info "Pushing branch '${DEST_BRANCH}' to remote '${DEST_REMOTE}'..."
-if ! git push -u "$DEST_REMOTE" "$DEST_BRANCH" 2>&1 | sed "s/${GITLAB_TOKEN}/***REDACTED***/g" >&2; then
-  die "git push failed. The branch may already exist on the remote, or GITLAB_TOKEN may lack write_repository scope."
+if ! git push -u "$DEST_REMOTE" "$DEST_BRANCH" 2>&1 | sed "s/${GITHUB_TOKEN}/***REDACTED***/g" >&2; then
+  die "git push failed. The branch may already exist on the remote, or GITHUB_TOKEN may lack write scope."
 fi
 
 info "Branch '${DEST_BRANCH}' pushed successfully."
