@@ -105,14 +105,41 @@ def get_repo(g: Github, owner: str, repo_name: str, label: str):
         sys.exit(1)
 
 
-def find_existing_pr(dest_repo, head: str, dest_branch: str):
-    """Return an existing open PR matching the head ref and base branch, or None."""
+def find_existing_pr(dest_repo, head_filter: str, dest_branch: str, *, warn_closed: bool = False):
+    """Return an existing open PR whose head matches head_filter and base matches dest_branch.
+
+    head_filter MUST be in "owner:branch" format — the GitHub API silently ignores
+    a bare branch name, which causes it to return all open PRs instead of filtering.
+
+    If warn_closed=True, also checks for previously closed (not merged) PRs from the
+    same head and logs a warning so the caller is aware.
+    """
     try:
-        pulls = dest_repo.get_pulls(state="open", head=head, base=dest_branch)
+        # GitHub API requires "owner:branch" format for the head filter.
+        # A bare branch name is silently ignored, returning all open PRs.
+        pulls = dest_repo.get_pulls(state="open", head=head_filter, base=dest_branch)
         for pr in pulls:
-            return pr  # Return first match
+            # Extra guard: verify the branch actually matches (defence against stale filter).
+            if pr.head.label == head_filter or pr.head.ref == head_filter.split(":")[-1]:
+                return pr
     except GithubException as exc:
-        print(f"WARNING: Could not check for existing PRs: {exc}", file=sys.stderr)
+        print(f"WARNING: Could not check for existing open PRs: {exc}", file=sys.stderr)
+
+    if warn_closed:
+        try:
+            closed = dest_repo.get_pulls(state="closed", head=head_filter, base=dest_branch)
+            for pr in closed:
+                if not pr.merged:
+                    branch = head_filter.split(":")[-1]
+                    print(
+                        f"WARNING: A previously closed (not merged) PR exists from branch "
+                        f"'{branch}': {pr.html_url}  — creating a fresh PR.",
+                        file=sys.stderr,
+                    )
+                    break
+        except GithubException:
+            pass  # Non-fatal — just skip the warning
+
     return None
 
 
@@ -147,13 +174,15 @@ def main() -> None:
     dest_branch = args.dest_branch or dest_repo.default_branch
     print(f"Target branch: {dest_branch}", file=sys.stderr)
 
-    # GitHub requires "owner:branch" for cross-repo PRs; plain "branch" for same-repo.
+    # head_filter: GitHub's get_pulls API always requires "owner:branch" format.
+    # head_for_create: create_pull uses "owner:branch" for cross-repo, plain branch for same-repo.
     is_cross_repo = src_owner.lower() != dest_owner.lower()
-    head = f"{src_owner}:{args.src_branch}" if is_cross_repo else args.src_branch
+    head_filter    = f"{src_owner}:{args.src_branch}"
+    head_for_create = head_filter if is_cross_repo else args.src_branch
 
     # ── Idempotency check ──────────────────────────────────────────────────────
-    print(f"Checking for existing open PR (head: {head})...", file=sys.stderr)
-    existing = find_existing_pr(dest_repo, head, dest_branch)
+    print(f"Checking for existing open PR (head: {head_filter})...", file=sys.stderr)
+    existing = find_existing_pr(dest_repo, head_filter, dest_branch, warn_closed=True)
     if existing:
         print(f"  Open PR already exists: {existing.html_url}", file=sys.stderr)
         print(existing.html_url)
@@ -171,12 +200,12 @@ def main() -> None:
         sys.exit(1)
 
     # ── Create PR ──────────────────────────────────────────────────────────────
-    print(f"Creating PR: {head} → {dest_owner}/{dest_repo_name}:{dest_branch}", file=sys.stderr)
+    print(f"Creating PR: {head_for_create} → {dest_owner}/{dest_repo_name}:{dest_branch}", file=sys.stderr)
     try:
         pr = dest_repo.create_pull(
             title=args.title,
             body=args.description,
-            head=head,
+            head=head_for_create,
             base=dest_branch,
             maintainer_can_modify=True,
         )
@@ -184,7 +213,7 @@ def main() -> None:
         if exc.status == 422:
             # Rare race condition: PR appeared between our check and create
             print("  PR creation returned 422 (conflict). Searching for existing PR...", file=sys.stderr)
-            existing = find_existing_pr(dest_repo, head, dest_branch)
+            existing = find_existing_pr(dest_repo, head_filter, dest_branch)
             if existing:
                 print(f"  Found existing PR: {existing.html_url}", file=sys.stderr)
                 print(existing.html_url)

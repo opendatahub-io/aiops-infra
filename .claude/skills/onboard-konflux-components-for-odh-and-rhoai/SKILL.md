@@ -92,9 +92,15 @@ Output files (all under `$WORKDIR`):
 
 | File | Purpose |
 |------|---------|
-| `monitor_<step>.log` | Combined stdout/stderr from the monitor |
+| `monitor_<step>.log` | Full per-step log including quiet polling output |
 | `monitor_<step>.result` | Single line: `merged`, `closed`, `pipeline_failed`, or `timeout` |
 | `monitor_<step>.pid` | PID of the background nohup process |
+| `events.log` | Shared log of significant events across all monitors (merges, Jira updates, retries) |
+
+**Live view:** run `watch_monitors.sh` in a terminal to follow significant events in real time:
+```bash
+bash "$COMMON_SCRIPTS_DIR/watch_monitors.sh" --workdir "$WORKDIR"
+```
 
 **Retry behaviour:** on connection errors or unexpected exits (e.g. GitLab `RemoteDisconnected`),
 `monitor_pr.sh` sleeps 60 s and retries automatically. Monitors survive transient VPN drops.
@@ -401,11 +407,6 @@ captured from the child skill's Step 10 (Raise PR):
 2. No background monitor launch needed.
 3. Return to the wrapper.
 
-> **SHA256 placeholder warning:** The bundle PR contains a placeholder SHA256 digest in
-> `bundle/bundle-patch.yaml`. This **must** be replaced with the actual image digest from
-> the Konflux build **before the PR is merged**. The digest is only available after the
-> Tekton PR (Step 5) merges and a successful Konflux build completes.
-
 ---
 
 ## Step 10: Launch Deferred Workflow Trigger (Background)
@@ -450,7 +451,7 @@ BUILD_TYPE="PLACEHOLDER_BUILD_TYPE"
 PIPELINE_STATE="$WORKDIR/pipeline_state.json"
 
 log() { echo "[deferred $(date '+%H:%M:%S')] $*" >> "$WORKDIR/deferred_workflow.log"; }
-log "Started. Waiting for KRD MR and OKC PR to merge."
+log "Started. Waiting for Quay MR, KRD MR, and OKC PR to merge."
 
 wait_for_merge() {
   local label="$1" result_file="$WORKDIR/monitor_${1}.result"
@@ -470,6 +471,13 @@ wait_for_merge() {
   done
 }
 
+wait_for_merge "quay" || {
+  uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+    --comment "Deferred workflow aborted: Quay MR did not merge successfully.
+Check \$WORKDIR/monitor_quay.result and re-trigger the workflow manually." 2>/dev/null || true
+  exit 1
+}
+
 wait_for_merge "krd" || {
   uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --comment "Deferred workflow aborted: KRD MR did not merge successfully.
@@ -484,7 +492,7 @@ Check \$WORKDIR/monitor_okc.result and re-trigger the workflow manually." 2>/dev
   exit 1
 }
 
-log "Both KRD and OKC merged. Triggering odh-konflux-onboarder workflow..."
+log "Quay, KRD, and OKC all merged. Triggering odh-konflux-onboarder workflow..."
 
 RUN_ID=$(uv run --script "$COMMON_SCRIPTS_DIR/run_github_workflow.py" trigger \
   --repo-url "$OKC_URL" \
@@ -710,10 +718,7 @@ All PRs and MRs merged:
   Step 4 — OKC PR      : $O_PR
   Step 5 — Tekton PR   : $T_PR
   Step 6 — Operator PR : $OP_PR
-  Step 7 — Bundle PR   : $B_PR
-
-WARNING: If Bundle PR is still open, replace the SHA256 placeholder in
-bundle/bundle-patch.yaml with the actual Konflux image digest before merging." \
+  Step 7 — Bundle PR   : $B_PR" \
       2>/dev/null || true
 
     jq '.all_done = true' "$PIPELINE_STATE" > "$PIPELINE_STATE.tmp" && \
@@ -778,13 +783,12 @@ Background processes:
   deferred_workflow.pid  log: $WORKDIR/deferred_workflow.log
   monitor_completion.pid log: $WORKDIR/monitor_completion.log
 
+Live event stream (merges, Jira updates, retries — run in a separate terminal):
+  bash "$COMMON_SCRIPTS_DIR/watch_monitors.sh" --workdir "$WORKDIR"
+
 State file: $WORKDIR/pipeline_state.json
 
 The Jira ticket will move to Resolved automatically when all PRs/MRs are merged.
-
-IMPORTANT: Bundle PR (Step 7) contains a SHA256 placeholder in bundle/bundle-patch.yaml.
-Replace it with the actual Konflux image digest BEFORE merging the bundle PR.
-The digest is available after the Tekton PR (Step 5) merges and a Konflux build succeeds.
 ```
 
 ---
