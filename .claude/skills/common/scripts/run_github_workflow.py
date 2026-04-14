@@ -236,7 +236,7 @@ def cmd_trigger(args, token: str) -> None:
     while time.time() < deadline:
         time.sleep(5)
         try:
-            runs = repo.get_workflow_runs(workflow_id=target_workflow.id)
+            runs = target_workflow.get_runs()
             for run in runs:
                 # GitHub returns runs newest-first; stop scanning after runs that
                 # are clearly older than our dispatch time
@@ -368,7 +368,7 @@ def cmd_get_step_logs(args, token: str) -> None:
     matched_job = None
     matched_step_name = None
     try:
-        jobs = list(run.get_jobs())
+        jobs = list(run.jobs())
     except GithubException as exc:
         print(f"ERROR: Failed to fetch jobs for run #{run_id}: {exc}", file=sys.stderr)
         sys.exit(1)

@@ -1,6 +1,6 @@
 ---
 name: integrate-component-with-bundle
-description: Updates the ODH-Build-Config repository with a new component's relatedImages entry (bundle/bundle-patch.yaml) and repo_mappings entry (config/build-config.yaml), then raises a GitHub PR. Automates Step 8 of the ODH component onboarding pipeline.
+description: Updates the ODH-Build-Config repository with a new component's relatedImages entry (bundle/bundle-patch.yaml), then raises a GitHub PR. Automates Step 8 of the ODH component onboarding pipeline.
 allowed-tools: Bash, Read, Edit, Write
 user-invocable: true
 ---
@@ -9,8 +9,7 @@ user-invocable: true
 
 Updates the `ODH-Build-Config` repository for a new component by:
 1. Adding a `relatedImages` entry to `bundle/bundle-patch.yaml`.
-2. Adding a `repo_mappings` entry to `config/build-config.yaml`.
-3. Raising a GitHub PR for both changes in a single branch.
+2. Raising a GitHub PR for the change.
 
 > **CRITICAL — `OBC_URL` is the single source of truth for every Git and GitHub
 > operation in this skill.**
@@ -177,11 +176,8 @@ fi
 RELATED_IMAGE_NAME="RELATED_IMAGE_$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:upper:]_')_IMAGE"
 # e.g. odh-ai-first-demo → RELATED_IMAGE_ODH_AI_FIRST_DEMO_IMAGE
 
-# relatedImages entry value (SHA256 is a placeholder — must be updated before merge)
-RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-
-# repo_mappings key/value (both identical)
-REPO_MAPPING_ENTRY="${QUAY_ORG}/${COMPONENT_NAME}: ${QUAY_ORG}/${COMPONENT_NAME}"
+# relatedImages entry value with a randomly generated SHA256
+RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@sha256:$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 ```
 
 Print a summary:
@@ -190,7 +186,6 @@ Component: $COMPONENT_NAME
 Product context: $PRODUCT_CONTEXT → QUAY_ORG=$QUAY_ORG
 Related image name: $RELATED_IMAGE_NAME
 Related image value: $RELATED_IMAGE_VALUE
-Repo mapping: $REPO_MAPPING_ENTRY
 Repo: $OBC_URL
 ```
 
@@ -321,7 +316,7 @@ PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
   --src-url "$OBC_URL" \
   --src-branch main \
   --dest-branch "<jira-id>" \
-  --sparse-files "bundle config")
+  --sparse-files "bundle")
 ```
 
 Parse `PLAYPEN_OUTPUT` from stdout:
@@ -382,51 +377,16 @@ If verification fails, fix with another `Edit` call before continuing.
 
 ---
 
-## Step 8: Update config/build-config.yaml
-
-Use the `Read` tool to read `$CLONE_DIR/config/build-config.yaml`.
-
-If the file does not exist, stop with:
-```
-ERROR in Step 8: config/build-config.yaml not found in $CLONE_DIR.
-  Verify that $OBC_URL points to the correct ODH-Build-Config repository.
-```
-
-Locate `config.replacements[0].repo_mappings`. It will look like:
-```yaml
-config:
-  replacements:
-    - repo_mappings:
-        opendatahub/existing-component: opendatahub/existing-component
-        opendatahub/another-component: opendatahub/another-component
-```
-
-**Check if `$QUAY_ORG/$COMPONENT_NAME` already appears as a key in `repo_mappings`:**
-- **Already present**: Print `$QUAY_ORG/$COMPONENT_NAME already in build-config.yaml repo_mappings — skipping edit.`
-- **Not present**: Use the `Edit` tool to insert the new entry into `repo_mappings` in
-  **alphabetical order** among existing keys. Match surrounding indentation (typically 8 spaces):
-  ```yaml
-          $QUAY_ORG/$COMPONENT_NAME: $QUAY_ORG/$COMPONENT_NAME
-  ```
-
-After editing, verify with the `Read` tool that:
-- `$QUAY_ORG/$COMPONENT_NAME: $QUAY_ORG/$COMPONENT_NAME` is present under `repo_mappings`
-- Surrounding entries are undisturbed and indentation is consistent
-
-If verification fails, fix with another `Edit` call before continuing.
-
----
-
-## Step 9: Commit and Push
+## Step 8: Commit and Push
 
 > **Reminder:** `origin` was set to `$OBC_URL` by `setup_github_playpen.sh` in Step 6.
 > Pushing to `origin` is correct — do NOT change the remote URL here.
 
 ```bash
 cd "$CLONE_DIR"
-git add bundle/bundle-patch.yaml config/build-config.yaml
-git status   # verify only the expected files are staged
-git commit -m "Add $COMPONENT_NAME to bundle-patch.yaml and build-config.yaml"
+git add bundle/bundle-patch.yaml
+git status   # verify only the expected file is staged
+git commit -m "Add $COMPONENT_NAME to bundle-patch.yaml"
 git push origin "$DEST_BRANCH"
 ```
 
@@ -438,12 +398,12 @@ git push origin "$DEST_BRANCH"
 
 On any other push failure, display stderr and stop with:
 ```
-ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH' to origin. See details above.
+ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH' to origin. See details above.
 ```
 
 ---
 
-## Step 10: Raise PR (up to 3 attempts)
+## Step 9: Raise PR (up to 3 attempts)
 
 > **Reminder:** Both `--src-url` and `--dest-url` must be `"$OBC_URL"`. Do NOT replace
 > either with the hardcoded upstream URL.
@@ -454,8 +414,8 @@ PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$OBC_URL" \
   --dest-branch main \
-  --title "Add $COMPONENT_NAME to bundle-patch.yaml and build-config.yaml" \
-  --description "Adds '$COMPONENT_NAME' to the ODH-Build-Config bundle and build config.
+  --title "Add $COMPONENT_NAME to bundle-patch.yaml" \
+  --description "Adds '$COMPONENT_NAME' to the ODH-Build-Config bundle relatedImages.
 
 Component: $COMPONENT_NAME
 Product context: $PRODUCT_CONTEXT
@@ -463,16 +423,8 @@ Quay org: $QUAY_ORG
 Upstream repo: $REPO_URL @ $REPO_BRANCH
 Jira: <jira-url>
 
-**Files changed:**
-- \`bundle/bundle-patch.yaml\` — added \`$RELATED_IMAGE_NAME\` to \`patch.relatedImages\`
-- \`config/build-config.yaml\` — added \`$QUAY_ORG/$COMPONENT_NAME\` to \`repo_mappings\`
-
-> ⚠️  **Action required before merge:** Replace the SHA256 placeholder in
-> \`bundle/bundle-patch.yaml\` for \`$RELATED_IMAGE_NAME\`:
->
->     value: quay.io/$QUAY_ORG/$COMPONENT_NAME@sha256:0000...0000
->
-> Update it with the actual image digest from the Konflux build.")
+**File changed:**
+- \`bundle/bundle-patch.yaml\` — added \`$RELATED_IMAGE_NAME\` to \`patch.relatedImages\`")
 ```
 
 On success: `PR_URL` contains the URL printed to stdout.
@@ -484,7 +436,7 @@ On failure:
 
 After 3 failures, stop with:
 ```
-ERROR in Step 10 (Raise PR): Could not create PR after 3 attempts. See errors above. Aborting.
+ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. See errors above. Aborting.
 ```
 
 After a successful PR creation, update Jira:
@@ -495,12 +447,86 @@ uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
 
 PR URL: $PR_URL
 
-Files changed:
-- bundle/bundle-patch.yaml: $RELATED_IMAGE_NAME added to patch.relatedImages
-- config/build-config.yaml: $QUAY_ORG/$COMPONENT_NAME added to repo_mappings
+File changed:
+- bundle/bundle-patch.yaml: $RELATED_IMAGE_NAME added to patch.relatedImages"
+```
 
-⚠️  The SHA256 digest placeholder in bundle-patch.yaml must be replaced with the actual
-image digest from the Konflux build before this PR is merged."
+---
+
+## Step 10: Monitor the PR
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
+  --pr-url "$PR_URL" \
+  --timeout 60
+```
+
+Read the stdout result:
+
+**`merged` (exit 0):** PR merged.
+
+Update Jira:
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+  --remove-label "obc-changes-done" \
+  --add-label "obc-pr-merged" \
+  --comment "ODH-Build-Config PR merged: $PR_URL
+
+bundle/bundle-patch.yaml for '$COMPONENT_NAME' is now live on main.
+
+Step 8 (Integrate with Bundle) is complete."
+```
+
+Continue to Step 12.
+
+**`closed` (exit 1):** PR closed without merging.
+
+Update Jira:
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+  --comment "ODH-Build-Config PR was closed without merging: $PR_URL
+
+Please review and re-trigger if needed."
+```
+
+Stop with:
+```
+ERROR in Step 11: PR was closed without merging.
+PR: $PR_URL
+```
+
+**`pipeline_failed` or `pipeline_canceled` (exit 1):** CI checks failed on the PR.
+
+Update Jira:
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+  --comment "CI checks failed on ODH-Build-Config PR: $PR_URL
+
+Please review the PR checks and push a fix, then re-run this skill to resume monitoring."
+```
+
+Stop with:
+```
+ERROR in Step 11: CI checks failed on PR $PR_URL.
+Manual intervention required — review the PR and push a fix, then re-run.
+```
+
+**`timeout` (exit 1):** PR still open after 60 minutes.
+
+Update Jira:
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+  --comment "PR monitoring timed out after 60 minutes. PR is still open: $PR_URL
+
+Re-run /integrate-component-with-bundle to resume — at Step 5 it will detect the
+existing PR and jump straight to monitoring."
+```
+
+Print:
+```
+WARNING: PR monitoring timed out after 60 minutes.
+PR is still open: $PR_URL
+Re-run this skill to resume monitoring (Step 5 will skip raising a new PR).
 ```
 
 ---
@@ -512,9 +538,8 @@ Print:
 Done.
 
   bundle/bundle-patch.yaml    — $RELATED_IMAGE_NAME added to patch.relatedImages
-  config/build-config.yaml    — $QUAY_ORG/$COMPONENT_NAME added to repo_mappings
-  GitHub PR                   — raised: $PR_URL
-  Jira                        — updated (label: obc-changes-done)
+  GitHub PR                   — merged: $PR_URL
+  Jira                        — updated (label: obc-pr-merged)
 
   component_name              : $COMPONENT_NAME
   product_context             : $PRODUCT_CONTEXT
@@ -522,8 +547,7 @@ Done.
   related_image_name          : $RELATED_IMAGE_NAME
   repo                        : $OBC_URL
 
-⚠️  Before merging the PR: replace the SHA256 placeholder in bundle-patch.yaml
-    with the actual image digest from the Konflux build for $COMPONENT_NAME.
+Step 8 (Integrate with Bundle) is complete.
 ```
 
 ---
@@ -543,7 +567,9 @@ Done.
 | Existing open PR found | Step 5 | Expected — Jira updated; merge the existing PR |
 | PR already merged | Step 5 | Expected — skill exits 0 cleanly |
 | `bundle/bundle-patch.yaml` not found in clone | Step 7 | Check `OBC_URL` points to the correct repo |
-| `config/build-config.yaml` not found in clone | Step 8 | Check `OBC_URL` points to the correct repo |
 | Clone or push fails | Step 6 | Check GITHUB_TOKEN push scope on `$OBC_PATH` |
-| Shallow push rejected | Steps 6, 9 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
-| PR creation fails 3× | Step 10 | Check GITHUB_TOKEN; verify branch was pushed; fix manually |
+| Shallow push rejected | Steps 6, 8 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
+| PR creation fails 3× | Step 9 | Check GITHUB_TOKEN; verify branch was pushed; fix manually |
+| PR closed without merge | Step 10 | Review and re-run |
+| PR CI checks failed | Step 10 | Review PR checks; push fix; re-run |
+| PR monitoring timeout | Step 10 | Re-run skill — Step 5 detects existing PR and skips raising a new one |

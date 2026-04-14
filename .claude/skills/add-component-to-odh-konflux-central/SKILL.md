@@ -211,9 +211,10 @@ PR_YAML_FILE="${COMPONENT_NAME}-pull-request.yaml"
 # Service account name
 SERVICE_ACCOUNT_NAME="build-pipeline-${COMPONENT_NAME}"
 
-# Output image tag
+# Output image tags (push and pull-request use different tags for CI)
 if [[ "${BUILD_TYPE^^}" == "CI" ]]; then
-  OUTPUT_IMAGE_TAG="odh-stable"
+  PUSH_OUTPUT_IMAGE_TAG="odh-stable"
+  PR_OUTPUT_IMAGE_TAG="odh-pr"
 elif [[ "${BUILD_TYPE^^}" == "RELEASE" ]]; then
   # Use output_image_tag field if present; otherwise ask the user
   OUTPUT_IMAGE_TAG="${inputs_output_image_tag:-}"
@@ -222,6 +223,8 @@ elif [[ "${BUILD_TYPE^^}" == "RELEASE" ]]; then
     echo "  Please add 'output_image_tag: <tag>' under inputs: in the YAML and re-run."
     exit 1
   fi
+  PUSH_OUTPUT_IMAGE_TAG="$OUTPUT_IMAGE_TAG"
+  PR_OUTPUT_IMAGE_TAG="$OUTPUT_IMAGE_TAG"
 else
   echo "ERROR in Step 3c: Unknown BUILD_TYPE '${BUILD_TYPE}'. Expected 'CI' or 'RELEASE'."
   exit 1
@@ -403,7 +406,7 @@ Then apply ALL of the following substitutions using the `Edit` tool on
 | `odh-component-name-ci` | `$KONFLUX_COMPONENT_NAME` | In `appstudio.openshift.io/component` label |
 | `odh-file-name-on-push` | `$PUSH_RUN_NAME` | In `name:` field |
 | `quay.io/opendatahub/quayurl` | `quay.io/$QUAY_ORG/$COMPONENT_NAME` | In `output-image` value |
-| `$$OUTPUT_IMAGE_TAG$$` | `$OUTPUT_IMAGE_TAG` | In `output-image` value |
+| `$$OUTPUT_IMAGE_TAG$$` | `$PUSH_OUTPUT_IMAGE_TAG` | In `output-image` value (`odh-stable` for CI) |
 | `dockerfilepath` | `$DOCKERFILE_PATH` | In `dockerfile` param value |
 | `    value: .` | `    value: $CONTEXT_PATH` | In `path-context` param — match exact indent |
 | `build-pipeline-sa-namw` | `$SERVICE_ACCOUNT_NAME` | Fix typo and set component-specific SA name |
@@ -438,7 +441,7 @@ Then apply ALL of the following substitutions using the `Edit` tool on
 | `odh-component-name-ci` | `$KONFLUX_COMPONENT_NAME` | In `appstudio.openshift.io/component` label |
 | `  name: #odh-file-name-on-pull-request` | `  name: $PR_RUN_NAME` | Remove `#` comment marker; exact leading spaces matter |
 | `quay.io/opendatahub/quayurl` | `quay.io/$QUAY_ORG/$COMPONENT_NAME` | In `output-image` value |
-| `$$OUTPUT_IMAGE_TAG$$` | `$OUTPUT_IMAGE_TAG` | In `output-image` value |
+| `$$OUTPUT_IMAGE_TAG$$` | `$PR_OUTPUT_IMAGE_TAG` | In `output-image` value (`odh-pr` for CI) |
 | `dockerfilepath` | `$DOCKERFILE_PATH` | In `dockerfile` param value |
 | `    value: .` | `    value: $CONTEXT_PATH` | In `path-context` param — match exact indent |
 | `    serviceAccountName: #build-pipeline-sa-name` | `    serviceAccountName: $SERVICE_ACCOUNT_NAME` | Remove `#` comment marker and set component-specific SA name |
@@ -684,7 +687,8 @@ their resolved values:
 | `odh-file-name-on-push` | `$PUSH_RUN_NAME` | Push template `name:` field (`$COMPONENT_NAME-on-push`) |
 | `#odh-file-name-on-pull-request` | `$PR_RUN_NAME` | PR template — remove `#` too (`$COMPONENT_NAME-on-pull-request`) |
 | `quay.io/opendatahub/quayurl` | `quay.io/$QUAY_ORG/$COMPONENT_NAME` | Both templates |
-| `$$OUTPUT_IMAGE_TAG$$` | `$OUTPUT_IMAGE_TAG` | Both templates |
+| `$$OUTPUT_IMAGE_TAG$$` | `$PUSH_OUTPUT_IMAGE_TAG` (`odh-stable` for CI) | Push template only |
+| `$$OUTPUT_IMAGE_TAG$$` | `$PR_OUTPUT_IMAGE_TAG` (`odh-pr` for CI) | PR template only |
 | `dockerfilepath` | `$DOCKERFILE_PATH` | Both templates |
 | `    value: .` | `    value: $CONTEXT_PATH` | path-context param, both templates |
 | `build-pipeline-sa-namw` | `$SERVICE_ACCOUNT_NAME` | Push template — fix typo, set `build-pipeline-$COMPONENT_NAME` |
