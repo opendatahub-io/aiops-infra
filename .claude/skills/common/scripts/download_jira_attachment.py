@@ -25,7 +25,7 @@ Arguments:
   jira_url              Full URL of the Jira issue, e.g.:
                         https://redhat.atlassian.net/browse/RHOAIENG-1234
   attachment_filename   Exact filename of the attachment to download, e.g.:
-                        odh_component_details.yaml
+                        component_onboarding_details.yaml
 
 Output:
   ./<attachment_filename>  — Downloaded file (written to CWD, always overwrites)
@@ -145,7 +145,7 @@ def main() -> None:
     )
     parser.add_argument(
         "attachment_filename",
-        help="Exact filename of the attachment to download (e.g., odh_component_details.yaml)",
+        help="Exact filename of the attachment to download (e.g., component_onboarding_details.yaml)",
     )
     args = parser.parse_args()
 

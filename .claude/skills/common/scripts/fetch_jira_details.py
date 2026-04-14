@@ -9,7 +9,7 @@ Fetch all details of a Jira issue and save them as JSON.
 
 Connects to the Atlassian Cloud Jira instance at https://redhat.atlassian.net using
 basic authentication (email + API token). Writes all issue fields to
-odh_component_details.json in the current working directory, overwriting any existing file.
+component_onboarding_details.json in the current working directory, overwriting any existing file.
 
 Authentication:
   JIRA_USER_EMAIL  — required; your Atlassian account email address
@@ -24,7 +24,7 @@ Arguments:
               https://redhat.atlassian.net/browse/RHOAIENG-1234
 
 Output:
-  ./odh_component_details.json  — All issue fields as JSON (written to CWD)
+  ./component_onboarding_details.json  — All issue fields as JSON (written to CWD)
 
 Exit codes:
   0  Success
@@ -41,7 +41,7 @@ from jira import JIRA
 from jira.exceptions import JIRAError
 
 DEFAULT_JIRA_SERVER = "https://redhat.atlassian.net"
-OUTPUT_FILENAME = "odh_component_details.json"
+OUTPUT_FILENAME = "component_onboarding_details.json"
 
 
 def get_jira_client() -> JIRA:

@@ -166,10 +166,10 @@ bash <COMMON_SCRIPTS_DIR>/check_quay_repo.sh quay.io/<org>/<repo>
 
 ## Step 4: Check for Existing Open MR in Jira Comments
 
-This step only runs if `$WORKDIR/odh_component_details.json` exists (produced by the
+This step only runs if `$WORKDIR/component_onboarding_details.json` exists (produced by the
 `validate-component-onboarding-jira` skill).
 
-Use the `Read` tool to read `$WORKDIR/odh_component_details.json`.
+Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
 
 Search the array at `fields.comment.comments[].body` for GitLab MR URLs matching the
 regular expression:

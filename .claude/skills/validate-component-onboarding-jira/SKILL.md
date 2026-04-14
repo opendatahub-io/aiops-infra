@@ -1,6 +1,6 @@
 ---
 name: validate-component-onboarding-jira
-description: Pre-flight validation tool for ODH component onboarding. Given a Jira issue URL, fetches issue details, downloads the odh_component_details.yaml attachment, and validates it against the JSON Schema. Use before invoking the full onboarding automation to confirm a ticket is correctly set up.
+description: Pre-flight validation tool for ODH component onboarding. Given a Jira issue URL, fetches issue details, downloads the component_onboarding_details.yaml attachment, and validates it against the JSON Schema. Use before invoking the full onboarding automation to confirm a ticket is correctly set up.
 allowed-tools: Bash
 user-invocable: true
 ---
@@ -9,8 +9,8 @@ user-invocable: true
 
 Pre-flight validation for ODH component onboarding. Given a Jira issue URL, this skill:
 1. Fetches all details of the Jira issue and saves them as JSON
-2. Downloads the `odh_component_details.yaml` attachment from the issue
-3. Validates the YAML against the `odh_component_details.schema.json` schema in the skill assets
+2. Downloads the `component_onboarding_details.yaml` attachment from the issue
+3. Validates the YAML against the `component_onboarding_details.schema.json` schema in the skill assets
 
 Any failure is a hard blocker. The skill exits with a clear error message.
 
@@ -72,10 +72,10 @@ echo "Working directory: $(pwd)/<issue_id>"
 Run from inside the working directory so the output file lands there:
 
 ```bash
-(cd <absolute_path>/<issue_id> && uv run --script <SKILL_DIR>/scripts/fetch_jira_details.py <jira_url>)
+(cd <absolute_path>/<issue_id> && uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira_url>)
 ```
 
-On success: `<issue_id>/odh_component_details.json` is created.
+On success: `<issue_id>/component_onboarding_details.json` is created.
 On failure (exit code 1): display the script's stderr, then attempt a best-effort Jira update (it may also fail if credentials are the root cause — suppress any error from the update call), then stop:
 
 ```bash
@@ -99,10 +99,10 @@ Then stop with: `"ERROR in Step 1 (Fetch Jira Details): <message>. Aborting."`
 Run from inside the working directory:
 
 ```bash
-(cd <absolute_path>/<issue_id> && uv run --script <SKILL_DIR>/scripts/download_jira_attachment.py <jira_url> odh_component_details.yaml)
+(cd <absolute_path>/<issue_id> && uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py <jira_url> component_onboarding_details.yaml)
 ```
 
-On success: `<issue_id>/odh_component_details.yaml` is created.
+On success: `<issue_id>/component_onboarding_details.yaml` is created.
 On failure (exit code 1): display stderr, update the Jira issue, then stop:
 
 ```bash
@@ -111,9 +111,9 @@ uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
   --remove-label "validation-successful" \
   --comment "Validation failed at Step 2 (Download Attachment).
 
-The required attachment 'odh_component_details.yaml' was not found on this issue.
+The required attachment 'component_onboarding_details.yaml' was not found on this issue.
 
-Please attach a valid 'odh_component_details.yaml' file to this ticket and re-run /validate-component-onboarding-jira."
+Please attach a valid 'component_onboarding_details.yaml' file to this ticket and re-run /validate-component-onboarding-jira."
 ```
 
 Then stop with: `"ERROR in Step 2 (Download Attachment): <message>. Aborting."`
@@ -121,9 +121,9 @@ Then stop with: `"ERROR in Step 2 (Download Attachment): <message>. Aborting."`
 ### Step 5: Validate YAML against schema
 
 ```bash
-uv run --script <SKILL_DIR>/scripts/validate_yaml_schema.py \
-  <absolute_path>/<issue_id>/odh_component_details.yaml \
-  <SKILL_DIR>/assets/odh_component_details.schema.json
+uv run --script <COMMON_SCRIPTS_DIR>/validate_yaml_schema.py \
+  <absolute_path>/<issue_id>/component_onboarding_details.yaml \
+  <SKILL_DIR>/assets/component_onboarding_details.schema.json
 ```
 
 On success (exit code 0): print "Validation passed." and continue to Step 6.
@@ -135,7 +135,7 @@ uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
   --remove-label "validation-successful" \
   --comment "Validation failed at Step 3 (Schema Validation).
 
-The 'odh_component_details.yaml' attachment did not pass schema validation.
+The 'component_onboarding_details.yaml' attachment did not pass schema validation.
 
 Errors found:
 <validation_errors>
@@ -157,7 +157,7 @@ uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
 
 All pre-flight checks completed successfully:
 - Jira issue details fetched
-- odh_component_details.yaml attachment downloaded
+- component_onboarding_details.yaml attachment downloaded
 - Schema validation passed
 
 This ticket is ready for onboarding automation. Moving to In Progress." \
@@ -169,8 +169,8 @@ Then print:
 ```
 Validation complete for <issue_id>.
 
-  odh_component_details.json  — Jira issue details saved
-  odh_component_details.yaml  — Attachment downloaded
+  component_onboarding_details.json  — Jira issue details saved
+  component_onboarding_details.yaml  — Attachment downloaded
   Schema validation            — PASSED
   Jira issue updated           — label: validation-successful, status: In Progress
 

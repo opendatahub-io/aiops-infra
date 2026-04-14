@@ -17,8 +17,8 @@ Usage:
   validate_yaml_schema.py <yaml_file> <schema_file>
 
 Arguments:
-  yaml_file     Path to the YAML file to validate (e.g., odh_component_details.yaml)
-  schema_file   Path to the JSON Schema file (e.g., odh_component_details.schema.json)
+  yaml_file     Path to the YAML file to validate (e.g., component_onboarding_details.yaml)
+  schema_file   Path to the JSON Schema file (e.g., component_onboarding_details.schema.json)
 
 Output (stdout):
   On success:  "Validation passed."

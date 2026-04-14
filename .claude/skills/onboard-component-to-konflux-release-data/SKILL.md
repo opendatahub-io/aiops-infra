@@ -41,7 +41,7 @@ Examples:
 **Network:** Both `gitlab.cee.redhat.com` and the Konflux OpenShift cluster require
 **VPN to be active**.
 
-**Jira attachment:** The Jira issue must have `odh_component_details.yaml` attached. This
+**Jira attachment:** The Jira issue must have `component_onboarding_details.yaml` attached. This
 YAML is the source of truth for all component parameters (repo URL, branch, Dockerfile path,
 context path, etc.).
 
@@ -49,7 +49,7 @@ context path, etc.).
 
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
 COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-VALIDATE_SKILL_DIR is `<SKILL_DIR>/../validate-component-onboarding-jira`.
+
 
 ---
 
@@ -151,14 +151,14 @@ cd "$WORKDIR"
 
 ## Step 3: Fetch Jira Details and Component YAML
 
-This step ensures both `odh_component_details.json` (full Jira issue) and
-`odh_component_details.yaml` (component parameters) exist in `$WORKDIR`.
+This step ensures both `component_onboarding_details.json` (full Jira issue) and
+`component_onboarding_details.yaml` (component parameters) exist in `$WORKDIR`.
 
-**3a. Fetch Jira issue details** (skip if `$WORKDIR/odh_component_details.json` already exists):
+**3a. Fetch Jira issue details** (skip if `$WORKDIR/component_onboarding_details.json` already exists):
 
 ```bash
 cd "$WORKDIR"
-uv run --script <VALIDATE_SKILL_DIR>/scripts/fetch_jira_details.py <jira-url>
+uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
 ```
 
 On exit 1: display stderr and stop with:
@@ -166,23 +166,23 @@ On exit 1: display stderr and stop with:
 ERROR in Step 3a (Fetch Jira details): Could not fetch Jira issue. See details above. Aborting.
 ```
 
-On success: `$WORKDIR/odh_component_details.json` is written.
+On success: `$WORKDIR/component_onboarding_details.json` is written.
 
-**3b. Download component YAML** (skip if `$WORKDIR/odh_component_details.yaml` already exists):
+**3b. Download component YAML** (skip if `$WORKDIR/component_onboarding_details.yaml` already exists):
 
 ```bash
 cd "$WORKDIR"
-uv run --script <VALIDATE_SKILL_DIR>/scripts/download_jira_attachment.py \
-  <jira-url> odh_component_details.yaml
+uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+  <jira-url> component_onboarding_details.yaml
 ```
 
 On exit 1: display stderr and stop with:
 ```
-ERROR in Step 3b (Download YAML): Could not download 'odh_component_details.yaml' from Jira.
+ERROR in Step 3b (Download YAML): Could not download 'component_onboarding_details.yaml' from Jira.
   Ensure the attachment exists on the Jira issue before running this skill.
 ```
 
-**3c. Parse the YAML** using the `Read` tool to read `$WORKDIR/odh_component_details.yaml`.
+**3c. Parse the YAML** using the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
 
 Extract and store these values (all are under the `inputs:` key):
 
@@ -200,7 +200,7 @@ Compute `KONFLUX_COMPONENT_NAME`:
 
 If any required field is missing, stop with:
 ```
-ERROR in Step 3c: Missing required field '<field>' in odh_component_details.yaml. Aborting.
+ERROR in Step 3c: Missing required field '<field>' in component_onboarding_details.yaml. Aborting.
 ```
 
 ---
@@ -211,7 +211,7 @@ Set `PRODUCT_CONTEXT` to `ODH` or `RHOAI` using the following rules in order:
 
 1. **From Jira key prefix**: if `<jira-id>` starts with `RHOAIENG` → `RHOAI`; if it starts
    with `RHODS` → `ODH`.
-2. **From Jira title** (in `odh_component_details.json` at `fields.summary`): if the title
+2. **From Jira title** (in `component_onboarding_details.json` at `fields.summary`): if the title
    contains "RHOAI" (case-insensitive) → `RHOAI`; if it contains "ODH" → `ODH`.
 3. **Fallback**: Ask the user:
    > I could not determine the product context (ODH or RHOAI) from the Jira key or title.
@@ -260,7 +260,7 @@ bash <COMMON_SCRIPTS_DIR>/check_konflux_component.sh \
 
 ## Step 6: Check for Existing Open MR in Jira Comments
 
-Use the `Read` tool to read `$WORKDIR/odh_component_details.json`.
+Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
 
 Search the array at `fields.comment.comments[].body` for GitLab MR URLs matching:
 ```
@@ -651,7 +651,7 @@ at Step 5 once the Component exists."
 | `JIRA_API_TOKEN` not set | Step 1 | `export JIRA_API_TOKEN=your-token` |
 | `uv` not installed | Step 1 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | `oc` not installed | Step 1 | Download from console.redhat.com/openshift/downloads |
-| `odh_component_details.yaml` not attached to Jira | Step 3b | Upload the YAML to the Jira issue |
+| `component_onboarding_details.yaml` not attached to Jira | Step 3b | Upload the YAML to the Jira issue |
 | VPN not active | Steps 5, 7, 9, 10 | Activate VPN and re-run |
 | `OC_TOKEN` not set | Step 5 | `export OC_TOKEN=<token-from-openshift-console>` |
 | Shallow push rejected | Steps 7, 9 | `git fetch --unshallow origin` then retry push |

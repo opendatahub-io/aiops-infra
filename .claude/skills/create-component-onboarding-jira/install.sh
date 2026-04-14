@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Install the validate-component-onboarding-jira Claude Code skill
+# install.sh — Install the create-component-onboarding-jira Claude Code skill
 #
 # Usage:
 #   ./install.sh              # installs to ~/.claude/skills/ (global, default)
@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-SKILL_NAME="validate-component-onboarding-jira"
+SKILL_NAME="create-component-onboarding-jira"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Colours ────────────────────────────────────────────────────────────────────
@@ -37,18 +37,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Default: global install
-if [[ -z "$TARGET_DIR" ]]; then
-  TARGET_DIR="${HOME}/.claude/skills/${SKILL_NAME}"
-fi
+[[ -z "$TARGET_DIR" ]] && TARGET_DIR="${HOME}/.claude/skills/${SKILL_NAME}"
 
+VALIDATE_SKILL_DIR="${TARGET_DIR}/../validate-component-onboarding-jira"
 COMMON_DIR="${TARGET_DIR}/../common/scripts"
-COMMON_SRC="${SCRIPT_DIR}/../common/scripts"
 
 echo ""
 echo -e "${BOLD}Installing ${SKILL_NAME}${RESET}"
-echo "  Source        : ${SCRIPT_DIR}"
-echo "  Target        : ${TARGET_DIR}"
-echo "  Common scripts: ${COMMON_DIR}"
+echo "  Source : ${SCRIPT_DIR}"
+echo "  Target : ${TARGET_DIR}"
 echo ""
 
 # ── Step 1: Check prerequisites ────────────────────────────────────────────────
@@ -74,103 +71,71 @@ else
   success "uv $(uv --version 2>/dev/null | head -1 | awk '{print $2}') (already installed)"
 fi
 
-# ── Step 2: Create directories ─────────────────────────────────────────────────
-info "Creating directories..."
-mkdir -p "${TARGET_DIR}/assets" "${COMMON_DIR}"
-success "Directory ready: ${TARGET_DIR}"
-success "Directory ready: ${COMMON_DIR}"
+# ── Step 2: Verify adjacent skill dependencies ─────────────────────────────────
+info "Checking adjacent skill dependencies..."
+
+if [[ ! -f "${VALIDATE_SKILL_DIR}/SKILL.md" ]]; then
+  die "validate-component-onboarding-jira skill not found at: ${VALIDATE_SKILL_DIR}
+  Install it first:
+    cd $(dirname "${SCRIPT_DIR}")/validate-component-onboarding-jira && ./install.sh --project"
+fi
+success "validate-component-onboarding-jira: found"
+
+if [[ ! -f "${COMMON_DIR}/fetch_jira_details.py" ]]; then
+  die "Missing: ${COMMON_DIR}/fetch_jira_details.py"
+fi
+success "common/scripts/fetch_jira_details.py: found"
+
+if [[ ! -f "${COMMON_DIR}/validate_yaml_schema.py" ]]; then
+  die "Missing: ${COMMON_DIR}/validate_yaml_schema.py"
+fi
+success "common/scripts/validate_yaml_schema.py: found"
+
+if [[ ! -f "${VALIDATE_SKILL_DIR}/assets/component_onboarding_details.schema.json" ]]; then
+  die "Missing: ${VALIDATE_SKILL_DIR}/assets/component_onboarding_details.schema.json"
+fi
+success "validate-component-onboarding-jira/assets/component_onboarding_details.schema.json: found"
+
+if [[ ! -f "${COMMON_DIR}/update_jira_issue.py" ]]; then
+  die "Common script not found: ${COMMON_DIR}/update_jira_issue.py
+  Ensure the full skills directory is present, not just this skill subdirectory."
+fi
+success "common/scripts/update_jira_issue.py: found"
 
 # ── Step 3: Copy skill files ───────────────────────────────────────────────────
+info "Creating skill directory..."
+mkdir -p "${TARGET_DIR}"
+success "Directory ready: ${TARGET_DIR}"
+
 info "Copying skill files..."
 cp "${SCRIPT_DIR}/SKILL.md" "${TARGET_DIR}/SKILL.md"
-cp "${SCRIPT_DIR}/assets/component_onboarding_details.schema.json" \
-   "${TARGET_DIR}/assets/component_onboarding_details.schema.json"
-success "Copied: SKILL.md"
-success "Copied: assets/component_onboarding_details.schema.json"
+success "Files copied:"
+echo "    SKILL.md"
 
-# ── Step 4: Copy common scripts ───────────────────────────────────────────────
-info "Copying common scripts..."
-
-COMMON_SCRIPTS=(
-  "fetch_jira_details.py"
-  "download_jira_attachment.py"
-  "validate_yaml_schema.py"
-  "update_jira_issue.py"
-)
-
-for script in "${COMMON_SCRIPTS[@]}"; do
-  src="${COMMON_SRC}/${script}"
-  if [[ -f "$src" ]]; then
-    cp "$src" "${COMMON_DIR}/${script}"
-    success "Copied: common/scripts/${script}"
-  else
-    die "Source script not found: ${src}
-  Ensure the full skills directory is present, not just this skill subdirectory."
-  fi
-done
-
-# ── Step 5: Set permissions ────────────────────────────────────────────────────
-info "Setting permissions..."
-for pyfile in "${COMMON_DIR}"/*.py; do
-  [[ -f "$pyfile" ]] && chmod +x "$pyfile"
-done
-success "Permissions set."
-
-# ── Step 6: Pre-warm Python dependencies ──────────────────────────────────────
-info "Pre-warming Python script dependencies..."
-echo "  (This downloads and caches packages so the first skill invocation is instant)"
-
-ALL_DEPS_OK=true
-
-pre_warm() {
-  local label="$1"
-  local path="$2"
-  echo -n "    ${label} ... "
-  if uv run --script "$path" --help >/dev/null 2>&1; then
-    echo -e "${GREEN}OK${RESET}"
-  else
-    echo -e "${RED}FAILED${RESET}"
-    warn "Could not pre-install deps for ${label}. They will be fetched on first use."
-    ALL_DEPS_OK=false
-  fi
-}
-
-pre_warm "fetch_jira_details.py"       "${COMMON_DIR}/fetch_jira_details.py"
-pre_warm "download_jira_attachment.py" "${COMMON_DIR}/download_jira_attachment.py"
-pre_warm "validate_yaml_schema.py"     "${COMMON_DIR}/validate_yaml_schema.py"
-pre_warm "update_jira_issue.py"        "${COMMON_DIR}/update_jira_issue.py"
-
-if $ALL_DEPS_OK; then
-  success "All Python dependencies installed and cached."
+# ── Step 4: Pre-warm Python dependencies ──────────────────────────────────────
+# This skill delegates all Jira operations to common/scripts/update_jira_issue.py.
+# Pre-warm it here so the first invocation is instant.
+info "Pre-warming Python dependencies..."
+echo -n "    update_jira_issue.py (jira>=3.0.0) ... "
+if uv run --script "${COMMON_DIR}/update_jira_issue.py" --help >/dev/null 2>&1; then
+  echo -e "${GREEN}OK${RESET}"
 else
-  warn "Some dependencies could not be pre-installed. uv will retry on first skill invocation."
+  echo -e "${RED}FAILED${RESET}"
+  warn "Could not pre-install deps for update_jira_issue.py. They will be fetched on first use."
 fi
 
-# ── Step 7: Verify installed files ────────────────────────────────────────────
+# ── Step 5: Verify installed files ────────────────────────────────────────────
 info "Verifying installation..."
-
-REQUIRED_FILES=(
-  "${TARGET_DIR}/SKILL.md"
-  "${TARGET_DIR}/assets/component_onboarding_details.schema.json"
-  "${COMMON_DIR}/fetch_jira_details.py"
-  "${COMMON_DIR}/download_jira_attachment.py"
-  "${COMMON_DIR}/validate_yaml_schema.py"
-  "${COMMON_DIR}/update_jira_issue.py"
-)
-
 ALL_OK=true
-for f in "${REQUIRED_FILES[@]}"; do
-  if [[ -f "$f" ]]; then
-    success "${f#"${TARGET_DIR}/../"}"
-  else
-    error "Missing: $f"
-    ALL_OK=false
-  fi
-done
-
+if [[ -f "${TARGET_DIR}/SKILL.md" ]]; then
+  success "SKILL.md"
+else
+  error "Missing: SKILL.md"
+  ALL_OK=false
+fi
 $ALL_OK || die "Installation incomplete — some files are missing."
 
-# ── Step 8: Check environment variables ───────────────────────────────────────
+# ── Step 6: Check environment variables ───────────────────────────────────────
 echo ""
 info "Checking Jira credentials..."
 CREDS_OK=true
@@ -190,7 +155,7 @@ else
 fi
 
 if [[ -z "${JIRA_SERVER:-}" ]]; then
-  warn "JIRA_SERVER is not set — will default to https://redhat.atlassian.net"
+  warn "JIRA_SERVER not set — will default to https://redhat.atlassian.net"
 else
   success "JIRA_SERVER=${JIRA_SERVER}"
 fi
@@ -213,5 +178,10 @@ echo -e "${GREEN}${BOLD}Installation complete!${RESET}"
 echo ""
 echo "  Restart Claude Code (or open a new session), then run:"
 echo ""
-echo "    /validate-component-onboarding-jira https://redhat.atlassian.net/browse/RHOAIENG-1234"
+echo "    /create-component-onboarding-jira https://redhat.atlassian.net/browse/RHOAIENG-1234"
+echo "    /create-component-onboarding-jira   # no Jira URL — generates YAML locally only"
+echo ""
+echo "  NOTE: This skill requires:"
+echo "    - validate-component-onboarding-jira skill (already verified above)"
+echo "    - JIRA_USER_EMAIL and JIRA_API_TOKEN when a Jira URL is provided"
 echo ""

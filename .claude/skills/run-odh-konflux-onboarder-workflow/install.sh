@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Install the update-component-using-odh-konflux-central Claude Code skill
+# install.sh — Install the run-odh-konflux-onboarder-workflow Claude Code skill
 #
 # Usage:
 #   ./install.sh              # installs to ~/.claude/skills/ (global, default)
@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-SKILL_NAME="update-component-using-odh-konflux-central"
+SKILL_NAME="run-odh-konflux-onboarder-workflow"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Colours ────────────────────────────────────────────────────────────────────
@@ -62,12 +62,12 @@ if ! command -v uv &>/dev/null; then
   elif command -v wget &>/dev/null; then
     wget -qO- https://astral.sh/uv/install.sh | sh
   else
-    die "Cannot install 'uv': neither 'curl' nor 'wget' is available. Install uv manually:
-    https://docs.astral.sh/uv/getting-started/installation/"
+    die "Cannot install 'uv': neither 'curl' nor 'wget' is available.
+    Install manually: https://docs.astral.sh/uv/getting-started/installation/"
   fi
   export PATH="${HOME}/.local/bin:${PATH}"
   if ! command -v uv &>/dev/null; then
-    die "uv was installed but is not on PATH. Open a new terminal and re-run this script, or:
+    die "uv was installed but is not on PATH. Open a new terminal and re-run, or:
     export PATH=\"\${HOME}/.local/bin:\${PATH}\""
   fi
   success "uv installed: $(uv --version 2>/dev/null | head -1 | awk '{print $2}')"
@@ -75,14 +75,14 @@ else
   success "uv $(uv --version 2>/dev/null | head -1 | awk '{print $2}') (already installed)"
 fi
 
-# git
+# git — detect only; cannot auto-install cross-platform
 if ! command -v git &>/dev/null; then
   die "git is not installed. Install git before continuing."
 else
   success "git $(git --version | awk '{print $3}') (already installed)"
 fi
 
-# curl — needed for GitHub API checks in Step 5 of the skill
+# curl — needed for log download in run_github_workflow.py (requests library)
 if ! command -v curl &>/dev/null; then
   die "curl is not installed. Install curl before continuing."
 else
@@ -104,8 +104,7 @@ success "Copied: SKILL.md"
 info "Copying common scripts..."
 
 COMMON_SCRIPTS=(
-  "setup_github_playpen.sh"
-  "raise_github_pr.py"
+  "run_github_workflow.py"
   "monitor_github_pr.py"
   "update_jira_issue.py"
   "fetch_jira_details.py"
@@ -125,13 +124,12 @@ done
 
 # ── Step 5: Set permissions ────────────────────────────────────────────────────
 info "Setting permissions..."
-chmod +x "${COMMON_DIR}/setup_github_playpen.sh"
 for pyfile in "${COMMON_DIR}"/*.py; do
   [[ -f "$pyfile" ]] && chmod +x "$pyfile"
 done
 success "Permissions set."
 
-# ── Step 7: Pre-warm Python dependencies ──────────────────────────────────────
+# ── Step 6: Pre-warm Python dependencies ──────────────────────────────────────
 info "Pre-warming Python script dependencies..."
 echo "  (This downloads and caches packages so the first skill invocation is instant)"
 
@@ -150,14 +148,14 @@ pre_warm() {
   fi
 }
 
-# GitHub scripts (PyGithub)
-pre_warm "raise_github_pr.py"   "${COMMON_DIR}/raise_github_pr.py"
-pre_warm "monitor_github_pr.py" "${COMMON_DIR}/monitor_github_pr.py"
+# GitHub + requests scripts (PyGithub>=2.0.0, requests>=2.28.0)
+pre_warm "run_github_workflow.py" "${COMMON_DIR}/run_github_workflow.py"
+pre_warm "monitor_github_pr.py"   "${COMMON_DIR}/monitor_github_pr.py"
 
-# Jira scripts
-pre_warm "update_jira_issue.py"           "${COMMON_DIR}/update_jira_issue.py"
-pre_warm "fetch_jira_details.py"          "${COMMON_DIR}/fetch_jira_details.py"
-pre_warm "download_jira_attachment.py"    "${COMMON_DIR}/download_jira_attachment.py"
+# Jira scripts (jira>=3.0.0)
+pre_warm "update_jira_issue.py"        "${COMMON_DIR}/update_jira_issue.py"
+pre_warm "fetch_jira_details.py"       "${COMMON_DIR}/fetch_jira_details.py"
+pre_warm "download_jira_attachment.py" "${COMMON_DIR}/download_jira_attachment.py"
 
 if $ALL_DEPS_OK; then
   success "All Python dependencies installed and cached."
@@ -165,13 +163,12 @@ else
   warn "Some dependencies could not be pre-installed. uv will retry on first skill invocation."
 fi
 
-# ── Step 8: Verify installed files ────────────────────────────────────────────
+# ── Step 7: Verify installed files ────────────────────────────────────────────
 info "Verifying installation..."
 
 REQUIRED_FILES=(
   "${TARGET_DIR}/SKILL.md"
-  "${COMMON_DIR}/setup_github_playpen.sh"
-  "${COMMON_DIR}/raise_github_pr.py"
+  "${COMMON_DIR}/run_github_workflow.py"
   "${COMMON_DIR}/monitor_github_pr.py"
   "${COMMON_DIR}/update_jira_issue.py"
   "${COMMON_DIR}/fetch_jira_details.py"
@@ -190,7 +187,7 @@ done
 
 $ALL_OK || die "Installation incomplete — some files are missing."
 
-# ── Step 9: Check environment variables ───────────────────────────────────────
+# ── Step 8: Check environment variables ───────────────────────────────────────
 echo ""
 info "Checking environment variables..."
 CREDS_OK=true
@@ -212,13 +209,25 @@ check_var() {
   fi
 }
 
-check_var "GITHUB_USER"     "export GITHUB_USER=yourusername"
-check_var "GITHUB_TOKEN"    "Needs 'repo' scope (read and write)" "true"
-check_var "JIRA_USER_EMAIL" "export JIRA_USER_EMAIL=you@redhat.com"
-check_var "JIRA_API_TOKEN"  "Create at: https://id.atlassian.com/manage-profile/security/api-tokens" "true"
+check_var "GITHUB_USER"  "export GITHUB_USER=yourusername"
+check_var "GITHUB_TOKEN" "Needs 'repo' scope + 'actions:write' scope" "true"
 
 echo ""
 info "Checking optional environment variables..."
+
+if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
+  warn "JIRA_USER_EMAIL is not set — required when invoking with a Jira URL."
+  warn "  export JIRA_USER_EMAIL=you@redhat.com"
+else
+  success "JIRA_USER_EMAIL=${JIRA_USER_EMAIL}"
+fi
+
+if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
+  warn "JIRA_API_TOKEN is not set — required when invoking with a Jira URL."
+  warn "  Create at: https://id.atlassian.com/manage-profile/security/api-tokens"
+else
+  success "JIRA_API_TOKEN=<set>"
+fi
 
 if [[ -z "${ODH_KONFLUX_CENTRAL_REPO_URL:-}" ]]; then
   warn "ODH_KONFLUX_CENTRAL_REPO_URL is not set — will default to:"
@@ -238,7 +247,9 @@ if ! $CREDS_OK; then
   echo -e "${YELLOW}Add the following to your shell profile (e.g. ~/.zshrc or ~/.bashrc):${RESET}"
   echo ""
   echo "    export GITHUB_USER='yourusername'"
-  echo "    export GITHUB_TOKEN='your-github-token'         # needs: repo scope"
+  echo "    export GITHUB_TOKEN='your-github-token'    # needs: repo + actions:write scope"
+  echo ""
+  echo "    # Required when using Jira URL:"
   echo "    export JIRA_USER_EMAIL='you@redhat.com'"
   echo "    export JIRA_API_TOKEN='your-jira-api-token'"
   echo ""
@@ -246,8 +257,8 @@ if ! $CREDS_OK; then
   echo "    # export ODH_KONFLUX_CENTRAL_REPO_URL='https://github.com/opendatahub-io/odh-konflux-central.git'"
   echo "    # export JIRA_SERVER='https://redhat.atlassian.net'"
   echo ""
-  echo "  Create GitHub token: GitHub → Settings → Developer settings → Personal access tokens"
-  echo "  Create Jira token:   https://id.atlassian.com/manage-profile/security/api-tokens"
+  echo "  Create GitHub token : GitHub → Settings → Developer settings → Personal access tokens"
+  echo "  Create Jira token   : https://id.atlassian.com/manage-profile/security/api-tokens"
 fi
 
 # ── Done ───────────────────────────────────────────────────────────────────────
@@ -256,10 +267,13 @@ echo -e "${GREEN}${BOLD}Installation complete!${RESET}"
 echo ""
 echo "  Restart Claude Code (or open a new session), then run:"
 echo ""
-echo "    /update-component-using-odh-konflux-central https://redhat.atlassian.net/browse/RHOAIENG-1234"
+echo "    /run-odh-konflux-onboarder-workflow https://redhat.atlassian.net/browse/RHODS-14226"
+echo "    /run-odh-konflux-onboarder-workflow   # no Jira — interactive mode"
 echo ""
 echo "  NOTE: This skill requires:"
-echo "    - Public internet access to github.com (no VPN needed)"
-echo "    - GITHUB_TOKEN with 'repo' scope (read + write on odh-konflux-central)"
-echo "    - 'component_onboarding_details.yaml' attached to the Jira issue"
+echo "    - Public internet access to github.com"
+echo "    - GITHUB_TOKEN with 'repo' scope + 'actions:write' scope"
+echo "    - The Step 4 skill PR (add-component-to-odh-konflux-central) must be merged"
+echo "      before running this skill (component must be in the workflow options list)"
+echo "    - 'component_onboarding_details.yaml' attached to the Jira issue (when Jira URL given)"
 echo ""

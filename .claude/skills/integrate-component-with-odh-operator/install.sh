@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Install the update-component-using-odh-konflux-central Claude Code skill
+# install.sh — Install the integrate-component-with-odh-operator Claude Code skill
 #
 # Usage:
 #   ./install.sh              # installs to ~/.claude/skills/ (global, default)
@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-SKILL_NAME="update-component-using-odh-konflux-central"
+SKILL_NAME="integrate-component-with-odh-operator"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Colours ────────────────────────────────────────────────────────────────────
@@ -62,12 +62,12 @@ if ! command -v uv &>/dev/null; then
   elif command -v wget &>/dev/null; then
     wget -qO- https://astral.sh/uv/install.sh | sh
   else
-    die "Cannot install 'uv': neither 'curl' nor 'wget' is available. Install uv manually:
-    https://docs.astral.sh/uv/getting-started/installation/"
+    die "Cannot install 'uv': neither 'curl' nor 'wget' is available.
+    Install manually: https://docs.astral.sh/uv/getting-started/installation/"
   fi
   export PATH="${HOME}/.local/bin:${PATH}"
   if ! command -v uv &>/dev/null; then
-    die "uv was installed but is not on PATH. Open a new terminal and re-run this script, or:
+    die "uv was installed but is not on PATH. Open a new terminal and re-run, or:
     export PATH=\"\${HOME}/.local/bin:\${PATH}\""
   fi
   success "uv installed: $(uv --version 2>/dev/null | head -1 | awk '{print $2}')"
@@ -75,18 +75,11 @@ else
   success "uv $(uv --version 2>/dev/null | head -1 | awk '{print $2}') (already installed)"
 fi
 
-# git
+# git — detect only; cannot auto-install cross-platform
 if ! command -v git &>/dev/null; then
   die "git is not installed. Install git before continuing."
 else
   success "git $(git --version | awk '{print $3}') (already installed)"
-fi
-
-# curl — needed for GitHub API checks in Step 5 of the skill
-if ! command -v curl &>/dev/null; then
-  die "curl is not installed. Install curl before continuing."
-else
-  success "curl $(curl --version | head -1 | awk '{print $2}') (already installed)"
 fi
 
 # ── Step 2: Create directories ─────────────────────────────────────────────────
@@ -150,14 +143,14 @@ pre_warm() {
   fi
 }
 
-# GitHub scripts (PyGithub)
+# GitHub scripts (PyGithub>=2.0.0)
 pre_warm "raise_github_pr.py"   "${COMMON_DIR}/raise_github_pr.py"
 pre_warm "monitor_github_pr.py" "${COMMON_DIR}/monitor_github_pr.py"
 
 # Jira scripts
-pre_warm "update_jira_issue.py"           "${COMMON_DIR}/update_jira_issue.py"
-pre_warm "fetch_jira_details.py"          "${COMMON_DIR}/fetch_jira_details.py"
-pre_warm "download_jira_attachment.py"    "${COMMON_DIR}/download_jira_attachment.py"
+pre_warm "update_jira_issue.py"        "${COMMON_DIR}/update_jira_issue.py"
+pre_warm "fetch_jira_details.py"       "${COMMON_DIR}/fetch_jira_details.py"
+pre_warm "download_jira_attachment.py" "${COMMON_DIR}/download_jira_attachment.py"
 
 if $ALL_DEPS_OK; then
   success "All Python dependencies installed and cached."
@@ -213,18 +206,18 @@ check_var() {
 }
 
 check_var "GITHUB_USER"     "export GITHUB_USER=yourusername"
-check_var "GITHUB_TOKEN"    "Needs 'repo' scope (read and write)" "true"
+check_var "GITHUB_TOKEN"    "Needs 'repo' scope with push access to the operator repo" "true"
 check_var "JIRA_USER_EMAIL" "export JIRA_USER_EMAIL=you@redhat.com"
 check_var "JIRA_API_TOKEN"  "Create at: https://id.atlassian.com/manage-profile/security/api-tokens" "true"
 
 echo ""
 info "Checking optional environment variables..."
 
-if [[ -z "${ODH_KONFLUX_CENTRAL_REPO_URL:-}" ]]; then
-  warn "ODH_KONFLUX_CENTRAL_REPO_URL is not set — will default to:"
-  warn "  https://github.com/opendatahub-io/odh-konflux-central.git"
+if [[ -z "${ODH_OPERATOR_REPO_URL:-}" ]]; then
+  warn "ODH_OPERATOR_REPO_URL is not set — will default to:"
+  warn "  https://github.com/opendatahub-io/opendatahub-operator.git"
 else
-  success "ODH_KONFLUX_CENTRAL_REPO_URL=${ODH_KONFLUX_CENTRAL_REPO_URL}"
+  success "ODH_OPERATOR_REPO_URL=${ODH_OPERATOR_REPO_URL}"
 fi
 
 if [[ -z "${JIRA_SERVER:-}" ]]; then
@@ -238,12 +231,12 @@ if ! $CREDS_OK; then
   echo -e "${YELLOW}Add the following to your shell profile (e.g. ~/.zshrc or ~/.bashrc):${RESET}"
   echo ""
   echo "    export GITHUB_USER='yourusername'"
-  echo "    export GITHUB_TOKEN='your-github-token'         # needs: repo scope"
+  echo "    export GITHUB_TOKEN='your-github-token'    # needs: repo scope + push access"
   echo "    export JIRA_USER_EMAIL='you@redhat.com'"
   echo "    export JIRA_API_TOKEN='your-jira-api-token'"
   echo ""
   echo "    # Optional overrides:"
-  echo "    # export ODH_KONFLUX_CENTRAL_REPO_URL='https://github.com/opendatahub-io/odh-konflux-central.git'"
+  echo "    # export ODH_OPERATOR_REPO_URL='https://github.com/opendatahub-io/opendatahub-operator.git'"
   echo "    # export JIRA_SERVER='https://redhat.atlassian.net'"
   echo ""
   echo "  Create GitHub token: GitHub → Settings → Developer settings → Personal access tokens"
@@ -256,10 +249,11 @@ echo -e "${GREEN}${BOLD}Installation complete!${RESET}"
 echo ""
 echo "  Restart Claude Code (or open a new session), then run:"
 echo ""
-echo "    /update-component-using-odh-konflux-central https://redhat.atlassian.net/browse/RHOAIENG-1234"
+echo "    /integrate-component-with-odh-operator https://redhat.atlassian.net/browse/RHODS-14226"
 echo ""
 echo "  NOTE: This skill requires:"
-echo "    - Public internet access to github.com (no VPN needed)"
-echo "    - GITHUB_TOKEN with 'repo' scope (read + write on odh-konflux-central)"
+echo "    - Public internet access to github.com"
+echo "    - GITHUB_TOKEN with push access to the opendatahub-operator repo (or ODH_OPERATOR_REPO_URL override)"
 echo "    - 'component_onboarding_details.yaml' attached to the Jira issue"
+echo "    - is_operator=true in component_onboarding_details.yaml (exits 0 otherwise)"
 echo ""
