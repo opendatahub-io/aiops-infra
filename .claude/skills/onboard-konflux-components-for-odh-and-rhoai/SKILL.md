@@ -67,37 +67,37 @@ are **also skipped** — handled by `monitor_completion.sh`.
 
 ## Background Monitoring Pattern
 
-When the Critical Global Override Rule applies, replace the blocking monitor call with:
+When the Critical Global Override Rule applies, replace the blocking monitor call with a
+single `launch_monitor.sh` invocation. The retry loop, Jira update, and PID/log/result file
+management are all handled by two scripts in `$COMMON_SCRIPTS_DIR`:
+
+- **`launch_monitor.sh`** — sets up log/result/pid paths, launches `monitor_pr.sh` via nohup,
+  and returns immediately.
+- **`monitor_pr.sh`** — the worker: retry loop that calls `monitor_github_pr.py` or
+  `monitor_gitlab_mr.py`, writes the result file, and calls `update_jira_issue.py` on merge.
 
 ```bash
-STEP_NAME="<quay|krd|okc|operator>"
-URL="<MR_or_PR_URL>"
-LOG_FILE="$WORKDIR/monitor_${STEP_NAME}.log"
-RESULT_FILE="$WORKDIR/monitor_${STEP_NAME}.result"
-PID_FILE="$WORKDIR/monitor_${STEP_NAME}.pid"
-
-# GitHub PR variant:
-nohup bash -c "
-  result=\$(uv run --script '$COMMON_SCRIPTS_DIR/monitor_github_pr.py' \
-    --pr-url '$URL' --timeout 120 2>>'$LOG_FILE')
-  echo \"\$result\" > '$RESULT_FILE'
-  echo \"\$result\" >> '$LOG_FILE'
-" >> "$LOG_FILE" 2>&1 &
-echo $! > "$PID_FILE"
-echo "[WRAPPER] Background monitor for $STEP_NAME started (PID=$(cat $PID_FILE))"
-
-# GitLab MR variant:
-nohup bash -c "
-  result=\$(GITLAB_SSL_VERIFY=false uv run --script '$COMMON_SCRIPTS_DIR/monitor_gitlab_mr.py' \
-    --mr-url '$URL' --timeout 120 2>>'$LOG_FILE')
-  echo \"\$result\" > '$RESULT_FILE'
-  echo \"\$result\" >> '$LOG_FILE'
-" >> "$LOG_FILE" 2>&1 &
-echo $! > "$PID_FILE"
-echo "[WRAPPER] Background monitor for $STEP_NAME started (PID=$(cat $PID_FILE))"
+bash "$COMMON_SCRIPTS_DIR/launch_monitor.sh" \
+  --step         "<quay|krd|okc|operator>"  \
+  --url          "<MR_or_PR_URL>"           \
+  --type         "github"                   \  # or "gitlab"
+  --jira-url     "$JIRA_URL"               \
+  --label-remove "<label-to-remove>"        \   # Jira label removed on merge
+  --comment      "$(printf '<line1>\n\n<line2>')" \   # Jira comment posted on merge
+  --workdir      "$WORKDIR"                \
+  --scripts-dir  "$COMMON_SCRIPTS_DIR"
 ```
 
-The `.result` file will contain a single line: `merged`, `closed`, `pipeline_failed`, or `timeout`.
+Output files (all under `$WORKDIR`):
+
+| File | Purpose |
+|------|---------|
+| `monitor_<step>.log` | Combined stdout/stderr from the monitor |
+| `monitor_<step>.result` | Single line: `merged`, `closed`, `pipeline_failed`, or `timeout` |
+| `monitor_<step>.pid` | PID of the background nohup process |
+
+**Retry behaviour:** on connection errors or unexpected exits (e.g. GitLab `RemoteDisconnected`),
+`monitor_pr.sh` sleeps 60 s and retries automatically. Monitors survive transient VPN drops.
 
 ---
 
@@ -273,7 +273,18 @@ Follow the skill's implementation through to and including **Step 9** (Raise MR,
 After `$MR_URL` is captured from the child skill:
 
 1. Update `pipeline_state.json`: `steps.quay.mr_url = "$MR_URL"`, `steps.quay.status = "mr_raised"`.
-2. Apply the Background Monitoring Pattern for step name `"quay"` (GitLab MR variant).
+2. Apply the Background Monitoring Pattern (GitLab MR variant):
+   ```bash
+   bash "$COMMON_SCRIPTS_DIR/launch_monitor.sh" \
+     --step         "quay" \
+     --url          "$MR_URL" \
+     --type         "gitlab" \
+     --jira-url     "$JIRA_URL" \
+     --label-remove "quay-mr-raised" \
+     --comment      "$(printf 'MR merged: %s\n\napp-interface GitOps reconciliation is in progress. Monitoring %s for creation...' "$MR_URL" "$QUAY_REPO_URI")" \
+     --workdir      "$WORKDIR" \
+     --scripts-dir  "$COMMON_SCRIPTS_DIR"
+   ```
 3. **Skip Step 10** (inline MR monitor) and **Step 11** (Quay repo poll).
 4. Return to the wrapper.
 
@@ -295,7 +306,18 @@ Follow through to and including **Step 9** (Raise MR, up to 3 attempts).
 After `$MR_URL` is captured:
 
 1. Update `pipeline_state.json`: `steps.krd.mr_url = "$MR_URL"`, `steps.krd.status = "mr_raised"`.
-2. Apply the Background Monitoring Pattern for step name `"krd"` (GitLab MR variant).
+2. Apply the Background Monitoring Pattern (GitLab MR variant):
+   ```bash
+   bash "$COMMON_SCRIPTS_DIR/launch_monitor.sh" \
+     --step         "krd" \
+     --url          "$MR_URL" \
+     --type         "gitlab" \
+     --jira-url     "$JIRA_URL" \
+     --label-remove "konflux-mr-raised" \
+     --comment      "$(printf 'MR merged: %s\n\nKonflux GitOps pipeline is provisioning Component '\''%s'\'' on the cluster. Monitoring for creation...' "$MR_URL" "$COMPONENT_NAME")" \
+     --workdir      "$WORKDIR" \
+     --scripts-dir  "$COMMON_SCRIPTS_DIR"
+   ```
 3. **Skip Step 10** (inline MR monitor) and **Step 11** (Component creation poll).
 4. Return to the wrapper.
 
@@ -315,7 +337,18 @@ Follow through to and including the step that raises the GitHub PR and captures 
 After the PR is created:
 
 1. Update `pipeline_state.json`: `steps.okc.pr_url = "$PR_URL"`, `steps.okc.status = "pr_raised"`.
-2. Apply the Background Monitoring Pattern for step name `"okc"` (GitHub PR variant).
+2. Apply the Background Monitoring Pattern (GitHub PR variant):
+   ```bash
+   bash "$COMMON_SCRIPTS_DIR/launch_monitor.sh" \
+     --step         "okc" \
+     --url          "$PR_URL" \
+     --type         "github" \
+     --jira-url     "$JIRA_URL" \
+     --label-remove "okc-pr-raised" \
+     --comment      "$(printf 'PR merged: %s\n\nKonflux CI is now configured for '\''%s'\''. Builds will trigger on pushes and pull requests to '\''%s'\'' branch of %s.\n\nStep 4 (odh-konflux-central update) is complete.' "$PR_URL" "$COMPONENT_NAME" "$REPO_BRANCH" "$REPO_URL")" \
+     --workdir      "$WORKDIR" \
+     --scripts-dir  "$COMMON_SCRIPTS_DIR"
+   ```
 3. Skip the inline blocking `monitor_github_pr.py` call in the child skill.
 4. Return to the wrapper.
 
@@ -337,7 +370,18 @@ Follow its implementation with `$JIRA_URL` as the positional argument.
 - **If `IS_OPERATOR == true`:** Follow through to and including Step 9 (Raise PR, up to 3
   attempts). After `$PR_URL` is captured:
   1. Update `pipeline_state.json`: `steps.operator.pr_url = "$PR_URL"`, `steps.operator.status = "pr_raised"`.
-  2. Apply the Background Monitoring Pattern for step name `"operator"` (GitHub PR variant).
+  2. Apply the Background Monitoring Pattern (GitHub PR variant):
+     ```bash
+     bash "$COMMON_SCRIPTS_DIR/launch_monitor.sh" \
+       --step         "operator" \
+       --url          "$PR_URL" \
+       --type         "github" \
+       --jira-url     "$JIRA_URL" \
+       --label-remove "operator-pr-raised" \
+       --comment      "$(printf 'Operator PR merged: %s\n\nOperator manifest config for '\''%s'\'' is now integrated into opendatahub-operator.' "$PR_URL" "$COMPONENT_NAME")" \
+       --workdir      "$WORKDIR" \
+       --scripts-dir  "$COMMON_SCRIPTS_DIR"
+     ```
   3. Skip Step 10 (inline PR monitor) and Step 11 (final Jira update).
   4. Return to the wrapper.
 
