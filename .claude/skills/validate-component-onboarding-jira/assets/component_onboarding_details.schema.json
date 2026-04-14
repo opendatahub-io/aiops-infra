@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ODH Component Details",
-  "description": "Input parameters for onboarding an ODH component onto the Konflux CI/build platform",
+  "description": "Input parameters for onboarding an ODH/RHOAI component onto the Konflux CI/build platform",
   "type": "object",
   "required": ["inputs"],
   "additionalProperties": false,
@@ -9,19 +9,24 @@
     "inputs": {
       "type": "object",
       "required": [
+        "product_context",
         "component_name",
         "repo_url",
         "repo_branch",
         "context_path",
         "dockerfile_path",
-        "build_type",
         "is_operator"
       ],
       "additionalProperties": false,
       "properties": {
+        "product_context": {
+          "type": "string",
+          "description": "Target product platform for this component",
+          "enum": ["ODH", "RHOAI"]
+        },
         "component_name": {
           "type": "string",
-          "description": "Unique kebab-case name for the ODH component",
+          "description": "Unique kebab-case name for the ODH/RHOAI component",
           "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
           "minLength": 1
         },
@@ -48,8 +53,19 @@
         },
         "build_type": {
           "type": "string",
-          "description": "Whether the component is being onboarded for CI or Release",
+          "description": "Onboarding target: CI pipeline or Release pipeline (required when product_context is ODH)",
           "enum": ["CI", "Release"]
+        },
+        "architectures": {
+          "type": "array",
+          "description": "Target CPU architectures to build for (required when product_context is RHOAI)",
+          "items": {
+            "type": "string",
+            "enum": ["x86_64", "arm64", "ppc64le", "s390x"]
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "default": ["x86_64", "arm64"]
         },
         "is_operator": {
           "type": "boolean",
@@ -57,7 +73,7 @@
         },
         "operator_manifest_src_path": {
           "type": "string",
-          "description": "Path to component manifests within the repo (required when is_operator is true)",
+          "description": "Relative path to component manifests within the git repo (required when is_operator is true)",
           "minLength": 1
         },
         "operator_manifest_dest_path": {
@@ -66,14 +82,35 @@
           "minLength": 1
         }
       },
-      "if": {
-        "properties": {
-          "is_operator": { "const": true }
+      "allOf": [
+        {
+          "if": {
+            "properties": { "product_context": { "const": "ODH" } },
+            "required": ["product_context"]
+          },
+          "then": {
+            "required": ["build_type"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "product_context": { "const": "RHOAI" } },
+            "required": ["product_context"]
+          },
+          "then": {
+            "required": ["architectures"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "is_operator": { "const": true } },
+            "required": ["is_operator"]
+          },
+          "then": {
+            "required": ["operator_manifest_src_path", "operator_manifest_dest_path"]
+          }
         }
-      },
-      "then": {
-        "required": ["operator_manifest_src_path", "operator_manifest_dest_path"]
-      }
+      ]
     }
   }
 }
