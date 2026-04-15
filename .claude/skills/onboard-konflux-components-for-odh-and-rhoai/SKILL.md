@@ -466,8 +466,8 @@ wait_for_merge() {
       fi
     fi
     [[ $elapsed -ge $max_minutes ]] && { log "ERROR: Timed out waiting for $label after ${max_minutes}m."; return 1; }
-    sleep 300
-    elapsed=$(( elapsed + 5 ))
+    sleep 120
+    elapsed=$(( elapsed + 2 ))
   done
 }
 
@@ -628,9 +628,7 @@ uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   Step 7 — Bundle PR   : $BDLPR
 
 Background monitors are running. Jira will be moved to Resolved automatically when
-all PRs/MRs are merged.
-
-WARNING: Bundle PR requires the SHA256 image digest to be updated before merging."
+all PRs/MRs are merged."
 ```
 
 ---
@@ -652,7 +650,7 @@ JIRA_URL="PLACEHOLDER_JIRA_URL"
 COMMON_SCRIPTS_DIR="PLACEHOLDER_COMMON_SCRIPTS_DIR"
 PIPELINE_STATE="$WORKDIR/pipeline_state.json"
 MAX_WAIT=14400    # 4 hours
-POLL_INTERVAL=300 # 5 minutes
+POLL_INTERVAL=120 # 2 minutes
 ELAPSED=0
 
 log() { echo "[completion $(date '+%H:%M:%S')] $*" >> "$WORKDIR/monitor_completion.log"; }

@@ -208,8 +208,8 @@ PR_RUN_NAME="${COMPONENT_NAME}-on-pull-request"
 PUSH_YAML_FILE="${COMPONENT_NAME}-push.yaml"
 PR_YAML_FILE="${COMPONENT_NAME}-pull-request.yaml"
 
-# Service account name
-SERVICE_ACCOUNT_NAME="build-pipeline-${COMPONENT_NAME}"
+# Service account name (uses Konflux component name, not base component name)
+SERVICE_ACCOUNT_NAME="build-pipeline-${KONFLUX_COMPONENT_NAME}"
 
 # Output image tags (push and pull-request use different tags for CI)
 if [[ "${BUILD_TYPE^^}" == "CI" ]]; then
@@ -243,12 +243,14 @@ ERROR in Step 3c: Missing required field '<field>' in component_onboarding_detai
 
 Set `PRODUCT_CONTEXT` to `ODH` or `RHOAI` using the following rules in order:
 
-1. **From Jira key prefix**: if `<jira-id>` starts with `RHOAIENG` → `RHOAI`; if it starts
-   with `RHODS` → `ODH`.
+1. **From `component_onboarding_details.yaml`** (already read in Step 3c): check `inputs.product_context`.
+   If present and its value (case-insensitive) is `rhoai` → `RHOAI`; `odh` → `ODH`. Use this value directly.
+
 2. **From Jira title** (in `component_onboarding_details.json` at `fields.summary`): if the title
    contains "RHOAI" (case-insensitive) → `RHOAI`; if it contains "ODH" → `ODH`.
+
 3. **Fallback**: Ask the user:
-   > I could not determine the product context (ODH or RHOAI) from the Jira key or title.
+   > I could not determine the product context (ODH or RHOAI) from the YAML or the Jira title.
    > Is this onboarding for ODH or RHOAI?
 
 Based on `PRODUCT_CONTEXT`, set these variables:
@@ -691,8 +693,8 @@ their resolved values:
 | `$$OUTPUT_IMAGE_TAG$$` | `$PR_OUTPUT_IMAGE_TAG` (`odh-pr` for CI) | PR template only |
 | `dockerfilepath` | `$DOCKERFILE_PATH` | Both templates |
 | `    value: .` | `    value: $CONTEXT_PATH` | path-context param, both templates |
-| `build-pipeline-sa-namw` | `$SERVICE_ACCOUNT_NAME` | Push template — fix typo, set `build-pipeline-$COMPONENT_NAME` |
-| `#build-pipeline-sa-name` | `$SERVICE_ACCOUNT_NAME` | PR template — remove `#`, set `build-pipeline-$COMPONENT_NAME` |
+| `build-pipeline-sa-namw` | `$SERVICE_ACCOUNT_NAME` | Push template — fix typo, set `build-pipeline-$KONFLUX_COMPONENT_NAME` |
+| `#build-pipeline-sa-name` | `$SERVICE_ACCOUNT_NAME` | PR template — remove `#`, set `build-pipeline-$KONFLUX_COMPONENT_NAME` |
 | `open-data-hub-tenant` | `$NAMESPACE` | Both templates |
 | `opendatahub-builds` | `$APPLICATION` | Both templates |
 

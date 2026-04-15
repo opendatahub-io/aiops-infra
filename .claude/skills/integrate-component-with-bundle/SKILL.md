@@ -176,8 +176,21 @@ fi
 RELATED_IMAGE_NAME="RELATED_IMAGE_$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:upper:]_')_IMAGE"
 # e.g. odh-ai-first-demo → RELATED_IMAGE_ODH_AI_FIRST_DEMO_IMAGE
 
-# relatedImages entry value with a randomly generated SHA256
-RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@sha256:$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+# relatedImages entry value — try to fetch the real SHA256 digest from Quay first
+STABLE_IMAGE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}:odh-stable"
+REAL_DIGEST=$(skopeo inspect --no-creds "docker://${STABLE_IMAGE}" 2>/dev/null \
+  | jq -r '.Digest // ""' 2>/dev/null || echo "")
+
+if [[ -n "$REAL_DIGEST" && "$REAL_DIGEST" == sha256:* ]]; then
+  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@${REAL_DIGEST}"
+  USING_PLACEHOLDER=false
+  echo "  Fetched real digest from Quay: $REAL_DIGEST"
+else
+  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@sha256:$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  USING_PLACEHOLDER=true
+  echo "  WARNING: Image not yet published to Quay — using placeholder digest."
+  echo "  Update bundle-patch.yaml with the real digest before merging the PR."
+fi
 ```
 
 Print a summary:
@@ -408,7 +421,19 @@ ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH' to origin. See deta
 > **Reminder:** Both `--src-url` and `--dest-url` must be `"$OBC_URL"`. Do NOT replace
 > either with the hardcoded upstream URL.
 
+Build the PR description, including a placeholder warning when the real digest was not available:
+
 ```bash
+if [[ "${USING_PLACEHOLDER:-true}" == "true" ]]; then
+  PLACEHOLDER_NOTE="> **NOTE:** The SHA256 digest for \`$RELATED_IMAGE_NAME\` is a **placeholder** — the image has not yet been built by Konflux.
+> Before merging this PR, replace the digest with the real value:
+> \`\`\`
+> skopeo inspect --no-creds docker://quay.io/${QUAY_ORG}/${COMPONENT_NAME}:odh-stable | jq -r '.Digest'
+> \`\`\`"
+else
+  PLACEHOLDER_NOTE=""
+fi
+
 PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
   --src-url "$OBC_URL" \
   --src-branch "$DEST_BRANCH" \
@@ -424,7 +449,9 @@ Upstream repo: $REPO_URL @ $REPO_BRANCH
 Jira: <jira-url>
 
 **File changed:**
-- \`bundle/bundle-patch.yaml\` — added \`$RELATED_IMAGE_NAME\` to \`patch.relatedImages\`")
+- \`bundle/bundle-patch.yaml\` — added \`$RELATED_IMAGE_NAME\` to \`patch.relatedImages\`
+
+${PLACEHOLDER_NOTE}")
 ```
 
 On success: `PR_URL` contains the URL printed to stdout.

@@ -14,8 +14,9 @@ and attaches it to the Jira ticket.
 ## Prerequisites
 
 - `uv` must be installed and in PATH
-- `JIRA_USER_EMAIL` — set to your Atlassian account email (required when Jira URL is given)
-- `JIRA_API_TOKEN` — Atlassian Cloud API token (required when Jira URL is given)
+- `jq` must be installed and in PATH (needed for the no-URL ODH clone flow)
+- `JIRA_USER_EMAIL` — set to your Atlassian account email (required when Jira URL is given or creating one)
+- `JIRA_API_TOKEN` — Atlassian Cloud API token (required when Jira URL is given or creating one)
   - Create at: https://id.atlassian.com/manage-profile/security/api-tokens
 - Optional: `JIRA_SERVER` (default: `https://redhat.atlassian.net`)
 - The `validate-component-onboarding-jira` skill must be installed alongside this one
@@ -281,16 +282,16 @@ On failure (exit 1): capture stderr as `<validation_errors>`. Display the errors
 
 ---
 
-## Step 7: Upload to Jira (only when JIRA_URL is non-empty)
+## Step 7: Jira integration
 
-**Skip this entire step if JIRA_URL is empty.** Instead print:
-```
-No Jira URL was provided. YAML saved locally at: $YAML_PATH
-To upload it, re-run: /create-component-onboarding-jira <jira-url>
-```
-and stop.
+Two paths depending on whether a Jira URL was provided.
 
-### 7a. Attach file, add label, and comment — single call
+---
+
+### Path A — Jira URL was provided
+
+> `update_jira_issue.py --attach` already deletes any existing attachment with the same
+> filename before uploading, so no explicit pre-delete step is needed.
 
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
@@ -308,7 +309,98 @@ This ticket is ready for onboarding automation. Run /validate-component-onboardi
 
 On exit 1: display stderr and stop with:
 ```
-ERROR in Step 7a (Upload attachment): Could not attach YAML to Jira. See details above. Aborting.
+ERROR in Step 7 (Upload attachment): Could not attach YAML to Jira. See details above. Aborting.
+```
+
+Continue to Step 8.
+
+---
+
+### Path B — No Jira URL provided
+
+#### Step 7b-1: Ask for parent feature ID
+
+> What is the Jira ID of the parent feature? (e.g. RHOAIENG-12345)
+
+→ Validate: must match `^[A-Z]+-\d+$`. Re-ask if invalid, showing the expected format.
+→ Store in `PARENT_FEATURE_ID`.
+
+#### Step 7b-2: ODH — clone template Jira and customise
+
+**If `product_context != "ODH"`**, skip the clone and print:
+```
+No Jira URL provided for RHOAI context.
+YAML saved locally at: $YAML_PATH
+Create a Jira ticket and re-run with its URL to attach the YAML:
+  /create-component-onboarding-jira <jira-url>
+```
+Then continue to Step 8 (JIRA_URL remains empty).
+
+**If `product_context == "ODH"`**, fetch the template title and compute the new title:
+
+```bash
+TEMPLATE_JIRA_URL="https://redhat.atlassian.net/browse/RHOAIENG-35683"
+
+# Fetch template details to extract its current title
+(cd "$WORKDIR" && uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$TEMPLATE_JIRA_URL")
+
+TEMPLATE_TITLE=$(jq -r '.fields.summary' "$WORKDIR/component_onboarding_details.json")
+echo "Template title: $TEMPLATE_TITLE"
+
+# Transform title: remove "[Template] " prefix, replace "[Component Name]"
+NEW_TITLE="${TEMPLATE_TITLE//\[Template\] /}"
+NEW_TITLE="${NEW_TITLE//\[Component Name\]/$COMPONENT_NAME}"
+echo "New title: $NEW_TITLE"
+```
+
+On fetch failure (exit 1 or `jq` error): stop with:
+```
+ERROR in Step 7b-2: Could not fetch template Jira RHOAIENG-35683. Check Jira credentials and VPN.
+```
+
+#### Step 7b-3: Clone template and apply all updates in one call
+
+```bash
+NEW_JIRA_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "new" \
+  --clone-from "RHOAIENG-35683" \
+  --set-title "$NEW_TITLE" \
+  --remove-label "template" \
+  --link-related "$PARENT_FEATURE_ID" \
+  --set-reporter-to-current)
+```
+
+On exit 1: display stderr and stop with:
+```
+ERROR in Step 7b-3: Could not clone Jira template. See details above. Aborting.
+```
+
+On success: capture `NEW_JIRA_URL` from stdout (e.g. `https://redhat.atlassian.net/browse/RHOAIENG-99999`).
+
+```bash
+JIRA_URL="$NEW_JIRA_URL"
+JIRA_ID="${NEW_JIRA_URL##*/}"
+echo "New Jira created: $NEW_JIRA_URL"
+```
+
+#### Step 7b-4: Attach YAML to the new Jira
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+  --attach "$YAML_PATH" \
+  --add-label "yaml-attached" \
+  --comment "component_onboarding_details.yaml has been generated and attached to this ticket.
+
+Component: <component_name>
+Product: <product_context>
+Repo: <repo_url> @ <repo_branch>
+Operator: <is_operator>
+
+This ticket is ready for onboarding automation. Run /validate-component-onboarding-jira to verify."
+```
+
+On exit 1: display stderr and stop with:
+```
+ERROR in Step 7b-4 (Upload attachment): Could not attach YAML to new Jira. See details above. Aborting.
 ```
 
 ---
@@ -320,12 +412,22 @@ Print:
 Done.
 
   component_onboarding_details.yaml  — generated and validated
-  Jira attachment                    — uploaded to <JIRA_ID>      (if Jira URL was given)
-  Jira comment                       — posted (label: yaml-attached)
+  Jira                               — <JIRA_ID> (<JIRA_URL>)
+                                       (created from template, or provided, or N/A for RHOAI with no URL)
+  Jira attachment                    — uploaded (label: yaml-attached)
+  Jira comment                       — posted
 
   Output file: $YAML_PATH
 
 Next step: /validate-component-onboarding-jira <JIRA_URL>
+```
+
+If JIRA_URL is still empty (RHOAI, no URL given), omit the "Jira" and "attachment" lines and instead print:
+```
+  Output file: $YAML_PATH
+
+Attach the YAML to a Jira ticket and run:
+  /create-component-onboarding-jira <jira-url>
 ```
 
 ---
@@ -337,7 +439,11 @@ Next step: /validate-component-onboarding-jira <JIRA_URL>
 | Invalid Jira URL format | 0 | Correct the URL and re-run |
 | `JIRA_USER_EMAIL` / `JIRA_API_TOKEN` not set | 0 | Export the env vars |
 | `uv` not installed | 0 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| `jq` not installed | 7b-2 | `brew install jq` or `sudo dnf install jq` |
 | Jira fetch fails (401/403/404) | 2 | Check credentials and issue key |
+| Template fetch fails | 7b-2 | Check credentials; ensure VPN is active |
+| Clone fails | 7b-3 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
+| "relates to" link type not found | 7b-3 | Check available link types with a Jira admin |
+| Attach/upload fails | 7, 7b-4 | Check credentials; re-run the skill |
 | YAML validation fails | 6 | Correct the inputs and re-generate |
-| Attach/upload fails | 7a | Check credentials; re-run the skill |
 | `validate-component-onboarding-jira` skill not found | 6, 7 | Run its `install.sh` first |
