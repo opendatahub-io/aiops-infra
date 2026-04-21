@@ -26,9 +26,9 @@
         },
         "component_name": {
           "type": "string",
-          "description": "Unique kebab-case name for the ODH/RHOAI component",
-          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
-          "minLength": 1
+          "description": "Unique component name starting with 'odh-', using only lowercase letters, numbers, and hyphens",
+          "pattern": "^odh-[a-z0-9]+(-[a-z0-9]+)*$",
+          "minLength": 5
         },
         "repo_url": {
           "type": "string",
@@ -67,6 +67,11 @@
           "minItems": 1,
           "default": ["x86_64", "arm64"]
         },
+        "target_rhoai_version": {
+          "type": "string",
+          "description": "Target RHOAI release version in canonical form x.y or x.y-ea-n (required when product_context is RHOAI)",
+          "pattern": "^\\d+\\.\\d+(-ea-\\d+)?$"
+        },
         "is_operator": {
           "type": "boolean",
           "description": "Whether the component is an operator or controller; controls whether operator manifest paths are required"
@@ -98,7 +103,7 @@
             "required": ["product_context"]
           },
           "then": {
-            "required": ["architectures"]
+            "required": ["architectures", "target_rhoai_version"]
           }
         },
         {
