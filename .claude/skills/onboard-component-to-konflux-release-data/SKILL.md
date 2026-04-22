@@ -198,7 +198,7 @@ Extract and store these values (all are under the `inputs:` key):
 `TARGET_RHOAI_VERSION` is optional — ODH tickets may not include it. Set to empty string if
 absent; it is only validated when `PRODUCT_CONTEXT` is `RHOAI` (in Step 8).
 
-Compute `KONFLUX_COMPONENT_NAME`:
+Compute `KONFLUX_COMPONENT_NAME` (ODH default; will be overridden for RHOAI in Step 4):
 - If `COMPONENT_NAME` already ends with `-ci`: `KONFLUX_COMPONENT_NAME="$COMPONENT_NAME"`
 - Otherwise: `KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-ci"`
 
@@ -226,15 +226,29 @@ Based on `PRODUCT_CONTEXT`, set these variables:
 | Variable | ODH | RHOAI |
 |----------|-----|-------|
 | `CLUSTER_INSTANCE` | `external` | `internal` |
-| `KONFLUX_NAMESPACE` | `opendatahub-builds` | `rhoai-builds` |
+| `KONFLUX_NAMESPACE` | `open-data-hub-tenant` | `rhoai-tenant` |
 | `SPARSE_PATHS` | `tenants-config/cluster/stone-prd-rh01/tenants/open-data-hub-tenant tenants-config/auto-generated/cluster/stone-prd-rh01/tenants/open-data-hub-tenant` | `tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant` |
-| `TARGET_YAML` | `tenants-config/cluster/stone-prd-rh01/tenants/open-data-hub-tenant/opendatahub-ci-components.yaml` | `tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/rhoai-ci-components.yaml` |
-| `KRD_APPLICATION` | `opendatahub-builds` | `rhoai-builds` |
+| `TARGET_YAML` | `tenants-config/cluster/stone-prd-rh01/tenants/open-data-hub-tenant/opendatahub-ci-components.yaml` | _(set in Step 8-RHOAI-0 after parsing `target_rhoai_version`)_ |
+| `KRD_APPLICATION` | `opendatahub-builds` | _(set in Step 8-RHOAI-0 after parsing `target_rhoai_version`)_ |
 | `QUAY_ORG` | `opendatahub` | `rhoai` |
 
-> **Note on RHOAI paths:** If the RHOAI values above are incorrect for your environment
-> (namespace name, YAML file name, Quay org), pause and ask the user to confirm before
-> proceeding.
+After setting `PRODUCT_CONTEXT`, recompute `KONFLUX_COMPONENT_NAME` for RHOAI. Skip this block if `PRODUCT_CONTEXT == "ODH"` (the `-ci` default from Step 3c is already correct).
+
+If `PRODUCT_CONTEXT == "RHOAI"`:
+
+```bash
+if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
+  KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-ea-${BASH_REMATCH[3]}"
+elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+  KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+else
+  echo "ERROR in Step 4 (RHOAI): Cannot parse target_rhoai_version '${TARGET_RHOAI_VERSION}'."
+  echo "  Expected x.y or x.y-ea-n (e.g. 3.4 or 3.4-ea-2)."
+  echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
+  exit 1
+fi
+echo "KONFLUX_COMPONENT_NAME : $KONFLUX_COMPONENT_NAME"
+```
 
 ---
 
@@ -409,6 +423,19 @@ else
 fi
 echo "VERSION_NAME : $VERSION_NAME"
 echo "RPA_VAR      : $RPA_VAR"
+
+# Set TARGET_YAML for RHOAI — points to the ProjectDevelopmentStream file for this version
+TARGET_YAML="tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/${VERSION_NAME}/ProjectDevelopmentStream-${VERSION_NAME}.yaml"
+
+# Set KRD_APPLICATION for RHOAI based on whether this is an EA release
+if [[ -n "$VERSION_N" ]]; then
+  KRD_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"
+else
+  KRD_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}"
+fi
+
+echo "TARGET_YAML     : $TARGET_YAML"
+echo "KRD_APPLICATION : $KRD_APPLICATION"
 ```
 
 Also derive the context path used in the template:
