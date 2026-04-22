@@ -190,9 +190,19 @@ Transform the validated input to the canonical form and store in `target_rhoai_v
   Validate: must match `^https://github\.com/.+/.+$`. Re-ask if invalid.
 
 **Q5 — Branch**
+
+_If `product_context == ODH`:_
 > Which branch should be built? (e.g. main)
 
 → Store in `repo_branch`. Must be non-empty.
+
+_If `product_context == RHOAI`:_
+
+Derive `repo_branch` automatically from `target_rhoai_version` — do NOT ask the user:
+- If `target_rhoai_version` has no EA suffix (e.g. `3.5`): `repo_branch = "rhoai-<VERSION_X>.<VERSION_Y>"` (e.g. `rhoai-3.5`)
+- If `target_rhoai_version` has an EA suffix (e.g. `3.5-ea-1`): `repo_branch = "rhoai-<VERSION_X>.<VERSION_Y>-ea.<VERSION_N>"` (e.g. `rhoai-3.5-ea.1`)
+
+Print: `repo_branch auto-set to: <repo_branch>`
 
 **Q6 — Build context path**
 > What is the Docker build context path, relative to the repo root?
