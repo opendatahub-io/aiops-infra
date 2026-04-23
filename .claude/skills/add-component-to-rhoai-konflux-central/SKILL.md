@@ -231,14 +231,14 @@ if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
   VERSION_Y="${BASH_REMATCH[2]}"
   VERSION_N="${BASH_REMATCH[3]}"
   VERSION_VAR="v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"        # e.g. v3-4-ea-2
-  BRANCH_VAR="v${VERSION_X}.${VERSION_Y}-ea.${VERSION_N}"        # e.g. v3.4-ea.2
+  BRANCH_VAR="${VERSION_X}.${VERSION_Y}-ea.${VERSION_N}"        # e.g. v3.4-ea.2
   RHOAI_MINOR_VERSION="${VERSION_X}.${VERSION_Y}.0-ea.${VERSION_N}" # e.g. 3.4.0-ea.2
 elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
   VERSION_X="${BASH_REMATCH[1]}"
   VERSION_Y="${BASH_REMATCH[2]}"
   VERSION_N=""
   VERSION_VAR="v${VERSION_X}-${VERSION_Y}"         # e.g. v3-4
-  BRANCH_VAR="v${VERSION_X}.${VERSION_Y}"          # e.g. v3.4
+  BRANCH_VAR="${VERSION_X}.${VERSION_Y}"          # e.g. 3.4
   RHOAI_MINOR_VERSION="${VERSION_X}.${VERSION_Y}.0" # e.g. 3.4.0
 else
   echo "ERROR: Cannot parse target_rhoai_version '${TARGET_RHOAI_VERSION}'."
@@ -246,7 +246,7 @@ else
   exit 1
 fi
 
-BRANCH_NAME="rhoai-${BRANCH_VAR}"     # e.g. rhoai-v3.4-ea.2
+BRANCH_NAME="rhoai-${BRANCH_VAR}"     # e.g. rhoai-3.4-ea.2
 
 # Repo name from repo_url (strip owner prefix, strip .git suffix)
 REPO_NAME="${REPO_URL##*/}"
@@ -373,8 +373,56 @@ If no matching open PR found, continue to Step 6.
 
 ## Step 6: Set Up Playpen (Clone)
 
-> **CRITICAL:** Clone from `$BRANCH_NAME`, NOT from `main`. The version-specific branch
-> already exists in the RKC repo. The `--src-branch` must be `$BRANCH_NAME`.
+> **CRITICAL:** Clone from `$BRANCH_NAME`, NOT from `main`. The `--src-branch` must be `$BRANCH_NAME`.
+
+### 6a. Ensure the remote branch exists (create from `main` if missing)
+
+```bash
+# Check whether $BRANCH_NAME already exists in the remote repo
+BRANCH_CHECK_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github.v3+json" \
+  "https://api.github.com/repos/${RKC_PATH}/branches/${BRANCH_NAME}")
+
+if [[ "$BRANCH_CHECK_STATUS" == "200" ]]; then
+  echo "Branch '$BRANCH_NAME' already exists in $RKC_PATH. Proceeding."
+
+elif [[ "$BRANCH_CHECK_STATUS" == "404" ]]; then
+  echo "Branch '$BRANCH_NAME' not found. Creating from main..."
+
+  # Resolve the SHA of main
+  MAIN_SHA=$(curl -s \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Accept: application/vnd.github.v3+json" \
+    "https://api.github.com/repos/${RKC_PATH}/git/refs/heads/main" \
+    | python3 -c "import sys, json; print(json.load(sys.stdin)['object']['sha'])")
+
+  if [[ -z "$MAIN_SHA" ]]; then
+    echo "ERROR in Step 6a: Could not resolve SHA for 'main' in $RKC_PATH. Check GITHUB_TOKEN and repo access."
+    exit 1
+  fi
+
+  # Create the branch
+  CREATE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Accept: application/vnd.github.v3+json" \
+    "https://api.github.com/repos/${RKC_PATH}/git/refs" \
+    -d "{\"ref\": \"refs/heads/${BRANCH_NAME}\", \"sha\": \"${MAIN_SHA}\"}")
+
+  if [[ "$CREATE_STATUS" == "201" ]]; then
+    echo "Branch '$BRANCH_NAME' created from main (SHA: $MAIN_SHA)."
+  else
+    echo "ERROR in Step 6a: Failed to create branch '$BRANCH_NAME' (HTTP $CREATE_STATUS). Aborting."
+    exit 1
+  fi
+
+else
+  echo "WARN: Unexpected HTTP $BRANCH_CHECK_STATUS checking branch '$BRANCH_NAME'. Proceeding anyway."
+fi
+```
+
+### 6b. Clone the branch into a playpen
 
 Run from inside `$WORKDIR`:
 
@@ -393,10 +441,8 @@ DEST_BRANCH=$(echo "$PLAYPEN_OUTPUT" | tail -1)
 
 On exit 1: display stderr and stop:
 ```
-ERROR in Step 6 (Playpen setup): Clone or push failed. See details above.
+ERROR in Step 6b (Playpen setup): Clone or push failed. See details above.
   Check GITHUB_TOKEN has 'repo' scope and push access to $RKC_PATH.
-  Verify branch '$BRANCH_NAME' exists in the RKC repo.
-  (If the branch is missing, sprint-onboarding for this RHOAI version may be pending.)
 ```
 
 If push fails with "shallow update not allowed":
@@ -604,6 +650,18 @@ ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH' to $RKC_URL. See de
 > **CRITICAL:** The PR target branch is `$BRANCH_NAME`, NOT `main`.
 > Both `--src-url` and `--dest-url` must be `"$RKC_URL"`.
 
+Before raising the PR, assert that `$BRANCH_NAME` is set and is not `main`:
+
+```bash
+if [[ -z "$BRANCH_NAME" || "$BRANCH_NAME" == "main" ]]; then
+  echo "ERROR in Step 10: BRANCH_NAME is '${BRANCH_NAME:-<empty>}' — refusing to raise PR to main."
+  echo "  BRANCH_NAME must be a version-specific branch (e.g. rhoai-3.5-ea.1)."
+  echo "  Check that TARGET_RHOAI_VERSION was parsed correctly in Step 3f."
+  exit 1
+fi
+echo "PR target branch: $BRANCH_NAME (confirmed not main)"
+```
+
 ```bash
 PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
   --src-url "$RKC_URL" \
@@ -744,8 +802,8 @@ was incorrect or incomplete.
 | Variable | ea example (`3.4-ea-2`) | non-ea example (`3.4`) |
 |----------|------------------------|------------------------|
 | `VERSION_VAR` | `v3-4-ea-2` | `v3-4` |
-| `BRANCH_VAR` | `v3.4-ea.2` | `v3.4` |
-| `BRANCH_NAME` | `rhoai-v3.4-ea.2` | `rhoai-v3.4` |
+| `BRANCH_VAR` | `3.4-ea.2` | `3.4` |
+| `BRANCH_NAME` | `rhoai-3.4-ea.2` | `rhoai-v3.4` |
 | `RHOAI_MINOR_VERSION` | `3.4.0-ea.2` | `3.4.0` |
 | `PIPELINERUN_FILE` | `<comp>-v3-4-ea-2-push.yaml` | `<comp>-v3-4-push.yaml` |
 
@@ -771,7 +829,7 @@ Architecture mapping:
 | YAML attachment missing | 3b | Run `/create-component-onboarding-jira <jira-url>` first |
 | `target_rhoai_version` missing/invalid | 3f | Fix field; expected `x.y` or `x.y-ea-n` |
 | `architectures` missing | 3e | Add `architectures: [x86_64, arm64]` etc. to YAML |
-| Branch `$BRANCH_NAME` not found in RKC | 6 | Sprint-onboarding for this version may be pending |
+| Branch `$BRANCH_NAME` not found in RKC | 6a | Auto-created from `main`; if creation fails check `GITHUB_TOKEN` `repo` scope |
 | Push fails (shallow) | 6, 9 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
 | PipelineRun already exists | 4 | Expected — exits 0; Jira labelled `rkc-changes-done` |
 | Open PR already found | 5 | Expected — jumps to Step 11 to monitor |

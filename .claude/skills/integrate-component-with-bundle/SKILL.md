@@ -193,11 +193,11 @@ if [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
   if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
     x="${BASH_REMATCH[1]}"; y="${BASH_REMATCH[2]}"; n="${BASH_REMATCH[3]}"
     version_var="v${x}-${y}-ea-${n}"
-    branch_var="v${x}.${y}-ea.${n}"
+    branch_var="${x}.${y}-ea.${n}"
   elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
     x="${BASH_REMATCH[1]}"; y="${BASH_REMATCH[2]}"
     version_var="v${x}-${y}"
-    branch_var="v${x}.${y}"
+    branch_var="${x}.${y}"
   else
     echo "ERROR in Step 3d: Invalid target_rhoai_version '${TARGET_RHOAI_VERSION}'. Expected x.y or x.y-ea-n."
     exit 1
@@ -378,7 +378,7 @@ if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
   SRC_BRANCH="main"
   SPARSE_FILES="bundle"
 else
-  SRC_BRANCH="$branch_name"   # e.g. "rhoai-v2.16" or "rhoai-v2.16-ea.1"
+  SRC_BRANCH="$branch_name"   # e.g. "rhoai-2.16" or "rhoai-2.16-ea.1"
   SPARSE_FILES="bundle config"
 fi
 

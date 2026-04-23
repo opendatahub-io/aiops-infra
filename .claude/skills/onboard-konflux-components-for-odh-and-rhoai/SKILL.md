@@ -917,25 +917,40 @@ AM_PR=$(jq     -r '.steps.auto_merge.pr_url // "N/A"'          "$PIPELINE_STATE"
 RENOV_PR=$(jq  -r '.steps.renovate.pr_url // "N/A"'            "$PIPELINE_STATE")
 IS_OP=$(jq     -r '.is_operator'                               "$PIPELINE_STATE")
 
+STEP5_VAL=$([ "$PRODUCT_CONTEXT" = "ODH" ] \
+  && echo "auto-triggered once Steps 3+4 are merged (background script running)" \
+  || echo "N/A (RHOAI)")
+STEP6_VAL=$([ "$IS_OP" = "true" ] && echo "$OP_PR" || echo "N/A (is_operator=false)")
+STEP8_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$LABELS_PR"  || echo "N/A (ODH)")
+STEP9_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$DELIV_MR"   || echo "N/A (ODH)")
+STEP10_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$AM_PR"     || echo "N/A (ODH)")
+STEP11_PR_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$RENOV_PR" || echo "N/A (ODH)")
+STEP11_SYNC_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] \
+  && echo "deferred; will trigger on renovate PR merge" \
+  || echo "N/A (ODH)")
+
+REVIEW_COMMENT="All PRs and MRs raised for '${COMPONENT_NAME}' onboarding. Pending review and merge.
+
+| Step    | Description        | URL / Status                                                              |
+|---------|--------------------|---------------------------------------------------------------------------|
+| Step 2  | Quay MR            | ${QUAY_MR}                                                                |
+| Step 3  | KRD MR             | ${KRD_MR}                                                                 |
+| Step 4  | OKC/RKC PR         | ${OKC_PR}                                                                 |
+| Step 5  | Tekton/Workflow     | ${STEP5_VAL}                                                              |
+| Step 6  | Operator PR        | ${STEP6_VAL}                                                              |
+| Step 7  | Bundle PR          | ${BDLPR}                                                                  |
+| Step 8  | Dockerfile Labels  | ${STEP8_VAL}                                                              |
+| Step 9  | Delivery Repo MR   | ${STEP9_VAL}                                                              |
+| Step 10 | Auto-Merge PR      | ${STEP10_VAL}                                                             |
+| Step 11 | Renovate PR        | ${STEP11_PR_VAL}                                                          |
+| Step 11 | Renovate Sync      | ${STEP11_SYNC_VAL}                                                        |
+
+Background monitors are running. Jira will be moved to Resolved automatically when all PRs/MRs are merged."
+
 uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "onboarding-in-review" \
   --status "Review" \
-  --comment "All PRs and MRs raised for '$COMPONENT_NAME' onboarding. Pending review and merge.
-
-  Step 2 — Quay MR          : $QUAY_MR
-  Step 3 — KRD MR           : $KRD_MR
-  Step 4 — OKC/RKC PR       : $OKC_PR
-  Step 5 — Tekton/Workflow   : $([ "$PRODUCT_CONTEXT" = "ODH" ] && echo "auto-triggered once Steps 3+4 are merged (background script running)" || echo "N/A (RHOAI)")
-  Step 6 — Operator PR      : $([ "$IS_OP" = "true" ] && echo "$OP_PR" || echo "N/A (is_operator=false)")
-  Step 7 — Bundle PR        : $BDLPR
-  Step 8 — Dockerfile Labels: $([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$LABELS_PR" || echo "N/A (ODH)")
-  Step 9 — Delivery Repo MR : $([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$DELIV_MR"  || echo "N/A (ODH)")
-  Step 10 — Auto-Merge PR   : $([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$AM_PR"     || echo "N/A (ODH)")
-  Step 11 — Renovate PR     : $([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$RENOV_PR"  || echo "N/A (ODH)")
-  Step 11 — Renovate Sync   : $([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "deferred; will trigger on renovate PR merge" || echo "N/A (ODH)")
-
-Background monitors are running. Jira will be moved to Resolved automatically when
-all PRs/MRs are merged."
+  --comment "$REVIEW_COMMENT"
 ```
 
 ---
