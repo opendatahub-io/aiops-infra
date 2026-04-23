@@ -1,13 +1,14 @@
 ---
 name: integrate-component-with-odh-operator
-description: Updates the opendatahub-operator repository to include a new operator component in build/manifests-config.yaml and raises a GitHub PR. Exits cleanly (no-op) when is_operator=false. Automates Step 9 of the ODH component onboarding pipeline.
+description: Updates the operator repository (opendatahub-io/opendatahub-operator for ODH, red-hat-data-services/rhods-operator for RHOAI) to include a new operator component in build/manifests-config.yaml and raises a GitHub PR. Exits cleanly (no-op) when is_operator=false. Automates Step 9 of the ODH/RHOAI component onboarding pipeline.
 allowed-tools: Bash, Read, Edit, Write
 user-invocable: true
 ---
 
 # Integrate Component with ODH Operator
 
-Adds a new operator component to `opendatahub-operator` by:
+Adds a new operator component to the operator repository (`opendatahub-operator` for ODH,
+`rhods-operator` for RHOAI) by:
 1. Reading the component's onboarding YAML from the Jira ticket.
 2. Exiting cleanly if `is_operator: false` — nothing to do.
 3. Adding a new entry to `build/manifests-config.yaml` in the operator repo.
@@ -15,9 +16,12 @@ Adds a new operator component to `opendatahub-operator` by:
 
 > **CRITICAL — `ODH_OPERATOR_URL` is the single source of truth for every Git and GitHub
 > operation in this skill.**
-> It is resolved once in Step 0 from `ODH_OPERATOR_REPO_URL` (or the default).
+> It is resolved in Step 0 if `ODH_OPERATOR_REPO_URL` is explicitly set; otherwise it is
+> derived in Step 3d from `product_context` (ODH → `opendatahub-io/opendatahub-operator`;
+> RHOAI → `red-hat-data-services/rhods-operator`).
 > Every clone, push, and PR call (`--src-url`, `--dest-url`) **must** use `$ODH_OPERATOR_URL`
-> — never the hardcoded upstream URL `https://github.com/opendatahub-io/opendatahub-operator.git`.
+> — never a hardcoded URL. `ODH_OPERATOR_PATH` is derived from `ODH_OPERATOR_URL` in Step 3d
+> and must be used for all GitHub API calls.
 > This rule applies for the entire skill execution even if the URL resolves to a fork.
 
 ## Usage
@@ -39,7 +43,10 @@ Examples:
 - `JIRA_API_TOKEN` — Atlassian API token (https://id.atlassian.com/manage-profile/security/api-tokens)
 - `uv` — Python runner (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - `git`
-- Optional: `ODH_OPERATOR_REPO_URL` (default: `https://github.com/opendatahub-io/opendatahub-operator.git`)
+- Optional: `ODH_OPERATOR_REPO_URL` — overrides the target operator repo. If not set, the
+  default is derived from `product_context`:
+  - `ODH` → `https://github.com/opendatahub-io/opendatahub-operator.git`
+  - `RHOAI` → `https://github.com/red-hat-data-services/rhods-operator.git`
 - Optional: `JIRA_SERVER` (default: `https://redhat.atlassian.net`)
 
 **Jira attachment:** The Jira issue must have `component_onboarding_details.yaml` attached
@@ -59,23 +66,22 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
    If the argument cannot be parsed as a Jira URL (no `/browse/` segment), stop with:
    > ERROR: Invalid Jira URL. Expected format: https://redhat.atlassian.net/browse/RHODS-14226
 
-2. Resolve `ODH_OPERATOR_URL`. Execute this exact block; do NOT skip the `echo`:
+2. Resolve `ODH_OPERATOR_URL` — only if `ODH_OPERATOR_REPO_URL` is explicitly set. If not
+   set, the default will be derived from `product_context` in Step 3d. Execute this exact
+   block; do NOT skip the `echo`:
 
    ```bash
-   ODH_OPERATOR_URL="${ODH_OPERATOR_REPO_URL:-https://github.com/opendatahub-io/opendatahub-operator.git}"
-   echo "ODH_OPERATOR_REPO_URL=${ODH_OPERATOR_REPO_URL:-(not set, using default)}"
-   echo "ODH_OPERATOR_URL resolved to: $ODH_OPERATOR_URL"
+   if [[ -n "${ODH_OPERATOR_REPO_URL:-}" ]]; then
+     ODH_OPERATOR_URL="$ODH_OPERATOR_REPO_URL"
+     echo "ODH_OPERATOR_REPO_URL is set; ODH_OPERATOR_URL resolved to: $ODH_OPERATOR_URL"
+   else
+     ODH_OPERATOR_URL=""
+     echo "ODH_OPERATOR_REPO_URL is not set — will derive default from product_context in Step 3d."
+   fi
    ```
 
-   The `echo` output confirms which repo is active for the entire skill run.
-   **Never override or re-derive `ODH_OPERATOR_URL` in later steps.** If any step appears
-   to use a different URL, that is a bug — stop and correct it.
-
-3. Parse `ODH_OPERATOR_URL` to extract owner and repo path for GitHub API calls:
-   ```bash
-   ODH_OPERATOR_PATH=$(echo "$ODH_OPERATOR_URL" | sed 's|https://github.com/||;s|\.git$||')
-   # e.g. "opendatahub-io/opendatahub-operator"
-   ```
+   **Never override or re-derive `ODH_OPERATOR_URL` after Step 3d.** `ODH_OPERATOR_PATH`
+   is derived in Step 3d once `ODH_OPERATOR_URL` is finalised.
 
 ---
 
@@ -168,6 +174,31 @@ If any of COMPONENT_NAME, PRODUCT_CONTEXT, IS_OPERATOR, REPO_URL, REPO_BRANCH is
 ERROR in Step 3c: Missing required field '<field>' in component_onboarding_details.yaml. Aborting.
 ```
 
+**3d. Finalise `ODH_OPERATOR_URL` and derive `ODH_OPERATOR_PATH`:**
+
+If `ODH_OPERATOR_URL` is still empty (i.e., `ODH_OPERATOR_REPO_URL` was not set in Step 0),
+derive it from `PRODUCT_CONTEXT`:
+
+```bash
+if [[ -z "${ODH_OPERATOR_URL:-}" ]]; then
+  if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
+    ODH_OPERATOR_URL="https://github.com/opendatahub-io/opendatahub-operator.git"
+  elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+    ODH_OPERATOR_URL="https://github.com/red-hat-data-services/rhods-operator.git"
+  else
+    echo "ERROR in Step 3d: Unrecognised product_context '${PRODUCT_CONTEXT}'. Expected 'ODH' or 'RHOAI'."
+    exit 1
+  fi
+  echo "ODH_OPERATOR_URL derived from product_context (${PRODUCT_CONTEXT}): $ODH_OPERATOR_URL"
+fi
+
+ODH_OPERATOR_PATH=$(echo "$ODH_OPERATOR_URL" | sed 's|https://github.com/||;s|\.git$||')
+echo "ODH_OPERATOR_PATH: $ODH_OPERATOR_PATH"
+```
+
+**`ODH_OPERATOR_URL` and `ODH_OPERATOR_PATH` are now fixed for the remainder of the skill.
+Never override or re-derive them in later steps.**
+
 ---
 
 ## Step 4: Check is_operator Gate
@@ -179,7 +210,7 @@ uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
   --add-label "operator-changes-not-needed" \
   --comment "Skipping odh-operator integration for '$COMPONENT_NAME'.
 
-is_operator=false in component_onboarding_details.yaml. No changes to opendatahub-operator are required for this component."
+is_operator=false in component_onboarding_details.yaml. No changes to the operator repo (${ODH_OPERATOR_PATH}) are required for this component."
 ```
 
 Print:
@@ -215,7 +246,7 @@ is_operator=true. Proceeding with odh-operator integration.
 Before cloning the repo, check whether `$COMPONENT_NAME` already has an entry in the
 `map:` object of `build/manifests-config.yaml` on the **`main` branch** of `$ODH_OPERATOR_URL`.
 
-> **Reminder:** Use `$ODH_OPERATOR_PATH` (derived from `$ODH_OPERATOR_URL` in Step 0) for
+> **Reminder:** Use `$ODH_OPERATOR_PATH` (derived from `$ODH_OPERATOR_URL` in Step 3d) for
 > the GitHub API URL. Do NOT substitute the hardcoded upstream path.
 
 Fetch the raw file content from the GitHub API:
@@ -260,7 +291,7 @@ If `ENTRY_EXISTS=true`:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
   --add-label "odh-operator-pr-raised" \
-  --comment "'$COMPONENT_NAME' is already present in build/manifests-config.yaml on the main branch of opendatahub-operator.
+  --comment "'$COMPONENT_NAME' is already present in build/manifests-config.yaml on the main branch of ${ODH_OPERATOR_PATH}.
 
 No changes are needed. The odh-operator integration for this component is already complete."
 ```
@@ -285,9 +316,15 @@ rm -f "$MANIFESTS_TMPFILE"
 
 Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
 
+First derive the operator repo name for matching:
+```bash
+OPERATOR_REPO_NAME="${ODH_OPERATOR_PATH##*/}"
+# e.g. "opendatahub-operator" or "rhods-operator"
+```
+
 Search the array at `fields.comment.comments[].body` for GitHub PR URLs matching:
 ```
-https://github\.com/[^/\s]+/opendatahub-operator/pull/\d+
+https://github\.com/[^/\s]+/${OPERATOR_REPO_NAME}/pull/\d+
 ```
 
 For each URL found, run:
@@ -301,7 +338,7 @@ Parse stdout:
 - If `state=open` **and** `title=` contains `$COMPONENT_NAME`:
   ```bash
   uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "Existing open GitHub PR found for '$COMPONENT_NAME' in opendatahub-operator: <found-url>.
+    --comment "Existing open GitHub PR found for '$COMPONENT_NAME' in ${ODH_OPERATOR_PATH}: <found-url>.
 
 No new PR will be raised. Review and merge the existing PR to complete this step."
   ```
@@ -329,8 +366,8 @@ If no matching PR is found, continue to Step 7.
 
 ## Step 7: Set Up Playpen (Clone)
 
-> **Reminder:** Pass `--src-url "$ODH_OPERATOR_URL"` — the URL resolved in Step 0.
-> Do NOT hardcode the upstream URL here.
+> **Reminder:** Pass `--src-url "$ODH_OPERATOR_URL"` — the URL finalised in Step 3d
+> (or Step 0 if `ODH_OPERATOR_REPO_URL` was explicitly set). Do NOT hardcode the URL here.
 
 Run from inside `$WORKDIR`:
 
@@ -370,7 +407,7 @@ Use the `Read` tool to read `$CLONE_DIR/build/manifests-config.yaml`.
 If the file does not exist, stop with:
 ```
 ERROR in Step 8: build/manifests-config.yaml not found in $CLONE_DIR.
-  Verify that $ODH_OPERATOR_URL points to the correct opendatahub-operator repository.
+  Verify that $ODH_OPERATOR_URL points to the correct operator repository.
 ```
 
 Locate the `map:` key. It will contain existing entries like:
@@ -476,7 +513,7 @@ After a successful PR creation, update Jira:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
   --add-label "odh-operator-pr-raised" \
-  --comment "GitHub PR raised to add '$COMPONENT_NAME' to opendatahub-operator manifests config.
+  --comment "GitHub PR raised to add '$COMPONENT_NAME' to ${ODH_OPERATOR_PATH} manifests config.
 
 PR URL: $PR_URL
 

@@ -193,8 +193,12 @@ Extract and store these values (all are under the `inputs:` key):
 | `REPO_BRANCH` | `inputs.repo_branch` | `main` |
 | `CONTEXT_PATH` | `inputs.context_path` | `maas-controller` |
 | `DOCKERFILE_PATH` | `inputs.dockerfile_path` | `Dockerfile` |
+| `TARGET_RHOAI_VERSION` | `inputs.target_rhoai_version` | `3.4` or `3.4-ea-2` |
 
-Compute `KONFLUX_COMPONENT_NAME`:
+`TARGET_RHOAI_VERSION` is optional — ODH tickets may not include it. Set to empty string if
+absent; it is only validated when `PRODUCT_CONTEXT` is `RHOAI` (in Step 8).
+
+Compute `KONFLUX_COMPONENT_NAME` (ODH default; will be overridden for RHOAI in Step 4):
 - If `COMPONENT_NAME` already ends with `-ci`: `KONFLUX_COMPONENT_NAME="$COMPONENT_NAME"`
 - Otherwise: `KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-ci"`
 
@@ -222,15 +226,29 @@ Based on `PRODUCT_CONTEXT`, set these variables:
 | Variable | ODH | RHOAI |
 |----------|-----|-------|
 | `CLUSTER_INSTANCE` | `external` | `internal` |
-| `KONFLUX_NAMESPACE` | `opendatahub-builds` | `rhoai-builds` |
+| `KONFLUX_NAMESPACE` | `open-data-hub-tenant` | `rhoai-tenant` |
 | `SPARSE_PATHS` | `tenants-config/cluster/stone-prd-rh01/tenants/open-data-hub-tenant tenants-config/auto-generated/cluster/stone-prd-rh01/tenants/open-data-hub-tenant` | `tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant` |
-| `TARGET_YAML` | `tenants-config/cluster/stone-prd-rh01/tenants/open-data-hub-tenant/opendatahub-ci-components.yaml` | `tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/rhoai-ci-components.yaml` |
-| `KRD_APPLICATION` | `opendatahub-builds` | `rhoai-builds` |
+| `TARGET_YAML` | `tenants-config/cluster/stone-prd-rh01/tenants/open-data-hub-tenant/opendatahub-ci-components.yaml` | _(set in Step 8-RHOAI-0 after parsing `target_rhoai_version`)_ |
+| `KRD_APPLICATION` | `opendatahub-builds` | _(set in Step 8-RHOAI-0 after parsing `target_rhoai_version`)_ |
 | `QUAY_ORG` | `opendatahub` | `rhoai` |
 
-> **Note on RHOAI paths:** If the RHOAI values above are incorrect for your environment
-> (namespace name, YAML file name, Quay org), pause and ask the user to confirm before
-> proceeding.
+After setting `PRODUCT_CONTEXT`, recompute `KONFLUX_COMPONENT_NAME` for RHOAI. Skip this block if `PRODUCT_CONTEXT == "ODH"` (the `-ci` default from Step 3c is already correct).
+
+If `PRODUCT_CONTEXT == "RHOAI"`:
+
+```bash
+if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
+  KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-ea-${BASH_REMATCH[3]}"
+elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+  KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+else
+  echo "ERROR in Step 4 (RHOAI): Cannot parse target_rhoai_version '${TARGET_RHOAI_VERSION}'."
+  echo "  Expected x.y or x.y-ea-n (e.g. 3.4 or 3.4-ea-2)."
+  echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
+  exit 1
+fi
+echo "KONFLUX_COMPONENT_NAME : $KONFLUX_COMPONENT_NAME"
+```
 
 ---
 
@@ -294,6 +312,11 @@ Run from inside `$WORKDIR`:
 
 ```bash
 cd "$WORKDIR"
+
+# For RHOAI, also check out the ReleasePlanAdmission config directory
+if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+  SPARSE_PATHS="$SPARSE_PATHS config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai"
+fi
 
 PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
   --src-url "$KRD_URL" \
@@ -367,6 +390,170 @@ After editing, use the `Read` tool to re-read the file and verify:
 - `containerImage` uses `COMPONENT_NAME` (no `-ci` suffix), not `KONFLUX_COMPONENT_NAME`
 
 If the file looks malformed, fix it with another `Edit` call before proceeding.
+
+---
+
+**Step 8 RHOAI: Modify RHOAI-Specific Files** (skip entirely if `PRODUCT_CONTEXT != "RHOAI"`)
+
+**8-RHOAI-0. Validate and parse `TARGET_RHOAI_VERSION`**
+
+```bash
+if [[ -z "$TARGET_RHOAI_VERSION" ]]; then
+  echo "ERROR in Step 8 (RHOAI): target_rhoai_version is missing from component_onboarding_details.yaml."
+  echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
+  exit 1
+fi
+
+if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
+  VERSION_X="${BASH_REMATCH[1]}"
+  VERSION_Y="${BASH_REMATCH[2]}"
+  VERSION_N="${BASH_REMATCH[3]}"
+  VERSION_NAME="v${VERSION_X}.${VERSION_Y}-ea.${VERSION_N}"
+  RPA_VAR="v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"
+elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+  VERSION_X="${BASH_REMATCH[1]}"
+  VERSION_Y="${BASH_REMATCH[2]}"
+  VERSION_N=""
+  VERSION_NAME="v${VERSION_X}.${VERSION_Y}"
+  RPA_VAR="v${VERSION_X}-${VERSION_Y}"
+else
+  echo "ERROR in Step 8 (RHOAI): Cannot parse target_rhoai_version '${TARGET_RHOAI_VERSION}'."
+  echo "  Expected canonical form: x.y  OR  x.y-ea-n  (e.g. 3.4 or 3.4-ea-2)"
+  exit 1
+fi
+echo "VERSION_NAME : $VERSION_NAME"
+echo "RPA_VAR      : $RPA_VAR"
+
+# Set TARGET_YAML for RHOAI — points to the ProjectDevelopmentStream file for this version
+TARGET_YAML="tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/${VERSION_NAME}/ProjectDevelopmentStream-${VERSION_NAME}.yaml"
+
+# Set KRD_APPLICATION for RHOAI based on whether this is an EA release
+if [[ -n "$VERSION_N" ]]; then
+  KRD_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"
+else
+  KRD_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}"
+fi
+
+echo "TARGET_YAML     : $TARGET_YAML"
+echo "KRD_APPLICATION : $KRD_APPLICATION"
+```
+
+Also derive the context path used in the template:
+```bash
+if [[ "$CONTEXT_PATH" == "./" || "$CONTEXT_PATH" == "." ]]; then
+  CONTEXT_PATH_NORMALIZED="."
+else
+  CONTEXT_PATH_NORMALIZED="$CONTEXT_PATH"
+fi
+```
+
+---
+
+**8-RHOAI-1. Modify `ProjectDevelopmentStream-<VERSION_NAME>.yaml`**
+
+File path:
+```
+$CLONE_DIR/tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/${VERSION_NAME}/ProjectDevelopmentStream-${VERSION_NAME}.yaml
+```
+
+- **If file not found:** update Jira with an appropriate comment, then stop:
+  ```
+  ERROR in Step 8 (RHOAI): ProjectDevelopmentStream-${VERSION_NAME}.yaml not found.
+    Sprint onboarding for version '${VERSION_NAME}' is pending.
+    Complete sprint onboarding first and update the Jira accordingly.
+  ```
+
+- **Idempotency check:** use `Read` to read the file. If a line containing
+  `name: ${COMPONENT_NAME}-{{.versionName}}` is already present, skip to 8-RHOAI-2.
+
+- **Append** to the `spec.resources` array using `Edit`. Substitute `COMPONENT_NAME`,
+  `CONTEXT_PATH_NORMALIZED`, `DOCKERFILE_PATH`, and `REPO_URL` with their variable values.
+  Write `{{.versionName}}` and `{{.branch}}` **verbatim** — they are Go template placeholders
+  and must NOT be replaced with actual values.
+
+  ```yaml
+  - apiVersion: appstudio.redhat.com/v1alpha1
+    kind: Component
+    metadata:
+      annotations:
+        build.appstudio.openshift.io/pipeline: '{"name":"docker-build-multi-platform-oci-ta","bundle":"latest"}'
+        build.appstudio.openshift.io/request: configure-pac-no-mr
+      name: <COMPONENT_NAME>-{{.versionName}}
+    spec:
+      application: rhoai-{{.versionName}}
+      build-nudges-ref:
+        - odh-operator-{{.versionName}}
+      componentName: <COMPONENT_NAME>-{{.versionName}}
+      containerImage: quay.io/rhoai/<COMPONENT_NAME>-rhel9
+      source:
+        git:
+          context: <CONTEXT_PATH_NORMALIZED>
+          dockerfileUrl: <DOCKERFILE_PATH>
+          revision: "{{.branch}}"
+          url: <REPO_URL>
+  ```
+
+  Match the indentation used by existing entries in the file. After editing, use `Read` to verify
+  the entry is present and surrounding entries are undisturbed.
+
+---
+
+**8-RHOAI-2. Modify `rhoai-onprem-<RPA_VAR>-components-stage.yaml`**
+
+File path:
+```
+$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-${RPA_VAR}-components-stage.yaml
+```
+
+- **If file not found:** update Jira with an appropriate comment, then stop:
+  ```
+  ERROR in Step 8 (RHOAI): rhoai-onprem-${RPA_VAR}-components-stage.yaml not found.
+    Sprint onboarding for version '${VERSION_NAME}' is pending.
+    Complete sprint onboarding first and update the Jira accordingly.
+  ```
+
+- **Idempotency check:** use `Read` to read the file. If `name: ${COMPONENT_NAME}-${RPA_VAR}`
+  is already present in `spec.data.mapping.components`, skip to 8-RHOAI-3.
+
+- **Append** to `spec.data.mapping.components` using `Edit`:
+  ```yaml
+  - name: <COMPONENT_NAME>-<RPA_VAR>
+    repositories:
+      - url: registry.stage.redhat.io/rhoai/<COMPONENT_NAME>-rhel9
+  ```
+
+  After editing, use `Read` to verify the entry is present.
+
+---
+
+**8-RHOAI-3. Modify `rhoai-onprem-<RPA_VAR>-components-prod.yaml`**
+
+File path:
+```
+$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-${RPA_VAR}-components-prod.yaml
+```
+
+- **If file not found:** update Jira with an appropriate comment, then stop:
+  ```
+  ERROR in Step 8 (RHOAI): rhoai-onprem-${RPA_VAR}-components-prod.yaml not found.
+    Sprint onboarding for version '${VERSION_NAME}' is pending.
+    Complete sprint onboarding first and update the Jira accordingly.
+  ```
+
+- **Idempotency check:** use `Read` to read the file. If `name: ${COMPONENT_NAME}-${RPA_VAR}`
+  is already present in `spec.data.mapping.components`, skip.
+
+- **Append** to `spec.data.mapping.components` using `Edit`:
+  ```yaml
+  - name: <COMPONENT_NAME>-<RPA_VAR>
+    repositories:
+      - url: registry.redhat.io/rhoai/<COMPONENT_NAME>-rhel9
+  ```
+
+  Note: stage uses `registry.stage.redhat.io`; prod uses `registry.redhat.io` (no `stage.`).
+  After editing, use `Read` to verify the entry is present.
+
+---
 
 **8d. Run `build-manifests.sh`** to regenerate the `auto-generated/` directory.
 Pass `$KUSTOMIZE_BIN` (resolved in Step 1) so the script uses the correct binary or shim:
@@ -660,3 +847,8 @@ at Step 5 once the Component exists."
 | MR pipeline fails | Step 10 | YAML fix attempted automatically; check MR if it fails again |
 | MR closed without merge | Step 10 | Review the MR; re-run after fixing |
 | Component not visible after 30m | Step 11 | GitOps pipeline may still be running; re-run to re-check |
+| `target_rhoai_version` empty | Step 8 (RHOAI) | Re-generate YAML with `/create-component-onboarding-jira` |
+| `target_rhoai_version` format invalid | Step 8 (RHOAI) | Expected `x.y` or `x.y-ea-n` (e.g. `3.4` or `3.4-ea-2`) |
+| `ProjectDevelopmentStream-*.yaml` not found | Step 8 (RHOAI) | Sprint onboarding pending — complete it first |
+| `rhoai-onprem-*-components-stage.yaml` not found | Step 8 (RHOAI) | Sprint onboarding pending — complete it first |
+| `rhoai-onprem-*-components-prod.yaml` not found | Step 8 (RHOAI) | Sprint onboarding pending — complete it first |

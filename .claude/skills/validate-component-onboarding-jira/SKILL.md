@@ -12,6 +12,8 @@ Pre-flight validation for ODH component onboarding. Given a Jira issue URL, this
 2. Downloads the `component_onboarding_details.yaml` attachment from the issue
 3. Validates the YAML against the `component_onboarding_details.schema.json` schema in the skill assets
 
+RHOAI tickets must include `architectures` and `target_rhoai_version` (canonical form, e.g. `3.4` or `3.4-ea-2`) in addition to the common required fields. ODH tickets must include `build_type`.
+
 Any failure is a hard blocker. The skill exits with a clear error message.
 
 ## Prerequisites
@@ -126,7 +128,7 @@ uv run --script <COMMON_SCRIPTS_DIR>/validate_yaml_schema.py \
   <SKILL_DIR>/assets/component_onboarding_details.schema.json
 ```
 
-On success (exit code 0): print "Validation passed." and continue to Step 6.
+On success (exit code 0): print "Validation passed." and continue to the branch check below.
 On failure (exit code 1): capture all stderr output as `<validation_errors>`, display them, update the Jira issue with the specific errors, then stop:
 
 ```bash
@@ -144,6 +146,33 @@ Please fix the YAML, re-upload it as an attachment to this ticket, and re-run /v
 ```
 
 Then stop with: `"ERROR in Step 3 (Schema Validation): The YAML failed validation. See errors above. Aborting."`
+
+#### Step 5b: Cross-validate repo_branch for RHOAI
+
+Read `inputs.product_context` and `inputs.repo_branch` from the downloaded YAML.
+
+If `product_context == "RHOAI"`:
+- Read `inputs.target_rhoai_version` (canonical form, e.g. `3.5` or `3.5-ea-1`).
+- Derive the expected branch:
+  - If no EA suffix: `expected_branch = "rhoai-<VERSION_X>.<VERSION_Y>"` (e.g. `rhoai-3.5`)
+  - If EA suffix present (format `<x>.<y>-ea-<n>`): `expected_branch = "rhoai-<VERSION_X>.<VERSION_Y>-ea.<VERSION_N>"` (e.g. `rhoai-3.5-ea.1`)
+- If `repo_branch != expected_branch`, update Jira and stop:
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+  --add-label "validation-failed" \
+  --remove-label "validation-successful" \
+  --comment "Validation failed at Step 3b (Branch Cross-Validation).
+
+For RHOAI components, repo_branch must match the target version.
+  target_rhoai_version : <target_rhoai_version>
+  expected repo_branch : <expected_branch>
+  actual repo_branch   : <repo_branch>
+
+Please correct repo_branch in the YAML, re-upload it, and re-run /validate-component-onboarding-jira."
+```
+
+Then stop with: `"ERROR in Step 3b (Branch Cross-Validation): repo_branch '<repo_branch>' does not match expected '<expected_branch>'. Aborting."`
 
 ### Step 6: Update Jira on success and report
 

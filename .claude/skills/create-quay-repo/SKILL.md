@@ -214,12 +214,12 @@ On success, `FORK_URL` holds the HTTPS URL of the fork (e.g.,
 
 ---
 
-## Step 6: Determine Sparse File Path and Branch Name
+## Step 6: Determine YAML File Path and Branch Name
 
 Map `<org>` to the YAML file path inside app-interface:
 
-| `<org>` | Sparse file path |
-|---------|-----------------|
+| `<org>` | YAML file path |
+|---------|----------------|
 | `opendatahub` | `data/services/rhoai/quay/opendatahub.yml` |
 | `rhoai`       | `data/services/rhoai/quay/rhoai.yml`       |
 | `modh`        | `data/services/rhoai/quay/modh.yml`        |
@@ -230,7 +230,7 @@ For any other `<org>`, pause and ask:
 > This is typically under `data/services/rhoai/quay/<org>.yml`.
 > What is the correct path?
 
-Set `SPARSE_FILE=<path>`.
+Set `YAML_FILE=<path>`.
 
 Determine `DEST_BRANCH`:
 - If `<jira-id>` is available: `DEST_BRANCH=<jira-id>` (e.g. `RHOAIENG-1234`)
@@ -238,32 +238,36 @@ Determine `DEST_BRANCH`:
 
 ---
 
-## Step 7: Set Up Playpen (Sparse Clone)
+## Step 7: Set Up Playpen (Full Clone)
 
-Run from inside `$WORKDIR`:
+Run from inside `$WORKDIR`. The clone is wrapped with a **45-minute timeout** (`timeout 2700`)
+because `app-interface` is a large repository that can take a long time to fetch.
 
 ```bash
 cd "$WORKDIR"
 
 if [[ -n "$DEST_BRANCH" ]]; then
-  PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
+  PLAYPEN_OUTPUT=$(timeout 2700 bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
     --src-url "$APP_INTERFACE_URL" \
     --dest-url "$FORK_URL" \
     --src-branch master \
-    --dest-branch "$DEST_BRANCH" \
-    --sparse-files "$SPARSE_FILE")
+    --dest-branch "$DEST_BRANCH")
 else
-  PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
+  PLAYPEN_OUTPUT=$(timeout 2700 bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
     --src-url "$APP_INTERFACE_URL" \
     --dest-url "$FORK_URL" \
-    --src-branch master \
-    --sparse-files "$SPARSE_FILE")
+    --src-branch master)
 fi
 ```
 
 Parse `PLAYPEN_OUTPUT`:
 - Line 1 → `CLONE_DIR` (absolute path to the `app-interface-playpen` directory)
 - Line 2 → `DEST_BRANCH` (the branch that was created and pushed)
+
+On exit 124 (timeout): stop with:
+```
+ERROR in Step 7 (Playpen setup): Clone timed out after 45 minutes. Check VPN connectivity and retry. Aborting.
+```
 
 On exit 1: display stderr and stop with:
 ```
@@ -274,7 +278,7 @@ ERROR in Step 7 (Playpen setup): Clone or push failed. See details above. Aborti
 
 ## Step 8: Modify YAML File
 
-Use the `Read` tool to read `$CLONE_DIR/$SPARSE_FILE`.
+Use the `Read` tool to read `$CLONE_DIR/$YAML_FILE`.
 
 **Idempotency check:** Search the `items:` array for any entry where `name: <repo>` is already
 present. If found:
@@ -289,7 +293,7 @@ If the entry does NOT exist, compose the YAML block to append:
 ```
 Where `public: true` if `visibility=public`, `public: false` if `visibility=private`.
 
-Use the `Edit` tool to append this block to the `items:` array in `$CLONE_DIR/$SPARSE_FILE`.
+Use the `Edit` tool to append this block to the `items:` array in `$CLONE_DIR/$YAML_FILE`.
 Append after the last existing item in the array, maintaining consistent indentation (2 spaces).
 
 After editing, use the `Read` tool to re-read the file and verify:
@@ -305,7 +309,7 @@ If the file looks malformed, fix it with another `Edit` call before proceeding.
 First, commit the change:
 ```bash
 cd "$CLONE_DIR"
-git add "$SPARSE_FILE"
+git add "$YAML_FILE"
 git commit -m "Add <repo> to quay <org> config"
 ```
 
@@ -511,6 +515,7 @@ Re-run /create-quay-repo to re-check — it will short-circuit at Step 3 once th
 | VPN not active | Steps 5, 7, 9, 10 | Activate VPN and re-run |
 | Fork creation fails | Step 5 | Check GITLAB_TOKEN permissions (needs `api` scope) |
 | Clone fails | Step 7 | Check VPN and GITLAB_TOKEN `write_repository` scope |
+| Clone timed out (45 min) | Step 7 | Check VPN; retry once connectivity is stable |
 | Push fails | Step 9 | Check GITLAB_TOKEN `write_repository` scope |
 | MR creation fails 3x | Step 9 | Check VPN; inspect stderr; manual fallback |
 | MR closed without merge | Step 10 | Review the MR; re-run after fixing |

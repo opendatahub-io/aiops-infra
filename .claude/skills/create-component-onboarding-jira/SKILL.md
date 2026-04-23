@@ -148,6 +148,21 @@ _If `product_context == ODH`:_
 → Store in `build_type`. Must be `CI` or `Release`.
 
 _If `product_context == RHOAI`:_
+
+**Q2a — Target RHOAI version**
+> What is the target RHOAI version?
+> Format: `x.y`, `x.y.0`, `x.y-eaN`, `x.y-ea-N`, `x.y-ea.N`, `x.y.0-eaN`, `x.y.0-ea-N`, or `x.y.0-ea.N`
+> Examples: `3.4`, `3.4.0`, `3.4-ea2`, `3.4-ea-2`, `3.4-ea.2`, `3.4.0-ea2`, `3.4.0-ea-2`, `3.4.0-ea.2`
+
+→ Validate against the regex: `^\d+\.\d+(?:\.0)?(?:-ea[-.]?\d+)?$`
+  Re-ask if the input does not match, showing the valid examples above.
+
+Transform the validated input to the canonical form and store in `target_rhoai_version`:
+- Extract `VERSION_X` = first integer, `VERSION_Y` = second integer, `VERSION_N` = EA number (after `-ea`, `-ea-`, or `-ea.`), or empty if no EA suffix
+- If `VERSION_N` is non-empty: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>-ea-<VERSION_N>"` (e.g. `3.4-ea-2`)
+- Otherwise: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>"` (e.g. `3.4`)
+
+**Q2b — CPU architectures**
 > Which CPU architectures should this component build for?
 > Options: x86_64, arm64, ppc64le, s390x
 > Press Enter to accept the defaults [x86_64, arm64], or enter a comma-separated list.
@@ -157,10 +172,15 @@ _If `product_context == RHOAI`:_
 → Store in `architectures` (list of strings).
 
 **Q3 — Component name**
-> What is the component name? (kebab-case, e.g. my-component)
+> What is the component name?
+> Must start with `odh-`, followed by lowercase letters, numbers, and hyphens only.
+> (e.g. odh-my-component)
 
 → Store in `component_name`.
-  Validate: must match `^[a-z0-9]+(-[a-z0-9]+)*$`. Re-ask if invalid, showing the rule.
+  Validate: must match `^odh-[a-z0-9]+(-[a-z0-9]+)*$`. Re-ask if invalid, showing the rule:
+  - Must start with `odh-`
+  - Remaining characters: lowercase letters, numbers, and hyphens only
+  - No consecutive or trailing hyphens
 
 **Q4 — Repository URL**
 > What is the full HTTPS URL of the component's GitHub repository?
@@ -170,9 +190,19 @@ _If `product_context == RHOAI`:_
   Validate: must match `^https://github\.com/.+/.+$`. Re-ask if invalid.
 
 **Q5 — Branch**
+
+_If `product_context == ODH`:_
 > Which branch should be built? (e.g. main)
 
 → Store in `repo_branch`. Must be non-empty.
+
+_If `product_context == RHOAI`:_
+
+Derive `repo_branch` automatically from `target_rhoai_version` — do NOT ask the user:
+- If `target_rhoai_version` has no EA suffix (e.g. `3.5`): `repo_branch = "rhoai-<VERSION_X>.<VERSION_Y>"` (e.g. `rhoai-3.5`)
+- If `target_rhoai_version` has an EA suffix (e.g. `3.5-ea-1`): `repo_branch = "rhoai-<VERSION_X>.<VERSION_Y>-ea.<VERSION_N>"` (e.g. `rhoai-3.5-ea.1`)
+
+Print: `repo_branch auto-set to: <repo_branch>`
 
 **Q6 — Build context path**
 > What is the Docker build context path, relative to the repo root?
@@ -217,6 +247,7 @@ Component onboarding details collected:
 
   product_context              : <value>
   build_type / architectures   : <value>
+  target_rhoai_version         : <value or N/A>   # only shown for RHOAI
   component_name               : <value>
   repo_url                     : <value>
   repo_branch                  : <value>
@@ -253,6 +284,7 @@ inputs:
   architectures:                     # only when product_context == RHOAI
     - x86_64
     - arm64
+  target_rhoai_version: <value>      # only when product_context == RHOAI (e.g. 3.4 or 3.4-ea-2)
   is_operator: <true|false>
   operator_manifest_src_path: <value>   # only when is_operator == true
   operator_manifest_dest_path: <value>  # only when is_operator == true
