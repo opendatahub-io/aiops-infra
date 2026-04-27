@@ -51,23 +51,12 @@ If a value is present but does not contain `/browse/`, stop with:
 Set `JIRA_URL` to the parsed URL, or empty string if omitted.
 Set `JIRA_ID` to the last path segment of `JIRA_URL` (e.g. `RHOAIENG-1234`), or empty.
 
-**Jira credentials check (only when JIRA_URL is non-empty):**
 ```bash
-if [[ -n "$JIRA_URL" ]]; then
-  if [[ -z "${JIRA_USER_EMAIL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
-    echo "ERROR: Jira credentials required when a Jira URL is provided."
-    echo "  export JIRA_USER_EMAIL='you@example.com'"
-    echo "  export JIRA_API_TOKEN='your-api-token'"
-    exit 1
-  fi
-fi
-```
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --tools "uv"
 
-**uv check:**
-```bash
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
+if [[ -n "$JIRA_URL" ]]; then
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+    --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 

@@ -84,24 +84,9 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"; exit 1
-fi
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"; exit 1
-fi
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"; exit 1
-fi
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"; exit 1
-fi
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1
-fi
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."; exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env   "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
+  --tools "uv git"
 ```
 
 ---
@@ -222,27 +207,28 @@ Fetch the raw file content from the GitHub API:
 
 ```bash
 MANIFESTS_TMPFILE=$(mktemp)
-HTTP_STATUS=$(curl -s -w "%{http_code}" \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3.raw" \
-  "https://api.github.com/repos/${ODH_OPERATOR_PATH}/contents/build/manifests-config.yaml?ref=main" \
-  -o "$MANIFESTS_TMPFILE")
+bash "$COMMON_SCRIPTS_DIR/check_github_file.sh" \
+  --repo-path "$ODH_OPERATOR_PATH" \
+  --file-path "build/manifests-config.yaml" \
+  --ref        main \
+  --output     "$MANIFESTS_TMPFILE"
+FILE_EXIT=$?
 ```
 
-**If `HTTP_STATUS` is not `200`:**
-- `404` — file not found in the repo. Warn and continue to Step 6:
+**If `FILE_EXIT` is not `0`:**
+- `1` — file not found (HTTP 404). Warn and continue to Step 6:
   ```
   WARN in Step 5: build/manifests-config.yaml not found on main branch (HTTP 404).
     Verify ODH_OPERATOR_URL points to the correct repo. Continuing.
   ```
-- Any other non-200 — GitHub API error. Warn and continue to Step 6:
+- `2` — GitHub API error. Warn and continue to Step 6:
   ```
-  WARN in Step 5: Could not fetch build/manifests-config.yaml (HTTP $HTTP_STATUS). Continuing.
+  WARN in Step 5: Could not fetch build/manifests-config.yaml (API error). Continuing.
   ```
 - Do NOT abort on API errors — the file check is a fast-path optimisation; proceed with the
   full clone-and-edit flow if the check is inconclusive.
 
-**If `HTTP_STATUS` is `200`:**
+**If `FILE_EXIT` is `0`:**
 
 Check whether `$COMPONENT_NAME` is already present as a key under `map:`:
 
@@ -335,18 +321,16 @@ If no matching PR is found, continue to Step 7.
 Run from inside `$WORKDIR`:
 
 ```bash
-cd "$WORKDIR"
-
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
-  --src-url "$ODH_OPERATOR_URL" \
-  --src-branch main \
-  --dest-branch "<jira-id>" \
-  --sparse-files "build")
+eval "$(bash "$COMMON_SCRIPTS_DIR/run_github_playpen.sh" \
+  --src-url      "$ODH_OPERATOR_URL" \
+  --src-branch   main \
+  --dest-branch  "<jira-id>" \
+  --sparse-files "build" \
+  --workdir      "$WORKDIR" \
+  --scripts-dir  "$COMMON_SCRIPTS_DIR")"
 ```
 
-Parse `PLAYPEN_OUTPUT` from stdout:
-- Line 1 → `CLONE_DIR` (absolute path, e.g. `$WORKDIR/opendatahub-operator-playpen`)
-- Line 2 → `DEST_BRANCH` (the branch created and pushed, e.g. `RHODS-14226`)
+`$CLONE_DIR` and `$DEST_BRANCH` are set in the caller's environment via eval.
 
 On exit 1: display stderr and stop with:
 ```

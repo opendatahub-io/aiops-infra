@@ -78,62 +78,10 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-# 1. GITLAB_USER
-if [[ -z "${GITLAB_USER:-}" ]]; then
-  echo "ERROR: GITLAB_USER is not set. export GITLAB_USER=yourusername"
-  exit 1
-fi
-
-# 2. GITLAB_TOKEN
-if [[ -z "${GITLAB_TOKEN:-}" ]]; then
-  echo "ERROR: GITLAB_TOKEN is not set. export GITLAB_TOKEN=yourtoken"
-  exit 1
-fi
-
-# 3. JIRA_USER_EMAIL
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"
-  exit 1
-fi
-
-# 4. JIRA_API_TOKEN
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"
-  exit 1
-fi
-
-# 5. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
-fi
-
-# 6. oc
-if ! command -v oc &>/dev/null; then
-  echo "ERROR: oc CLI is not installed. https://console.redhat.com/openshift/downloads"
-  exit 1
-fi
-
-# 7. yamllint
-if ! command -v yamllint &>/dev/null; then
-  echo "ERROR: yamllint is not installed. pip install yamllint  OR  brew install yamllint"
-  exit 1
-fi
-
-# 8. kustomize (required by build-manifests.sh and verify-manifests.sh)
-# Accept: standalone kustomize binary, OR the shim at ~/.local/bin/kustomize installed by install.sh
-KUSTOMIZE_BIN=""
-if command -v kustomize &>/dev/null; then
-  KUSTOMIZE_BIN="kustomize"
-elif [[ -x "${HOME}/.local/bin/kustomize" ]]; then
-  KUSTOMIZE_BIN="${HOME}/.local/bin/kustomize"
-  export PATH="${HOME}/.local/bin:${PATH}"
-else
-  echo "ERROR: kustomize is not installed and no shim found at ~/.local/bin/kustomize."
-  echo "  Run install.sh to auto-create a shim from kubectl's built-in kustomize, OR"
-  echo "  install kustomize v5.7.1: https://kubectl.docs.kubernetes.io/installation/kustomize/"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env   "GITLAB_USER GITLAB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
+  --tools "uv oc yamllint kustomize"
+KUSTOMIZE_BIN="kustomize"
 ```
 
 ---
@@ -293,19 +241,16 @@ If no matching open MR is found, continue to Step 7.
 Run from inside `$WORKDIR`:
 
 ```bash
-cd "$WORKDIR"
-
-PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
-  --src-url "$KRD_URL" \
-  --src-branch main \
-  --dest-branch "<jira-id>" \
-  --sparse-files "$SPARSE_PATHS")
+eval "$(GITLAB_SSL_VERIFY=false bash "$COMMON_SCRIPTS_DIR/run_gitlab_playpen.sh" \
+  --src-url      "$KRD_URL" \
+  --src-branch   main \
+  --dest-branch  "<jira-id>" \
+  --sparse-files "$SPARSE_PATHS" \
+  --workdir      "$WORKDIR" \
+  --scripts-dir  "$COMMON_SCRIPTS_DIR")"
 ```
 
-Parse `PLAYPEN_OUTPUT`:
-- Line 1 → `CLONE_DIR` (absolute path to the clone directory — derived from the repo name,
-  e.g. `konflux-release-data-playpen` inside `$WORKDIR`)
-- Line 2 → `DEST_BRANCH` (the branch created and pushed)
+`$CLONE_DIR` and `$DEST_BRANCH` are set in the caller's environment via eval.
 
 On exit 1: display stderr and stop with:
 ```
@@ -566,78 +511,20 @@ to resume — it will skip MR creation and jump straight to monitoring."
 
 ## Step 11: Monitor Konflux Component Creation
 
-After the MR is merged, poll `check_konflux_component.sh` every 60 seconds for up to
-30 minutes until the Component appears on the Konflux cluster.
+After the MR is merged, poll until the Component appears on the Konflux cluster (30-minute timeout):
 
 ```bash
-POLL_INTERVAL=60    # seconds between checks
-MAX_WAIT=1800       # 30 minutes
-ELAPSED=0
-
-echo "Monitoring Konflux Component '$KONFLUX_COMPONENT_NAME' in namespace '$KONFLUX_NAMESPACE' (timeout: 30 minutes)..."
-
-while true; do
-  bash <COMMON_SCRIPTS_DIR>/check_konflux_component.sh \
-    "$KONFLUX_COMPONENT_NAME" "$KONFLUX_NAMESPACE" "$CLUSTER_INSTANCE"
-  CHECK_EXIT=$?
-
-  if [[ $CHECK_EXIT -eq 0 ]]; then
-    break   # Component found
-  elif [[ $CHECK_EXIT -eq 2 ]]; then
-    echo "WARNING: check_konflux_component.sh returned a tool error. Retrying..."
-  fi
-  # Exit 1 = not yet created; keep polling
-
-  if [[ $ELAPSED -ge $MAX_WAIT ]]; then
-    CHECK_EXIT=3
-    break
-  fi
-
-  REMAINING=$(( (MAX_WAIT - ELAPSED) / 60 ))
-  echo "  Component not yet visible (elapsed=${ELAPSED}s, remaining≈${REMAINING}m). Retrying in ${POLL_INTERVAL}s..."
-  sleep $POLL_INTERVAL
-  ELAPSED=$(( ELAPSED + POLL_INTERVAL ))
-done
+bash "$COMMON_SCRIPTS_DIR/monitor_konflux_component.sh" \
+  --component-name   "$KONFLUX_COMPONENT_NAME" \
+  --namespace        "$KONFLUX_NAMESPACE" \
+  --cluster-instance "$CLUSTER_INSTANCE" \
+  --scripts-dir      "$COMMON_SCRIPTS_DIR" \
+  --jira-url         "<jira-url>" \
+  --mr-url           "$MR_URL"
 ```
 
-Handle the result:
-
-- **`CHECK_EXIT=0`** (Component created): Update Jira and print success:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --add-label "konflux-component-created" \
-    --comment "Konflux Component successfully provisioned.
-
-Component name: $KONFLUX_COMPONENT_NAME
-Namespace: $KONFLUX_NAMESPACE
-Cluster: $CLUSTER_INSTANCE ($([ "$CLUSTER_INSTANCE" = "external" ] && echo "stone-prd-rh01" || echo "stone-prod-p02"))
-
-Verified via: oc get component -n $KONFLUX_NAMESPACE $KONFLUX_COMPONENT_NAME
-
-Step 3 (Add to konflux-release-data) is complete."
-  ```
-  Print:
-  ```
-  ✓ Konflux Component '$KONFLUX_COMPONENT_NAME' is live in namespace '$KONFLUX_NAMESPACE'.
-    Step 3 (Add to konflux-release-data) complete.
-  ```
-
-- **`CHECK_EXIT=3`** (30-minute timeout): Component not yet visible.
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "Konflux Component monitoring timed out after 30 minutes.
-'$KONFLUX_COMPONENT_NAME' has not yet appeared in namespace '$KONFLUX_NAMESPACE'.
-
-The MR was merged ($MR_URL) so the GitOps pipeline may still be running.
-Re-run /onboard-component-to-konflux-release-data to re-check — it will short-circuit
-at Step 5 once the Component exists."
-  ```
-  Print:
-  ```
-  WARNING: Component '$KONFLUX_COMPONENT_NAME' not visible after 30 minutes.
-  The MR was merged so the Konflux GitOps pipeline may still be running.
-  Re-run this skill later — it will short-circuit at Step 5 once the Component appears.
-  ```
+Exit 0 on success (Component confirmed live); exit 1 on timeout (30-minute default).
+The script prints progress, updates Jira, and produces the final success or warning message.
 
 ---
 

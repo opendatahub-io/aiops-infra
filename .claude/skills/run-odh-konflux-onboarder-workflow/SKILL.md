@@ -99,36 +99,13 @@ WORKFLOW_FILE=".github/workflows/odh-konflux-onboarder.yml"
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-# 1. GITHUB_USER
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env   "GITHUB_USER GITHUB_TOKEN" \
+  --tools "uv"
 
-# 2. GITHUB_TOKEN
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"
-  echo "  Token needs: repo scope + actions:write scope"
-  exit 1
-fi
-
-# 3. Jira credentials (only when JIRA_URL is non-empty)
 if [[ -n "$JIRA_URL" ]]; then
-  if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-    echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@redhat.com"
-    exit 1
-  fi
-  if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-    echo "ERROR: JIRA_API_TOKEN is not set."
-    echo "  Create at: https://id.atlassian.com/manage-profile/security/api-tokens"
-    exit 1
-  fi
-fi
-
-# 4. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+    --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 

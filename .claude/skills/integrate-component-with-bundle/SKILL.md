@@ -82,24 +82,9 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"; exit 1
-fi
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"; exit 1
-fi
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"; exit 1
-fi
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"; exit 1
-fi
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1
-fi
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."; exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env   "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
+  --tools "uv git"
 ```
 
 ---
@@ -178,15 +163,16 @@ RELATED_IMAGE_NAME="RELATED_IMAGE_$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:
 
 # relatedImages entry value — try to fetch the real SHA256 digest from Quay first
 STABLE_IMAGE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}:odh-stable"
-REAL_DIGEST=$(skopeo inspect --no-creds "docker://${STABLE_IMAGE}" 2>/dev/null \
-  | jq -r '.Digest // ""' 2>/dev/null || echo "")
+DIGEST_LINE=$(bash "$COMMON_SCRIPTS_DIR/resolve_image_digest.sh" --image "$STABLE_IMAGE")
+RESOLVE_EXIT=$?
+DIGEST="${DIGEST_LINE#digest=}"
 
-if [[ -n "$REAL_DIGEST" && "$REAL_DIGEST" == sha256:* ]]; then
-  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@${REAL_DIGEST}"
+if [[ $RESOLVE_EXIT -eq 0 ]]; then
+  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@${DIGEST}"
   USING_PLACEHOLDER=false
-  echo "  Fetched real digest from Quay: $REAL_DIGEST"
+  echo "  Fetched real digest from Quay: $DIGEST"
 else
-  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@sha256:$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@${DIGEST}"
   USING_PLACEHOLDER=true
   echo "  WARNING: Image not yet published to Quay — using placeholder digest."
   echo "  Update bundle-patch.yaml with the real digest before merging the PR."
@@ -214,26 +200,27 @@ Before cloning, check whether `$RELATED_IMAGE_NAME` already has an entry in
 
 ```bash
 BUNDLE_TMPFILE=$(mktemp)
-HTTP_STATUS=$(curl -s -w "%{http_code}" \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3.raw" \
-  "https://api.github.com/repos/${OBC_PATH}/contents/bundle/bundle-patch.yaml?ref=main" \
-  -o "$BUNDLE_TMPFILE")
+bash "$COMMON_SCRIPTS_DIR/check_github_file.sh" \
+  --repo-path "$OBC_PATH" \
+  --file-path "bundle/bundle-patch.yaml" \
+  --ref        main \
+  --output     "$BUNDLE_TMPFILE"
+FILE_EXIT=$?
 ```
 
-**If `HTTP_STATUS` is not `200`:**
-- `404` — file not found. Warn and continue to Step 5:
+**If `FILE_EXIT` is not `0`:**
+- `1` — file not found (HTTP 404). Warn and continue to Step 5:
   ```
   WARN in Step 4: bundle/bundle-patch.yaml not found on main branch (HTTP 404).
     Verify OBC_URL points to the correct repo. Continuing.
   ```
-- Any other non-200 — Warn and continue to Step 5:
+- `2` — GitHub API error. Warn and continue to Step 5:
   ```
-  WARN in Step 4: Could not fetch bundle/bundle-patch.yaml (HTTP $HTTP_STATUS). Continuing.
+  WARN in Step 4: Could not fetch bundle/bundle-patch.yaml (API error). Continuing.
   ```
 - Do NOT abort — the API check is a fast-path optimisation; proceed with the full flow if inconclusive.
 
-**If `HTTP_STATUS` is `200`:**
+**If `FILE_EXIT` is `0`:**
 
 ```bash
 if grep -q "${RELATED_IMAGE_NAME}" "$BUNDLE_TMPFILE"; then
@@ -323,18 +310,16 @@ If no matching PR is found, continue to Step 6.
 Sparse checkout only the two directories needed:
 
 ```bash
-cd "$WORKDIR"
-
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
-  --src-url "$OBC_URL" \
-  --src-branch main \
-  --dest-branch "<jira-id>" \
-  --sparse-files "bundle")
+eval "$(bash "$COMMON_SCRIPTS_DIR/run_github_playpen.sh" \
+  --src-url      "$OBC_URL" \
+  --src-branch   main \
+  --dest-branch  "<jira-id>" \
+  --sparse-files "bundle" \
+  --workdir      "$WORKDIR" \
+  --scripts-dir  "$COMMON_SCRIPTS_DIR")"
 ```
 
-Parse `PLAYPEN_OUTPUT` from stdout:
-- Line 1 → `CLONE_DIR` (absolute path, e.g. `$WORKDIR/ODH-Build-Config-playpen`)
-- Line 2 → `DEST_BRANCH` (e.g. `RHODS-14226`)
+`$CLONE_DIR` and `$DEST_BRANCH` are set in the caller's environment via eval.
 
 On exit 1: display stderr and stop with:
 ```

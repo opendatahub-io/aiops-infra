@@ -84,43 +84,16 @@ Parse the arguments provided by the user:
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-# 1. GITLAB_USER
-if [[ -z "${GITLAB_USER:-}" ]]; then
-  echo "ERROR: GITLAB_USER is not set."
-  echo "  export GITLAB_USER=yourusername"
-  exit 1
-fi
-
-# 2. GITLAB_TOKEN
-if [[ -z "${GITLAB_TOKEN:-}" ]]; then
-  echo "ERROR: GITLAB_TOKEN is not set."
-  echo "  export GITLAB_TOKEN=yourtoken"
-  exit 1
-fi
-
-# 3. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed."
-  echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
-fi
-
-# 4. skopeo
-if ! command -v skopeo &>/dev/null; then
-  echo "ERROR: skopeo is not installed."
-  echo "  macOS:       brew install skopeo"
-  echo "  RHEL/Fedora: sudo dnf install skopeo"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env   "GITLAB_USER GITLAB_TOKEN" \
+  --tools "uv skopeo"
 ```
 
 If `--jira-url` was provided, also check:
 ```bash
-if [[ -z "${JIRA_USER_EMAIL:-}" ]] || [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: --jira-url requires JIRA_USER_EMAIL and JIRA_API_TOKEN to be set."
-  echo "  export JIRA_USER_EMAIL=you@example.com"
-  echo "  export JIRA_API_TOKEN=your-api-token"
-  exit 1
+if [[ -n "${JIRA_URL:-}" ]]; then
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+    --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
@@ -240,30 +213,18 @@ Determine `DEST_BRANCH`:
 
 ## Step 7: Set Up Playpen (Sparse Clone)
 
-Run from inside `$WORKDIR`:
-
 ```bash
-cd "$WORKDIR"
-
-if [[ -n "$DEST_BRANCH" ]]; then
-  PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
-    --src-url "$APP_INTERFACE_URL" \
-    --dest-url "$FORK_URL" \
-    --src-branch master \
-    --dest-branch "$DEST_BRANCH" \
-    --sparse-files "$SPARSE_FILE")
-else
-  PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
-    --src-url "$APP_INTERFACE_URL" \
-    --dest-url "$FORK_URL" \
-    --src-branch master \
-    --sparse-files "$SPARSE_FILE")
-fi
+eval "$(bash "$COMMON_SCRIPTS_DIR/run_gitlab_playpen.sh" \
+  --src-url      "$APP_INTERFACE_URL" \
+  --dest-url     "$FORK_URL" \
+  --src-branch   master \
+  --sparse-files "$SPARSE_FILE" \
+  --dest-branch  "${DEST_BRANCH:-}" \
+  --workdir      "$WORKDIR" \
+  --scripts-dir  "$COMMON_SCRIPTS_DIR")"
 ```
 
-Parse `PLAYPEN_OUTPUT`:
-- Line 1 → `CLONE_DIR` (absolute path to the `app-interface-playpen` directory)
-- Line 2 → `DEST_BRANCH` (the branch that was created and pushed)
+`$CLONE_DIR` and `$DEST_BRANCH` are set in the caller's environment via eval.
 
 On exit 1: display stderr and stop with:
 ```
@@ -430,73 +391,18 @@ Please check the MR status manually and re-run /create-quay-repo if needed."
 
 ## Step 11: Monitor Quay Repo Creation
 
-This step runs only when the MR was successfully merged in Step 10. Poll `check_quay_repo.sh`
-every 60 seconds for up to 30 minutes until the repo appears on Quay.
+This step runs only when the MR was successfully merged in Step 10.
 
 ```bash
-QUAY_REPO="quay.io/<org>/<repo>"
-POLL_INTERVAL=60      # seconds between checks
-MAX_WAIT=1800         # 30 minutes
-ELAPSED=0
-
-echo "Monitoring $QUAY_REPO for creation (timeout: 30 minutes)..."
-
-while true; do
-  bash <COMMON_SCRIPTS_DIR>/check_quay_repo.sh "$QUAY_REPO"
-  CHECK_EXIT=$?
-
-  if [[ $CHECK_EXIT -eq 0 ]]; then
-    # Repo exists
-    break
-  elif [[ $CHECK_EXIT -eq 2 ]]; then
-    echo "WARNING: check_quay_repo.sh returned a tool error. Retrying..."
-  fi
-  # Exit 1 = not yet created; keep polling
-
-  if [[ $ELAPSED -ge $MAX_WAIT ]]; then
-    # Timeout
-    CHECK_EXIT=3
-    break
-  fi
-
-  REMAINING=$(( (MAX_WAIT - ELAPSED) / 60 ))
-  echo "  quay.io/<org>/<repo> not yet available (elapsed=${ELAPSED}s, remaining≈${REMAINING}m). Retrying in ${POLL_INTERVAL}s..."
-  sleep $POLL_INTERVAL
-  ELAPSED=$(( ELAPSED + POLL_INTERVAL ))
-done
+bash "$COMMON_SCRIPTS_DIR/monitor_quay_repo.sh" \
+  --quay-repo   "quay.io/<org>/<repo>" \
+  --scripts-dir "$COMMON_SCRIPTS_DIR" \
+  --jira-url    "${JIRA_URL:-}" \
+  --mr-url      "$MR_URL"
 ```
 
-Handle the result:
-
-- **`CHECK_EXIT=0`** (repo created): If `--jira-url` provided:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --add-label "quay-repo-created" \
-    --comment "Quay repository successfully created: quay.io/<org>/<repo>
-
-Confirmed by skopeo after GitOps reconciliation completed.
-Step 2 (Create Quay Repo) is complete."
-  ```
-  Then print:
-  ```
-  ✓ quay.io/<org>/<repo> is live on Quay.
-    Step 2 (Create Quay Repo) complete.
-  ```
-
-- **`CHECK_EXIT=3`** (30-minute timeout, repo not yet visible): If `--jira-url` provided:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "Quay repo monitoring timed out after 30 minutes. quay.io/<org>/<repo> has not yet appeared.
-
-The MR was merged ($MR_URL) so reconciliation may still be in progress.
-Re-run /create-quay-repo to re-check — it will short-circuit at Step 3 once the repo exists."
-  ```
-  Then print:
-  ```
-  WARNING: quay.io/<org>/<repo> not visible after 30 minutes.
-  The MR was merged so app-interface reconciliation may still be running.
-  Re-run this skill later — it will short-circuit at Step 3 once the repo exists.
-  ```
+Exit 0 on success (repo confirmed live); exit 1 on timeout (30-minute default).
+The script prints progress, updates Jira, and produces the final success or warning message.
 
 ---
 

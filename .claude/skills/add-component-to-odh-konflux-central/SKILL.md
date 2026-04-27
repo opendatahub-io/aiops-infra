@@ -92,41 +92,9 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-# 1. GITHUB_USER
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"
-  exit 1
-fi
-
-# 2. GITHUB_TOKEN
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"
-  exit 1
-fi
-
-# 3. JIRA_USER_EMAIL
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"
-  exit 1
-fi
-
-# 4. JIRA_API_TOKEN
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"
-  exit 1
-fi
-
-# 5. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
-fi
-
-# 6. git
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env   "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
+  --tools "uv git"
 ```
 
 ---
@@ -275,21 +243,22 @@ Check via the GitHub API whether both PipelineRun files already exist in the OKC
 (`pipelineruns/<REPO_NAME>/<PUSH_YAML_FILE>` and `pipelineruns/<REPO_NAME>/<PR_YAML_FILE>`):
 
 ```bash
-PUSH_API_URL="https://api.github.com/repos/${OKC_PATH}/contents/pipelineruns/${REPO_NAME}/${PUSH_YAML_FILE}"
-PR_API_URL="https://api.github.com/repos/${OKC_PATH}/contents/pipelineruns/${REPO_NAME}/${PR_YAML_FILE}"
+bash "$COMMON_SCRIPTS_DIR/check_github_file.sh" \
+  --repo-path "$OKC_PATH" \
+  --file-path "pipelineruns/${REPO_NAME}/${PUSH_YAML_FILE}" \
+  --ref        main \
+  --output     /dev/null
+PUSH_EXIT=$?
 
-PUSH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3+json" \
-  "$PUSH_API_URL")
-
-PR_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3+json" \
-  "$PR_API_URL")
+bash "$COMMON_SCRIPTS_DIR/check_github_file.sh" \
+  --repo-path "$OKC_PATH" \
+  --file-path "pipelineruns/${REPO_NAME}/${PR_YAML_FILE}" \
+  --ref        main \
+  --output     /dev/null
+PR_EXIT=$?
 ```
 
-- **Both return 200** (files exist): Update Jira and stop:
+- **Both exit 0** (files exist): Update Jira and stop:
   ```bash
   uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
     --add-label "okc-changes-done" \
@@ -297,9 +266,9 @@ PR_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   ```
   Print: `PipelineRuns already exist in OKC. Nothing to do.` and **stop**.
 
-- **Either returns non-200**: Continue to Step 6.
+- **Either exits 1** (file not found, HTTP 404): Continue to Step 6.
 
-- **curl fails entirely** (network error): Display error and stop with:
+- **Either exits 2** (auth/network error): Display error and stop with:
   ```
   ERROR in Step 5: Could not reach GitHub API. Check network connectivity and GITHUB_TOKEN.
   ```
@@ -348,18 +317,16 @@ Run from inside `$WORKDIR`. Sparse checkout only the paths needed:
 - `.github/workflows` — for the onboarder workflow update
 
 ```bash
-cd "$WORKDIR"
-
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
-  --src-url "$OKC_URL" \
-  --src-branch main \
-  --dest-branch "<jira-id>" \
-  --sparse-files "pipelineruns/template pipelineruns/$REPO_NAME .github/workflows")
+eval "$(bash "$COMMON_SCRIPTS_DIR/run_github_playpen.sh" \
+  --src-url      "$OKC_URL" \
+  --src-branch   main \
+  --dest-branch  "<jira-id>" \
+  --sparse-files "pipelineruns/template pipelineruns/$REPO_NAME .github/workflows" \
+  --workdir      "$WORKDIR" \
+  --scripts-dir  "$COMMON_SCRIPTS_DIR")"
 ```
 
-Parse `PLAYPEN_OUTPUT`:
-- Line 1 → `CLONE_DIR` (absolute path, e.g. `$WORKDIR/odh-konflux-central-playpen`)
-- Line 2 → `DEST_BRANCH` (the branch created and pushed)
+`$CLONE_DIR` and `$DEST_BRANCH` are set in the caller's environment via eval.
 
 On exit 1: display stderr and stop with:
 ```
