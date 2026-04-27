@@ -7,184 +7,33 @@ user-invocable: true
 
 # Validate Component Onboarding Jira
 
-Pre-flight validation for ODH component onboarding. Given a Jira issue URL, this skill:
-1. Fetches all details of the Jira issue and saves them as JSON
-2. Downloads the `component_onboarding_details.yaml` attachment from the issue
-3. Validates the YAML against the `component_onboarding_details.schema.json` schema in the skill assets
-
-Any failure is a hard blocker. The skill exits with a clear error message.
+Pre-flight validation for ODH/RHOAI component onboarding. Given a Jira issue URL, fetches the
+issue details, downloads the `component_onboarding_details.yaml` attachment, and validates it
+against the JSON schema. Any failure is a hard blocker — the script exits with a clear error.
 
 ## Prerequisites
 
-- `uv` must be installed and in PATH
-- `JIRA_USER_EMAIL` environment variable must be set to your Atlassian account email
-  - Set: `export JIRA_USER_EMAIL='you@example.com'`
-- `JIRA_API_TOKEN` environment variable must be set with an Atlassian Cloud API token
-  - Create at: https://id.atlassian.com/manage-profile/security/api-tokens
-  - Set: `export JIRA_API_TOKEN='your-api-token-here'`
+- `JIRA_USER_EMAIL` — your Atlassian account email
+- `JIRA_API_TOKEN` — Atlassian Cloud API token (create at https://id.atlassian.com/manage-profile/security/api-tokens)
 - Optional: `JIRA_SERVER` (default: `https://redhat.atlassian.net`)
-
-
+- Tools: `uv`
 
 ## Usage
 
 ```
-/validate-component-onboarding-jira https://redhat.atlassian.net/browse/RHOAIENG-1234
+/validate-component-onboarding-jira <jira-url>
 ```
 
-The user may also say "validate RHOAIENG-1234" or paste the URL. If only a key is given (e.g., `RHOAIENG-1234`), construct the URL: `https://redhat.atlassian.net/browse/RHOAIENG-1234`.
+Example:
+```
+/validate-component-onboarding-jira https://redhat.atlassian.net/browse/RHOAIENG-1234
+```
 
 ## Implementation
 
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts` (i.e., the `common/scripts` directory next to this skill).
-
-## Step 0: Check prerequisites
-
-Check if `JIRA_USER_EMAIL`, `JIRA_SERVER`, and `JIRA_API_TOKEN` environment variables are set.
-If `JIRA_SERVER` is not set then set the default value as https://redhat.atlassian.net
-If `JIRA_USER_EMAIL` or `JIRA_API_TOKEN` is not set, tell the user:
-
-> It requires Jira API credentials to be set to validate the jira. Set the environment variables:
-> ```
-> export JIRA_USER_EMAIL=you@example.com
-> export JIRA_API_TOKEN=your-api-token
-> export JIRA_SERVER=https://your-site.atlassian.net  # optional
-> ```
-> To create an Atlassian Cloud API token, go to https://id.atlassian.com/manage-profile/security/api-tokens
->
-> After environment variables are set, re-run `/validate-component-onboarding-jira`.
-
-If not set, tell the user and stop.
-
-### Step 2: Create working directory
-
-Extract the issue ID from the URL — the last non-empty path segment.
-For `https://redhat.atlassian.net/browse/RHOAIENG-1234`, the issue ID is `RHOAIENG-1234`.
+COMMON_SCRIPTS_DIR is `$SKILL_DIR/../common/scripts`.
 
 ```bash
-mkdir -p <issue_id>
-echo "Working directory: $(pwd)/<issue_id>"
+bash "$COMMON_SCRIPTS_DIR/run_validate_component_onboarding_jira.sh" "$ARGUMENTS"
 ```
-
-### Step 3: Fetch Jira issue details
-
-Run from inside the working directory so the output file lands there:
-
-```bash
-(cd <absolute_path>/<issue_id> && uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira_url>)
-```
-
-On success: `<issue_id>/component_onboarding_details.json` is created.
-On failure (exit code 1): display the script's stderr, then attempt a best-effort Jira update (it may also fail if credentials are the root cause — suppress any error from the update call), then stop:
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
-  --add-label "validation-failed" \
-  --remove-label "validation-successful" \
-  --comment "Validation failed at Step 1 (Fetch Jira Details).
-
-Could not fetch issue details. This is typically caused by:
-- An invalid or expired JIRA_API_TOKEN
-- An incorrect issue key
-- A network or permissions issue
-
-Please check your credentials and issue key, then re-run /validate-component-onboarding-jira." 2>/dev/null || true
-```
-
-Then stop with: `"ERROR in Step 1 (Fetch Jira Details): <message>. Aborting."`
-
-### Step 4: Download YAML attachment
-
-Run from inside the working directory:
-
-```bash
-(cd <absolute_path>/<issue_id> && uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py <jira_url> component_onboarding_details.yaml)
-```
-
-On success: `<issue_id>/component_onboarding_details.yaml` is created.
-On failure (exit code 1): display stderr, update the Jira issue, then stop:
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
-  --add-label "validation-failed" \
-  --remove-label "validation-successful" \
-  --comment "Validation failed at Step 2 (Download Attachment).
-
-The required attachment 'component_onboarding_details.yaml' was not found on this issue.
-
-Please attach a valid 'component_onboarding_details.yaml' file to this ticket and re-run /validate-component-onboarding-jira."
-```
-
-Then stop with: `"ERROR in Step 2 (Download Attachment): <message>. Aborting."`
-
-### Step 5: Validate YAML against schema
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/validate_yaml_schema.py \
-  <absolute_path>/<issue_id>/component_onboarding_details.yaml \
-  <SKILL_DIR>/assets/component_onboarding_details.schema.json
-```
-
-On success (exit code 0): print "Validation passed." and continue to Step 6.
-On failure (exit code 1): capture all stderr output as `<validation_errors>`, display them, update the Jira issue with the specific errors, then stop:
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
-  --add-label "validation-failed" \
-  --remove-label "validation-successful" \
-  --comment "Validation failed at Step 3 (Schema Validation).
-
-The 'component_onboarding_details.yaml' attachment did not pass schema validation.
-
-Errors found:
-<validation_errors>
-
-Please fix the YAML, re-upload it as an attachment to this ticket, and re-run /validate-component-onboarding-jira."
-```
-
-Then stop with: `"ERROR in Step 3 (Schema Validation): The YAML failed validation. See errors above. Aborting."`
-
-### Step 6: Update Jira on success and report
-
-Update the Jira issue to reflect successful validation, then print the completion summary.
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
-  --add-label "validation-successful" \
-  --remove-label "validation-failed" \
-  --comment "Validation passed for <issue_id>.
-
-All pre-flight checks completed successfully:
-- Jira issue details fetched
-- component_onboarding_details.yaml attachment downloaded
-- Schema validation passed
-
-This ticket is ready for onboarding automation. Moving to In Progress." \
-  --status "In Progress"
-```
-
-Then print:
-
-```
-Validation complete for <issue_id>.
-
-  component_onboarding_details.json  — Jira issue details saved
-  component_onboarding_details.yaml  — Attachment downloaded
-  Schema validation            — PASSED
-  Jira issue updated           — label: validation-successful, status: In Progress
-
-The Jira ticket is valid and ready for onboarding automation.
-Output files are in: ./<issue_id>/
-```
-
-## Error reference
-
-| Error | Message |
-|-------|---------|
-| JIRA_USER_EMAIL not set | "JIRA_USER_EMAIL is not set. Set it to your Atlassian account email: export JIRA_USER_EMAIL='you@example.com'." |
-| JIRA_API_TOKEN not set | "JIRA_API_TOKEN is not set. Create an API token at https://id.atlassian.com/manage-profile/security/api-tokens, then export JIRA_API_TOKEN='your-token'." |
-| Issue not found / no access | Script 1 exits 1; display its stderr |
-| Attachment not found | Script 2 exits 1; display its stderr (includes list of available attachments) |
-| YAML fails schema | Script 3 exits 1; display all field-level errors from stderr |
-| uv not installed | "uv is not installed. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh" |
