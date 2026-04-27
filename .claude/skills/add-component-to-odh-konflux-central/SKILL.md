@@ -157,46 +157,11 @@ Extract and store these values (all are under the `inputs:` key):
 Compute derived variables:
 
 ```bash
-# Konflux component name (appended with -ci if not already present)
-if [[ "$COMPONENT_NAME" == *-ci ]]; then
-  KONFLUX_COMPONENT_NAME="$COMPONENT_NAME"
-else
-  KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-ci"
-fi
-
-# GitHub repo name from repo URL (last path segment, strip .git)
-REPO_NAME="${REPO_URL##*/}"
-REPO_NAME="${REPO_NAME%.git}"
-
-# PipelineRun resource names (used as 'name:' field in YAML)
-PUSH_RUN_NAME="${COMPONENT_NAME}-on-push"
-PR_RUN_NAME="${COMPONENT_NAME}-on-pull-request"
-
-# Output file names (kebab-case, no 'on-' prefix in filename)
-PUSH_YAML_FILE="${COMPONENT_NAME}-push.yaml"
-PR_YAML_FILE="${COMPONENT_NAME}-pull-request.yaml"
-
-# Service account name (uses Konflux component name, not base component name)
-SERVICE_ACCOUNT_NAME="build-pipeline-${KONFLUX_COMPONENT_NAME}"
-
-# Output image tags (push and pull-request use different tags for CI)
-if [[ "${BUILD_TYPE^^}" == "CI" ]]; then
-  PUSH_OUTPUT_IMAGE_TAG="odh-stable"
-  PR_OUTPUT_IMAGE_TAG="odh-pr"
-elif [[ "${BUILD_TYPE^^}" == "RELEASE" ]]; then
-  # Use output_image_tag field if present; otherwise ask the user
-  OUTPUT_IMAGE_TAG="${inputs_output_image_tag:-}"
-  if [[ -z "$OUTPUT_IMAGE_TAG" ]]; then
-    echo "ERROR in Step 3c: BUILD_TYPE is RELEASE but 'inputs.output_image_tag' is not set in component_onboarding_details.yaml."
-    echo "  Please add 'output_image_tag: <tag>' under inputs: in the YAML and re-run."
-    exit 1
-  fi
-  PUSH_OUTPUT_IMAGE_TAG="$OUTPUT_IMAGE_TAG"
-  PR_OUTPUT_IMAGE_TAG="$OUTPUT_IMAGE_TAG"
-else
-  echo "ERROR in Step 3c: Unknown BUILD_TYPE '${BUILD_TYPE}'. Expected 'CI' or 'RELEASE'."
-  exit 1
-fi
+eval "$(bash "$COMMON_SCRIPTS_DIR/derive_okc_pipeline_vars.sh" \
+  --component-name   "$COMPONENT_NAME" \
+  --repo-url         "$REPO_URL" \
+  --build-type       "$BUILD_TYPE" \
+  --output-image-tag "${inputs_output_image_tag:-}")"
 ```
 
 If any required field (COMPONENT_NAME, REPO_URL, REPO_BRANCH, CONTEXT_PATH,

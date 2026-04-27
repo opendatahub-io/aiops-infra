@@ -147,22 +147,10 @@ ERROR in Step 3c: Missing required field '<field>' in component_onboarding_detai
 **3d. Derive computed variables:**
 
 ```bash
-# Quay organisation based on product context
-if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
-  QUAY_ORG="opendatahub"
-elif [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-  QUAY_ORG="rhoai"
-else
-  echo "ERROR in Step 3d: Unknown PRODUCT_CONTEXT '$PRODUCT_CONTEXT'. Expected 'ODH' or 'RHOAI'."
-  exit 1
-fi
+eval "$(bash "$COMMON_SCRIPTS_DIR/derive_bundle_vars.sh" \
+  --component-name  "$COMPONENT_NAME" \
+  --product-context "$PRODUCT_CONTEXT")"
 
-# relatedImages entry name: uppercase component name with hyphens → underscores
-RELATED_IMAGE_NAME="RELATED_IMAGE_$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:upper:]_')_IMAGE"
-# e.g. odh-ai-first-demo → RELATED_IMAGE_ODH_AI_FIRST_DEMO_IMAGE
-
-# relatedImages entry value — try to fetch the real SHA256 digest from Quay first
-STABLE_IMAGE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}:odh-stable"
 DIGEST_LINE=$(bash "$COMMON_SCRIPTS_DIR/resolve_image_digest.sh" --image "$STABLE_IMAGE")
 RESOLVE_EXIT=$?
 DIGEST="${DIGEST_LINE#digest=}"
@@ -381,20 +369,14 @@ If verification fails, fix with another `Edit` call before continuing.
 > Pushing to `origin` is correct — do NOT change the remote URL here.
 
 ```bash
-cd "$CLONE_DIR"
-git add bundle/bundle-patch.yaml
-git status   # verify only the expected file is staged
-git commit -m "Add $COMPONENT_NAME to bundle-patch.yaml"
-git push origin "$DEST_BRANCH"
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "bundle/bundle-patch.yaml" \
+  --message   "Add $COMPONENT_NAME to bundle-patch.yaml" \
+  --branch    "$DEST_BRANCH"
 ```
 
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
-```
-
-On any other push failure, display stderr and stop with:
+On exit 1: display stderr and stop with:
 ```
 ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH' to origin. See details above.
 ```

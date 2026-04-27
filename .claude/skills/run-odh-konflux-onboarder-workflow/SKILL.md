@@ -59,34 +59,7 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Extract the optional `<jira-url>` argument from the invocation.
 
 ```bash
-JIRA_URL="${1:-}"   # first argument, or empty
-
-# Validate format if provided
-if [[ -n "$JIRA_URL" && "$JIRA_URL" != *"/browse/"* ]]; then
-  echo "ERROR: Invalid Jira URL. Expected format: https://redhat.atlassian.net/browse/RHODS-14226"
-  exit 1
-fi
-
-# Extract Jira ID from URL (last path segment, e.g. RHODS-14226)
-JIRA_ID=""
-if [[ -n "$JIRA_URL" ]]; then
-  JIRA_ID="${JIRA_URL##*/}"
-fi
-
-# Resolve OKC repo URL — single source of truth for all GitHub operations
-OKC_URL="${ODH_KONFLUX_CENTRAL_REPO_URL:-https://github.com/opendatahub-io/odh-konflux-central.git}"
-echo "ODH_KONFLUX_CENTRAL_REPO_URL=${ODH_KONFLUX_CENTRAL_REPO_URL:-(not set, using default)}"
-echo "OKC_URL resolved to: $OKC_URL"
-
-# Derive owner/repo path for GitHub API calls and run URLs
-OKC_PATH=$(echo "$OKC_URL" | sed 's|https://github.com/||;s|\.git$||')
-# e.g. "opendatahub-io/odh-konflux-central"
-
-# Workflow dispatch target (branch in OKC repo)
-OKC_REF="main"
-
-# Relative path to the workflow file inside OKC repo
-WORKFLOW_FILE=".github/workflows/odh-konflux-onboarder.yml"
+eval "$(bash "$COMMON_SCRIPTS_DIR/setup_okc_workflow.sh" "${1:-}")"
 ```
 
 > **Never override or re-derive `OKC_URL` after this step.** Every Git operation,
@@ -114,15 +87,9 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-if [[ -n "$JIRA_ID" ]]; then
-  WORKDIR="$(pwd)/${JIRA_ID}"
-else
-  WORKDIR="$(pwd)"
-fi
-mkdir -p "$WORKDIR"
-echo "Working directory: $WORKDIR"
-
-YAML_PATH="${WORKDIR}/component_onboarding_details.yaml"
+eval "$(bash "$COMMON_SCRIPTS_DIR/setup_workdir.sh" \
+  --jira-id        "${JIRA_ID:-}" \
+  --yaml-filename  "component_onboarding_details.yaml")"
 ```
 
 ---
