@@ -183,63 +183,24 @@ On failure: **hard blocker**. Display the child skill's error and stop. Do not c
 
 **Skip if** `component_name` is already non-empty in `pipeline_state.json`.
 
-Parse `$WORKDIR/component_onboarding_details.yaml` to extract component fields:
+Parse `$WORKDIR/component_onboarding_details.yaml`, derive `PRODUCT_CONTEXT` and Quay
+variables, update `pipeline_state.json`, and mark non-applicable steps as skipped:
 
 ```bash
-COMPONENT_NAME=$(grep -m1 'component_name:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
-IS_OPERATOR=$(grep -m1 'is_operator:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
-REPO_URL=$(grep -m1 'repo_url:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
-REPO_BRANCH=$(grep -m1 'repo_branch:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+  --workdir        "$WORKDIR" \
+  --jira-id        "$JIRA_ID" \
+  --scripts-dir    "$COMMON_SCRIPTS_DIR" \
+  --pipeline-state "$PIPELINE_STATE")"
+# Sets: COMPONENT_NAME IS_OPERATOR REPO_URL REPO_BRANCH
+#       PRODUCT_CONTEXT QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI
 ```
 
-**Derive `PRODUCT_CONTEXT`** in order:
-1. Jira key prefix: `RHOAIENG` → `RHOAI`; `RHODS` → `ODH`
-2. `fields.summary` in `component_onboarding_details.json`: contains "RHOAI" → `RHOAI`; "ODH" → `ODH`
-3. Fallback: ask the user interactively
-
-**Derive Quay variables:**
-```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/derive_quay_vars.sh" \
-  --product-context "$PRODUCT_CONTEXT" \
-  --component-name "$COMPONENT_NAME")"
-# Sets: QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI
+On exit 1: display stderr and stop with:
 ```
-
-Update `pipeline_state.json` with all derived values:
-```bash
-jq \
-  --arg cn "$COMPONENT_NAME" \
-  --arg pc "$PRODUCT_CONTEXT" \
-  --arg qo "$QUAY_ORG" \
-  --arg qv "$QUAY_VISIBILITY" \
-  --arg qr "$QUAY_REPO_URI" \
-  --argjson io "${IS_OPERATOR}" \
-  '.component_name = $cn | .product_context = $pc | .quay_org = $qo | .quay_visibility = $qv | .quay_repo_uri = $qr | .is_operator = $io' \
-  "$PIPELINE_STATE" > "$PIPELINE_STATE.tmp" && mv "$PIPELINE_STATE.tmp" "$PIPELINE_STATE"
-```
-
-**Mark non-applicable steps as "skipped"** immediately after updating pipeline_state.json:
-```bash
-if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/pipeline_state.sh" set \
-    --state "$PIPELINE_STATE" --step onboarder --field status --value "skipped"
-  echo "[WRAPPER] RHOAI: onboarder (deferred workflow) step marked as skipped."
-else
-  # ODH: skip RHOAI-only steps
-  for step in dockerfile_labels delivery_repo auto_merge renovate; do
-    bash "$COMMON_SCRIPTS_DIR/pipeline_state.sh" set \
-      --state "$PIPELINE_STATE" --step "$step" --field status --value "skipped"
-  done
-  echo "[WRAPPER] ODH: RHOAI-only steps (dockerfile_labels, delivery_repo, auto_merge, renovate) marked as skipped."
-fi
-```
-
-Print:
-```
-Component : <COMPONENT_NAME>
-Product   : <PRODUCT_CONTEXT>
-Quay repo : <QUAY_REPO_URI> (<QUAY_VISIBILITY>)
-Operator  : <IS_OPERATOR>
+ERROR in Step 4 (Parse Component Details): Could not parse YAML or derive PRODUCT_CONTEXT.
+  Ensure component_onboarding_details.yaml is attached to the Jira issue and Jira key
+  starts with RHOAIENG (RHOAI) or RHODS (ODH). Aborting.
 ```
 
 ---
@@ -583,85 +544,33 @@ script handles this dependency without blocking the wrapper.
 Derive workflow inputs and launch the deferred workflow background script:
 
 ```bash
-REPO_NAME="${REPO_URL##*/}"; REPO_NAME="${REPO_NAME%.git}"
-BUILD_TYPE=$(grep -m1 'build_type:' "$WORKDIR/component_onboarding_details.yaml" \
-  | awk '{print $2}' 2>/dev/null || echo "CI")
-[[ -z "$BUILD_TYPE" ]] && BUILD_TYPE="CI"
-OKC_URL="${ODH_KONFLUX_CENTRAL_REPO_URL:-https://github.com/opendatahub-io/odh-konflux-central.git}"
-OKC_PATH=$(echo "$OKC_URL" | sed 's|https://github.com/||;s|\.git$||')
-WORKFLOW_FILE=".github/workflows/odh-konflux-onboarder.yml"
-
-nohup bash "$COMMON_SCRIPTS_DIR/deferred_workflow.sh" \
-  --workdir       "$WORKDIR" \
-  --jira-url      "$JIRA_URL" \
-  --scripts-dir   "$COMMON_SCRIPTS_DIR" \
-  --okc-url       "$OKC_URL" \
-  --okc-path      "$OKC_PATH" \
-  --workflow-file "$WORKFLOW_FILE" \
-  --repo-name     "$REPO_NAME" \
-  --repo-branch   "$REPO_BRANCH" \
-  --build-type    "$BUILD_TYPE" \
-  >> "$WORKDIR/deferred_workflow.log" 2>&1 &
-echo $! > "$WORKDIR/deferred_workflow.pid"
-echo "[WRAPPER] Deferred workflow trigger started (PID=$(cat $WORKDIR/deferred_workflow.pid))"
-echo "[WRAPPER] Log: $WORKDIR/deferred_workflow.log"
-
-bash "$COMMON_SCRIPTS_DIR/pipeline_state.sh" set \
-  --state "$PIPELINE_STATE" --step onboarder --field status --value "pending_krd_okc_merge"
+bash "$COMMON_SCRIPTS_DIR/launch_deferred_workflow.sh" \
+  --workdir      "$WORKDIR" \
+  --jira-url     "$JIRA_URL" \
+  --scripts-dir  "$COMMON_SCRIPTS_DIR" \
+  --repo-url     "$REPO_URL" \
+  --repo-branch  "$REPO_BRANCH"
 ```
+
+`build_type` is read from the YAML automatically (defaults to `CI`).
+`OKC_URL` honours the `ODH_KONFLUX_CENTRAL_REPO_URL` environment variable if set.
+The script writes `$WORKDIR/deferred_workflow.pid` and updates `pipeline_state.json`
+(`steps.onboarder.status = "pending_krd_okc_merge"`).
 
 ---
 
 ## Step 15: Transition Jira to "Review"
 
-Build a summary of all raised PR/MR URLs from `pipeline_state.json`:
+Read all raised PR/MR URLs from `pipeline_state.json`, build the review table, and
+transition the Jira issue to "Review":
 
 ```bash
-QUAY_MR=$(jq -r '.steps.quay.mr_url // "N/A"'                  "$PIPELINE_STATE")
-KRD_MR=$(jq  -r '.steps.krd.mr_url // "N/A"'                   "$PIPELINE_STATE")
-OKC_PR=$(jq  -r '.steps.okc.pr_url // "N/A"'                   "$PIPELINE_STATE")
-OP_PR=$(jq   -r '.steps.operator.pr_url // "N/A"'              "$PIPELINE_STATE")
-BDLPR=$(jq   -r '.steps.bundle.pr_url // "N/A"'                "$PIPELINE_STATE")
-LABELS_PR=$(jq -r '.steps.dockerfile_labels.pr_url // "N/A"'   "$PIPELINE_STATE")
-DELIV_MR=$(jq  -r '.steps.delivery_repo.mr_url // "N/A"'       "$PIPELINE_STATE")
-AM_PR=$(jq     -r '.steps.auto_merge.pr_url // "N/A"'          "$PIPELINE_STATE")
-RENOV_PR=$(jq  -r '.steps.renovate.pr_url // "N/A"'            "$PIPELINE_STATE")
-IS_OP=$(jq     -r '.is_operator'                               "$PIPELINE_STATE")
-
-STEP5_VAL=$([ "$PRODUCT_CONTEXT" = "ODH" ] \
-  && echo "auto-triggered once Steps 3+4 are merged (background script running)" \
-  || echo "N/A (RHOAI)")
-STEP6_VAL=$([ "$IS_OP" = "true" ] && echo "$OP_PR" || echo "N/A (is_operator=false)")
-STEP8_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$LABELS_PR"  || echo "N/A (ODH)")
-STEP9_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$DELIV_MR"   || echo "N/A (ODH)")
-STEP10_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$AM_PR"     || echo "N/A (ODH)")
-STEP11_PR_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] && echo "$RENOV_PR" || echo "N/A (ODH)")
-STEP11_SYNC_VAL=$([ "$PRODUCT_CONTEXT" = "RHOAI" ] \
-  && echo "deferred; will trigger on renovate PR merge" \
-  || echo "N/A (ODH)")
-
-REVIEW_COMMENT="All PRs and MRs raised for '${COMPONENT_NAME}' onboarding. Pending review and merge.
-
-| Step    | Description        | URL / Status                                                              |
-|---------|--------------------|---------------------------------------------------------------------------|
-| Step 2  | Quay MR            | ${QUAY_MR}                                                                |
-| Step 3  | KRD MR             | ${KRD_MR}                                                                 |
-| Step 4  | OKC/RKC PR         | ${OKC_PR}                                                                 |
-| Step 5  | Tekton/Workflow     | ${STEP5_VAL}                                                              |
-| Step 6  | Operator PR        | ${STEP6_VAL}                                                              |
-| Step 7  | Bundle PR          | ${BDLPR}                                                                  |
-| Step 8  | Dockerfile Labels  | ${STEP8_VAL}                                                              |
-| Step 9  | Delivery Repo MR   | ${STEP9_VAL}                                                              |
-| Step 10 | Auto-Merge PR      | ${STEP10_VAL}                                                             |
-| Step 11 | Renovate PR        | ${STEP11_PR_VAL}                                                          |
-| Step 11 | Renovate Sync      | ${STEP11_SYNC_VAL}                                                        |
-
-Background monitors are running. Jira will be moved to Resolved automatically when all PRs/MRs are merged."
-
-uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
-  --add-label "onboarding-in-review" \
-  --status "Review" \
-  --comment "$REVIEW_COMMENT"
+bash "$COMMON_SCRIPTS_DIR/raise_jira_review.sh" \
+  --workdir         "$WORKDIR" \
+  --jira-url        "$JIRA_URL" \
+  --scripts-dir     "$COMMON_SCRIPTS_DIR" \
+  --component-name  "$COMPONENT_NAME" \
+  --product-context "$PRODUCT_CONTEXT"
 ```
 
 ---
