@@ -1,7 +1,7 @@
 ---
 name: sync-rhoai-renovate-configs
 description: Triggers the sync-renovate-configs GitHub Actions workflow in rhoai-konflux-central to push renovate config updates to all registered component repos. Monitors the run and updates Jira on completion.
-allowed-tools: Bash, Read
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -108,40 +108,18 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 ## Step 1: Check Prerequisites
 
-Check in order. Stop with a remediation message if any check fails.
-
 ```bash
-# 1. GITHUB_USER
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN" \
+  --tools "uv"
 
-# 2. GITHUB_TOKEN
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"
-  echo "  Token needs: repo scope + actions:write scope (or workflow scope on classic PATs)"
-  exit 1
-fi
-
-# 3. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
+if [[ -n "$JIRA_URL" ]]; then
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+    --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
-When `JIRA_URL` is non-empty, also check:
-```bash
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"
-  exit 1
-fi
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"
-  exit 1
-fi
-```
+Note: `GITHUB_TOKEN` needs `repo` scope + `actions:write` scope (or `workflow` scope on classic PATs).
 
 ---
 

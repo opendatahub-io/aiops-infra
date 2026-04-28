@@ -1,7 +1,7 @@
 ---
 name: create-rhoai-delivery-repo
 description: Creates an RHOAI delivery repository by raising a GitLab MR to pyxis-repo-configs. Reads component details from the Jira attachment, checks if the delivery repo already exists, and if not, adds the repository entry to products/rhoai/rhoai.yaml and raises and monitors a GitLab MR. VPN required.
-allowed-tools: Bash, Read, Edit, Write
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -99,34 +99,14 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 Check in order. Stop with a remediation message if any check fails.
 
-Always required:
 ```bash
-if [[ -z "${GITLAB_USER:-}" ]]; then
-  echo "ERROR: GITLAB_USER is not set. export GITLAB_USER=yourusername"; exit 1
-fi
-if [[ -z "${GITLAB_TOKEN:-}" ]]; then
-  echo "ERROR: GITLAB_TOKEN is not set. export GITLAB_TOKEN=yourtoken (needs api + write_repository scope)"; exit 1
-fi
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1
-fi
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."; exit 1
-fi
-if ! command -v curl &>/dev/null; then
-  echo "ERROR: curl is not installed."; exit 1
-fi
-```
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITLAB_USER GITLAB_TOKEN" \
+  --tools "uv git curl"
 
-Required only when `JIRA_URL` is non-empty:
-```bash
 if [[ -n "$JIRA_URL" ]]; then
-  if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-    echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"; exit 1
-  fi
-  if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-    echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"; exit 1
-  fi
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+    --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
@@ -135,12 +115,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-if [[ -n "$JIRA_ID" ]]; then
-  WORKDIR="$(pwd)/${JIRA_ID}"
-else
-  WORKDIR="$(pwd)"
-fi
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -194,43 +169,23 @@ ERROR in Step 3d (Fetch Jira): Could not fetch issue details. Aborting.
 
 ## Step 4: Parse YAML and Derive Variables
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
-
-Extract (all under the `inputs:` key):
-
-| Variable | YAML field | Required |
-|----------|-----------|----------|
-| `COMPONENT_NAME` | `inputs.component_name` | Yes |
-| `TARGET_RHOAI_VERSION` | `inputs.target_rhoai_version` | Yes |
-
-If any required field is missing, stop:
-```
-ERROR in Step 4: Missing required field '<field>' in component_onboarding_details.yaml.
-  Re-generate the YAML with /create-component-onboarding-jira <jira-url>.
-```
-
-Derive version components and content stream tag from `TARGET_RHOAI_VERSION`:
 ```bash
-# TARGET_RHOAI_VERSION is already in canonical form: x.y or x.y-ea-n
-if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
-  VERSION_X="${BASH_REMATCH[1]}"
-  VERSION_Y="${BASH_REMATCH[2]}"
-  VERSION_N="${BASH_REMATCH[3]}"
-  CONTENT_STREAM_TAG="v${VERSION_X}.${VERSION_Y}-ea.${VERSION_N}"
-elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
-  VERSION_X="${BASH_REMATCH[1]}"
-  VERSION_Y="${BASH_REMATCH[2]}"
-  VERSION_N=""
-  CONTENT_STREAM_TAG="v${VERSION_X}.${VERSION_Y}"
-else
-  echo "ERROR: Cannot parse target_rhoai_version '${TARGET_RHOAI_VERSION}'."
-  echo "  Expected canonical form: x.y  OR  x.y-ea-n  (e.g. 3.4 or 3.4-ea-2)"
-  echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
-  exit 1
-fi
+YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
+COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}')
+TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}')
 
-# Repository identifier used for idempotency checks
-REPOSITORY_NAME="rhoai/${COMPONENT_NAME}-rhel9"
+for _field in COMPONENT_NAME TARGET_RHOAI_VERSION; do
+  [[ -z "${!_field}" ]] && {
+    echo "ERROR in Step 4: Missing required field '${_field}' in component_onboarding_details.yaml."
+    echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
+    exit 1
+  }
+done
+
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_rhoai_version.sh" \
+  --version "$TARGET_RHOAI_VERSION" \
+  --component "$COMPONENT_NAME")"
+# Sets: CONTENT_STREAM_TAG, REPOSITORY_NAME, and other version vars
 ```
 
 Print resolved values:
@@ -298,7 +253,13 @@ If `REPO_EXISTS=false`: continue to Step 6.
 
 Skip this step if `$WORKDIR/component_onboarding_details.json` does not exist.
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
+Extract MR URLs from `$WORKDIR/component_onboarding_details.json`:
+```bash
+EXISTING_MR_URLS=$(jq -r '.fields.comment.comments[].body' \
+  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
+  | grep -oE 'https://gitlab\.cee\.redhat\.com/[^/[:space:]]+/[^/[:space:]]+/-/merge_requests/[0-9]+' \
+  | sort -u || true)
+```
 
 Search `fields.comment.comments[].body` for GitLab MR URLs matching:
 ```
@@ -377,38 +338,34 @@ git push origin "$DEST_BRANCH"
 
 ## Step 8: Add Entry to products/rhoai/rhoai.yaml
 
-Use the `Read` tool to read `$CLONE_DIR/products/rhoai/rhoai.yaml`.
+```bash
+RHOAI_YAML="$CLONE_DIR/products/rhoai/rhoai.yaml"
+[[ -f "$RHOAI_YAML" ]] || {
+  echo "ERROR in Step 8: products/rhoai/rhoai.yaml not found in $CLONE_DIR."
+  echo "  Verify PYXIS_URL points to the correct pyxis-repo-configs repository."
+  exit 1
+}
 
-If the file does not exist, stop:
-```
-ERROR in Step 8: products/rhoai/rhoai.yaml not found in $CLONE_DIR.
-  Verify PYXIS_URL points to the correct pyxis-repo-configs repository.
-```
-
-**Idempotency check:** if `repository: $REPOSITORY_NAME` is already present in the file, skip
-directly to Step 9 (no edits needed).
-
-Locate the `repositories:` array in the file. Append the following new entry at the end of the
-array, maintaining the indentation style already used in the file (typically 2 spaces for list
-items):
-
-```yaml
+if grep -qF "repository: ${REPOSITORY_NAME}" "$RHOAI_YAML"; then
+  echo "repository: ${REPOSITORY_NAME} already present in rhoai.yaml — skipping edit."
+else
+  cat >> "$RHOAI_YAML" <<EOF
 - image_type: Layered
   base_rhel_version: rhel9
   repository:
-    repository: rhoai/<COMPONENT_NAME>-rhel9
+    repository: ${REPOSITORY_NAME}
     release_categories:
       - Generally Available
     includes_multiple_content_streams: true
     auto_rebuild_tags: []
-    content_stream_tags: ['<CONTENT_STREAM_TAG>']
+    content_stream_tags: ['${CONTENT_STREAM_TAG}']
     build_categories:
       - Standalone image
     team_id: 617017858ebd9a62aec7c3b8
     display_data:
-      name: <COMPONENT_NAME>
-      short_description: <COMPONENT_NAME>
-      long_description: <COMPONENT_NAME>
+      name: ${COMPONENT_NAME}
+      short_description: ${COMPONENT_NAME}
+      long_description: ${COMPONENT_NAME}
     vendor_label: redhat
     application_categories:
       - Developer Tools
@@ -419,46 +376,39 @@ items):
       *team_contacts
     use_latest: false
     requires_terms: true
+EOF
+
+  grep -qF "repository: ${REPOSITORY_NAME}" "$RHOAI_YAML" || {
+    echo "ERROR in Step 8: Verification failed — '${REPOSITORY_NAME}' not found in rhoai.yaml"
+    exit 1
+  }
+  grep -qF "content_stream_tags: ['${CONTENT_STREAM_TAG}']" "$RHOAI_YAML" || {
+    echo "ERROR in Step 8: Verification failed — content_stream_tags not correct in rhoai.yaml"
+    exit 1
+  }
+  echo "Entry for ${REPOSITORY_NAME} added to products/rhoai/rhoai.yaml."
+fi
 ```
-
-Substitute `<COMPONENT_NAME>` with `$COMPONENT_NAME` and `<CONTENT_STREAM_TAG>` with
-`$CONTENT_STREAM_TAG`. The `contacts: *team_contacts` line uses a YAML anchor defined earlier in
-the file — include it verbatim.
-
-Use the `Edit` tool to append this block to the end of the `repositories:` array.
-
-After editing, use the `Read` tool to verify:
-- `repository: rhoai/${COMPONENT_NAME}-rhel9` is present
-- `content_stream_tags: ['${CONTENT_STREAM_TAG}']` is correct
-- Surrounding entries are undisturbed and the YAML structure is valid
-
-If verification fails, apply a corrective `Edit` before continuing.
 
 ---
 
 ## Step 9: Commit and Push
 
 ```bash
-cd "$CLONE_DIR"
-git add products/rhoai/rhoai.yaml
-git status   # confirm only the expected file is staged
-git commit -m "Add ${REPOSITORY_NAME} delivery repository for ${COMPONENT_NAME}
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "products/rhoai/rhoai.yaml" \
+  --message   "Add ${REPOSITORY_NAME} delivery repository for ${COMPONENT_NAME}
 
 Adds a new repository entry to products/rhoai/rhoai.yaml:
   repository: ${REPOSITORY_NAME}
   content_stream_tags: ['${CONTENT_STREAM_TAG}']
 
-Related: ${JIRA_ID}"
-git push origin "$DEST_BRANCH"
+Related: ${JIRA_ID:-no-jira}" \
+  --branch    "$DEST_BRANCH"
 ```
 
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
-```
-
-On any other push failure, display stderr and stop:
+On exit 1, display stderr and stop:
 ```
 ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH'. See details above.
 ```
@@ -565,19 +515,27 @@ ERROR in Step 11 (Monitor MR): MR was closed without merging. Check: $MR_URL
 **`pipeline_failed` or `pipeline_canceled` (exit 1):**
 
 Attempt automated fix:
-1. Use `Read` to re-read `$CLONE_DIR/products/rhoai/rhoai.yaml`.
-2. Inspect for obvious YAML errors (indentation, duplicate keys, malformed anchors).
-3. If fixable: use `Edit` to correct, then:
+1. Check YAML validity:
    ```bash
-   cd "$CLONE_DIR"
-   git add products/rhoai/rhoai.yaml
-   git commit --amend --no-edit
-   git push --force-with-lease origin "$DEST_BRANCH"
+   python3 -c "import yaml; yaml.safe_load(open('$CLONE_DIR/products/rhoai/rhoai.yaml'))" 2>&1
+   ```
+2. Verify the added entry is present:
+   ```bash
+   grep -qF "repository: ${REPOSITORY_NAME}" "$CLONE_DIR/products/rhoai/rhoai.yaml" \
+     && echo "Entry present." || echo "WARN: Entry missing — re-apply may be needed."
+   ```
+3. If reapply needed, re-run the cat-append from Step 8 and push a new commit:
+   ```bash
+   bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+     --clone-dir "$CLONE_DIR" \
+     --files     "products/rhoai/rhoai.yaml" \
+     --message   "Fix rhoai.yaml YAML for ${REPOSITORY_NAME}" \
+     --branch    "$DEST_BRANCH"
    ```
    Update Jira:
    ```bash
    uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-     --comment "Pipeline failed on MR $MR_URL. Attempted automated fix and force-pushed update.
+     --comment "Pipeline failed on MR $MR_URL. Attempted automated fix and pushed update.
 Please review the MR pipeline and re-run if the issue persists."
    ```
    **Jump back to Step 11** to re-monitor the updated MR (once).

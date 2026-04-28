@@ -14,6 +14,7 @@ Subcommands:
   insert-list-item        <file> --list-key <k> --value <v>
   append-rpa-component    <file> --array-key <k> --name <n> --url <u>
   insert-simple-map-entry <file> --map-key <dot.path.0.nested> --key <k> --value <v>
+  append-renovate-repo    <file> --renovate-config <cfg> --name <entry>
 """
 import argparse
 import sys
@@ -188,6 +189,38 @@ def cmd_insert_list_item(args):
     print(f"Inserted '{args.value}' into '{args.list_key}' in {path}")
 
 
+def cmd_append_renovate_repo(args):
+    """Append a sync-repositories entry to the first matching renovate distribution group."""
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    path = Path(args.file)
+    data = _load(path, yaml)
+
+    if not isinstance(data, list):
+        print(f"ERROR: {path} top-level is not a list", file=sys.stderr)
+        sys.exit(1)
+
+    target_group = None
+    for group in data:
+        if isinstance(group, dict) and group.get("renovate-config") == args.renovate_config:
+            target_group = group
+            break
+
+    if target_group is None:
+        print(f"ERROR: No group with renovate-config='{args.renovate_config}' found in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    repos = target_group.setdefault("sync-repositories", [])
+    existing_names = [r.get("name", "") for r in repos if isinstance(r, dict)]
+    if args.name in existing_names:
+        print(f"'{args.name}' already present in sync-repositories — skipping.")
+        return
+
+    repos.append({"name": args.name})
+    _save(path, data, yaml)
+    print(f"Appended '{args.name}' to sync-repositories in {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="YAML editing utility")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -240,6 +273,12 @@ def main():
     p7.add_argument("--key", required=True)
     p7.add_argument("--value", required=True)
 
+    # append-renovate-repo
+    p8 = sub.add_parser("append-renovate-repo")
+    p8.add_argument("file")
+    p8.add_argument("--renovate-config", required=True)
+    p8.add_argument("--name", required=True)
+
     args = parser.parse_args()
 
     dispatch = {
@@ -250,6 +289,7 @@ def main():
         "insert-list-item":        cmd_insert_list_item,
         "append-rpa-component":    cmd_append_rpa_component,
         "insert-simple-map-entry": cmd_insert_simple_map_entry,
+        "append-renovate-repo":    cmd_append_renovate_repo,
     }
     dispatch[args.command](args)
 

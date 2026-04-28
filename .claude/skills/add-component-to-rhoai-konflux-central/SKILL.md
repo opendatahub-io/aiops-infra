@@ -1,7 +1,7 @@
 ---
 name: add-component-to-rhoai-konflux-central
 description: Adds a Tekton PipelineRun YAML to the rhoai-konflux-central GitHub repository for a new RHOAI component, then raises and monitors a GitHub PR targeting the version-specific branch.
-allowed-tools: Bash, Read, Edit, Write, WebFetch
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -91,49 +91,14 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 ## Step 1: Check Prerequisites
 
-Check in order. Stop with a remediation message if any check fails.
-
 ```bash
-# 1. GITHUB_USER
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN" \
+  --tools "uv git curl"
 
-# 2. GITHUB_TOKEN
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken (needs repo scope)"
-  exit 1
-fi
-
-# 3. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
-fi
-
-# 4. git
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."
-  exit 1
-fi
-
-# 5. curl
-if ! command -v curl &>/dev/null; then
-  echo "ERROR: curl is not installed."
-  exit 1
-fi
-```
-
-When `JIRA_URL` is non-empty, also check:
-```bash
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"
-  exit 1
-fi
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"
-  exit 1
+if [[ -n "$JIRA_URL" ]]; then
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+    --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
@@ -142,12 +107,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-if [[ -n "$JIRA_ID" ]]; then
-  WORKDIR="$(pwd)/${JIRA_ID}"
-else
-  WORKDIR="$(pwd)"
-fi
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -202,60 +162,42 @@ ERROR in Step 3d (Fetch Jira details): Could not fetch Jira issue. See details a
 
 ### 3e. Parse YAML
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
+```bash
+YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
+COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}')
+REPO_URL=$(grep -m1 'repo_url:' "$YAML_FILE" | awk '{print $2}')
+CONTEXT_PATH=$(grep -m1 'context_path:' "$YAML_FILE" | awk '{print $2}')
+DOCKERFILE_PATH=$(grep -m1 'dockerfile_path:' "$YAML_FILE" | awk '{print $2}')
+TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}')
 
-Extract (all under `inputs:`):
+# Parse architectures array (list items under 'architectures:' key)
+ARCHITECTURES=($(awk '/^  architectures:/{found=1;next} found && /^  - /{print $2} found && /^  [a-z]/{exit}' "$YAML_FILE"))
+[[ ${#ARCHITECTURES[@]} -eq 0 ]] && ARCHITECTURES=($(grep -A20 'architectures:' "$YAML_FILE" | grep '^ *- ' | awk '{print $2}'))
 
-| Variable | YAML field | Required |
-|----------|-----------|----------|
-| `COMPONENT_NAME` | `inputs.component_name` | Yes |
-| `REPO_URL` | `inputs.repo_url` | Yes |
-| `CONTEXT_PATH` | `inputs.context_path` | Yes |
-| `DOCKERFILE_PATH` | `inputs.dockerfile_path` | Yes |
-| `ARCHITECTURES` | `inputs.architectures` | Yes (array) |
-| `TARGET_RHOAI_VERSION` | `inputs.target_rhoai_version` | Yes |
-
-If any required field is missing, stop:
-```
-ERROR in Step 3e: Missing required field '<field>' in component_onboarding_details.yaml.
-  Re-generate the YAML with /create-component-onboarding-jira <jira-url>.
+for _field in COMPONENT_NAME REPO_URL CONTEXT_PATH DOCKERFILE_PATH TARGET_RHOAI_VERSION; do
+  [[ -z "${!_field}" ]] && {
+    echo "ERROR in Step 3e: Missing required field '${_field}' in component_onboarding_details.yaml."
+    echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
+    exit 1
+  }
+done
+[[ ${#ARCHITECTURES[@]} -eq 0 ]] && {
+  echo "ERROR in Step 3e: Missing required field 'architectures' in component_onboarding_details.yaml."
+  exit 1
+}
 ```
 
 ### 3f. Derive all global variables
 
-Parse `TARGET_RHOAI_VERSION` (canonical form: `x.y` or `x.y-ea-n`):
-
 ```bash
-if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
-  VERSION_X="${BASH_REMATCH[1]}"
-  VERSION_Y="${BASH_REMATCH[2]}"
-  VERSION_N="${BASH_REMATCH[3]}"
-  VERSION_VAR="v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"        # e.g. v3-4-ea-2
-  BRANCH_VAR="${VERSION_X}.${VERSION_Y}-ea.${VERSION_N}"        # e.g. v3.4-ea.2
-  RHOAI_MINOR_VERSION="${VERSION_X}.${VERSION_Y}.0-ea.${VERSION_N}" # e.g. 3.4.0-ea.2
-elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
-  VERSION_X="${BASH_REMATCH[1]}"
-  VERSION_Y="${BASH_REMATCH[2]}"
-  VERSION_N=""
-  VERSION_VAR="v${VERSION_X}-${VERSION_Y}"         # e.g. v3-4
-  BRANCH_VAR="${VERSION_X}.${VERSION_Y}"          # e.g. 3.4
-  RHOAI_MINOR_VERSION="${VERSION_X}.${VERSION_Y}.0" # e.g. 3.4.0
-else
-  echo "ERROR: Cannot parse target_rhoai_version '${TARGET_RHOAI_VERSION}'."
-  echo "  Expected canonical form: x.y  OR  x.y-ea-n  (e.g. 3.4 or 3.4-ea-2)"
-  exit 1
-fi
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION")"
+# Sets: VERSION_VAR, BRANCH_VAR, BRANCH_NAME, RHOAI_MINOR_VERSION, CONTENT_STREAM_TAG
 
-BRANCH_NAME="rhoai-${BRANCH_VAR}"     # e.g. rhoai-3.4-ea.2
-
-# Repo name from repo_url (strip owner prefix, strip .git suffix)
 REPO_NAME="${REPO_URL##*/}"
 REPO_NAME="${REPO_NAME%.git}"
 
-# PipelineRun file name
 PIPELINERUN_FILE="${COMPONENT_NAME}-${VERSION_VAR}-push.yaml"
 
-# Context path normalization
 if [[ "$CONTEXT_PATH" == "./" || "$CONTEXT_PATH" == "." ]]; then
   CONTEXT_PATH_NORMALIZED="."
 else
@@ -337,7 +279,13 @@ WARN: GitHub API returned HTTP $HTTP_STATUS for fast-path check. Proceeding anyw
 
 Skip this step entirely if `$WORKDIR/component_onboarding_details.json` does not exist.
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
+Extract PR URLs from `$WORKDIR/component_onboarding_details.json`:
+```bash
+EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
+  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
+  | grep -oE 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
+  | sort -u || true)
+```
 
 Search `fields.comment.comments[].body` for GitHub PR URLs matching:
 ```
@@ -378,48 +326,13 @@ If no matching open PR found, continue to Step 6.
 ### 6a. Ensure the remote branch exists (create from `main` if missing)
 
 ```bash
-# Check whether $BRANCH_NAME already exists in the remote repo
-BRANCH_CHECK_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3+json" \
-  "https://api.github.com/repos/${RKC_PATH}/branches/${BRANCH_NAME}")
-
-if [[ "$BRANCH_CHECK_STATUS" == "200" ]]; then
-  echo "Branch '$BRANCH_NAME' already exists in $RKC_PATH. Proceeding."
-
-elif [[ "$BRANCH_CHECK_STATUS" == "404" ]]; then
-  echo "Branch '$BRANCH_NAME' not found. Creating from main..."
-
-  # Resolve the SHA of main
-  MAIN_SHA=$(curl -s \
-    -H "Authorization: token $GITHUB_TOKEN" \
-    -H "Accept: application/vnd.github.v3+json" \
-    "https://api.github.com/repos/${RKC_PATH}/git/refs/heads/main" \
-    | python3 -c "import sys, json; print(json.load(sys.stdin)['object']['sha'])")
-
-  if [[ -z "$MAIN_SHA" ]]; then
-    echo "ERROR in Step 6a: Could not resolve SHA for 'main' in $RKC_PATH. Check GITHUB_TOKEN and repo access."
-    exit 1
-  fi
-
-  # Create the branch
-  CREATE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST \
-    -H "Authorization: token $GITHUB_TOKEN" \
-    -H "Accept: application/vnd.github.v3+json" \
-    "https://api.github.com/repos/${RKC_PATH}/git/refs" \
-    -d "{\"ref\": \"refs/heads/${BRANCH_NAME}\", \"sha\": \"${MAIN_SHA}\"}")
-
-  if [[ "$CREATE_STATUS" == "201" ]]; then
-    echo "Branch '$BRANCH_NAME' created from main (SHA: $MAIN_SHA)."
-  else
-    echo "ERROR in Step 6a: Failed to create branch '$BRANCH_NAME' (HTTP $CREATE_STATUS). Aborting."
-    exit 1
-  fi
-
-else
-  echo "WARN: Unexpected HTTP $BRANCH_CHECK_STATUS checking branch '$BRANCH_NAME'. Proceeding anyway."
-fi
+bash "$COMMON_SCRIPTS_DIR/ensure_github_branch.sh" \
+  --repo-path "$RKC_PATH" \
+  --branch-name "$BRANCH_NAME" || {
+  echo "ERROR in Step 6a: Failed to ensure branch '$BRANCH_NAME' exists in $RKC_PATH."
+  echo "  Check GITHUB_TOKEN has repo scope."
+  exit 1
+}
 ```
 
 ### 6b. Clone the branch into a playpen
@@ -465,9 +378,11 @@ if [[ -z "$TEKTON_DIR" ]]; then
 fi
 ```
 
-If other pipelinerun files already exist in the `.tekton` directory, use the `Read` tool to
-examine one of them. Note any structural differences from the template — this can catch
-environment-specific patterns not covered by the spec.
+If other pipelinerun files already exist in the `.tekton` directory, list them to note any
+structural differences from the template:
+```bash
+ls "$TEKTON_DIR" 2>/dev/null && cat "$TEKTON_DIR/"*.yaml 2>/dev/null | head -30 || true
+```
 
 Set the target file path:
 ```bash
@@ -480,45 +395,36 @@ PIPELINERUN_PATH="$TEKTON_DIR/$PIPELINERUN_FILE"
 
 ### 8a. Determine prefetch-input
 
-Try to fetch the Konflux prefetch-input documentation:
-```
-WebFetch: https://konflux.pages.redhat.com/docs/users/building/prefetching-dependencies.html#generic
-```
-If unreachable, continue — this is advisory only.
-
-Then inspect the component repo's root for known dependency file names via the GitHub API:
 ```bash
-REPO_PATH=$(echo "$REPO_URL" | sed 's|https://github.com/||;s|\.git$||')
-curl -s -H "Authorization: token $GITHUB_TOKEN" \
-  "https://api.github.com/repos/${REPO_PATH}/contents/"
+eval "$(bash "$COMMON_SCRIPTS_DIR/detect_prefetch_input.sh" \
+  --repo-url "$REPO_URL" \
+  --context-path "$CONTEXT_PATH_NORMALIZED")"
+# Sets PREFETCH_INPUT (JSON array string, defaults to [] on error)
+echo "PREFETCH_INPUT: $PREFETCH_INPUT"
 ```
-
-Determine `PREFETCH_INPUT` based on what is found:
-
-| Detected file | `prefetch-input` value |
-|--------------|----------------------|
-| `go.mod` | `[{"type": "gomod", "path": "."}]` |
-| `requirements.txt` | `[{"type": "pip", "path": "requirements.txt"}]` |
-| `package.json` | `[{"type": "npm", "path": "."}]` |
-| `Gemfile` | `[{"type": "bundler", "path": "."}]` |
-| Nothing detected / fetch fails | `[]` |
-
-If `CONTEXT_PATH_NORMALIZED != "."`, adjust the `path` field to use `$CONTEXT_PATH_NORMALIZED`.
 
 ### 8b. Write the file
 
 > **CRITICAL — `{{...}}` and `{{ ... }}` are Tekton/PAC templating variables.**
 > Write them **verbatim** — do NOT substitute their content with actual values.
 
-Use the `Write` tool to create `$PIPELINERUN_PATH` with the following content, substituting
-all `<...>` placeholders with actual variable values, and leaving all `{{...}}` untouched:
+Build the platform list YAML and write `$PIPELINERUN_PATH`:
 
-```yaml
+```bash
+# Build YAML platform list (4-space indented)
+PLATFORM_LIST=""
+for p in "${PLATFORMS[@]}"; do
+  PLATFORM_LIST+="    - ${p}"$'\n'
+done
+PLATFORM_LIST="${PLATFORM_LIST%$'\n'}"
+
+cat > "$PIPELINERUN_PATH" <<PIPELINERUN_EOF
+
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: <REPO_URL>?rev={{revision}}
+    build.appstudio.openshift.io/repo: ${REPO_URL}?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
@@ -526,13 +432,13 @@ metadata:
     build.appstudio.openshift.io/build-nudge-files: "build/operator-nudging.yaml"
     pipelinesascode.tekton.dev/on-cel-expression: |
       event == "push"
-      && target_branch == "<BRANCH_NAME>"
-      && ( files.all.exists(p, !p.matches('^\\.tekton/')) || ".tekton/<COMPONENT_NAME>-<VERSION_VAR>-push.yaml".pathChanged() )
+      && target_branch == "${BRANCH_NAME}"
+      && ( files.all.exists(p, !p.matches('^\\.tekton/')) || ".tekton/${COMPONENT_NAME}-${VERSION_VAR}-push.yaml".pathChanged() )
   labels:
-    appstudio.openshift.io/application: rhoai-<VERSION_VAR>
-    appstudio.openshift.io/component: <COMPONENT_NAME>-<VERSION_VAR>
+    appstudio.openshift.io/application: rhoai-${VERSION_VAR}
+    appstudio.openshift.io/component: ${COMPONENT_NAME}-${VERSION_VAR}
     pipelines.appstudio.openshift.io/type: build
-  name: <COMPONENT_NAME>-<VERSION_VAR>-on-push
+  name: ${COMPONENT_NAME}-${VERSION_VAR}-on-push
   namespace: rhoai-tenant
 spec:
   params:
@@ -544,100 +450,89 @@ spec:
     value:
     - '{{target_branch}}-{{revision}}'
   - name: output-image
-    value: quay.io/rhoai/<COMPONENT_NAME>-rhel9:{{target_branch}}
+    value: quay.io/rhoai/${COMPONENT_NAME}-rhel9:{{target_branch}}
   - name: rhoai-version
-    value: "<RHOAI_MINOR_VERSION>"
+    value: "${RHOAI_MINOR_VERSION}"
   - name: dockerfile
-    value: <DOCKERFILE_PATH>
+    value: ${DOCKERFILE_PATH}
   - name: path-context
-    value: <CONTEXT_PATH_NORMALIZED>
+    value: ${CONTEXT_PATH_NORMALIZED}
   - name: hermetic
     value: true
   - name: prefetch-input
     value: |
-      <PREFETCH_INPUT_JSON>
+      ${PREFETCH_INPUT}
   - name: build-source-image
     value: true
   - name: build-image-index
     value: true
   - name: build-platforms
     value:
-    <PLATFORM_LIST>
+${PLATFORM_LIST}
   - name: rhel-subscription-activation-key
     value: "rhel-subscription-activation-key-nonexistent"
   pipelineRef:
     resolver: git
     params:
     - name: url
-      value: <RKC_URL>
+      value: ${RKC_URL}
     - name: revision
       value: '{{ target_branch }}'
     - name: pathInRepo
       value: pipelines/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-<COMPONENT_NAME>-<VERSION_VAR>
+    serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}
   workspaces:
   - name: git-auth
     secret:
       secretName: '{{ git_auth_secret }}'
 status: {}
+PIPELINERUN_EOF
+echo "PipelineRun written to $PIPELINERUN_PATH"
 ```
 
-Placeholder substitution table:
-
-| Placeholder | Replace with |
-|------------|-------------|
-| `<REPO_URL>` | `$REPO_URL` |
-| `<BRANCH_NAME>` | `$BRANCH_NAME` |
-| `<COMPONENT_NAME>` | `$COMPONENT_NAME` |
-| `<VERSION_VAR>` | `$VERSION_VAR` |
-| `<RHOAI_MINOR_VERSION>` | `$RHOAI_MINOR_VERSION` |
-| `<DOCKERFILE_PATH>` | `$DOCKERFILE_PATH` |
-| `<CONTEXT_PATH_NORMALIZED>` | `$CONTEXT_PATH_NORMALIZED` |
-| `<PREFETCH_INPUT_JSON>` | The JSON array determined in 8a (e.g. `[]`) |
-| `<PLATFORM_LIST>` | Indented YAML list items for each platform, e.g.:<br>`    - linux/x86_64`<br>`    - linux-m2xlarge/arm64` |
-| `<RKC_URL>` | `$RKC_URL` (the pipeline definition repo — follows `RHOAI_KONFLUX_CENTRAL_REPO_URL` override) |
-
-> **Consistency note:** `pipelineRef.params[url]` uses `$RKC_URL` so that overriding
+> **Note:** `pipelineRef.params[url]` uses `$RKC_URL` so that overriding
 > `RHOAI_KONFLUX_CENTRAL_REPO_URL` (e.g. to a fork for testing) is respected everywhere.
-> The default value is `https://github.com/red-hat-data-services/konflux-central.git`.
 
 ### 8c. Verify the written file
 
-Use the `Read` tool to read `$PIPELINERUN_PATH` and verify:
-- No `<...>` placeholder (angle-bracket token) remains in the file
-- `name: ${COMPONENT_NAME}-${VERSION_VAR}-on-push` is present
-- `serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}` is present
-- Platform list matches the requested architectures exactly
-- `{{revision}}`, `{{target_branch}}`, `{{source_url}}`, `{{ git_auth_secret }}` are present verbatim
-- YAML is syntactically consistent (no mixed indentation, no unclosed strings)
-
-If any verification check fails, apply corrective `Edit` calls before continuing.
+```bash
+grep -q "name: ${COMPONENT_NAME}-${VERSION_VAR}-on-push" "$PIPELINERUN_PATH" || {
+  echo "ERROR in Step 8c: name field not set correctly in $PIPELINERUN_PATH"; exit 1
+}
+grep -q "serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}" "$PIPELINERUN_PATH" || {
+  echo "ERROR in Step 8c: serviceAccountName not set correctly"; exit 1
+}
+grep -q '{{revision}}' "$PIPELINERUN_PATH" || {
+  echo "ERROR in Step 8c: Tekton template variables missing from $PIPELINERUN_PATH"; exit 1
+}
+# Check no angle-bracket placeholders remain
+grep -qE '<[A-Z_]+>' "$PIPELINERUN_PATH" && {
+  echo "ERROR in Step 8c: Unreplaced placeholders remain in $PIPELINERUN_PATH"
+  grep -E '<[A-Z_]+>' "$PIPELINERUN_PATH"
+  exit 1
+} || true
+echo "Verification passed for $PIPELINERUN_PATH"
+```
 
 ---
 
 ## Step 9: Commit and Push
 
 ```bash
-cd "$CLONE_DIR"
-git add "pipelineruns/$REPO_NAME/.tekton/$PIPELINERUN_FILE"
-git status   # confirm only the expected file is staged
-git commit -m "Add ${COMPONENT_NAME}-${VERSION_VAR} PipelineRun for ${REPO_NAME}
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "pipelineruns/$REPO_NAME/.tekton/$PIPELINERUN_FILE" \
+  --message   "Add ${COMPONENT_NAME}-${VERSION_VAR} PipelineRun for ${REPO_NAME}
 
 Adds Tekton PipelineRun for component '${COMPONENT_NAME}' targeting branch '${BRANCH_NAME}'.
 File: pipelineruns/${REPO_NAME}/.tekton/${PIPELINERUN_FILE}
 
-Related: ${JIRA_ID:-no-jira}"
-git push origin "$DEST_BRANCH"
+Related: ${JIRA_ID:-no-jira}" \
+  --branch    "$DEST_BRANCH"
 ```
 
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
-```
-
-On any other push failure, display stderr and stop:
+On exit 1, display stderr and stop:
 ```
 ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH' to $RKC_URL. See details above.
   Check GITHUB_TOKEN has 'repo' scope and write access to $RKC_PATH.
@@ -751,16 +646,27 @@ ERROR in Step 11 (Monitor PR): PR was closed without merging. Check: $PR_URL
 ```
 
 **`pipeline_failed` or `pipeline_canceled` (exit 1):** Attempt automated fix:
-1. Use `Read` to re-examine `$PIPELINERUN_PATH` for YAML issues.
-2. If fixable: apply `Edit` corrections, then:
+1. Inspect `$PIPELINERUN_PATH` for YAML validity and structural issues:
    ```bash
-   cd "$CLONE_DIR"
-   git add "pipelineruns/$REPO_NAME/.tekton/$PIPELINERUN_FILE"
-   git commit -m "Fix ${COMPONENT_NAME}-${VERSION_VAR} PipelineRun definition"
-   git push origin "$DEST_BRANCH"
+   python3 -c "import yaml; yaml.safe_load(open('$PIPELINERUN_PATH'))" 2>&1
+   ```
+2. If YAML is invalid, check for common indentation issues:
+   ```bash
+   grep -n 'value:' "$PIPELINERUN_PATH" | tail -10
+   grep -n 'params:' "$PIPELINERUN_PATH" | head -5
+   ```
+3. If fixable (re-write the file with corrected content):
+   ```bash
+   # Re-run the heredoc write from Step 8b with the same variables
+   # then commit and push the fix
+   bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+     --clone-dir "$CLONE_DIR" \
+     --files     "pipelineruns/$REPO_NAME/.tekton/$PIPELINERUN_FILE" \
+     --message   "Fix ${COMPONENT_NAME}-${VERSION_VAR} PipelineRun YAML definition" \
+     --branch    "$DEST_BRANCH"
    ```
    Update Jira with fix attempt. **Jump back to Step 11** to re-monitor once.
-3. If not fixable: update Jira with failure details and stop:
+4. If not fixable: update Jira with failure details and stop:
    ```
    ERROR in Step 11 (Monitor PR): CI checks failed and could not be auto-fixed.
    PR: $PR_URL — manual intervention required.

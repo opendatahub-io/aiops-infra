@@ -1,7 +1,7 @@
 ---
 name: enable-renovate-on-rhoai-component-repo
 description: Enables Renovate dependency updates for a new RHOAI component repo by adding it to the renovate config in rhoai-konflux-central and raising a GitHub PR targeting main.
-allowed-tools: Bash, Read, Edit, Write, WebFetch
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -105,49 +105,14 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 ## Step 1: Check Prerequisites
 
-Check in order. Stop with a remediation message if any check fails.
-
 ```bash
-# 1. GITHUB_USER
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN" \
+  --tools "uv git curl"
 
-# 2. GITHUB_TOKEN
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken (needs repo scope)"
-  exit 1
-fi
-
-# 3. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
-fi
-
-# 4. git
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."
-  exit 1
-fi
-
-# 5. curl
-if ! command -v curl &>/dev/null; then
-  echo "ERROR: curl is not installed."
-  exit 1
-fi
-```
-
-When `JIRA_URL` is non-empty, also check:
-```bash
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"
-  exit 1
-fi
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"
-  exit 1
+if [[ -n "$JIRA_URL" ]]; then
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+    --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
@@ -156,12 +121,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-if [[ -n "$JIRA_ID" ]]; then
-  WORKDIR="$(pwd)/${JIRA_ID}"
-else
-  WORKDIR="$(pwd)"
-fi
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -216,12 +176,13 @@ ERROR in Step 3d (Fetch Jira details): Could not fetch Jira issue. See details a
 
 ### 3e. Parse YAML
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
-
-Extract `inputs.repo_url`. If missing, stop:
-```
-ERROR in Step 3e: Missing required field 'inputs.repo_url' in component_onboarding_details.yaml.
-  Re-generate the YAML with /create-component-onboarding-jira <jira-url>.
+```bash
+REPO_URL=$(grep -m1 'repo_url:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
+[[ -z "$REPO_URL" ]] && {
+  echo "ERROR in Step 3e: Missing required field 'inputs.repo_url' in component_onboarding_details.yaml."
+  echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
+  exit 1
+}
 ```
 
 ### 3f. Derive variables
@@ -280,7 +241,13 @@ WARN: Could not fetch config.yaml from GitHub API. Proceeding to check via local
 
 Skip entirely if `$WORKDIR/component_onboarding_details.json` does not exist.
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
+Extract PR URLs from `$WORKDIR/component_onboarding_details.json`:
+```bash
+EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
+  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
+  | grep -oE 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
+  | sort -u || true)
+```
 
 Search `fields.comment.comments[].body` for GitHub PR URLs matching:
 ```
@@ -347,67 +314,35 @@ git push origin "$DEST_BRANCH"
 
 ## Step 7: Edit config.yaml
 
-### 7a. Read the file
+```bash
+uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-renovate-repo \
+  "$CLONE_DIR/config.yaml" \
+  --renovate-config "renovate/default-renovate-distribution.json" \
+  --name "$RENOVATE_ENTRY"
 
-Use the `Read` tool to read `$CLONE_DIR/config.yaml`.
-
-### 7b. Idempotency guard
-
-If `${RENOVATE_ENTRY}` already appears in the file content, skip 7c–7d and continue to Step 8.
-
-### 7c. Locate the insertion point
-
-Find the last `- name:` entry within the `sync-repositories` array that belongs to the first
-distribution group (`renovate-config: "renovate/default-renovate-distribution.json"`). This
-is the last `- name: "red-hat-data-services/..."` line before the next
-`- renovate-config: "renovate/custom-renovate-distribution.json"` block.
-
-Use that last entry as the anchor context for the `Edit` tool.
-
-### 7d. Insert the new entry
-
-Use the `Edit` tool to append the new entry immediately after the last existing entry in the
-target section. The indent must be exactly 2 spaces (matching all existing entries):
-
+grep -qF "$RENOVATE_ENTRY" "$CLONE_DIR/config.yaml" || {
+  echo "ERROR in Step 7: Failed to add '$RENOVATE_ENTRY' to config.yaml"; exit 1
+}
+echo "$RENOVATE_ENTRY added to sync-repositories in config.yaml."
 ```
-old_string: "  - name: \"red-hat-data-services/<LAST-ENTRY-REPO>\""
-new_string:  "  - name: \"red-hat-data-services/<LAST-ENTRY-REPO>\"\n  - name: \"${RENOVATE_ENTRY}\""
-```
-
-### 7e. Verify
-
-Use the `Read` tool on `$CLONE_DIR/config.yaml` and confirm:
-- `${RENOVATE_ENTRY}` is present in the file
-- The new entry appears **before** `- renovate-config: "renovate/custom-renovate-distribution.json"`
-  (i.e., it is inside the default distribution section)
-- The 2-space indent is consistent with surrounding entries
-- No broken YAML indentation around the new entry
-
-If any check fails, apply a corrective `Edit` call before continuing.
 
 ---
 
 ## Step 8: Commit and Push
 
 ```bash
-cd "$CLONE_DIR"
-git add config.yaml
-git status   # confirm only config.yaml is staged
-git commit -m "Enable Renovate for ${REPO_NAME}
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "config.yaml" \
+  --message   "Enable Renovate for ${REPO_NAME}
 
 Adds '${RENOVATE_ENTRY}' to the default Renovate distribution in config.yaml.
 
-Related: ${JIRA_ID:-no-jira}"
-git push origin "$DEST_BRANCH"
+Related: ${JIRA_ID:-no-jira}" \
+  --branch    "$DEST_BRANCH"
 ```
 
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
-```
-
-On any other push failure, display stderr and stop:
+On exit 1, display stderr and stop:
 ```
 ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH' to $RKC_URL. See details above.
   Check GITHUB_TOKEN has 'repo' scope and write access to $RKC_PATH.
@@ -505,16 +440,28 @@ ERROR in Step 10 (Monitor PR): PR was closed without merging. Check: $PR_URL
 ```
 
 **`pipeline_failed` or `pipeline_canceled` (exit 1):** Attempt automated fix:
-1. Use `Read` to examine `$CLONE_DIR/config.yaml` for YAML issues.
-2. If fixable: apply `Edit`, then:
+1. Inspect `$CLONE_DIR/config.yaml` for YAML issues:
    ```bash
-   cd "$CLONE_DIR"
-   git add config.yaml
-   git commit -m "Fix renovate config.yaml YAML syntax"
-   git push origin "$DEST_BRANCH"
+   python3 -c "import yaml; yaml.safe_load(open('$CLONE_DIR/config.yaml'))" 2>&1
+   ```
+2. If YAML is valid but pipeline still failed, check for indentation inconsistencies:
+   ```bash
+   grep -n '  - name:' "$CLONE_DIR/config.yaml" | tail -5
+   ```
+3. If fixable (re-run `edit_yaml.py` to re-apply correct entry):
+   ```bash
+   uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-renovate-repo \
+     "$CLONE_DIR/config.yaml" \
+     --renovate-config "renovate/default-renovate-distribution.json" \
+     --name "$RENOVATE_ENTRY"
+   bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+     --clone-dir "$CLONE_DIR" \
+     --files     "config.yaml" \
+     --message   "Fix renovate config.yaml YAML syntax" \
+     --branch    "$DEST_BRANCH"
    ```
    Update Jira with fix attempt. **Jump back to Step 10** to re-monitor once.
-3. If not fixable: update Jira with failure details and stop:
+4. If not fixable: update Jira with failure details and stop:
    ```
    ERROR in Step 10 (Monitor PR): CI checks failed and could not be auto-fixed.
    PR: $PR_URL — manual intervention required.
