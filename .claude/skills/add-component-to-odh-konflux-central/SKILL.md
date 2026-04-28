@@ -1,7 +1,7 @@
 ---
 name: update-component-using-odh-konflux-central
 description: Onboards a new ODH/RHOAI component onto the Konflux CI platform by adding PipelineRun YAMLs and updating the onboarder workflow in the odh-konflux-central GitHub repository and raising a pull request. Automates Step 4 of the ODH component onboarding pipeline.
-allowed-tools: Bash, Read, Edit, Write
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -92,41 +92,9 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-# 1. GITHUB_USER
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"
-  exit 1
-fi
-
-# 2. GITHUB_TOKEN
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"
-  exit 1
-fi
-
-# 3. JIRA_USER_EMAIL
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"
-  exit 1
-fi
-
-# 4. JIRA_API_TOKEN
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"
-  exit 1
-fi
-
-# 5. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
-fi
-
-# 6. git
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
+  --tools "uv git"
 ```
 
 ---
@@ -134,10 +102,8 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-WORKDIR="$(pwd)/<jira-id>"
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
-cd "$WORKDIR"
 ```
 
 ---
@@ -308,9 +274,16 @@ PR_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
 
 ## Step 6: Check for Existing Open PR in Jira Comments
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
+Extract existing GitHub PR URLs from the Jira comments:
 
-Search the array at `fields.comment.comments[].body` for GitHub PR URLs matching:
+```bash
+EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
+  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
+  | grep -oE 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
+  | sort -u || true)
+```
+
+Search `$EXISTING_PR_URLS` for GitHub PR URLs matching:
 ```
 https://github\.com/[^/\s]+/[^/\s]+/pull/\d+
 ```
@@ -378,11 +351,14 @@ git push origin "<jira-id>"
 
 ## Step 8: Generate PipelineRun Files and Update Workflow
 
-### 8a. Read template files
+### 8a. Verify template files exist
 
-Use the `Read` tool to read both template files in the clone:
-- `$CLONE_DIR/pipelineruns/template/odh-component-push.yaml`
-- `$CLONE_DIR/pipelineruns/template/odh-component-pull-request.yaml`
+```bash
+[[ -f "$CLONE_DIR/pipelineruns/template/odh-component-push.yaml" ]] || \
+  { echo "ERROR: Push template not found in $CLONE_DIR"; exit 1; }
+[[ -f "$CLONE_DIR/pipelineruns/template/odh-component-pull-request.yaml" ]] || \
+  { echo "ERROR: PR template not found in $CLONE_DIR"; exit 1; }
+```
 
 ### 8b. Create repo directory if needed
 
@@ -398,29 +374,35 @@ cp "$CLONE_DIR/pipelineruns/template/odh-component-push.yaml" \
    "$CLONE_DIR/pipelineruns/$REPO_NAME/$PUSH_YAML_FILE"
 ```
 
-Then apply ALL of the following substitutions using the `Edit` tool on
-`$CLONE_DIR/pipelineruns/$REPO_NAME/$PUSH_YAML_FILE`:
+Apply all substitutions to the push PipelineRun using `sed`:
 
-| Old string | Replace with | Notes |
-|-----------|-------------|-------|
-| `component-git-url` | `$REPO_URL` | In `build.appstudio.openshift.io/repo` annotation |
-| `$$TARGET_BRANCH$$` | `$REPO_BRANCH` | In CEL expression (2 occurrences — use replace_all) |
-| `odh-component-name-ci` | `$KONFLUX_COMPONENT_NAME` | In `appstudio.openshift.io/component` label |
-| `odh-file-name-on-push` | `$PUSH_RUN_NAME` | In `name:` field |
-| `quay.io/opendatahub/quayurl` | `quay.io/$QUAY_ORG/$COMPONENT_NAME` | In `output-image` value |
-| `$$OUTPUT_IMAGE_TAG$$` | `$PUSH_OUTPUT_IMAGE_TAG` | In `output-image` value (`odh-stable` for CI) |
-| `dockerfilepath` | `$DOCKERFILE_PATH` | In `dockerfile` param value |
-| `    value: .` | `    value: $CONTEXT_PATH` | In `path-context` param — match exact indent |
-| `build-pipeline-sa-namw` | `$SERVICE_ACCOUNT_NAME` | Fix typo and set component-specific SA name |
-| `open-data-hub-tenant` | `$NAMESPACE` | In `namespace:` field |
-| `opendatahub-builds` | `$APPLICATION` | In `appstudio.openshift.io/application` label |
+```bash
+PUSH_FILE="$CLONE_DIR/pipelineruns/$REPO_NAME/$PUSH_YAML_FILE"
+sed -i '' \
+  -e "s|component-git-url|${REPO_URL}|g" \
+  -e "s|\$\$TARGET_BRANCH\$\$|${REPO_BRANCH}|g" \
+  -e "s|odh-component-name-ci|${KONFLUX_COMPONENT_NAME}|g" \
+  -e "s|odh-file-name-on-push|${PUSH_RUN_NAME}|g" \
+  -e "s|quay.io/opendatahub/quayurl|quay.io/${QUAY_ORG}/${COMPONENT_NAME}|g" \
+  -e "s|\$\$OUTPUT_IMAGE_TAG\$\$|${PUSH_OUTPUT_IMAGE_TAG}|g" \
+  -e "s|dockerfilepath|${DOCKERFILE_PATH}|g" \
+  -e "s|    value: \\.  |    value: ${CONTEXT_PATH}|g" \
+  -e "s|build-pipeline-sa-namw|${SERVICE_ACCOUNT_NAME}|g" \
+  -e "s|open-data-hub-tenant|${NAMESPACE}|g" \
+  -e "s|opendatahub-builds|${APPLICATION}|g" \
+  "$PUSH_FILE"
+```
 
-After editing, verify with the `Read` tool that:
-- `name: $PUSH_RUN_NAME` is present
-- `serviceAccountName: $SERVICE_ACCOUNT_NAME` is present
-- `$$TARGET_BRANCH$$` is NOT present (all occurrences replaced)
-- `quayurl` is NOT present
-- The YAML is syntactically well-formed (consistent indentation, no dangling `$$`)
+Verify the substitutions were applied:
+
+```bash
+grep -q "name: $PUSH_RUN_NAME" "$PUSH_FILE" \
+  || { echo "ERROR: PUSH_RUN_NAME not found after substitution."; exit 1; }
+grep -q "serviceAccountName: $SERVICE_ACCOUNT_NAME" "$PUSH_FILE" \
+  || { echo "ERROR: SERVICE_ACCOUNT_NAME not found after substitution."; exit 1; }
+grep -q '\$\$TARGET_BRANCH\$\$\|quayurl' "$PUSH_FILE" \
+  && { echo "ERROR: Unreplaced placeholders found in push YAML."; exit 1; } || true
+```
 
 ### 8d. Generate pull-request PipelineRun
 
@@ -430,82 +412,74 @@ cp "$CLONE_DIR/pipelineruns/template/odh-component-pull-request.yaml" \
    "$CLONE_DIR/pipelineruns/$REPO_NAME/$PR_YAML_FILE"
 ```
 
-Then apply ALL of the following substitutions using the `Edit` tool on
-`$CLONE_DIR/pipelineruns/$REPO_NAME/$PR_YAML_FILE`:
+Apply all substitutions to the PR PipelineRun using `sed`. Note: the PR template uses YAML
+comments (`#`) as placeholders — the sed commands remove them as part of substitution:
 
-> **Note:** The PR template uses YAML comments (`#`) to placeholder some values.
-> These comment markers must be removed as part of the substitution.
+```bash
+PR_FILE="$CLONE_DIR/pipelineruns/$REPO_NAME/$PR_YAML_FILE"
+sed -i '' \
+  -e "s|build.appstudio.openshift.io/repo: #component-git-url?rev={{revision}}|build.appstudio.openshift.io/repo: ${REPO_URL}?rev={{revision}}|g" \
+  -e "s|\$\$TARGET_BRANCH\$\$|${REPO_BRANCH}|g" \
+  -e "s|odh-component-name-ci|${KONFLUX_COMPONENT_NAME}|g" \
+  -e "s|  name: #odh-file-name-on-pull-request|  name: ${PR_RUN_NAME}|g" \
+  -e "s|quay.io/opendatahub/quayurl|quay.io/${QUAY_ORG}/${COMPONENT_NAME}|g" \
+  -e "s|\$\$OUTPUT_IMAGE_TAG\$\$|${PR_OUTPUT_IMAGE_TAG}|g" \
+  -e "s|dockerfilepath|${DOCKERFILE_PATH}|g" \
+  -e "s|    value: \.  |    value: ${CONTEXT_PATH}|g" \
+  -e "s|    serviceAccountName: #build-pipeline-sa-name|    serviceAccountName: ${SERVICE_ACCOUNT_NAME}|g" \
+  -e "s|  #add these additional params|  # additional params|g" \
+  -e "s|open-data-hub-tenant|${NAMESPACE}|g" \
+  -e "s|opendatahub-builds|${APPLICATION}|g" \
+  "$PR_FILE"
+```
 
-| Old string | Replace with | Notes |
-|-----------|-------------|-------|
-| `build.appstudio.openshift.io/repo: #component-git-url?rev={{revision}}` | `build.appstudio.openshift.io/repo: $REPO_URL?rev={{revision}}` | Remove `#` comment marker |
-| `$$TARGET_BRANCH$$` | `$REPO_BRANCH` | In CEL expression (use replace_all) |
-| `odh-component-name-ci` | `$KONFLUX_COMPONENT_NAME` | In `appstudio.openshift.io/component` label |
-| `  name: #odh-file-name-on-pull-request` | `  name: $PR_RUN_NAME` | Remove `#` comment marker; exact leading spaces matter |
-| `quay.io/opendatahub/quayurl` | `quay.io/$QUAY_ORG/$COMPONENT_NAME` | In `output-image` value |
-| `$$OUTPUT_IMAGE_TAG$$` | `$PR_OUTPUT_IMAGE_TAG` | In `output-image` value (`odh-pr` for CI) |
-| `dockerfilepath` | `$DOCKERFILE_PATH` | In `dockerfile` param value |
-| `    value: .` | `    value: $CONTEXT_PATH` | In `path-context` param — match exact indent |
-| `    serviceAccountName: #build-pipeline-sa-name` | `    serviceAccountName: $SERVICE_ACCOUNT_NAME` | Remove `#` comment marker and set component-specific SA name |
-| `  #add these additional params` | `  # additional params` | Clean up comment |
-| `open-data-hub-tenant` | `$NAMESPACE` | In `namespace:` field |
-| `opendatahub-builds` | `$APPLICATION` | In `appstudio.openshift.io/application` label |
+Verify the substitutions were applied:
 
-After editing, verify with the `Read` tool that:
-- `name: $PR_RUN_NAME` is present and is NOT a YAML comment
-- `serviceAccountName: $SERVICE_ACCOUNT_NAME` is present and is NOT a YAML comment
-- `$$TARGET_BRANCH$$` is NOT present
-- `#component-git-url` and `#odh-file-name-on-pull-request` are NOT present
-- The YAML structure is syntactically well-formed
-
-If any verification fails, fix with another `Edit` call before continuing.
+```bash
+grep -q "name: $PR_RUN_NAME" "$PR_FILE" \
+  || { echo "ERROR: PR_RUN_NAME not found after substitution."; exit 1; }
+grep -q "serviceAccountName: $SERVICE_ACCOUNT_NAME" "$PR_FILE" \
+  || { echo "ERROR: SERVICE_ACCOUNT_NAME not found after substitution."; exit 1; }
+grep -q '\$\$TARGET_BRANCH\$\$\|#component-git-url\|#odh-file-name' "$PR_FILE" \
+  && { echo "ERROR: Unreplaced placeholders found in PR YAML."; exit 1; } || true
+```
 
 ### 8e. Update the onboarder workflow
 
-Use the `Read` tool to read `$CLONE_DIR/.github/workflows/odh-konflux-onboarder.yml`.
-
-Find the `components:` input in the `workflow_dispatch:` event block. It will look like:
-```yaml
-      components:
-        description: 'Component to onboard'
-        type: choice
-        options:
-          - component-a
-          - component-b
-          ...
-```
-
-Check if `$REPO_NAME` is already in the `options:` list.
-
-- **Already present**: Print: `$REPO_NAME already in onboarder workflow component list — skipping.`
-- **Not present**: Use the `Edit` tool to insert `$REPO_NAME` into the `options:` list in
-  **alphabetical order**. Find the correct insertion point among the existing options and
-  insert a new `          - $REPO_NAME` line.
-
-After editing, verify the workflow YAML is syntactically valid.
-
-### 8f. Commit all changes
+Check if `$REPO_NAME` is already in the workflow's `options:` list:
 
 ```bash
-cd "$CLONE_DIR"
-git add -A
-git status  # Verify staged files
-git commit -m "Add $KONFLUX_COMPONENT_NAME PipelineRuns for $REPO_NAME"
+WORKFLOW_FILE="$CLONE_DIR/.github/workflows/odh-konflux-onboarder.yml"
+if grep -q "          - ${REPO_NAME}$" "$WORKFLOW_FILE" 2>/dev/null; then
+  echo "$REPO_NAME already in onboarder workflow component list — skipping."
+else
+  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" insert-list-item \
+    "$WORKFLOW_FILE" \
+    --list-key "on.workflow_dispatch.inputs.components.options" \
+    --value "$REPO_NAME"
+fi
 ```
 
-### 8g. Push to remote
+On exit 1 from `edit_yaml.py`: display stderr and stop with:
+```
+ERROR in Step 8e: Could not insert $REPO_NAME into workflow options. See details above. Aborting.
+```
+
+### 8f–8g. Commit and push all changes
 
 > **Reminder:** `origin` was set to `$OKC_URL` by `setup_github_playpen.sh` in Step 7.
-> Pushing to `origin` is correct — do NOT change the remote URL here.
 
 ```bash
-git push origin "$DEST_BRANCH"
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "." \
+  --message   "Add $KONFLUX_COMPONENT_NAME PipelineRuns for $REPO_NAME" \
+  --branch    "$DEST_BRANCH"
 ```
 
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
+On exit 1: display stderr and stop with:
+```
+ERROR in Step 8f–8g (Commit/Push): Could not commit or push changes. See details above. Aborting.
 ```
 
 ---
@@ -612,7 +586,7 @@ Please review the PR and re-run /update-component-using-odh-konflux-central if n
   in `$CLONE_DIR/pipelineruns/$REPO_NAME/`, recommit, and push to update the PR:
   ```bash
   cd "$CLONE_DIR"
-  # Fix with Edit tool, then:
+  # Inspect the generated YAML via bash (cat / sed / python3 one-liner) and fix it, then:
   git add -A
   git commit -m "Fix $KONFLUX_COMPONENT_NAME PipelineRun definition"
   git push origin "$DEST_BRANCH"

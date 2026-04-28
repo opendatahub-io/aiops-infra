@@ -1,7 +1,7 @@
 ---
 name: create-quay-repo
 description: Creates a Quay repository via a GitOps MR to app-interface. Handles fork setup, sparse YAML editing, MR creation, and optional Jira tracking. Automates Step 2 of the ODH component onboarding pipeline.
-allowed-tools: Bash, Read, Edit
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -84,44 +84,14 @@ Parse the arguments provided by the user:
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-# 1. GITLAB_USER
-if [[ -z "${GITLAB_USER:-}" ]]; then
-  echo "ERROR: GITLAB_USER is not set."
-  echo "  export GITLAB_USER=yourusername"
-  exit 1
-fi
-
-# 2. GITLAB_TOKEN
-if [[ -z "${GITLAB_TOKEN:-}" ]]; then
-  echo "ERROR: GITLAB_TOKEN is not set."
-  echo "  export GITLAB_TOKEN=yourtoken"
-  exit 1
-fi
-
-# 3. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed."
-  echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
-fi
-
-# 4. skopeo
-if ! command -v skopeo &>/dev/null; then
-  echo "ERROR: skopeo is not installed."
-  echo "  macOS:       brew install skopeo"
-  echo "  RHEL/Fedora: sudo dnf install skopeo"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITLAB_USER GITLAB_TOKEN" \
+  --tools "uv skopeo"
 ```
 
 If `--jira-url` was provided, also check:
 ```bash
-if [[ -z "${JIRA_USER_EMAIL:-}" ]] || [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: --jira-url requires JIRA_USER_EMAIL and JIRA_API_TOKEN to be set."
-  echo "  export JIRA_USER_EMAIL=you@example.com"
-  echo "  export JIRA_API_TOKEN=your-api-token"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 ```
 
 ---
@@ -129,12 +99,12 @@ fi
 ## Step 2: Create Working Directory
 
 ```bash
-if [[ -n "<jira-id>" ]]; then
-  WORKDIR="$(pwd)/<jira-id>"
+if [[ -n "${JIRA_URL:-}" ]]; then
+  eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
 else
   WORKDIR="$(pwd)/quay-<org>-<repo>"
+  mkdir -p "$WORKDIR"
 fi
-mkdir -p "$WORKDIR"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -169,9 +139,16 @@ bash <COMMON_SCRIPTS_DIR>/check_quay_repo.sh quay.io/<org>/<repo>
 This step only runs if `$WORKDIR/component_onboarding_details.json` exists (produced by the
 `validate-component-onboarding-jira` skill).
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
+Extract existing GitLab MR URLs from the Jira comments:
 
-Search the array at `fields.comment.comments[].body` for GitLab MR URLs matching the
+```bash
+EXISTING_MR_URLS=$(jq -r '.fields.comment.comments[].body' \
+  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
+  | grep -oE 'https://gitlab\.cee\.redhat\.com/[^/[:space:]]+/[^/[:space:]]+/-/merge_requests/[0-9]+' \
+  | sort -u || true)
+```
+
+Search `$EXISTING_MR_URLS` for GitLab MR URLs matching the
 regular expression:
 ```
 https://gitlab\.cee\.redhat\.com/[^/\s]+/[^/\s]+/-/merge_requests/\d+
@@ -278,50 +255,51 @@ ERROR in Step 7 (Playpen setup): Clone or push failed. See details above. Aborti
 
 ## Step 8: Modify YAML File
 
-Use the `Read` tool to read `$CLONE_DIR/$YAML_FILE`.
+**Idempotency check:** Check whether `<repo>` already exists in the YAML:
 
-**Idempotency check:** Search the `items:` array for any entry where `name: <repo>` is already
-present. If found:
-- Print: `Entry for '<repo>' already exists in the YAML — skipping append.`
-- Continue to Step 9.
-
-If the entry does NOT exist, compose the YAML block to append:
-```yaml
-- name: <repo>
-  description: "<org> <repo> container image"
-  public: <true_or_false>
+```bash
+if grep -q "^  name: <repo>$" "$CLONE_DIR/$YAML_FILE" 2>/dev/null || \
+   grep -q "^- name: <repo>$" "$CLONE_DIR/$YAML_FILE" 2>/dev/null; then
+  echo "Entry for '<repo>' already exists in the YAML — skipping append."
+  # Continue to Step 9
+else
+  PUBLIC_FLAG=""
+  [[ "$visibility" == "public" ]] && PUBLIC_FLAG="--public"
+  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-items-array \
+    "$CLONE_DIR/$YAML_FILE" \
+    --name "<repo>" \
+    --description "<org> <repo> container image" \
+    $PUBLIC_FLAG
+fi
 ```
-Where `public: true` if `visibility=public`, `public: false` if `visibility=private`.
 
-Use the `Edit` tool to append this block to the `items:` array in `$CLONE_DIR/$YAML_FILE`.
-Append after the last existing item in the array, maintaining consistent indentation (2 spaces).
-
-After editing, use the `Read` tool to re-read the file and verify:
-- The new `name: <repo>` entry is present
-- The YAML structure looks syntactically correct (items array properly indented)
-
-If the file looks malformed, fix it with another `Edit` call before proceeding.
+On exit 1 from `edit_yaml.py`: display stderr and stop with:
+```
+ERROR in Step 8 (Modify YAML): Could not append entry to $YAML_FILE. See details above. Aborting.
+```
 
 ---
 
 ## Step 9: Commit and Raise MR (up to 3 attempts)
 
-First, commit the change:
+Commit and push the change:
+
 ```bash
-cd "$CLONE_DIR"
-git add "$YAML_FILE"
-git commit -m "Add <repo> to quay <org> config"
+DEST_REMOTE="dest"
+[[ "$FORK_URL" == "$APP_INTERFACE_URL" ]] && DEST_REMOTE="origin"
+
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "$YAML_FILE" \
+  --message   "Add <repo> to quay <org> config" \
+  --branch    "$DEST_BRANCH" \
+  --remote    "$DEST_REMOTE"
 ```
 
-If `FORK_URL != APP_INTERFACE_URL`, the remote is named `dest`; otherwise it is `origin`.
-Determine the remote name (`DEST_REMOTE`) accordingly.
-
-Push the commit:
-```bash
-git push "$DEST_REMOTE" "$DEST_BRANCH"
+On exit 1: display stderr and stop with:
 ```
-
-If the push fails (branch already has commits on remote), try `git push --force-with-lease "$DEST_REMOTE" "$DEST_BRANCH"` once.
+ERROR in Step 9 (Commit/Push): Could not commit or push changes. See details above. Aborting.
+```
 
 Now raise the MR. Attempt up to **3 times**:
 
@@ -438,36 +416,11 @@ This step runs only when the MR was successfully merged in Step 10. Poll `check_
 every 60 seconds for up to 30 minutes until the repo appears on Quay.
 
 ```bash
-QUAY_REPO="quay.io/<org>/<repo>"
-POLL_INTERVAL=60      # seconds between checks
-MAX_WAIT=1800         # 30 minutes
-ELAPSED=0
-
-echo "Monitoring $QUAY_REPO for creation (timeout: 30 minutes)..."
-
-while true; do
-  bash <COMMON_SCRIPTS_DIR>/check_quay_repo.sh "$QUAY_REPO"
-  CHECK_EXIT=$?
-
-  if [[ $CHECK_EXIT -eq 0 ]]; then
-    # Repo exists
-    break
-  elif [[ $CHECK_EXIT -eq 2 ]]; then
-    echo "WARNING: check_quay_repo.sh returned a tool error. Retrying..."
-  fi
-  # Exit 1 = not yet created; keep polling
-
-  if [[ $ELAPSED -ge $MAX_WAIT ]]; then
-    # Timeout
-    CHECK_EXIT=3
-    break
-  fi
-
-  REMAINING=$(( (MAX_WAIT - ELAPSED) / 60 ))
-  echo "  quay.io/<org>/<repo> not yet available (elapsed=${ELAPSED}s, remaining≈${REMAINING}m). Retrying in ${POLL_INTERVAL}s..."
-  sleep $POLL_INTERVAL
-  ELAPSED=$(( ELAPSED + POLL_INTERVAL ))
-done
+bash "$COMMON_SCRIPTS_DIR/monitor_quay_repo.sh" \
+  --quay-repo  "quay.io/<org>/<repo>" \
+  --jira-url   "${JIRA_URL:-}" \
+  --mr-url     "$MR_URL" \
+  --scripts-dir "$COMMON_SCRIPTS_DIR"
 ```
 
 Handle the result:

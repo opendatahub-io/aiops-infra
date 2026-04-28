@@ -1,7 +1,7 @@
 ---
 name: onboard-component-to-konflux-release-data
 description: Onboards a new ODH/RHOAI component onto the Konflux CI platform by raising a merge request to the konflux-release-data GitLab repo. Automates Step 3 of the ODH component onboarding pipeline.
-allowed-tools: Bash, Read, Edit
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -78,61 +78,15 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-# 1. GITLAB_USER
-if [[ -z "${GITLAB_USER:-}" ]]; then
-  echo "ERROR: GITLAB_USER is not set. export GITLAB_USER=yourusername"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITLAB_USER GITLAB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
+  --tools "uv oc yamllint kustomize"
 
-# 2. GITLAB_TOKEN
-if [[ -z "${GITLAB_TOKEN:-}" ]]; then
-  echo "ERROR: GITLAB_TOKEN is not set. export GITLAB_TOKEN=yourtoken"
-  exit 1
-fi
-
-# 3. JIRA_USER_EMAIL
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"
-  exit 1
-fi
-
-# 4. JIRA_API_TOKEN
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"
-  exit 1
-fi
-
-# 5. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
-fi
-
-# 6. oc
-if ! command -v oc &>/dev/null; then
-  echo "ERROR: oc CLI is not installed. https://console.redhat.com/openshift/downloads"
-  exit 1
-fi
-
-# 7. yamllint
-if ! command -v yamllint &>/dev/null; then
-  echo "ERROR: yamllint is not installed. pip install yamllint  OR  brew install yamllint"
-  exit 1
-fi
-
-# 8. kustomize (required by build-manifests.sh and verify-manifests.sh)
-# Accept: standalone kustomize binary, OR the shim at ~/.local/bin/kustomize installed by install.sh
-KUSTOMIZE_BIN=""
-if command -v kustomize &>/dev/null; then
-  KUSTOMIZE_BIN="kustomize"
-elif [[ -x "${HOME}/.local/bin/kustomize" ]]; then
+# Resolve kustomize binary (standalone or ~/.local/bin shim)
+KUSTOMIZE_BIN="kustomize"
+if ! command -v kustomize &>/dev/null && [[ -x "${HOME}/.local/bin/kustomize" ]]; then
   KUSTOMIZE_BIN="${HOME}/.local/bin/kustomize"
   export PATH="${HOME}/.local/bin:${PATH}"
-else
-  echo "ERROR: kustomize is not installed and no shim found at ~/.local/bin/kustomize."
-  echo "  Run install.sh to auto-create a shim from kubectl's built-in kustomize, OR"
-  echo "  install kustomize v5.7.1: https://kubectl.docs.kubernetes.io/installation/kustomize/"
-  exit 1
 fi
 ```
 
@@ -141,10 +95,8 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-WORKDIR="$(pwd)/<jira-id>"
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
-cd "$WORKDIR"
 ```
 
 ---
@@ -182,7 +134,16 @@ ERROR in Step 3b (Download YAML): Could not download 'component_onboarding_detai
   Ensure the attachment exists on the Jira issue before running this skill.
 ```
 
-**3c. Parse the YAML** using the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
+**3c. Parse the YAML** by extracting values with `grep` and `awk`:
+
+```bash
+COMPONENT_NAME=$(grep -m1 'component_name:'     "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
+REPO_URL=$(grep -m1         'repo_url:'          "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
+REPO_BRANCH=$(grep -m1      'repo_branch:'       "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
+CONTEXT_PATH=$(grep -m1     'context_path:'      "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
+DOCKERFILE_PATH=$(grep -m1  'dockerfile_path:'   "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
+TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}' 2>/dev/null || echo "")
+```
 
 Extract and store these values (all are under the `inputs:` key):
 
@@ -278,9 +239,16 @@ bash <COMMON_SCRIPTS_DIR>/check_konflux_component.sh \
 
 ## Step 6: Check for Existing Open MR in Jira Comments
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
+Extract existing GitLab MR URLs from the Jira comments:
 
-Search the array at `fields.comment.comments[].body` for GitLab MR URLs matching:
+```bash
+EXISTING_MR_URLS=$(jq -r '.fields.comment.comments[].body' \
+  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
+  | grep -oE 'https://gitlab\.cee\.redhat\.com/[^/[:space:]]+/[^/[:space:]]+/-/merge_requests/[0-9]+' \
+  | sort -u || true)
+```
+
+Search `$EXISTING_MR_URLS` for GitLab MR URLs matching:
 ```
 https://gitlab\.cee\.redhat\.com/[^/\s]+/[^/\s]+/-/merge_requests/\d+
 ```
@@ -347,18 +315,13 @@ git push origin "<jira-id>"
 
 ## Step 8: Modify the Target YAML File
 
-Use the `Read` tool to read `$CLONE_DIR/$TARGET_YAML`.
+**Idempotency check and YAML append:**
 
-**Idempotency check:** Search the file for any occurrence of `name: $KONFLUX_COMPONENT_NAME`.
-If found:
-- Print: `Component entry '$KONFLUX_COMPONENT_NAME' already present in $TARGET_YAML — skipping append.`
-- Continue to Step 9.
-
-If the entry does NOT exist, compose the new YAML document to append (note: the file uses
-`---` document separators; append a new document at the end):
-
-```yaml
----
+```bash
+if grep -q "name: $KONFLUX_COMPONENT_NAME" "$CLONE_DIR/$TARGET_YAML" 2>/dev/null; then
+  echo "Component entry '$KONFLUX_COMPONENT_NAME' already present in $TARGET_YAML — skipping append."
+else
+  COMPONENT_YAML=$(cat <<EOF
 apiVersion: appstudio.redhat.com/v1alpha1
 kind: Component
 metadata:
@@ -366,30 +329,35 @@ metadata:
     build.appstudio.openshift.io/request: configure-pac-no-mr
     mintmaker.appstudio.redhat.com/disabled: "true"
     build.appstudio.openshift.io/pipeline: '{"name":"docker-build-multi-platform-oci-ta","bundle":"latest"}'
-  name: <KONFLUX_COMPONENT_NAME>
+  name: ${KONFLUX_COMPONENT_NAME}
 spec:
-  application: <KRD_APPLICATION>
-  componentName: <KONFLUX_COMPONENT_NAME>
-  containerImage: quay.io/<QUAY_ORG>/<COMPONENT_NAME>
+  application: ${KRD_APPLICATION}
+  componentName: ${KONFLUX_COMPONENT_NAME}
+  containerImage: quay.io/${QUAY_ORG}/${COMPONENT_NAME}
   source:
     git:
-      context: <CONTEXT_PATH>
-      dockerfileUrl: <DOCKERFILE_PATH>
-      revision: <REPO_BRANCH>
-      url: <REPO_URL>
+      context: ${CONTEXT_PATH}
+      dockerfileUrl: ${DOCKERFILE_PATH}
+      revision: ${REPO_BRANCH}
+      url: ${REPO_URL}
+EOF
+)
+  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-yaml-doc \
+    "$CLONE_DIR/$TARGET_YAML" \
+    --yaml-string "$COMPONENT_YAML"
+fi
 ```
 
-Substitute all `<...>` placeholders with the variables resolved in Steps 3 and 4.
+On exit 1 from `edit_yaml.py`: display stderr and stop with:
+```
+ERROR in Step 8 (Modify YAML): Could not append Component document to $TARGET_YAML. See details above. Aborting.
+```
 
-Use the `Edit` tool to append this block after the last line of `$CLONE_DIR/$TARGET_YAML`.
-Maintain consistent 2-space indentation as used in the rest of the file.
-
-After editing, use the `Read` tool to re-read the file and verify:
-- `name: <KONFLUX_COMPONENT_NAME>` is present
-- The YAML structure is syntactically correct (proper `---` separator, consistent indentation)
-- `containerImage` uses `COMPONENT_NAME` (no `-ci` suffix), not `KONFLUX_COMPONENT_NAME`
-
-If the file looks malformed, fix it with another `Edit` call before proceeding.
+Verify the entry was written:
+```bash
+grep -q "name: $KONFLUX_COMPONENT_NAME" "$CLONE_DIR/$TARGET_YAML" \
+  || { echo "ERROR: $KONFLUX_COMPONENT_NAME not found in $TARGET_YAML after append."; exit 1; }
+```
 
 ---
 
@@ -540,18 +508,23 @@ $CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoa
     Complete sprint onboarding first and update the Jira accordingly.
   ```
 
-- **Idempotency check:** use `Read` to read the file. If `name: ${COMPONENT_NAME}-${RPA_VAR}`
-  is already present in `spec.data.mapping.components`, skip.
+- **Idempotency check and append:**
 
-- **Append** to `spec.data.mapping.components` using `Edit`:
-  ```yaml
-  - name: <COMPONENT_NAME>-<RPA_VAR>
-    repositories:
-      - url: registry.redhat.io/rhoai/<COMPONENT_NAME>-rhel9
+  ```bash
+  RPA_FILE="$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-${RPA_VAR}-components-prod.yaml"
+
+  if grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_FILE" 2>/dev/null; then
+    echo "Entry '${COMPONENT_NAME}-${RPA_VAR}' already present in $RPA_FILE — skipping."
+  else
+    uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-rpa-component \
+      "$RPA_FILE" \
+      --array-key "spec.data.mapping.components" \
+      --name "${COMPONENT_NAME}-${RPA_VAR}" \
+      --url "registry.redhat.io/rhoai/${COMPONENT_NAME}-rhel9"
+  fi
   ```
 
   Note: stage uses `registry.stage.redhat.io`; prod uses `registry.redhat.io` (no `stage.`).
-  After editing, use `Read` to verify the entry is present.
 
 ---
 
@@ -577,8 +550,8 @@ yamllint -s -f colored .gitlab-ci.yml .gitlab tenants-config/cluster
 
 If `yamllint` reports errors:
 - Read the error output — it lists the file path and line number for each violation.
-- Use the `Read` tool on the offending file and the `Edit` tool to fix the indentation,
-  trailing spaces, or line-length issues.
+- Run `cat <offending-file>` to inspect the error location and use `sed -i'' ...` or a
+  targeted bash one-liner to fix the indentation, trailing spaces, or line-length issue.
 - Re-run `yamllint` after each fix until it exits 0 before continuing.
 
 **8f. Stage and commit all changes** (source YAML + auto-generated manifests):
@@ -598,7 +571,7 @@ cd "$CLONE_DIR/tenants-config"
 
 If `verify-manifests.sh` exits non-zero:
 - Read its error output to identify which manifest file is invalid.
-- Use the `Read` tool on the reported file and the `Edit` tool to fix the issue.
+- Run `cat <reported-file>` to inspect the issue and use `sed -i'' ...` or a bash one-liner to fix it.
 - Re-run `./verify-manifests.sh` after each fix until it exits 0.
 - If you had to make additional file edits, re-stage and amend the commit:
   ```bash
@@ -715,7 +688,7 @@ Please review the MR and re-run /onboard-component-to-konflux-release-data if ne
   the YAML in `$CLONE_DIR/$TARGET_YAML`, recommit, and push to update the MR:
   ```bash
   cd "$CLONE_DIR"
-  # Fix the YAML with Edit tool, then:
+  # Inspect and fix the YAML via bash (cat / sed / python3 one-liner), then:
   git add "$TARGET_YAML"
   git commit -m "Fix $KONFLUX_COMPONENT_NAME Component definition"
   git push origin "$DEST_BRANCH"

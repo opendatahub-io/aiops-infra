@@ -1,7 +1,7 @@
 ---
 name: integrate-component-with-odh-operator
 description: Updates the operator repository (opendatahub-io/opendatahub-operator for ODH, red-hat-data-services/rhods-operator for RHOAI) to include a new operator component in build/manifests-config.yaml and raises a GitHub PR. Exits cleanly (no-op) when is_operator=false. Automates Step 9 of the ODH/RHOAI component onboarding pipeline.
-allowed-tools: Bash, Read, Edit, Write
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -90,24 +90,9 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"; exit 1
-fi
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"; exit 1
-fi
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"; exit 1
-fi
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"; exit 1
-fi
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1
-fi
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."; exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
+  --tools "uv git"
 ```
 
 ---
@@ -115,10 +100,8 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-WORKDIR="$(pwd)/<jira-id>"
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
-cd "$WORKDIR"
 ```
 
 ---
@@ -314,7 +297,14 @@ rm -f "$MANIFESTS_TMPFILE"
 
 ## Step 6: Check for Existing Open PR in Jira Comments
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
+Extract existing GitHub PR URLs from the Jira comments:
+
+```bash
+EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
+  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
+  | grep -oE 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
+  | sort -u || true)
+```
 
 First derive the operator repo name for matching:
 ```bash
@@ -402,72 +392,61 @@ git push origin "<jira-id>"
 
 ## Step 8: Update manifests-config.yaml
 
-Use the `Read` tool to read `$CLONE_DIR/build/manifests-config.yaml`.
+Check the file exists:
 
-If the file does not exist, stop with:
-```
-ERROR in Step 8: build/manifests-config.yaml not found in $CLONE_DIR.
-  Verify that $ODH_OPERATOR_URL points to the correct operator repository.
-```
-
-Locate the `map:` key. It will contain existing entries like:
-```yaml
-map:
-  existing-component:
-    src: path/to/manifests
-    dest: opt/manifests/existing-component
-  another-component:
-    src: config/manifests
-    dest: opt/manifests/another-component
+```bash
+[[ -f "$CLONE_DIR/build/manifests-config.yaml" ]] || {
+  echo "ERROR in Step 8: build/manifests-config.yaml not found in $CLONE_DIR."
+  echo "  Verify that $ODH_OPERATOR_URL points to the correct operator repository."
+  exit 1
+}
 ```
 
-**Check if `$COMPONENT_NAME` already exists under `map:`:**
+**Check if `$COMPONENT_NAME` already exists under `map:` and insert if not:**
 
-- **Already present**: Print `$COMPONENT_NAME already in manifests-config.yaml — skipping edit.`
-  Continue to Step 9 (commit and push are still needed so the branch has a commit for the PR).
+```bash
+if grep -q "^  ${COMPONENT_NAME}:" "$CLONE_DIR/build/manifests-config.yaml" 2>/dev/null; then
+  echo "$COMPONENT_NAME already in manifests-config.yaml — skipping edit."
+  # Continue to Step 9 (commit and push are still needed for the PR branch)
+else
+  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" insert-map-key \
+    "$CLONE_DIR/build/manifests-config.yaml" \
+    --map-key "map" \
+    --name "$COMPONENT_NAME" \
+    --src  "$OPERATOR_MANIFEST_SRC_PATH" \
+    --dest "$OPERATOR_MANIFEST_DEST_PATH"
+fi
+```
 
-- **Not present**: Use the `Edit` tool to insert the new entry under `map:` in **alphabetical
-  order** among existing component keys. The entry format is:
-  ```yaml
-    <COMPONENT_NAME>:
-      src: <OPERATOR_MANIFEST_SRC_PATH>
-      dest: <OPERATOR_MANIFEST_DEST_PATH>
-  ```
-  Match the indentation of surrounding entries (2 spaces for the component key under `map:`,
-  4 spaces for `src:` and `dest:`).
+On exit 1 from `edit_yaml.py`: display stderr and stop with:
+```
+ERROR in Step 8 (Update manifests-config.yaml): Could not insert component entry. See details above. Aborting.
+```
 
-After editing, verify with the `Read` tool that:
-- `$COMPONENT_NAME:` is present under `map:`
-- `src: $OPERATOR_MANIFEST_SRC_PATH` is present and correctly indented
-- `dest: $OPERATOR_MANIFEST_DEST_PATH` is present and correctly indented
-- No surrounding entries have been disturbed
+Verify the entry was written:
 
-If verification fails, fix with another `Edit` call before continuing.
+```bash
+grep -q "^  ${COMPONENT_NAME}:" "$CLONE_DIR/build/manifests-config.yaml" \
+  || { echo "ERROR: $COMPONENT_NAME not found in manifests-config.yaml after insert."; exit 1; }
+```
 
 ---
 
 ## Step 9: Commit and Push
 
 > **Reminder:** `origin` was set to `$ODH_OPERATOR_URL` by `setup_github_playpen.sh` in Step 7.
-> Pushing to `origin` is correct — do NOT change the remote URL here.
 
 ```bash
-cd "$CLONE_DIR"
-git add build/manifests-config.yaml
-git status   # verify only the expected file is staged
-git commit -m "Add $COMPONENT_NAME to manifests-config.yaml"
-git push origin "$DEST_BRANCH"
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "build/manifests-config.yaml" \
+  --message   "Add $COMPONENT_NAME to manifests-config.yaml" \
+  --branch    "$DEST_BRANCH"
 ```
 
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
+On exit 1: display stderr and stop with:
 ```
-
-On any other push failure, display stderr and stop with:
-```
-ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH' to origin. See details above.
+ERROR in Step 9 (Commit/Push): Could not commit or push changes. See details above. Aborting.
 ```
 
 ---

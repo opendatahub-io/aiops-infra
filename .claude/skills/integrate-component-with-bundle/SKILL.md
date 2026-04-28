@@ -1,7 +1,7 @@
 ---
 name: integrate-component-with-bundle
 description: Updates the build-config repository (ODH-Build-Config for ODH, RHOAI-Build-Config for RHOAI) with a new component's relatedImages entry (bundle/bundle-patch.yaml) and optionally config/build-config.yaml (RHOAI only), then raises a GitHub PR. Automates Step 8 of the ODH/RHOAI component onboarding pipeline.
-allowed-tools: Bash, Read, Edit, Write
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -88,24 +88,9 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"; exit 1
-fi
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"; exit 1
-fi
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"; exit 1
-fi
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"; exit 1
-fi
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1
-fi
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."; exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
+  --tools "uv git"
 ```
 
 ---
@@ -113,10 +98,8 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-WORKDIR="$(pwd)/<jira-id>"
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
-cd "$WORKDIR"
 ```
 
 ---
@@ -149,7 +132,23 @@ ERROR in Step 3b (Download YAML): Could not download 'component_onboarding_detai
   Ensure the attachment exists on the Jira issue. Run /create-component-onboarding-jira first.
 ```
 
-**3c. Parse the YAML** using the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
+**3c. Parse the YAML** from `$WORKDIR/component_onboarding_details.yaml`:
+
+```bash
+YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
+COMPONENT_NAME=$(grep -m1 'component_name:'        "$YAML_FILE" | awk '{print $2}')
+PRODUCT_CONTEXT=$(grep -m1 'product_context:'       "$YAML_FILE" | awk '{print $2}')
+REPO_URL=$(grep -m1        'repo_url:'              "$YAML_FILE" | awk '{print $2}')
+REPO_BRANCH=$(grep -m1     'repo_branch:'           "$YAML_FILE" | awk '{print $2}')
+TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}')
+
+for _field in COMPONENT_NAME PRODUCT_CONTEXT REPO_URL REPO_BRANCH; do
+  [[ -z "${!_field}" ]] && {
+    echo "ERROR in Step 3c: Missing required field '${_field}' in component_onboarding_details.yaml. Aborting."
+    exit 1
+  }
+done
+```
 
 Extract and store these values (all under `inputs:`):
 
@@ -317,14 +316,19 @@ rm -f "$BUNDLE_TMPFILE"
 
 ## Step 5: Check for Existing Open PR in Jira Comments
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
+Extract existing GitHub PR URLs from the Jira comments:
 
 ```bash
 BC_REPO_NAME="${BC_PATH##*/}"
 # e.g. "ODH-Build-Config" or "RHOAI-Build-Config"
+
+EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
+  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
+  | grep -oE "https://github\.com/[^/[:space:]]+/${BC_REPO_NAME}/pull/[0-9]+" \
+  | sort -u || true)
 ```
 
-Search the array at `fields.comment.comments[].body` for GitHub PR URLs matching:
+Search `$EXISTING_PR_URLS` for GitHub PR URLs matching:
 ```
 https://github\.com/[^/\s]+/${BC_REPO_NAME}/pull/\d+
 ```
@@ -412,51 +416,57 @@ git push origin "<jira-id>"
 
 ## Step 7: Update bundle/bundle-patch.yaml
 
-Use the `Read` tool to read `$CLONE_DIR/bundle/bundle-patch.yaml`.
-
-If the file does not exist, stop with:
+```bash
+[[ -f "$CLONE_DIR/bundle/bundle-patch.yaml" ]] || {
+  echo "ERROR in Step 7: bundle/bundle-patch.yaml not found in $CLONE_DIR."
+  echo "  Verify that $BC_URL points to the correct build-config repository."
+  exit 1
+}
 ```
-ERROR in Step 7: bundle/bundle-patch.yaml not found in $CLONE_DIR.
-  Verify that $BC_URL points to the correct build-config repository.
-```
 
-Locate the `patch.relatedImages:` array. It will contain existing entries like:
+The `patch.relatedImages:` array contains existing entries like:
 ```yaml
 patch:
   relatedImages:
     - name: RELATED_IMAGE_EXISTING_COMPONENT_IMAGE
       value: quay.io/opendatahub/existing-component@sha256:abc123...
       component: existing-component
-    - name: RELATED_IMAGE_ANOTHER_COMPONENT_IMAGE
-      value: quay.io/opendatahub/another-component@sha256:def456...
-      component: another-component
 ```
 
-**Check if `$RELATED_IMAGE_NAME` already appears in the file:**
-- **Already present**: Print `$RELATED_IMAGE_NAME already in bundle-patch.yaml — skipping edit.`
-- **Not present**: Use the `Edit` tool to append the new entry at the **end of the
-  `relatedImages` array**, before any sibling key (or at end of file if it is the last key).
-  Match the indentation of existing entries (4 spaces for `- name:`, 6 spaces for `value:`).
+**Check if `$RELATED_IMAGE_NAME` already appears in the file, and insert if not:**
 
-  **ODH** (include `component:` field):
-  ```yaml
-      - name: $RELATED_IMAGE_NAME
-        value: $RELATED_IMAGE_VALUE
-        component: $COMPONENT_NAME
-  ```
+```bash
+if grep -q "$RELATED_IMAGE_NAME" "$CLONE_DIR/bundle/bundle-patch.yaml" 2>/dev/null; then
+  echo "$RELATED_IMAGE_NAME already in bundle-patch.yaml — skipping edit."
+else
+  if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
+    uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-array-entry \
+      "$CLONE_DIR/bundle/bundle-patch.yaml" \
+      --array-key "patch.relatedImages" \
+      --name      "$RELATED_IMAGE_NAME" \
+      --value     "$RELATED_IMAGE_VALUE" \
+      --component "$COMPONENT_NAME"
+  else
+    uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-array-entry \
+      "$CLONE_DIR/bundle/bundle-patch.yaml" \
+      --array-key "patch.relatedImages" \
+      --name      "$RELATED_IMAGE_NAME" \
+      --value     "$RELATED_IMAGE_VALUE"
+  fi
+fi
+```
 
-  **RHOAI** (omit `component:` field):
-  ```yaml
-      - name: $RELATED_IMAGE_NAME
-        value: $RELATED_IMAGE_VALUE
-  ```
+On exit 1 from `edit_yaml.py`: display stderr and stop with:
+```
+ERROR in Step 7 (Update bundle-patch.yaml): Could not append relatedImages entry. See details above. Aborting.
+```
 
-After editing, verify with the `Read` tool that:
-- `name: $RELATED_IMAGE_NAME` is present under `patch.relatedImages`
-- `value: $RELATED_IMAGE_VALUE` is present and on the line immediately following
-- Surrounding entries are undisturbed
+Verify the entry was written:
 
-If verification fails, fix with another `Edit` call before continuing.
+```bash
+grep -q "$RELATED_IMAGE_NAME" "$CLONE_DIR/bundle/bundle-patch.yaml" \
+  || { echo "ERROR: $RELATED_IMAGE_NAME not found in bundle-patch.yaml after insert."; exit 1; }
+```
 
 ---
 
@@ -466,38 +476,44 @@ If verification fails, fix with another `Edit` call before continuing.
 
 **8a. Read the file**
 
-Use the `Read` tool to read `$CLONE_DIR/config/build-config.yaml`.
-
-If the file does not exist, stop with:
-```
-ERROR in Step 8: config/build-config.yaml not found in $CLONE_DIR.
-  Verify that $BC_URL points to the correct RHOAI-Build-Config repository.
+```bash
+[[ -f "$CLONE_DIR/config/build-config.yaml" ]] || {
+  echo "ERROR in Step 8: config/build-config.yaml not found in $CLONE_DIR."
+  echo "  Verify that $BC_URL points to the correct RHOAI-Build-Config repository."
+  exit 1
+}
 ```
 
 **8b. Idempotency check**
 
 Check if `rhoai/${COMPONENT_NAME}-rhel9:` already appears under
-`config.replacements[0].repo_mappings`. If present:
-```
-rhoai/${COMPONENT_NAME}-rhel9 already in config.replacements[0].repo_mappings — skipping.
-```
-Continue to Step 9.
+`config.replacements[0].repo_mappings`. If present, skip to Step 9.
 
 **8c. Insert the new entry**
 
-Use the `Edit` tool to append the new entry to `config.replacements[0].repo_mappings`,
-matching the indentation of surrounding entries:
-```yaml
-    rhoai/<COMPONENT_NAME>-rhel9: rhoai/<COMPONENT_NAME>-rhel9
+```bash
+if grep -q "rhoai/${COMPONENT_NAME}-rhel9:" "$CLONE_DIR/config/build-config.yaml" 2>/dev/null; then
+  echo "rhoai/${COMPONENT_NAME}-rhel9 already in config.replacements[0].repo_mappings — skipping."
+else
+  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" insert-simple-map-entry \
+    "$CLONE_DIR/config/build-config.yaml" \
+    --map-key "config.replacements.0.repo_mappings" \
+    --key     "rhoai/${COMPONENT_NAME}-rhel9" \
+    --value   "rhoai/${COMPONENT_NAME}-rhel9"
+fi
+```
+
+On exit 1 from `edit_yaml.py`: display stderr and stop with:
+```
+ERROR in Step 8c (Update build-config.yaml): Could not insert repo_mappings entry. See details above. Aborting.
 ```
 
 **8d. Verify**
 
-Use the `Read` tool to confirm:
-- `rhoai/${COMPONENT_NAME}-rhel9: rhoai/${COMPONENT_NAME}-rhel9` is present
-- Surrounding entries are undisturbed
-
-If verification fails, apply a corrective `Edit` before continuing.
+```bash
+grep -q "rhoai/${COMPONENT_NAME}-rhel9:" "$CLONE_DIR/config/build-config.yaml" \
+  || { echo "ERROR: rhoai/${COMPONENT_NAME}-rhel9 not found in build-config.yaml after insert."; exit 1; }
+```
 
 ---
 
@@ -507,29 +523,24 @@ If verification fails, apply a corrective `Edit` before continuing.
 > Pushing to `origin` is correct — do NOT change the remote URL here.
 
 ```bash
-cd "$CLONE_DIR"
-git add bundle/bundle-patch.yaml
-if [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-  git add config/build-config.yaml
-fi
-git status   # verify only the expected file(s) are staged
 if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
-  git commit -m "Add $COMPONENT_NAME to bundle-patch.yaml"
+  COMMIT_FILES="bundle/bundle-patch.yaml"
+  COMMIT_MSG="Add $COMPONENT_NAME to bundle-patch.yaml"
 else
-  git commit -m "Add $COMPONENT_NAME to bundle-patch.yaml and build-config.yaml"
+  COMMIT_FILES="bundle/bundle-patch.yaml config/build-config.yaml"
+  COMMIT_MSG="Add $COMPONENT_NAME to bundle-patch.yaml and build-config.yaml"
 fi
-git push origin "$DEST_BRANCH"
+
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "$COMMIT_FILES" \
+  --message   "$COMMIT_MSG" \
+  --branch    "$DEST_BRANCH"
 ```
 
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
+On exit 1: display stderr and stop with:
 ```
-
-On any other push failure, display stderr and stop with:
-```
-ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH' to origin. See details above.
+ERROR in Step 9 (Commit/Push): Could not commit or push changes. See details above. Aborting.
 ```
 
 ---

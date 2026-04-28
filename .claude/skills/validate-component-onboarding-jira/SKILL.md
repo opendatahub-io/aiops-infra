@@ -65,8 +65,8 @@ Extract the issue ID from the URL — the last non-empty path segment.
 For `https://redhat.atlassian.net/browse/RHOAIENG-1234`, the issue ID is `RHOAIENG-1234`.
 
 ```bash
-mkdir -p <issue_id>
-echo "Working directory: $(pwd)/<issue_id>"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
+echo "Working directory: $WORKDIR"
 ```
 
 ### Step 3: Fetch Jira issue details

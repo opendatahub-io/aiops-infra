@@ -1,7 +1,7 @@
 ---
 name: create-component-onboarding-jira
 description: Interactively collects ODH/RHOAI component onboarding parameters from the user, generates a validated component_onboarding_details.yaml, and (when a Jira URL is given) uploads it as an attachment to the ticket. Use this before running other onboarding skills.
-allowed-tools: Bash, Read, Write
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -51,23 +51,15 @@ If a value is present but does not contain `/browse/`, stop with:
 Set `JIRA_URL` to the parsed URL, or empty string if omitted.
 Set `JIRA_ID` to the last path segment of `JIRA_URL` (e.g. `RHOAIENG-1234`), or empty.
 
+**Tool check:**
+```bash
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --tools "uv jq"
+```
+
 **Jira credentials check (only when JIRA_URL is non-empty):**
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
-  if [[ -z "${JIRA_USER_EMAIL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
-    echo "ERROR: Jira credentials required when a Jira URL is provided."
-    echo "  export JIRA_USER_EMAIL='you@example.com'"
-    echo "  export JIRA_API_TOKEN='your-api-token'"
-    exit 1
-  fi
-fi
-```
-
-**uv check:**
-```bash
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
@@ -76,12 +68,7 @@ fi
 ## Step 1: Set up working directory
 
 ```bash
-if [[ -n "$JIRA_ID" ]]; then
-  WORKDIR="$(pwd)/${JIRA_ID}"
-else
-  WORKDIR="$(pwd)"
-fi
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 YAML_PATH="${WORKDIR}/component_onboarding_details.yaml"
 echo "Working directory: $WORKDIR"
 ```
@@ -103,9 +90,12 @@ ERROR in Step 2 (Fetch Jira): Could not fetch issue details. See above. Aborting
 
 On success: `$WORKDIR/component_onboarding_details.json` is created.
 
-Use the Read tool to read `$WORKDIR/component_onboarding_details.json`. Extract:
-- `JIRA_SUMMARY` = `fields.summary`
-- `JIRA_DESCRIPTION` = `fields.description`
+Extract Jira fields using jq:
+
+```bash
+JIRA_SUMMARY=$(jq -r '.fields.summary' "$WORKDIR/component_onboarding_details.json")
+JIRA_DESCRIPTION=$(jq -r '.fields.description // ""' "$WORKDIR/component_onboarding_details.json")
+```
 
 Print:
 ```
@@ -268,26 +258,35 @@ Proceed? (yes / no / edit)
 
 ## Step 5: Generate YAML file
 
-Use the Write tool to write `$YAML_PATH`.
-Only include keys that are relevant — omit `build_type` for RHOAI, omit `architectures`
-for ODH, omit operator fields when `is_operator == false`:
+Write `$YAML_PATH` using a bash script. Only include keys that are relevant — omit
+`build_type` for RHOAI, omit `architectures` for ODH, omit operator fields when
+`is_operator == false`:
 
-```yaml
-inputs:
-  product_context: <product_context>
-  component_name: <component_name>
-  repo_url: <repo_url>
-  repo_branch: <repo_branch>
-  context_path: <context_path>
-  dockerfile_path: <dockerfile_path>
-  build_type: <build_type>           # only when product_context == ODH
-  architectures:                     # only when product_context == RHOAI
-    - x86_64
-    - arm64
-  target_rhoai_version: <value>      # only when product_context == RHOAI (e.g. 3.4 or 3.4-ea-2)
-  is_operator: <true|false>
-  operator_manifest_src_path: <value>   # only when is_operator == true
-  operator_manifest_dest_path: <value>  # only when is_operator == true
+```bash
+{
+  echo "inputs:"
+  echo "  product_context: ${product_context}"
+  echo "  component_name: ${component_name}"
+  echo "  repo_url: ${repo_url}"
+  echo "  repo_branch: ${repo_branch}"
+  echo "  context_path: ${context_path}"
+  echo "  dockerfile_path: ${dockerfile_path}"
+  if [[ "$product_context" == "ODH" ]]; then
+    echo "  build_type: ${build_type}"
+  fi
+  if [[ "$product_context" == "RHOAI" ]]; then
+    echo "  architectures:"
+    for arch in "${architectures[@]}"; do
+      echo "    - ${arch}"
+    done
+    echo "  target_rhoai_version: ${target_rhoai_version}"
+  fi
+  echo "  is_operator: ${is_operator}"
+  if [[ "$is_operator" == "true" ]]; then
+    echo "  operator_manifest_src_path: ${operator_manifest_src_path}"
+    echo "  operator_manifest_dest_path: ${operator_manifest_dest_path}"
+  fi
+} > "$YAML_PATH"
 ```
 
 Print: `YAML written to: $YAML_PATH`

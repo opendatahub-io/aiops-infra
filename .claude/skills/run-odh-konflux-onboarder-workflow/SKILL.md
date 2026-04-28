@@ -1,7 +1,7 @@
 ---
 name: run-odh-konflux-onboarder-workflow
 description: Triggers the odh-konflux-onboarder GitHub Actions workflow in odh-konflux-central, monitors it to completion, extracts the Tekton PR URL from workflow logs, and updates the Jira issue. Automates Step 6 of the ODH component onboarding pipeline.
-allowed-tools: Bash, Read, Write
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -99,36 +99,13 @@ WORKFLOW_FILE=".github/workflows/odh-konflux-onboarder.yml"
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-# 1. GITHUB_USER
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN" \
+  --tools "uv"
 
-# 2. GITHUB_TOKEN
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"
-  echo "  Token needs: repo scope + actions:write scope"
-  exit 1
-fi
-
-# 3. Jira credentials (only when JIRA_URL is non-empty)
+# Jira credentials are only required when a Jira URL is given
 if [[ -n "$JIRA_URL" ]]; then
-  if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-    echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@redhat.com"
-    exit 1
-  fi
-  if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-    echo "ERROR: JIRA_API_TOKEN is not set."
-    echo "  Create at: https://id.atlassian.com/manage-profile/security/api-tokens"
-    exit 1
-  fi
-fi
-
-# 4. uv
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
@@ -137,15 +114,9 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-if [[ -n "$JIRA_ID" ]]; then
-  WORKDIR="$(pwd)/${JIRA_ID}"
-else
-  WORKDIR="$(pwd)"
-fi
-mkdir -p "$WORKDIR"
-echo "Working directory: $WORKDIR"
-
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 YAML_PATH="${WORKDIR}/component_onboarding_details.yaml"
+echo "Working directory: $WORKDIR"
 ```
 
 ---
@@ -180,7 +151,17 @@ ERROR in Step 3 (Download YAML): 'component_onboarding_details.yaml' not found a
   Jira attachment. Please attach the file to the Jira issue and re-run.
 ```
 
-**3A-3. Parse YAML.** Use the `Read` tool to read `$YAML_PATH`. Extract under `inputs:`:
+**3A-3. Parse YAML.** Parse `$YAML_PATH` to extract inputs:
+
+```bash
+PRODUCT_CONTEXT=$(grep -m1 'product_context:' "$YAML_PATH" | awk '{print $2}')
+REPO_URL=$(grep -m1 'repo_url:' "$YAML_PATH" | awk '{print $2}')
+PR_TARGET_BRANCH=$(grep -m1 'repo_branch:' "$YAML_PATH" | awk '{print $2}')
+BUILD_TYPE=$(grep -m1 'build_type:' "$YAML_PATH" | awk '{print $2}' 2>/dev/null || echo "")
+VERSION=$(grep -m1 'output_image_tag:' "$YAML_PATH" | awk '{print $2}' 2>/dev/null || echo "")
+```
+
+The extracted values correspond to the following inputs:
 
 | Variable | YAML field | Notes |
 |----------|-----------|-------|
@@ -308,8 +289,16 @@ Proceed? (yes / no)
 
 **Skip this step if `JIRA_URL` is empty.**
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
-Scan `fields.comment.comments[].body` for GitHub PR URLs matching:
+Scan `$WORKDIR/component_onboarding_details.json` Jira comments for GitHub PR URLs:
+
+```bash
+EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
+  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
+  | grep -oE 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
+  | sort -u || true)
+```
+
+Scan the matched URLs for GitHub PR URLs matching:
 ```
 https://github\.com/[^/\s]+/[^/\s]+/pull/\d+
 ```
