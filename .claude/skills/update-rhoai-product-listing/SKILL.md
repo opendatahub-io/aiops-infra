@@ -1,30 +1,30 @@
 ---
-name: create-rhoai-delivery-repo
-description: Creates an RHOAI delivery repository by raising a GitLab MR to pyxis-repo-configs. Reads component details from the Jira attachment, checks if the delivery repo already exists, and if not, adds the repository entry to products/rhoai/rhoai.yaml and raises and monitors a GitLab MR. VPN required.
+name: update-rhoai-product-listing
+description: Updates the RHOAI product listing in pyxis-repo-configs by appending the new component's registry path to product-listings/rhoai/rhoai.yaml and raising a GitLab MR. VPN required.
 allowed-tools: Bash
 user-invocable: true
 ---
 
-# Create RHOAI Delivery Repo
+# Update RHOAI Product Listing
 
-Creates a new RHOAI delivery repository in the Red Hat container registry. The repository is
-provisioned automatically when a GitLab MR is merged into `pyxis-repo-configs` — a GitOps repo
-maintained by the Release Engineering team. This skill handles the full lifecycle:
+Adds the new component's registry path to the RHOAI product listing in `pyxis-repo-configs`.
+The entry is a single line in the `repositories:` array of `product-listings/rhoai/rhoai.yaml`.
+This skill handles the full lifecycle:
 
-1. Check if the delivery repo already exists in `products/rhoai/rhoai.yaml`
+1. Check if the entry already exists in `product-listings/rhoai/rhoai.yaml`
 2. Check Jira comments for an in-progress MR
-3. Clone `pyxis-repo-configs`, append the repository entry, push, raise MR, and monitor
+3. Clone `pyxis-repo-configs`, append the registry path, push, raise MR, and monitor
 
 ## Usage
 
 ```
-/create-rhoai-delivery-repo [<jira-url>]
+/update-rhoai-product-listing [<jira-url>]
 ```
 
 Examples:
 ```
-/create-rhoai-delivery-repo https://redhat.atlassian.net/browse/RHOAIENG-1234
-/create-rhoai-delivery-repo
+/update-rhoai-product-listing https://redhat.atlassian.net/browse/RHOAIENG-1234
+/update-rhoai-product-listing
 ```
 
 ## Prerequisites
@@ -172,95 +172,73 @@ ERROR in Step 3d (Fetch Jira): Could not fetch issue details. Aborting.
 ```bash
 YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
 COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}')
-TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}')
 
-for _field in COMPONENT_NAME TARGET_RHOAI_VERSION; do
-  [[ -z "${!_field}" ]] && {
-    echo "ERROR in Step 4: Missing required field '${_field}' in component_onboarding_details.yaml."
-    echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
-    exit 1
-  }
-done
+[[ -z "$COMPONENT_NAME" ]] && {
+  echo "ERROR in Step 4: Missing required field 'component_name' in component_onboarding_details.yaml."
+  echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
+  exit 1
+}
 
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_rhoai_version.sh" \
-  --version "$TARGET_RHOAI_VERSION" \
-  --component "$COMPONENT_NAME")"
-# Sets: CONTENT_STREAM_TAG, REPOSITORY_NAME, and other version vars
-
-# Parse display fields (may contain spaces — use sed, not awk)
-SHORT_DESCRIPTION=$(grep -m1 'short_description:' "$YAML_FILE" | sed 's/^[[:space:]]*short_description:[[:space:]]*//')
-LONG_DESCRIPTION=$(grep -m1 'long_description:' "$YAML_FILE" | sed 's/^[[:space:]]*long_description:[[:space:]]*//')
-
-# Fall back to COMPONENT_NAME if the fields are absent (ODH or older YAMLs)
-[[ -z "$SHORT_DESCRIPTION" ]] && SHORT_DESCRIPTION="$COMPONENT_NAME"
-[[ -z "$LONG_DESCRIPTION" ]]  && LONG_DESCRIPTION="$COMPONENT_NAME"
-
-# Compute display name: replace hyphens with spaces, then title-case each word
-DISPLAY_NAME=$(echo "$COMPONENT_NAME" | tr '-' ' ' \
-  | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1')
+# The registry path to add to the product listing
+PRODUCT_LISTING_ENTRY="registry.access.redhat.com/rhoai/${COMPONENT_NAME}-rhel9"
 ```
 
 Print resolved values:
 ```
-COMPONENT_NAME       : $COMPONENT_NAME
-TARGET_RHOAI_VERSION : $TARGET_RHOAI_VERSION
-REPOSITORY_NAME      : $REPOSITORY_NAME
-CONTENT_STREAM_TAG   : $CONTENT_STREAM_TAG
-DISPLAY_NAME         : $DISPLAY_NAME
-SHORT_DESCRIPTION    : $SHORT_DESCRIPTION
-LONG_DESCRIPTION     : $LONG_DESCRIPTION
-PYXIS_URL            : $PYXIS_URL
+COMPONENT_NAME        : $COMPONENT_NAME
+PRODUCT_LISTING_ENTRY : $PRODUCT_LISTING_ENTRY
+PYXIS_URL             : $PYXIS_URL
 ```
 
 ---
 
-## Step 5: Fast-Path Check — Does Delivery Repo Already Exist?
+## Step 5: Fast-Path Check — Does Product Listing Entry Already Exist?
 
-Fetch `products/rhoai/rhoai.yaml` from the main branch via the GitLab API:
+Fetch `product-listings/rhoai/rhoai.yaml` from the main branch via the GitLab API:
 
 ```bash
 RHOAI_YAML_TMPFILE=$(mktemp)
 HTTP_STATUS=$(curl -sk -w "%{http_code}" \
   -H "Authorization: Bearer $GITLAB_TOKEN" \
-  "https://gitlab.cee.redhat.com/api/v4/projects/${PYXIS_PATH_ENCODED}/repository/files/products%2Frhoai%2Frhoai.yaml/raw?ref=main" \
+  "https://gitlab.cee.redhat.com/api/v4/projects/${PYXIS_PATH_ENCODED}/repository/files/product-listings%2Frhoai%2Frhoai.yaml/raw?ref=main" \
   -o "$RHOAI_YAML_TMPFILE")
 ```
 
 **If `HTTP_STATUS != 200`:** warn and skip fast-path (continue to Step 6):
 ```
-WARN in Step 5: Could not fetch rhoai.yaml via GitLab API (HTTP $HTTP_STATUS).
+WARN in Step 5: Could not fetch product-listings/rhoai/rhoai.yaml via GitLab API (HTTP $HTTP_STATUS).
   Ensure VPN is active. Continuing with clone.
 ```
 Clean up: `rm -f "$RHOAI_YAML_TMPFILE"`
 
-**If `HTTP_STATUS == 200`:** check whether the repository entry already exists:
+**If `HTTP_STATUS == 200`:** check whether the entry already exists:
 ```bash
-if grep -qF "repository: ${REPOSITORY_NAME}" "$RHOAI_YAML_TMPFILE"; then
-  REPO_EXISTS=true
+if grep -qF "$PRODUCT_LISTING_ENTRY" "$RHOAI_YAML_TMPFILE"; then
+  ENTRY_EXISTS=true
 else
-  REPO_EXISTS=false
+  ENTRY_EXISTS=false
 fi
 rm -f "$RHOAI_YAML_TMPFILE"
 ```
 
-If `REPO_EXISTS=true`:
+If `ENTRY_EXISTS=true`:
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
   uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --add-label "delivery-repo-exists" \
-    --comment "Delivery repository '${REPOSITORY_NAME}' already exists in pyxis-repo-configs.
+    --add-label "product-listing-exists" \
+    --comment "Product listing entry '${PRODUCT_LISTING_ENTRY}' already exists in pyxis-repo-configs.
 
-No changes needed. The repository is already present in products/rhoai/rhoai.yaml on the main branch."
+No changes needed. The entry is already present in product-listings/rhoai/rhoai.yaml on the main branch."
 fi
 ```
 Print:
 ```
-Delivery repository '$REPOSITORY_NAME' already exists in products/rhoai/rhoai.yaml.
-Jira updated (label: delivery-repo-exists). No MR needed.
+Product listing entry '$PRODUCT_LISTING_ENTRY' already exists in product-listings/rhoai/rhoai.yaml.
+Jira updated (label: product-listing-exists). No MR needed.
 ```
 **Stop with exit 0.**
 
-If `REPO_EXISTS=false`: continue to Step 6.
+If `ENTRY_EXISTS=false`: continue to Step 6.
 
 ---
 
@@ -288,12 +266,12 @@ GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/monitor_gitlab_mr.p
 ```
 
 Parse stdout:
-- If `state=opened` and the `title=` line contains `COMPONENT_NAME` or `REPOSITORY_NAME`:
+- If `state=opened` and the `title=` line contains `COMPONENT_NAME`:
   ```bash
   MR_URL="<found-url>"
   if [[ -n "$JIRA_URL" ]]; then
     uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-      --comment "Found existing open GitLab MR for '${REPOSITORY_NAME}': ${MR_URL}
+      --comment "Found existing open GitLab MR for '${COMPONENT_NAME}': ${MR_URL}
   Resuming monitoring of this MR."
   fi
   ```
@@ -304,9 +282,9 @@ Parse stdout:
   ```bash
   if [[ -n "$JIRA_URL" ]]; then
     uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-      --add-label "delivery-repo-exists" \
+      --add-label "product-listing-exists" \
       --comment "Previously raised MR has been merged: <found-url>
-  The delivery repository '${REPOSITORY_NAME}' has been provisioned."
+  The product listing entry '${PRODUCT_LISTING_ENTRY}' has been added."
   fi
   ```
   Print success and **stop with exit 0.**
@@ -329,7 +307,7 @@ PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash <COMMON_SCRIPTS_DIR>/setup_gitlab_
   --dest-url "$PYXIS_URL" \
   --src-branch main \
   ${JIRA_ID:+--dest-branch "$JIRA_ID"} \
-  --sparse-files "products/rhoai/rhoai.yaml")
+  --sparse-files "product-listings/rhoai/rhoai.yaml")
 
 CLONE_DIR=$(echo "$PLAYPEN_OUTPUT" | head -1)
 DEST_BRANCH=$(echo "$PLAYPEN_OUTPUT" | tail -1)
@@ -351,57 +329,53 @@ git push origin "$DEST_BRANCH"
 
 ---
 
-## Step 8: Add Entry to products/rhoai/rhoai.yaml
+## Step 8: Add Entry to product-listings/rhoai/rhoai.yaml
 
 ```bash
-RHOAI_YAML="$CLONE_DIR/products/rhoai/rhoai.yaml"
+RHOAI_YAML="$CLONE_DIR/product-listings/rhoai/rhoai.yaml"
 [[ -f "$RHOAI_YAML" ]] || {
-  echo "ERROR in Step 8: products/rhoai/rhoai.yaml not found in $CLONE_DIR."
+  echo "ERROR in Step 8: product-listings/rhoai/rhoai.yaml not found in $CLONE_DIR."
   echo "  Verify PYXIS_URL points to the correct pyxis-repo-configs repository."
   exit 1
 }
 
-if grep -qF "repository: ${REPOSITORY_NAME}" "$RHOAI_YAML"; then
-  echo "repository: ${REPOSITORY_NAME} already present in rhoai.yaml — skipping edit."
+if grep -qF "$PRODUCT_LISTING_ENTRY" "$RHOAI_YAML"; then
+  echo "'$PRODUCT_LISTING_ENTRY' already present in product-listings/rhoai/rhoai.yaml — skipping edit."
 else
-  cat >> "$RHOAI_YAML" <<EOF
-- image_type: Layered
-  base_rhel_version: rhel9
-  repository:
-    repository: ${REPOSITORY_NAME}
-    release_categories:
-      - Generally Available
-    includes_multiple_content_streams: true
-    auto_rebuild_tags: []
-    content_stream_tags: ['${CONTENT_STREAM_TAG}']
-    build_categories:
-      - Standalone image
-    team_id: 617017858ebd9a62aec7c3b8
-    display_data:
-      name: ${DISPLAY_NAME}
-      short_description: ${SHORT_DESCRIPTION}
-      long_description: ${LONG_DESCRIPTION}
-    vendor_label: redhat
-    application_categories:
-      - Developer Tools
-    privileged_images_allowed: false
-    publish_on_push: true
-    documentation_links: []
-    contacts:
-      *team_contacts
-    use_latest: false
-    requires_terms: true
-EOF
+  python3 -c "
+import sys
 
-  grep -qF "repository: ${REPOSITORY_NAME}" "$RHOAI_YAML" || {
-    echo "ERROR in Step 8: Verification failed — '${REPOSITORY_NAME}' not found in rhoai.yaml"
+with open('$RHOAI_YAML', 'r') as f:
+    lines = f.readlines()
+
+entry_line = '- $PRODUCT_LISTING_ENTRY\n'
+
+# Find the repositories: key and append after the last - entry in that list
+in_repos = False
+last_repo_idx = None
+for i, line in enumerate(lines):
+    if line.strip().startswith('repositories:'):
+        in_repos = True
+    elif in_repos and line.lstrip().startswith('- '):
+        last_repo_idx = i
+    elif in_repos and line.strip() and not line.lstrip().startswith('- ') and not line.strip().startswith('#'):
+        in_repos = False
+
+if last_repo_idx is not None:
+    lines.insert(last_repo_idx + 1, entry_line)
+else:
+    lines.append(entry_line)
+
+with open('$RHOAI_YAML', 'w') as f:
+    f.writelines(lines)
+print('Entry added.')
+"
+
+  grep -qF "$PRODUCT_LISTING_ENTRY" "$RHOAI_YAML" || {
+    echo "ERROR in Step 8: Verification failed — '$PRODUCT_LISTING_ENTRY' not found after append."
     exit 1
   }
-  grep -qF "content_stream_tags: ['${CONTENT_STREAM_TAG}']" "$RHOAI_YAML" || {
-    echo "ERROR in Step 8: Verification failed — content_stream_tags not correct in rhoai.yaml"
-    exit 1
-  }
-  echo "Entry for ${REPOSITORY_NAME} added to products/rhoai/rhoai.yaml."
+  echo "Entry '$PRODUCT_LISTING_ENTRY' added to product-listings/rhoai/rhoai.yaml."
 fi
 ```
 
@@ -412,12 +386,11 @@ fi
 ```bash
 bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
-  --files     "products/rhoai/rhoai.yaml" \
-  --message   "Add ${REPOSITORY_NAME} delivery repository for ${COMPONENT_NAME}
+  --files     "product-listings/rhoai/rhoai.yaml" \
+  --message   "Add ${COMPONENT_NAME} to RHOAI product listing
 
-Adds a new repository entry to products/rhoai/rhoai.yaml:
-  repository: ${REPOSITORY_NAME}
-  content_stream_tags: ['${CONTENT_STREAM_TAG}']
+Adds registry path to product-listings/rhoai/rhoai.yaml:
+  ${PRODUCT_LISTING_ENTRY}
 
 Related: ${JIRA_ID:-no-jira}" \
   --branch    "$DEST_BRANCH"
@@ -438,19 +411,17 @@ MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/raise_gitl
   --src-branch "$DEST_BRANCH" \
   --dest-url "$PYXIS_URL" \
   --dest-branch main \
-  --title "Add ${REPOSITORY_NAME} delivery repository for ${COMPONENT_NAME}" \
-  --description "Adds a new delivery repository entry to \`products/rhoai/rhoai.yaml\`.
+  --title "Add ${COMPONENT_NAME} to RHOAI product listing" \
+  --description "Adds a new registry path entry to \`product-listings/rhoai/rhoai.yaml\`.
 
-## Repository details
+## Entry details
 
 | Field | Value |
 |-------|-------|
-| \`repository\` | \`${REPOSITORY_NAME}\` |
-| \`content_stream_tags\` | \`['${CONTENT_STREAM_TAG}']\` |
 | \`component_name\` | \`${COMPONENT_NAME}\` |
-| \`target_rhoai_version\` | \`${TARGET_RHOAI_VERSION}\` |
+| \`registry_path\` | \`${PRODUCT_LISTING_ENTRY}\` |
 
-**File changed:** \`products/rhoai/rhoai.yaml\`
+**File changed:** \`product-listings/rhoai/rhoai.yaml\`
 **Jira:** ${JIRA_URL:-(none)}")
 ```
 
@@ -467,16 +438,15 @@ ERROR in Step 10 (Raise MR): Could not create MR after 3 attempts. See errors ab
 On success, update Jira (only when `JIRA_URL` is non-empty):
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-  --add-label "delivery-repo-mr-raised" \
-  --comment "GitLab MR raised to create RHOAI delivery repository '${REPOSITORY_NAME}'.
+  --add-label "product-listing-mr-raised" \
+  --comment "GitLab MR raised to add '${COMPONENT_NAME}' to the RHOAI product listing.
 
 MR URL: $MR_URL
 
-File changed: products/rhoai/rhoai.yaml
-Repository: ${REPOSITORY_NAME}
-Content stream tag: ${CONTENT_STREAM_TAG}
+File changed: product-listings/rhoai/rhoai.yaml
+Registry path: ${PRODUCT_LISTING_ENTRY}
 
-The delivery repository will be provisioned automatically once the MR is merged."
+The product listing entry will be active once the MR is merged."
 ```
 
 > **CRITICAL: Proceed immediately to Step 11.** Do NOT stop here. Step 11 is mandatory
@@ -498,18 +468,17 @@ The script polls every 60 seconds and writes progress to stderr. Read **stdout**
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
   uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --add-label "delivery-repo-created" \
-    --remove-label "delivery-repo-mr-raised" \
+    --add-label "product-listing-created" \
+    --remove-label "product-listing-mr-raised" \
     --comment "GitLab MR merged: $MR_URL
 
-The delivery repository '${REPOSITORY_NAME}' has been provisioned in the Red Hat container registry.
-Provisioning typically completes within a few minutes of merge."
+The product listing entry '${PRODUCT_LISTING_ENTRY}' has been added to product-listings/rhoai/rhoai.yaml."
 fi
 ```
 Print:
 ```
 MR merged: $MR_URL
-Delivery repository '$REPOSITORY_NAME' is being provisioned.
+Product listing entry '$PRODUCT_LISTING_ENTRY' has been added.
 ```
 Continue to Step 12.
 
@@ -517,9 +486,9 @@ Continue to Step 12.
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
   uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --add-label "delivery-repo-mr-closed" \
+    --add-label "product-listing-mr-closed" \
     --comment "GitLab MR was closed without merging: $MR_URL
-Please review and re-run /create-rhoai-delivery-repo <jira-url>."
+Please review and re-run /update-rhoai-product-listing <jira-url>."
 fi
 ```
 Stop with:
@@ -532,19 +501,19 @@ ERROR in Step 11 (Monitor MR): MR was closed without merging. Check: $MR_URL
 Attempt automated fix:
 1. Check YAML validity:
    ```bash
-   python3 -c "import yaml; yaml.safe_load(open('$CLONE_DIR/products/rhoai/rhoai.yaml'))" 2>&1
+   python3 -c "import yaml; yaml.safe_load(open('$CLONE_DIR/product-listings/rhoai/rhoai.yaml'))" 2>&1
    ```
 2. Verify the added entry is present:
    ```bash
-   grep -qF "repository: ${REPOSITORY_NAME}" "$CLONE_DIR/products/rhoai/rhoai.yaml" \
+   grep -qF "$PRODUCT_LISTING_ENTRY" "$CLONE_DIR/product-listings/rhoai/rhoai.yaml" \
      && echo "Entry present." || echo "WARN: Entry missing — re-apply may be needed."
    ```
-3. If reapply needed, re-run the cat-append from Step 8 and push a new commit:
+3. If reapply needed, re-run the python3 append from Step 8 and push a new commit:
    ```bash
    bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
      --clone-dir "$CLONE_DIR" \
-     --files     "products/rhoai/rhoai.yaml" \
-     --message   "Fix rhoai.yaml YAML for ${REPOSITORY_NAME}" \
+     --files     "product-listings/rhoai/rhoai.yaml" \
+     --message   "Fix product-listings/rhoai/rhoai.yaml for ${COMPONENT_NAME}" \
      --branch    "$DEST_BRANCH"
    ```
    Update Jira:
@@ -565,7 +534,7 @@ Please review the MR pipeline and re-run if the issue persists."
 if [[ -n "$JIRA_URL" ]]; then
   uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
     --comment "MR monitoring timed out after 60 minutes: $MR_URL
-The MR is still open. Check it manually and re-run /create-rhoai-delivery-repo <jira-url>
+The MR is still open. Check it manually and re-run /update-rhoai-product-listing <jira-url>
 when ready — it will detect the open MR and resume monitoring."
 fi
 ```
@@ -585,13 +554,9 @@ Print:
 ```
 Done.
 
-  products/rhoai/rhoai.yaml  — ${REPOSITORY_NAME} entry added
-  content_stream_tags        : ['${CONTENT_STREAM_TAG}']
-  GitLab MR                  : $MR_URL — $RESULT
-  Jira                       : ${JIRA_ID:-(none)} — label: delivery-repo-created
-
-The delivery repository will be available at:
-  https://quay.io/${REPOSITORY_NAME}
+  product-listings/rhoai/rhoai.yaml  — ${PRODUCT_LISTING_ENTRY} added
+  GitLab MR                          : $MR_URL — $RESULT
+  Jira                               : ${JIRA_ID:-(none)} — label: product-listing-created
 ```
 
 ---
@@ -608,8 +573,8 @@ The delivery repository will be available at:
 | VPN not active | 5, 7, 10, 11 | Connect to Red Hat VPN then retry |
 | No YAML and no Jira URL | 3 | Provide Jira URL or run from master pipeline |
 | YAML attachment missing on Jira | 3b | Run `/create-component-onboarding-jira <jira-url>` first |
-| `target_rhoai_version` missing/invalid | 4 | Fix field in YAML and re-upload to Jira |
-| Delivery repo already exists | 5 | Expected — exits 0; Jira labelled `delivery-repo-exists` |
+| `component_name` missing | 4 | Fix field in YAML and re-upload to Jira |
+| Product listing entry already exists | 5 | Expected — exits 0; Jira labelled `product-listing-exists` |
 | Open MR already found in Jira comments | 6 | Expected — jumps to Step 11 to monitor |
 | Push fails (shallow update) | 7, 9 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
 | MR creation fails 3× | 10 | Check GITLAB_TOKEN scopes; ensure VPN active |

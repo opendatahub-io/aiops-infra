@@ -255,6 +255,9 @@ ERROR in Step 7 (Playpen setup): Clone or push failed. See details above. Aborti
 
 ## Step 8: Modify YAML File
 
+**Resolve description:** If `product_context == RHOAI`, use `short_description` from the
+collected inputs; otherwise use `"<org> <repo> container image"`.
+
 **Idempotency check:** Check whether `<repo>` already exists in the YAML:
 
 ```bash
@@ -268,7 +271,7 @@ else
   uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-items-array \
     "$CLONE_DIR/$YAML_FILE" \
     --name "<repo>" \
-    --description "<org> <repo> container image" \
+    --description "<short_description if product_context==RHOAI, else '<org> <repo> container image'>" \
     $PUBLIC_FLAG
 fi
 ```

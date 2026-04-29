@@ -271,6 +271,10 @@ Print: `repo_branch auto-set to: <repo_branch>`
 > (e.g. Dockerfile or docker/Dockerfile)
 
 → Store in `dockerfile_path`. Must be non-empty.
+  If `product_context == RHOAI`: validate that the filename portion (basename) starts with
+  `Dockerfile.konflux`. Re-ask if invalid, showing the rule:
+  > For RHOAI components, the Dockerfile name must start with `Dockerfile.konflux`
+  > (e.g. `Dockerfile.konflux`, `docker/Dockerfile.konflux.cuda`)
 
 **Q8 — Operator/controller**
 > Is this component an operator or controller? (yes / no)
@@ -386,6 +390,45 @@ On failure (exit 1): capture stderr as `<validation_errors>`. Display the errors
 
 - `yes` → return to Step 3b for the relevant fields, regenerate, re-validate
 - `no` → stop with: `ERROR: YAML failed schema validation. Aborting.`
+
+---
+
+## Step 6b: Dockerfile digest check
+
+Construct the raw GitHub URL for the Dockerfile and check that every `FROM` instruction
+pins its image with a `@sha256:` digest:
+
+```bash
+# Build raw URL: replace github.com with raw.githubusercontent.com, append branch + path
+REPO_RAW_BASE="${repo_url/github.com/raw.githubusercontent.com}"
+CLEAN_CTX="${context_path%/}"; CLEAN_CTX="${CLEAN_CTX#./}"
+if [[ -z "$CLEAN_CTX" || "$CLEAN_CTX" == "." ]]; then
+  DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${dockerfile_path}"
+else
+  DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${CLEAN_CTX}/${dockerfile_path}"
+fi
+
+uv run --script <COMMON_SCRIPTS_DIR>/check_dockerfile_digests.py \
+  --dockerfile-url "$DOCKERFILE_RAW_URL" 2>&1
+DIGEST_EXIT=$?
+```
+
+**If exit 2** (Dockerfile not reachable — branch or file may not exist yet): print a notice
+and continue. Do not block — the Dockerfile may be created after the Jira is raised:
+```
+NOTICE: Could not fetch Dockerfile at $DOCKERFILE_RAW_URL — skipping digest check.
+         Ensure all FROM images use @sha256 digests before running /validate-component-onboarding-jira.
+```
+
+**If exit 1** (violations found): display the stderr output, then warn the user:
+```
+WARN: The Dockerfile contains FROM instructions that do not use @sha256 digests (see above).
+      This will block /validate-component-onboarding-jira.
+      Please update the Dockerfile to pin all base and builder images with SHA digests before validating.
+```
+Do not abort — continue to Step 7 so the Jira is still created and the YAML attached.
+
+**If exit 0**: print `Dockerfile digest check passed.`
 
 ---
 

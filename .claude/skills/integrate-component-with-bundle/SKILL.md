@@ -172,9 +172,16 @@ if [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
 fi
 
 # 3d-3: Resolve RELATED_IMAGE_NAME, RELATED_IMAGE_VALUE, USING_PLACEHOLDER
+if [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
+  QUAY_REPO_NAME="${COMPONENT_NAME}-rhel9"
+else
+  QUAY_REPO_NAME="$COMPONENT_NAME"
+fi
+
 eval "$(bash "$COMMON_SCRIPTS_DIR/resolve_bundle_image.sh" \
   --component-name "$COMPONENT_NAME" \
-  --quay-org       "$QUAY_ORG")"
+  --quay-org       "$QUAY_ORG" \
+  --quay-repo      "$QUAY_REPO_NAME")"
 # Sets: RELATED_IMAGE_NAME, RELATED_IMAGE_VALUE, USING_PLACEHOLDER
 ```
 
@@ -417,6 +424,26 @@ grep -q "rhoai/${COMPONENT_NAME}-rhel9:" "$CLONE_DIR/config/build-config.yaml" \
   || { echo "ERROR: rhoai/${COMPONENT_NAME}-rhel9 not found in build-config.yaml after insert."; exit 1; }
 ```
 
+**8e. Update bundle/Dockerfile**
+
+```bash
+DOCKERFILE="$CLONE_DIR/bundle/Dockerfile"
+[[ -f "$DOCKERFILE" ]] || {
+  echo "ERROR in Step 8e: bundle/Dockerfile not found in $CLONE_DIR."
+  echo "  Verify that $BC_URL points to the correct RHOAI-Build-Config repository."
+  exit 1
+}
+
+eval "$(uv run --script "$COMMON_SCRIPTS_DIR/update_bundle_dockerfile_git_labels.py" \
+  "$DOCKERFILE" --component-name "$COMPONENT_NAME")" || {
+  echo "ERROR in Step 8e: Could not update bundle/Dockerfile. See details above. Aborting."
+  exit 1
+}
+# Sets: GIT_URL_LABEL, GIT_COMMIT_LABEL
+echo "GIT_URL_LABEL   : $GIT_URL_LABEL"
+echo "GIT_COMMIT_LABEL: $GIT_COMMIT_LABEL"
+```
+
 ---
 
 ## Step 9: Commit and Push
@@ -429,8 +456,8 @@ if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
   COMMIT_FILES="bundle/bundle-patch.yaml"
   COMMIT_MSG="Add $COMPONENT_NAME to bundle-patch.yaml"
 else
-  COMMIT_FILES="bundle/bundle-patch.yaml config/build-config.yaml"
-  COMMIT_MSG="Add $COMPONENT_NAME to bundle-patch.yaml and build-config.yaml"
+  COMMIT_FILES="bundle/bundle-patch.yaml config/build-config.yaml bundle/Dockerfile"
+  COMMIT_MSG="Add $COMPONENT_NAME to bundle-patch.yaml, build-config.yaml, and bundle/Dockerfile"
 fi
 
 bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
@@ -471,7 +498,8 @@ if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
 else
   FILES_CHANGED="**Files changed:**
 - \`bundle/bundle-patch.yaml\` — added \`$RELATED_IMAGE_NAME\` to \`patch.relatedImages\`
-- \`config/build-config.yaml\` — added \`rhoai/${COMPONENT_NAME}-rhel9\` to \`config.replacements[0].repo_mappings\` (RHOAI only)"
+- \`config/build-config.yaml\` — added \`rhoai/${COMPONENT_NAME}-rhel9\` to \`config.replacements[0].repo_mappings\` (RHOAI only)
+- \`bundle/Dockerfile\` — added ARG \`${GIT_URL_LABEL}\`, ARG \`${GIT_COMMIT_LABEL}\`, and git label entries for \`${COMPONENT_NAME}\` (RHOAI only)"
 fi
 
 PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
@@ -515,7 +543,8 @@ PR URL: $PR_URL
 
 Files changed:
 - bundle/bundle-patch.yaml: $RELATED_IMAGE_NAME added to patch.relatedImages
-- config/build-config.yaml: rhoai/${COMPONENT_NAME}-rhel9 added to repo_mappings (RHOAI only)"
+- config/build-config.yaml: rhoai/${COMPONENT_NAME}-rhel9 added to repo_mappings (RHOAI only)
+- bundle/Dockerfile: ARG and LABEL entries added for ${COMPONENT_NAME} (RHOAI only)"
 ```
 
 ---
@@ -606,6 +635,7 @@ Done.
 
   bundle/bundle-patch.yaml    — $RELATED_IMAGE_NAME added to patch.relatedImages
   config/build-config.yaml    — rhoai/${COMPONENT_NAME}-rhel9 added (RHOAI only)
+  bundle/Dockerfile           — ARG + LABEL entries added for $COMPONENT_NAME (RHOAI only)
   GitHub PR                   — merged: $PR_URL
   Jira                        — updated (label: obc-pr-merged)
 
@@ -640,6 +670,7 @@ Integrate with Bundle (pipeline step 8) is complete.
 | Shallow push rejected | Steps 6, 9 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
 | `bundle/bundle-patch.yaml` not found in clone | Step 7 | Check `BC_URL` points to the correct build-config repo |
 | `config/build-config.yaml` not found in clone | Step 8 | Check `BC_URL` points to the correct RHOAI-Build-Config repo |
+| `bundle/Dockerfile` not found in clone | Step 8e | Check `BC_URL` points to the correct RHOAI-Build-Config repo |
 | PR creation fails 3× | Step 10 | Check GITHUB_TOKEN; verify branch was pushed; fix manually |
 | PR closed without merge | Step 11 | Review and re-run |
 | PR CI checks failed | Step 11 | Review PR checks; push fix; re-run |

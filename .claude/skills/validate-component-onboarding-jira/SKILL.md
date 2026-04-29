@@ -174,6 +174,68 @@ Please correct repo_branch in the YAML, re-upload it, and re-run /validate-compo
 
 Then stop with: `"ERROR in Step 3b (Branch Cross-Validation): repo_branch '<repo_branch>' does not match expected '<expected_branch>'. Aborting."`
 
+### Step 5c: Dockerfile digest check
+
+Read `inputs.repo_url`, `inputs.repo_branch`, `inputs.context_path`, and
+`inputs.dockerfile_path` from the downloaded YAML.
+
+Construct the raw GitHub URL:
+
+```bash
+REPO_RAW_BASE="${repo_url/github.com/raw.githubusercontent.com}"
+CLEAN_CTX="${context_path%/}"; CLEAN_CTX="${CLEAN_CTX#./}"
+if [[ -z "$CLEAN_CTX" || "$CLEAN_CTX" == "." ]]; then
+  DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${dockerfile_path}"
+else
+  DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${CLEAN_CTX}/${dockerfile_path}"
+fi
+
+uv run --script <COMMON_SCRIPTS_DIR>/check_dockerfile_digests.py \
+  --dockerfile-url "$DOCKERFILE_RAW_URL"
+```
+
+On **exit 0**: print `Dockerfile digest check passed.` and continue.
+
+On **exit 2** (Dockerfile not reachable): update Jira and stop:
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+  --add-label "validation-failed" \
+  --remove-label "validation-successful" \
+  --comment "Validation failed at Step 5c (Dockerfile Digest Check).
+
+Could not fetch the Dockerfile at:
+  $DOCKERFILE_RAW_URL
+
+Ensure the repo_url, repo_branch, context_path, and dockerfile_path in the YAML are correct
+and that the Dockerfile exists on the specified branch."
+```
+
+Then stop with: `ERROR in Step 5c (Dockerfile Digest Check): Could not fetch Dockerfile. Aborting.`
+
+On **exit 1** (digest violations found): capture stderr as `<digest_errors>`, update Jira and stop:
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+  --add-label "validation-failed" \
+  --remove-label "validation-successful" \
+  --comment "Validation failed at Step 5c (Dockerfile Digest Check).
+
+The Dockerfile at $DOCKERFILE_RAW_URL contains FROM instructions that do not pin images
+with @sha256 digests:
+
+<digest_errors>
+
+All base and builder images must be pinned using SHA digests, not tags alone.
+Example: FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:<hex>
+
+Please update the Dockerfile and re-run /validate-component-onboarding-jira."
+```
+
+Then stop with: `ERROR in Step 5c (Dockerfile Digest Check): FROM instructions without @sha256 digests found. Aborting.`
+
+---
+
 ### Step 6: Update Jira on success and report
 
 Update the Jira issue to reflect successful validation, then print the completion summary.
@@ -216,4 +278,7 @@ Output files are in: ./<issue_id>/
 | Issue not found / no access | Script 1 exits 1; display its stderr |
 | Attachment not found | Script 2 exits 1; display its stderr (includes list of available attachments) |
 | YAML fails schema | Script 3 exits 1; display all field-level errors from stderr |
+| `repo_branch` / `target_rhoai_version` mismatch | Step 5b; correct the YAML and re-upload |
+| Dockerfile not reachable (exit 2) | Step 5c; check repo_url, repo_branch, context_path, dockerfile_path |
+| FROM instructions missing `@sha256` digest (exit 1) | Step 5c; update Dockerfile to pin all images with SHA digests |
 | uv not installed | "uv is not installed. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh" |

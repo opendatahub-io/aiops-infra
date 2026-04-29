@@ -37,6 +37,15 @@ def main():
     lines.append(f"  context_path: {args.context_path}")
     lines.append(f"  dockerfile_path: {args.dockerfile_path}")
 
+    dockerfile_name = args.dockerfile_path.split("/")[-1]
+    if product == "RHOAI" and not dockerfile_name.startswith("Dockerfile.konflux"):
+        print(
+            f"ERROR: For RHOAI, the Dockerfile name must start with 'Dockerfile.konflux' "
+            f"(got '{dockerfile_name}')",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     if product == "ODH":
         if not args.build_type:
             print("ERROR: --build-type is required for ODH", file=sys.stderr)

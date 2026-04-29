@@ -1,6 +1,6 @@
 ---
 name: onboard-konflux-components-for-odh-and-rhoai
-description: Master orchestrator skill for the full ODH/RHOAI component onboarding pipeline. Takes a single Jira URL and coordinates 7 sub-skills in sequence with background PR/MR monitoring. Transitions Jira through In Progress -> Review -> Resolved automatically.
+description: Master orchestrator skill for the full ODH/RHOAI component onboarding pipeline. Takes a single Jira URL and coordinates sub-skills in sequence with background PR/MR monitoring. Transitions Jira through In Progress -> Review -> Resolved automatically.
 allowed-tools: Bash
 user-invocable: true
 ---
@@ -12,12 +12,12 @@ Orchestrates the complete component onboarding pipeline:
 1. `validate-component-onboarding-jira` — fetch + validate Jira YAML
 2. `create-quay-repo` — GitLab MR to app-interface
 3. `onboard-component-to-konflux-release-data` — GitLab MR to konflux-release-data
-4. `add-component-to-odh-konflux-central` **(ODH)** / `add-component-to-rhoai-konflux-central` **(RHOAI)** — GitHub PR for Tekton pipelineruns
+4. `add-component-to-odh-konflux-central` **(ODH)** / `add-component-to-rhoai-konflux-central` + `create-pull-pipelines-in-rhoai-konflux-central` **(RHOAI)** — GitHub PRs for Tekton pipelineruns
 5. `run-odh-konflux-onboarder-workflow` — GitHub Actions workflow (deferred, background; **ODH only**)
 6. `integrate-component-with-odh-operator` — GitHub PR to opendatahub-operator (if operator)
 7. `integrate-component-with-bundle` — GitHub PR to ODH-Build-Config
-8. `add-rhoai-dockerfile-labels` — GitHub PR to add OCI labels to Dockerfile (**RHOAI only**)
-9. `create-rhoai-delivery-repo` — GitLab MR to pyxis-repo-configs (**RHOAI only**)
+8. `create-rhoai-delivery-repo` — GitLab MR to pyxis-repo-configs (**RHOAI only**)
+9. `update-rhoai-product-listing` — GitLab MR to pyxis-repo-configs (deferred, after delivery-repo merge; **RHOAI only**)
 10. `setup-auto-merge` — GitHub PR to rhods-devops-infra (**RHOAI only**)
 11. `enable-renovate-on-rhoai-component-repo` — GitHub PR to rhoai-konflux-central + deferred `sync-rhoai-renovate-configs` (**RHOAI only**)
 
@@ -42,9 +42,9 @@ Example:
 
 Optional overrides: `APP_INTERFACE_REPO_URL`, `KONFLUX_RELEASE_DATA_REPO_URL`,
 `ODH_KONFLUX_CENTRAL_REPO_URL`, `ODH_OPERATOR_REPO_URL`, `OBC_REPO_URL`, `JIRA_SERVER`,
-`RHOAI_KONFLUX_CENTRAL_REPO_URL` (used by Steps 7/13; default: `https://github.com/red-hat-data-services/konflux-central.git`),
-`PYXIS_REPO_CONFIGS_REPO_URL` (used by Step 11 RHOAI; default: `https://gitlab.cee.redhat.com/releng/pyxis-repo-configs.git`),
-`RHODS_DEVOPS_INFRA_REPO_URL` (used by Step 12 RHOAI; default: `https://github.com/red-hat-data-services/rhods-devops-infra.git`)
+`RHOAI_KONFLUX_CENTRAL_REPO_URL` (used by Steps 7/12; default: `https://github.com/red-hat-data-services/konflux-central.git`),
+`PYXIS_REPO_CONFIGS_REPO_URL` (used by Steps 10/9 RHOAI; default: `https://gitlab.cee.redhat.com/releng/pyxis-repo-configs.git`),
+`RHODS_DEVOPS_INFRA_REPO_URL` (used by Step 11 RHOAI; default: `https://github.com/red-hat-data-services/rhods-devops-infra.git`)
 
 **VPN must be active** before running — required for Steps 2, 3, and 11/RHOAI (GitLab on gitlab.cee.redhat.com).
 
@@ -331,6 +331,38 @@ After the PR is created:
 If the child skill exits because PipelineRun already exists (child exits 0 at Step 4):
 write `steps.okc.status = "merged"` and continue.
 
+### Sub-skill: create-pull-pipelines-in-rhoai-konflux-central (RHOAI only)
+
+**Skip if** `PRODUCT_CONTEXT == "ODH"` or `steps.pull_pipelines.status` is `"pr_raised"` or `"merged"`.
+
+Immediately after the RKC PR background monitor is launched above (or the early-exit
+`steps.okc.status = "merged"` path), invoke `create-pull-pipelines-in-rhoai-konflux-central`
+with `$JIRA_URL` as the positional argument.
+
+Follow the child skill's implementation through to and including **Step 10** (Raise PR, up
+to 3 attempts), which captures `$PULL_PR_URL`.
+
+After the PR is created:
+
+1. Update `pipeline_state.json`: `steps.pull_pipelines.pr_url = "$PULL_PR_URL"`,
+   `steps.pull_pipelines.status = "pr_raised"`.
+2. Apply the Background Monitoring Pattern (GitHub PR variant):
+   ```bash
+   bash "$COMMON_SCRIPTS_DIR/launch_monitor.sh" \
+     --step         "pull_pipelines" \
+     --url          "$PULL_PR_URL" \
+     --type         "github" \
+     --jira-url     "$JIRA_URL" \
+     --label-remove "rkc-pull-pr-raised" \
+     --comment      "$(printf 'Pull-request pipeline PR merged: %s\n\nKonflux pull-request CI is now configured for '\''%s'\'' on rhoai-konflux-central main branch.' "$PULL_PR_URL" "$COMPONENT_NAME")" \
+     --workdir      "$WORKDIR" \
+     --scripts-dir  "$COMMON_SCRIPTS_DIR"
+   ```
+3. Skip child skill Step 11 (inline monitor) and Step 12 (report). Return to the wrapper.
+
+If child skill exits 0 at Step 4 (PipelineRun already exists): write
+`steps.pull_pipelines.status = "merged"` and continue.
+
 ---
 
 ## Step 8: Sub-skill — integrate-component-with-odh-operator
@@ -379,39 +411,7 @@ captured from the child skill's Step 10 (Raise PR):
 
 ---
 
-## Step 10: Sub-skill — add-rhoai-dockerfile-labels (RHOAI only)
-
-**Skip if** `PRODUCT_CONTEXT == "ODH"` or `steps.dockerfile_labels.status` is
-`"pr_raised"`, `"merged"`, `"done"`, or `"skipped"`.
-
-Follow the `add-rhoai-dockerfile-labels` child skill's implementation
-with `$JIRA_URL` as the positional argument.
-
-Follow through to and including **Step 9** (Raise PR, up to 3 attempts).
-After `$PR_URL` is captured:
-
-1. Update `pipeline_state.json`: `steps.dockerfile_labels.pr_url = "$PR_URL"`,
-   `steps.dockerfile_labels.status = "pr_raised"`.
-2. Apply the Background Monitoring Pattern (GitHub PR variant):
-   ```bash
-   bash "$COMMON_SCRIPTS_DIR/launch_monitor.sh" \
-     --step         "dockerfile_labels" \
-     --url          "$PR_URL" \
-     --type         "github" \
-     --jira-url     "$JIRA_URL" \
-     --label-remove "dockerfile-labels-pr-raised" \
-     --comment      "$(printf 'Dockerfile labels PR merged: %s\n\nAll mandatory RHOAI OCI labels are now present in the component Dockerfile for '\''%s'\''.' "$PR_URL" "$COMPONENT_NAME")" \
-     --workdir      "$WORKDIR" \
-     --scripts-dir  "$COMMON_SCRIPTS_DIR"
-   ```
-3. Skip child skill Step 10 (report). Return to the wrapper.
-
-If child skill exits 0 at Step 5 (labels already correct): write
-`steps.dockerfile_labels.status = "done"` and continue.
-
----
-
-## Step 11: Sub-skill — create-rhoai-delivery-repo (RHOAI only)
+## Step 10: Sub-skill — create-rhoai-delivery-repo (RHOAI only)
 
 **Skip if** `PRODUCT_CONTEXT == "ODH"` or `steps.delivery_repo.status` is
 `"merged"`, `"done"`, or `"skipped"`.
@@ -438,14 +438,40 @@ After `$MR_URL` is captured:
      --workdir      "$WORKDIR" \
      --scripts-dir  "$COMMON_SCRIPTS_DIR"
    ```
-3. Skip child skill Step 11 (inline monitor) and Step 12 (report). Return to the wrapper.
+3. Skip child skill Step 11 (inline monitor) and Step 12 (report).
+4. **Also launch `deferred_product_listing.sh`** (see below).
+5. Return to the wrapper.
+
+### Deferred Product Listing Script
+
+Derive `PYXIS_URL` and launch the product listing background script immediately after the
+delivery_repo monitor is started:
+
+```bash
+PYXIS_URL="${PYXIS_REPO_CONFIGS_REPO_URL:-https://gitlab.cee.redhat.com/releng/pyxis-repo-configs.git}"
+
+nohup bash "$COMMON_SCRIPTS_DIR/deferred_product_listing.sh" \
+  --workdir      "$WORKDIR" \
+  --jira-url     "$JIRA_URL" \
+  --scripts-dir  "$COMMON_SCRIPTS_DIR" \
+  --pyxis-url    "$PYXIS_URL" \
+  --component-name "$COMPONENT_NAME" \
+  >> "$WORKDIR/deferred_product_listing.log" 2>&1 &
+echo $! > "$WORKDIR/deferred_product_listing.pid"
+echo "[WRAPPER] Product listing deferred script started (PID=$(cat $WORKDIR/deferred_product_listing.pid))"
+echo "[WRAPPER] Log: $WORKDIR/deferred_product_listing.log"
+
+bash "$COMMON_SCRIPTS_DIR/pipeline_state.sh" set \
+  --state "$PIPELINE_STATE" --step product_listing --field status --value "pending_delivery_repo_merge"
+```
 
 If child skill exits 0 at Step 5 (delivery repo already exists): write
-`steps.delivery_repo.status = "done"` and continue.
+`steps.delivery_repo.status = "done"` and still launch `deferred_product_listing.sh`
+(it will fast-path exit immediately if the product listing entry already exists).
 
 ---
 
-## Step 12: Sub-skill — setup-auto-merge (RHOAI only)
+## Step 11: Sub-skill — setup-auto-merge (RHOAI only)
 
 **Skip if** `PRODUCT_CONTEXT == "ODH"` or `steps.auto_merge.status` is
 `"merged"`, `"done"`, or `"skipped"`.
@@ -477,7 +503,7 @@ If child skill exits 0 at Step 4 (entries already exist): write
 
 ---
 
-## Step 13: Sub-skill — enable-renovate-on-rhoai-component-repo + deferred sync (RHOAI only)
+## Step 12: Sub-skill — enable-renovate-on-rhoai-component-repo + deferred sync (RHOAI only)
 
 **Skip if** `PRODUCT_CONTEXT == "ODH"` or `steps.renovate.status` is not `"pending"`.
 
@@ -528,7 +554,7 @@ echo "[WRAPPER] Log: $WORKDIR/renovate_sync.log"
 
 ---
 
-## Step 14: Launch Deferred Workflow Trigger (Background) — ODH only
+## Step 13: Launch Deferred Workflow Trigger (Background) — ODH only
 
 **Skip if** `steps.onboarder.status` is not `"pending"`.
 
@@ -554,7 +580,7 @@ The script writes `$WORKDIR/deferred_workflow.pid` and updates `pipeline_state.j
 
 ---
 
-## Step 15: Transition Jira to "Review"
+## Step 14: Transition Jira to "Review"
 
 Read all raised PR/MR URLs from `pipeline_state.json`, build the review table, and
 transition the Jira issue to "Review":
@@ -570,7 +596,7 @@ bash "$COMMON_SCRIPTS_DIR/raise_jira_review.sh" \
 
 ---
 
-## Step 16: Launch Final Completion Monitor (Background)
+## Step 15: Launch Final Completion Monitor (Background)
 
 ```bash
 nohup bash "$COMMON_SCRIPTS_DIR/monitor_completion.sh" \
@@ -585,7 +611,7 @@ echo "[WRAPPER] Log: $WORKDIR/monitor_completion.log"
 
 ---
 
-## Step 17: Print Final Summary
+## Step 16: Print Final Summary
 
 Print the following, substituting all variable values:
 
@@ -597,16 +623,17 @@ Print the following, substituting all variable values:
   Jira           : <JIRA_URL> (status: Review)
 
 PRs / MRs raised:
-  Step 2 Quay MR           : <QUAY_MR>
-  Step 3 KRD MR            : <KRD_MR>
-  Step 4 OKC/RKC PR        : <OKC_PR>
-  Step 5 Workflow          : <ODH: pending KRD+OKC merge (deferred_workflow.sh running) | RHOAI: N/A>
-  Step 6 Operator          : <OP_PR or "N/A" if is_operator=false>
-  Step 7 Bundle            : <BDLPR>
-  Step 8 Dockerfile Labels : <LABELS_PR or "N/A" if ODH>
-  Step 9 Delivery Repo MR  : <DELIV_MR or "N/A" if ODH>
-  Step 10 Auto-Merge PR    : <AM_PR or "N/A" if ODH>
-  Step 11 Renovate PR      : <RENOV_PR or "N/A" if ODH>
+  Step 2 Quay MR            : <QUAY_MR>
+  Step 3 KRD MR             : <KRD_MR>
+  Step 4 OKC/RKC PR         : <OKC_PR>
+  Step 4 Pull Pipelines PR   : <PULL_PR or "N/A" if ODH>
+  Step 5 Workflow            : <ODH: pending KRD+OKC merge (deferred_workflow.sh running) | RHOAI: N/A>
+  Step 6 Operator            : <OP_PR or "N/A" if is_operator=false>
+  Step 7 Bundle              : <BDLPR>
+  Step 8 Delivery Repo MR    : <DELIV_MR or "N/A" if ODH>
+  Step 9 Product Listing MR  : <deferred — launched after delivery-repo merge | N/A if ODH>
+  Step 10 Auto-Merge PR      : <AM_PR or "N/A" if ODH>
+  Step 11 Renovate PR        : <RENOV_PR or "N/A" if ODH>
 
 Background processes:
   monitor_quay.pid            log: $WORKDIR/monitor_quay.log
@@ -614,8 +641,10 @@ Background processes:
   monitor_okc.pid             log: $WORKDIR/monitor_okc.log
   monitor_operator.pid        log: $WORKDIR/monitor_operator.log   [if is_operator=true]
   [ODH] deferred_workflow.pid log: $WORKDIR/deferred_workflow.log
-  [RHOAI] monitor_dockerfile_labels.pid log: $WORKDIR/monitor_dockerfile_labels.log
+  [RHOAI] monitor_pull_pipelines.pid    log: $WORKDIR/monitor_pull_pipelines.log
   [RHOAI] monitor_delivery_repo.pid     log: $WORKDIR/monitor_delivery_repo.log
+  [RHOAI] deferred_product_listing.pid  log: $WORKDIR/deferred_product_listing.log
+  [RHOAI] monitor_product_listing.pid   log: $WORKDIR/monitor_product_listing.log  [started by deferred_product_listing.sh]
   [RHOAI] monitor_auto_merge.pid        log: $WORKDIR/monitor_auto_merge.log
   [RHOAI] monitor_renovate.pid          log: $WORKDIR/monitor_renovate.log
   [RHOAI] renovate_sync.pid             log: $WORKDIR/renovate_sync.log
@@ -643,19 +672,20 @@ The Jira ticket will move to Resolved automatically when all PRs/MRs are merged.
 | VPN not active | 5, 6 | Activate Red Hat VPN; re-run (idempotent via `pipeline_state.json`) |
 | Quay MR fails 3× | 5 | Check VPN and `GITLAB_TOKEN` `api` scope |
 | KRD MR fails | 6 | Check VPN; `GITLAB_TOKEN` needs `write_repository` scope |
-| OKC PR fails | 7 | Verify `GITHUB_TOKEN` `repo` scope and push access |
+| OKC/RKC PR fails | 7 | Verify `GITHUB_TOKEN` `repo` scope and push access |
+| Pull pipelines PR fails 3× | 7 (RHOAI) | Check GITHUB_TOKEN push access to rhoai-konflux-central |
 | Operator PR fails | 8 | Verify `GITHUB_TOKEN` push access to `opendatahub-operator` |
-| Bundle PR fails | 9 | Verify `GITHUB_TOKEN` push access to `ODH-Build-Config` |
-| Deferred workflow 422 error | 10 deferred | OKC PR not yet merged; script waits automatically |
-| Deferred workflow times out (3h) | 10 deferred | Check `deferred_workflow.log`; re-run script manually |
-| Tekton PR not in workflow logs | 10 deferred | Check run URL in Jira; update `pipeline_state.json` manually |
-| VPN not active | 11 (RHOAI) | Activate Red Hat VPN; re-run (idempotent) |
-| Dockerfile labels PR fails 3× | 10 (RHOAI) | Check GITHUB_TOKEN push access to component repo |
-| Delivery repo MR fails 3× | 11 (RHOAI) | Check VPN and GITLAB_TOKEN `write_repository` scope |
-| Auto-merge PR fails 3× | 12 (RHOAI) | Check GITHUB_TOKEN push access to rhods-devops-infra |
-| Renovate PR fails 3× | 13 (RHOAI) | Check GITHUB_TOKEN push access to rhoai-konflux-central |
-| Renovate sync workflow 403 | 13 (RHOAI) | GITHUB_TOKEN needs `actions:write` scope |
-| Renovate sync times out (3h) | 13 deferred | Check `renovate_sync.log`; re-run `/sync-rhoai-renovate-configs` manually |
-| Completion monitor times out (4h) | 16 | Check `.result` files; re-run `monitor_completion.sh` |
-| Jira `--status "Resolved"` fails | 16 | Check available Jira transitions; adjust status name |
+| Bundle PR fails | 9 | Verify `GITHUB_TOKEN` push access to `ODH-Build-Config` or `RHOAI-Build-Config` |
+| Delivery repo MR fails 3× | 10 (RHOAI) | Check VPN and GITLAB_TOKEN `write_repository` scope |
+| Product listing MR fails | 10 deferred (RHOAI) | Check `deferred_product_listing.log`; re-run `/update-rhoai-product-listing` manually |
+| Product listing never starts | 10 deferred (RHOAI) | Delivery repo MR not yet merged; check `monitor_delivery_repo.result` |
+| Deferred workflow 422 error | 13 deferred (ODH) | OKC PR not yet merged; script waits automatically |
+| Deferred workflow times out (3h) | 13 deferred (ODH) | Check `deferred_workflow.log`; re-run script manually |
+| Tekton PR not in workflow logs | 13 deferred (ODH) | Check run URL in Jira; update `pipeline_state.json` manually |
+| Auto-merge PR fails 3× | 11 (RHOAI) | Check GITHUB_TOKEN push access to rhods-devops-infra |
+| Renovate PR fails 3× | 12 (RHOAI) | Check GITHUB_TOKEN push access to rhoai-konflux-central |
+| Renovate sync workflow 403 | 12 (RHOAI) | GITHUB_TOKEN needs `actions:write` scope |
+| Renovate sync times out (3h) | 12 deferred (RHOAI) | Check `renovate_sync.log`; re-run `/sync-rhoai-renovate-configs` manually |
+| Completion monitor times out (4h) | 15 | Check `.result` files; re-run `monitor_completion.sh` |
+| Jira `--status "Resolved"` fails | 15 | Check available Jira transitions; adjust status name |
 | Re-run needed after failure | Any | Re-invoke skill; `pipeline_state.json` skips completed steps |

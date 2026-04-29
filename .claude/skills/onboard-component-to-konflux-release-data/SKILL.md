@@ -536,6 +536,66 @@ $CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoa
 
 ---
 
+**8-RHOAI-4. Add to `automation/resources.yaml`** (RHOAI only)
+
+File path:
+```
+$CLONE_DIR/tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/automation/resources.yaml
+```
+
+- **If file not found:** update Jira with an appropriate comment, then stop:
+  ```
+  ERROR in Step 8 (RHOAI): automation/resources.yaml not found.
+    Sprint onboarding for rhoai-tenant/automation may be incomplete.
+    Verify the file exists in the repository and re-run.
+  ```
+
+- **Idempotency check:** If a line containing `name: pull-request-pipelines-${COMPONENT_NAME}` is already present in the file, skip to step 8d.
+
+- **Append** the following YAML document to the file using `edit_yaml.py`:
+
+  ```bash
+  AUTOMATION_FILE="$CLONE_DIR/tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/automation/resources.yaml"
+
+  AUTOMATION_YAML=$(cat <<EOF
+  ---
+  apiVersion: appstudio.redhat.com/v1alpha1
+  kind: Component
+  metadata:
+    annotations:
+      build.appstudio.openshift.io/request: configure-pac-no-mr
+      build.appstudio.openshift.io/pipeline: '{"name":"docker-build-multi-platform-oci-ta","bundle":"latest"}'
+    name: pull-request-pipelines-${COMPONENT_NAME}
+  spec:
+    application: automation
+    componentName: pull-request-pipelines-${COMPONENT_NAME}
+    containerImage: quay.io/rhoai/pull-request-pipelines
+    source:
+      git:
+        context: ${CONTEXT_PATH_NORMALIZED}
+        dockerfileUrl: ${DOCKERFILE_PATH}
+        url: ${REPO_URL}
+  EOF
+  )
+
+  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-yaml-doc \
+    "$AUTOMATION_FILE" \
+    --yaml-string "$AUTOMATION_YAML"
+  ```
+
+  On exit 1 from `edit_yaml.py`: display stderr and stop with:
+  ```
+  ERROR in Step 8-RHOAI-4 (Modify automation/resources.yaml): Could not append Component document. See details above. Aborting.
+  ```
+
+  After appending, verify the entry is present:
+  ```bash
+  grep -q "name: pull-request-pipelines-${COMPONENT_NAME}" "$AUTOMATION_FILE" \
+    || { echo "ERROR: pull-request-pipelines-${COMPONENT_NAME} not found in automation/resources.yaml after append."; exit 1; }
+  ```
+
+---
+
 **8d. Run `build-manifests.sh`** to regenerate the `auto-generated/` directory.
 Pass `$KUSTOMIZE_BIN` (resolved in Step 1) so the script uses the correct binary or shim:
 
