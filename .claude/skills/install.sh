@@ -5,12 +5,15 @@
 # common/ directory, making all skills available to Claude Code globally.
 #
 # Usage:
-#   bash .claude/skills/install.sh [--force] [--uninstall] [--list]
+#   bash .claude/skills/install.sh [--force] [--uninstall] [--list] [--user USER]
 #
 # Options:
 #   --force      Overwrite existing symlinks (update to latest)
 #   --uninstall  Remove symlinks installed by this script
 #   --list       Show what would be installed without making changes
+#   --user USER  Install skills into USER's home (~USER/.claude/skills/)
+#                instead of the current user's. Useful in CI where setup
+#                runs as root but Claude runs as a different user.
 
 set -euo pipefail
 
@@ -27,14 +30,27 @@ err()  { echo -e "${RED}[error]${NC}      $*" >&2; }
 FORCE=false
 UNINSTALL=false
 LIST=false
+TARGET_USER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force)     FORCE=true;     shift ;;
     --uninstall) UNINSTALL=true; shift ;;
     --list)      LIST=true;      shift ;;
+    --user)
+      [[ -z "${2:-}" ]] && { err "--user requires a username"; exit 1; }
+      TARGET_USER="$2"; shift 2 ;;
     *) err "Unknown argument: $1"; exit 1 ;;
   esac
 done
+
+if [[ -n "$TARGET_USER" ]]; then
+  TARGET_HOME="$(eval echo "~$TARGET_USER" 2>/dev/null)"
+  if [[ "$TARGET_HOME" == "~$TARGET_USER" || ! -d "$TARGET_HOME" ]]; then
+    err "Cannot resolve home directory for user '$TARGET_USER'"
+    exit 1
+  fi
+  SKILLS_DST="$TARGET_HOME/.claude/skills"
+fi
 
 # Collect everything to install: skill dirs + common/
 TARGETS=()
@@ -68,6 +84,9 @@ if [[ "$LIST" == true ]]; then
 fi
 
 mkdir -p "$SKILLS_DST"
+if [[ -n "$TARGET_USER" ]]; then
+  chown -R "$TARGET_USER" "$(dirname "$SKILLS_DST")"
+fi
 
 # ── Uninstall mode ──────────────────────────────────────────────────────────────
 if [[ "$UNINSTALL" == true ]]; then
@@ -112,6 +131,10 @@ for name in "${TARGETS[@]}"; do
     ok "$name" "$dst"
   fi
 done
+
+if [[ -n "$TARGET_USER" ]]; then
+  chown -R "$TARGET_USER" "$(dirname "$SKILLS_DST")"
+fi
 
 echo ""
 echo "Done. Installed skills:"
