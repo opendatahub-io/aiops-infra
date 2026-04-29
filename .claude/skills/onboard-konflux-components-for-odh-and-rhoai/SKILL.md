@@ -117,17 +117,12 @@ bash "$COMMON_SCRIPTS_DIR/watch_monitors.sh" --workdir "$WORKDIR"
 ## Step 0: Parse Inputs
 
 ```bash
-JIRA_URL="${1:-}"
-if [[ -z "$JIRA_URL" ]]; then
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+[[ -z "$JIRA_URL" ]] && {
   echo "ERROR: Jira URL is required."
   echo "  Usage: /onboard-konflux-components-for-odh-and-rhoai <jira-url>"
   exit 1
-fi
-if [[ "$JIRA_URL" != *"/browse/"* ]]; then
-  echo "ERROR: Invalid Jira URL format. Expected: https://redhat.atlassian.net/browse/RHOAIENG-1234"
-  exit 1
-fi
-JIRA_ID="${JIRA_URL##*/}"
+}
 echo "Jira ID  : $JIRA_ID"
 echo "Jira URL : $JIRA_URL"
 ```

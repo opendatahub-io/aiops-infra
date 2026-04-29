@@ -59,20 +59,12 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Extract the optional `<jira-url>` argument from the invocation.
 
 ```bash
-JIRA_URL="${1:-}"   # first argument, or empty
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
+echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
+```
 
-# Validate format if provided
-if [[ -n "$JIRA_URL" && "$JIRA_URL" != *"/browse/"* ]]; then
-  echo "ERROR: Invalid Jira URL. Expected format: https://redhat.atlassian.net/browse/RHODS-14226"
-  exit 1
-fi
-
-# Extract Jira ID from URL (last path segment, e.g. RHODS-14226)
-JIRA_ID=""
-if [[ -n "$JIRA_URL" ]]; then
-  JIRA_ID="${JIRA_URL##*/}"
-fi
-
+```bash
 # Resolve OKC repo URL — single source of truth for all GitHub operations
 OKC_URL="${ODH_KONFLUX_CENTRAL_REPO_URL:-https://github.com/opendatahub-io/odh-konflux-central.git}"
 echo "ODH_KONFLUX_CENTRAL_REPO_URL=${ODH_KONFLUX_CENTRAL_REPO_URL:-(not set, using default)}"

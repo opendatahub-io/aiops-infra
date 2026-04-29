@@ -54,11 +54,16 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 ## Step 0: Parse Inputs
 
-1. Extract `<jira-url>` (the first positional argument). It must be a full Jira URL.
-   Extract `<jira-id>` as the last path segment (e.g., `RHOAIENG-1234`, `RHODS-5678`).
-
-   If the argument cannot be parsed as a Jira URL (no `/browse/` segment), stop with:
-   > ERROR: Invalid Jira URL. Expected format: https://redhat.atlassian.net/browse/RHOAIENG-1234
+```bash
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+[[ -z "$JIRA_URL" ]] && {
+  echo "ERROR: Jira URL is required."
+  echo "  Usage: /update-component-using-odh-konflux-central <jira-url>"
+  exit 1
+}
+echo "JIRA_URL : $JIRA_URL"
+echo "JIRA_ID  : $JIRA_ID"
+```
 
 2. Resolve `OKC_URL` — the single source of truth for all Git and GitHub operations in
    this skill. Execute this exact block; do NOT skip the `echo`:
@@ -139,9 +144,20 @@ ERROR in Step 3b (Download YAML): Could not download 'component_onboarding_detai
   Ensure the attachment exists on the Jira issue before running this skill.
 ```
 
-**3c. Parse the YAML** using the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
+**3c. Parse the YAML:**
 
-Extract and store these values (all are under the `inputs:` key):
+```bash
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+  --workdir     "$WORKDIR" \
+  --jira-id     "$JIRA_ID" \
+  --scripts-dir "$COMMON_SCRIPTS_DIR")"
+# Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT, QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
+
+YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
+CONTEXT_PATH=$(grep -m1    'context_path:'    "$YAML_FILE" | awk '{print $2}')
+DOCKERFILE_PATH=$(grep -m1 'dockerfile_path:' "$YAML_FILE" | awk '{print $2}')
+BUILD_TYPE=$(grep -m1      'build_type:'      "$YAML_FILE" | awk '{print $2}')
+```
 
 | Variable | YAML field | Example |
 |----------|-----------|---------|

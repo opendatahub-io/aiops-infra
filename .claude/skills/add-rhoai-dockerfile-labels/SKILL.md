@@ -63,19 +63,11 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 ## Step 0: Parse Inputs
 
-1. Extract `<jira-url>` from the first positional argument (may be empty/omitted).
-
-2. If provided but does not contain `/browse/`, stop with:
-   > ERROR: Invalid Jira URL. Expected format: https://redhat.atlassian.net/browse/RHOAIENG-1234
-
-3. Set `JIRA_URL` to the parsed URL, or empty string if omitted.
-   Set `JIRA_ID` to the last path segment (e.g. `RHOAIENG-1234`), or empty string.
-
-4. Echo the resolved values:
-   ```bash
-   echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
-   echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
-   ```
+```bash
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
+echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
+```
 
 ---
 
@@ -159,13 +151,17 @@ ERROR in Step 3d (Fetch Jira): Could not fetch issue details. Aborting.
 Extract from `$WORKDIR/component_onboarding_details.yaml` (all under the `inputs:` key):
 
 ```bash
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+  --workdir     "$WORKDIR" \
+  --jira-id     "$JIRA_ID" \
+  --scripts-dir "$COMMON_SCRIPTS_DIR")"
+# Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT, QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
+
 YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
-COMPONENT_NAME=$(grep -m1 'component_name:'   "$YAML_FILE" | awk '{print $2}')
-REPO_URL=$(grep -m1       'repo_url:'         "$YAML_FILE" | awk '{print $2}')
 CONTEXT_PATH=$(grep -m1   'context_path:'     "$YAML_FILE" | awk '{print $2}')
 DOCKERFILE_PATH=$(grep -m1 'dockerfile_path:' "$YAML_FILE" | awk '{print $2}')
 
-for _field in COMPONENT_NAME REPO_URL CONTEXT_PATH DOCKERFILE_PATH; do
+for _field in CONTEXT_PATH DOCKERFILE_PATH; do
   [[ -z "${!_field}" ]] && {
     echo "ERROR in Step 4: Missing required field '${_field}' in component_onboarding_details.yaml."
     echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."

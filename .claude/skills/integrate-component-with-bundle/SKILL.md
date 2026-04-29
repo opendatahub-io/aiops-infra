@@ -58,28 +58,22 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 ## Step 0: Parse Inputs
 
-1. Extract `<jira-url>` (the first positional argument).
-   Extract `<jira-id>` as the last path segment (e.g., `RHODS-14226`).
-
-   If the argument cannot be parsed as a Jira URL (no `/browse/` segment), stop with:
-   > ERROR: Invalid Jira URL. Expected format: https://redhat.atlassian.net/browse/RHODS-14226
-
-2. Resolve `BC_URL` — only if `BUILD_CONFIG_REPO_URL` is explicitly set. If not set, the
-   default will be derived from `product_context` in Step 3d. Execute this exact block;
-   do NOT skip the `echo`:
+1. Parse and validate the Jira URL:
 
    ```bash
-   if [[ -n "${BUILD_CONFIG_REPO_URL:-}" ]]; then
-     BC_URL="$BUILD_CONFIG_REPO_URL"
-     echo "BUILD_CONFIG_REPO_URL is set; BC_URL resolved to: $BC_URL"
-   else
-     BC_URL=""
-     echo "BUILD_CONFIG_REPO_URL is not set — will derive default from product_context in Step 3d."
-   fi
+   eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+   echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
+   echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
    ```
 
-   **Never override or re-derive `BC_URL` after Step 3d.** `BC_PATH` is derived in Step 3d
-   once `BC_URL` is finalised.
+2. Note whether `BUILD_CONFIG_REPO_URL` is set — it will be passed to `resolve_bc_url.sh`
+   in Step 3d once `product_context` is known:
+
+   ```bash
+   echo "BUILD_CONFIG_REPO_URL : ${BUILD_CONFIG_REPO_URL:-(not set, will derive from product_context in Step 3d)}"
+   ```
+
+   **`BC_URL` and `BC_PATH` are resolved in Step 3d.** Never set or override them before that.
 
 ---
 
@@ -135,22 +129,16 @@ ERROR in Step 3b (Download YAML): Could not download 'component_onboarding_detai
 **3c. Parse the YAML** from `$WORKDIR/component_onboarding_details.yaml`:
 
 ```bash
-YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
-COMPONENT_NAME=$(grep -m1 'component_name:'        "$YAML_FILE" | awk '{print $2}')
-PRODUCT_CONTEXT=$(grep -m1 'product_context:'       "$YAML_FILE" | awk '{print $2}')
-REPO_URL=$(grep -m1        'repo_url:'              "$YAML_FILE" | awk '{print $2}')
-REPO_BRANCH=$(grep -m1     'repo_branch:'           "$YAML_FILE" | awk '{print $2}')
-TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}')
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+  --workdir    "$WORKDIR" \
+  --jira-id    "$JIRA_ID" \
+  --scripts-dir "$COMMON_SCRIPTS_DIR")"
+# Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT,
+#       QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
 
-for _field in COMPONENT_NAME PRODUCT_CONTEXT REPO_URL REPO_BRANCH; do
-  [[ -z "${!_field}" ]] && {
-    echo "ERROR in Step 3c: Missing required field '${_field}' in component_onboarding_details.yaml. Aborting."
-    exit 1
-  }
-done
+# Also extract TARGET_RHOAI_VERSION (optional field, required when PRODUCT_CONTEXT=RHOAI)
+TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
 ```
-
-Extract and store these values (all under `inputs:`):
 
 | Variable | YAML field | Required | Example |
 |----------|-----------|----------|---------|
@@ -159,11 +147,6 @@ Extract and store these values (all under `inputs:`):
 | `REPO_URL` | `inputs.repo_url` | Yes | `https://github.com/rhoai-rhtap/odh-ai-first-demo` |
 | `REPO_BRANCH` | `inputs.repo_branch` | Yes | `main` |
 | `TARGET_RHOAI_VERSION` | `inputs.target_rhoai_version` | When RHOAI | `2.16` or `2.16-ea-1` |
-
-If any of COMPONENT_NAME, PRODUCT_CONTEXT, REPO_URL, REPO_BRANCH is missing, stop with:
-```
-ERROR in Step 3c: Missing required field '<field>' in component_onboarding_details.yaml. Aborting.
-```
 
 If `product_context=RHOAI` and `target_rhoai_version` is missing, stop with:
 ```
@@ -174,68 +157,25 @@ ERROR in Step 3c: Missing required field 'target_rhoai_version' in component_onb
 **3d. Derive computed variables:**
 
 ```bash
-# 3d-1: Finalise BC_URL and derive BC_PATH
-if [[ -z "${BC_URL:-}" ]]; then
-  if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
-    BC_URL="https://github.com/opendatahub-io/ODH-Build-Config.git"
-  elif [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-    BC_URL="https://github.com/red-hat-data-services/RHOAI-Build-Config.git"
-  fi
-  echo "BC_URL derived from product_context (${PRODUCT_CONTEXT}): $BC_URL"
-fi
-
-BC_PATH=$(echo "$BC_URL" | sed 's|https://github.com/||;s|\.git$||')
+# 3d-1: Resolve BC_URL and BC_PATH from product_context (with optional override)
+eval "$(bash "$COMMON_SCRIPTS_DIR/resolve_bc_url.sh" \
+  --product-context "$PRODUCT_CONTEXT" \
+  ${BUILD_CONFIG_REPO_URL:+--override "$BUILD_CONFIG_REPO_URL"})"
+# Sets: BC_URL, BC_PATH
+echo "BC_URL : $BC_URL"
 echo "BC_PATH: $BC_PATH"
 
-# 3d-2: Parse target_rhoai_version and derive version/branch variables (RHOAI only)
+# 3d-2: Parse target_rhoai_version into version/branch variables (RHOAI only)
 if [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-  if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
-    x="${BASH_REMATCH[1]}"; y="${BASH_REMATCH[2]}"; n="${BASH_REMATCH[3]}"
-    version_var="v${x}-${y}-ea-${n}"
-    branch_var="${x}.${y}-ea.${n}"
-  elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
-    x="${BASH_REMATCH[1]}"; y="${BASH_REMATCH[2]}"
-    version_var="v${x}-${y}"
-    branch_var="${x}.${y}"
-  else
-    echo "ERROR in Step 3d: Invalid target_rhoai_version '${TARGET_RHOAI_VERSION}'. Expected x.y or x.y-ea-n."
-    exit 1
-  fi
-  branch_name="rhoai-${branch_var}"
-  echo "version_var  : $version_var"
-  echo "branch_var   : $branch_var"
-  echo "branch_name  : $branch_name"
+  eval "$(bash "$COMMON_SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION")"
+  # Sets: VERSION_VAR, BRANCH_VAR, BRANCH_NAME, RHOAI_MINOR_VERSION, CONTENT_STREAM_TAG
 fi
 
-# 3d-3: Quay organisation based on product context
-if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
-  QUAY_ORG="opendatahub"
-elif [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-  QUAY_ORG="rhoai"
-else
-  echo "ERROR in Step 3d: Unknown PRODUCT_CONTEXT '$PRODUCT_CONTEXT'. Expected 'ODH' or 'RHOAI'."
-  exit 1
-fi
-
-# relatedImages entry name: uppercase component name with hyphens → underscores
-RELATED_IMAGE_NAME="RELATED_IMAGE_$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:upper:]_')_IMAGE"
-# e.g. odh-ai-first-demo → RELATED_IMAGE_ODH_AI_FIRST_DEMO_IMAGE
-
-# relatedImages entry value — try to fetch the real SHA256 digest from Quay first
-STABLE_IMAGE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}:odh-stable"
-REAL_DIGEST=$(skopeo inspect --no-creds "docker://${STABLE_IMAGE}" 2>/dev/null \
-  | jq -r '.Digest // ""' 2>/dev/null || echo "")
-
-if [[ -n "$REAL_DIGEST" && "$REAL_DIGEST" == sha256:* ]]; then
-  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@${REAL_DIGEST}"
-  USING_PLACEHOLDER=false
-  echo "  Fetched real digest from Quay: $REAL_DIGEST"
-else
-  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@sha256:$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-  USING_PLACEHOLDER=true
-  echo "  WARNING: Image not yet published to Quay — using placeholder digest."
-  echo "  Update bundle-patch.yaml with the real digest before merging the PR."
-fi
+# 3d-3: Resolve RELATED_IMAGE_NAME, RELATED_IMAGE_VALUE, USING_PLACEHOLDER
+eval "$(bash "$COMMON_SCRIPTS_DIR/resolve_bundle_image.sh" \
+  --component-name "$COMPONENT_NAME" \
+  --quay-org       "$QUAY_ORG")"
+# Sets: RELATED_IMAGE_NAME, RELATED_IMAGE_VALUE, USING_PLACEHOLDER
 ```
 
 Print a summary:
@@ -258,38 +198,22 @@ Before cloning, check whether `$RELATED_IMAGE_NAME` already has an entry in
 > Do NOT substitute the hardcoded upstream path.
 
 ```bash
-BUNDLE_TMPFILE=$(mktemp)
-HTTP_STATUS=$(curl -s -w "%{http_code}" \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3.raw" \
-  "https://api.github.com/repos/${BC_PATH}/contents/bundle/bundle-patch.yaml?ref=main" \
-  -o "$BUNDLE_TMPFILE")
+check_result=0
+bash "$COMMON_SCRIPTS_DIR/check_github_file.sh" \
+  --repo-path "$BC_PATH" \
+  --file-path "bundle/bundle-patch.yaml" \
+  --ref       "main" \
+  --grep      "$RELATED_IMAGE_NAME" || check_result=$?
+# check_result: 0=found, 1=not found or 404, 2=API error
 ```
 
-**If `HTTP_STATUS` is not `200`:**
-- `404` — file not found. Warn and continue to Step 5:
+- `check_result=2` (API error) — warn and continue to Step 5:
   ```
-  WARN in Step 4: bundle/bundle-patch.yaml not found on main branch (HTTP 404).
-    Verify BC_URL points to the correct repo. Continuing.
+  WARN in Step 4: Could not fetch bundle/bundle-patch.yaml via GitHub API. Continuing.
   ```
-- Any other non-200 — Warn and continue to Step 5:
-  ```
-  WARN in Step 4: Could not fetch bundle/bundle-patch.yaml (HTTP $HTTP_STATUS). Continuing.
-  ```
-- Do NOT abort — the API check is a fast-path optimisation; proceed with the full flow if inconclusive.
+- Do NOT abort — this is a fast-path optimisation; proceed if inconclusive.
 
-**If `HTTP_STATUS` is `200`:**
-
-```bash
-if grep -q "${RELATED_IMAGE_NAME}" "$BUNDLE_TMPFILE"; then
-  ENTRY_EXISTS=true
-else
-  ENTRY_EXISTS=false
-fi
-rm -f "$BUNDLE_TMPFILE"
-```
-
-If `ENTRY_EXISTS=true`:
+If `check_result=0` (entry already present):
 
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
@@ -422,50 +346,28 @@ git push origin "<jira-id>"
   echo "  Verify that $BC_URL points to the correct build-config repository."
   exit 1
 }
-```
 
-The `patch.relatedImages:` array contains existing entries like:
-```yaml
-patch:
-  relatedImages:
-    - name: RELATED_IMAGE_EXISTING_COMPONENT_IMAGE
-      value: quay.io/opendatahub/existing-component@sha256:abc123...
-      component: existing-component
-```
-
-**Check if `$RELATED_IMAGE_NAME` already appears in the file, and insert if not:**
-
-```bash
-if grep -q "$RELATED_IMAGE_NAME" "$CLONE_DIR/bundle/bundle-patch.yaml" 2>/dev/null; then
+if grep -qF "$RELATED_IMAGE_NAME" "$CLONE_DIR/bundle/bundle-patch.yaml"; then
   echo "$RELATED_IMAGE_NAME already in bundle-patch.yaml — skipping edit."
 else
-  if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
-    uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-array-entry \
-      "$CLONE_DIR/bundle/bundle-patch.yaml" \
-      --array-key "patch.relatedImages" \
-      --name      "$RELATED_IMAGE_NAME" \
-      --value     "$RELATED_IMAGE_VALUE" \
-      --component "$COMPONENT_NAME"
-  else
-    uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-array-entry \
-      "$CLONE_DIR/bundle/bundle-patch.yaml" \
-      --array-key "patch.relatedImages" \
-      --name      "$RELATED_IMAGE_NAME" \
-      --value     "$RELATED_IMAGE_VALUE"
-  fi
+  COMPONENT_ARG=""
+  [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]] && COMPONENT_ARG="--component $COMPONENT_NAME"
+
+  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-array-entry \
+    "$CLONE_DIR/bundle/bundle-patch.yaml" \
+    --array-key "patch.relatedImages" \
+    --name      "$RELATED_IMAGE_NAME" \
+    --value     "$RELATED_IMAGE_VALUE" \
+    $COMPONENT_ARG || {
+    echo "ERROR in Step 7 (Update bundle-patch.yaml): Could not append relatedImages entry. Aborting."
+    exit 1
+  }
+
+  grep -qF "$RELATED_IMAGE_NAME" "$CLONE_DIR/bundle/bundle-patch.yaml" || {
+    echo "ERROR: $RELATED_IMAGE_NAME not found in bundle-patch.yaml after insert."
+    exit 1
+  }
 fi
-```
-
-On exit 1 from `edit_yaml.py`: display stderr and stop with:
-```
-ERROR in Step 7 (Update bundle-patch.yaml): Could not append relatedImages entry. See details above. Aborting.
-```
-
-Verify the entry was written:
-
-```bash
-grep -q "$RELATED_IMAGE_NAME" "$CLONE_DIR/bundle/bundle-patch.yaml" \
-  || { echo "ERROR: $RELATED_IMAGE_NAME not found in bundle-patch.yaml after insert."; exit 1; }
 ```
 
 ---
