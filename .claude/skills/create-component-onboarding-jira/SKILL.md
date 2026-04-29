@@ -531,6 +531,21 @@ else
 fi
 ```
 
+**7c-0 — Update Jira title:**
+
+Fetch the current issue summary and apply the same transformations used in Path B:
+- Remove any `[TEMPLATE] ` or `[Template] ` prefix
+- Replace `[COMPONENT NAME]` or `[Component Name]` with `$component_name`
+
+If the title already looks correct (no template tokens present), skip the update.
+Otherwise update via `PUT /rest/api/2/issue/$JIRA_ID` with `{"fields":{"summary":"<new-title>"}}`.
+
+On failure: print a warning and continue — title update is non-critical:
+```
+WARN in Step 7c-0: Could not update Jira title. Please rename manually to:
+  ODH Konflux CI Build Onboarding $component_name
+```
+
 **7c-1 — Add label:**
 
 ```bash
@@ -546,18 +561,22 @@ WARN in Step 7c-1: Could not add 'component-onboarding' label to $JIRA_URL. Cont
 **7c-2 — Update description table:**
 
 Fetch the Jira's current description (run `fetch_jira_details.py "$JIRA_URL"` and read
-`.fields.description`). Locate the following rows in the description table by their label
-cell and replace the value cell with the computed value:
+`.fields.description`). The description contains a table whose first row is the column
+header (`||*Upstream Git Repo*||…`) followed by one or more non-header rows.
 
-| Label cell | New value |
-|-----------|-----------|
-| `Image / Quay Repo Name` | `$QUAY_IMAGE` |
-| `Build Context` | `$context_path` |
-| `Dockerfile Link or Path` | Jira wiki link: `[$dockerfile_path\|$DOCKERFILE_LINK]` |
+Split the description by newlines and find the header row index. Then, regardless of
+what any subsequent rows currently contain:
 
-Update the Jira description with the modified content using the Jira REST API (`PUT
-/rest/api/2/issue/$JIRA_ID` with `{"fields":{"description":"<new-description>"}}`).
-Use Python with `urllib.request` and `JIRA_USER_EMAIL` / `JIRA_API_TOKEN` for Basic auth.
+1. **Replace** `lines[header_idx + 1]` with the actual values row:
+   `| $repo_url | $QUAY_IMAGE | $context_path | [$dockerfile_path|$DOCKERFILE_LINK] | |`
+2. **Remove** all lines from `header_idx + 2` onward that start with `|` (they are
+   additional placeholder or empty rows). Stop as soon as a line does not start with `|`.
+
+This leaves exactly one data row in the table. Do **not** match or inspect the content
+of any row — operate purely by position relative to the header.
+
+Use Python with `urllib.request` and `JIRA_USER_EMAIL` / `JIRA_API_TOKEN` for Basic auth
+to `PUT /rest/api/2/issue/$JIRA_ID` with `{"fields":{"description":"<new-description>"}}`.
 
 On failure: print a warning but **do not abort**:
 ```

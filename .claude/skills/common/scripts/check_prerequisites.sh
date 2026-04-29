@@ -14,7 +14,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-for var in "${ENV_VARS[@]}"; do
+for var in "${ENV_VARS[@]+"${ENV_VARS[@]}"}"; do
   if [[ -z "${!var:-}" ]]; then
     echo "ERROR: Required environment variable '$var' is not set." >&2
     case "$var" in
@@ -60,7 +60,7 @@ _install_hint() {
   esac
 }
 
-for tool in "${TOOLS[@]}"; do
+for tool in "${TOOLS[@]+"${TOOLS[@]}"}"; do
   if ! _tool_ok "$tool"; then
     echo "ERROR: Required tool '$tool' is not installed or not in PATH." >&2
     _install_hint "$tool"
