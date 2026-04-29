@@ -179,6 +179,72 @@ Transform the validated input to the canonical form and store in `target_rhoai_v
 → Store in `repo_url`.
   Validate: must match `^https://github\.com/.+/.+$`. Re-ask if invalid.
 
+**Q4.5 — Component descriptions (RHOAI only)**
+
+_Execute only when `product_context == RHOAI`. Skip entirely for ODH._
+
+Immediately after receiving `repo_url`, attempt to auto-suggest descriptions by fetching
+the repository README (try `main` branch, then `master` as fallback):
+
+```bash
+REPO_RAW_BASE="${repo_url/github.com/raw.githubusercontent.com}"
+README_CONTENT=$(curl -sf "${REPO_RAW_BASE}/main/README.md" 2>/dev/null \
+  || curl -sf "${REPO_RAW_BASE}/main/README.rst" 2>/dev/null \
+  || curl -sf "${REPO_RAW_BASE}/master/README.md" 2>/dev/null \
+  || echo "")
+```
+
+**If `README_CONTENT` is non-empty:**
+
+Read the README and extract a suggested `long_description` (one to two sentences
+describing what the component does) and a suggested `short_description` (a noun phrase
+of a few words summarizing the component).
+
+Present each suggestion and ask the user to confirm or edit:
+
+```
+Fetched README from $repo_url.
+
+Suggested long description:
+  <suggested_long_description>
+
+Accept? (yes / edit)
+```
+
+- `yes` → store as `long_description`
+- `edit` → display the suggestion as pre-filled text, let the user modify it, then store
+
+```
+Suggested short description:
+  <suggested_short_description>
+
+Accept? (yes / edit)
+```
+
+- `yes` → store as `short_description`
+- `edit` → display the suggestion as pre-filled text, let the user modify it, then store
+
+**If `README_CONTENT` is empty (all fetches failed):**
+
+Ask directly:
+> Please provide a long description for this component (one or two sentences describing what it does):
+
+→ Store in `long_description`. Must be non-empty.
+
+Then summarize `long_description` into a short noun phrase (a few words) and offer it
+as the suggested `short_description`:
+
+```
+Suggested short description:
+  <summarized_short_description>
+
+Accept? (yes / edit)
+```
+
+→ Confirm or modify, store in `short_description`. Must be non-empty.
+
+---
+
 **Q5 — Branch**
 
 _If `product_context == ODH`:_
@@ -243,6 +309,8 @@ Component onboarding details collected:
   repo_branch                  : <value>
   context_path                 : <value>
   dockerfile_path              : <value>
+  long_description             : <value or N/A>   # only shown for RHOAI
+  short_description            : <value or N/A>   # only shown for RHOAI
   is_operator                  : <value>
   operator_manifest_src_path   : <value or N/A>
   operator_manifest_dest_path  : <value or N/A>
@@ -280,6 +348,8 @@ Write `$YAML_PATH` using a bash script. Only include keys that are relevant — 
       echo "    - ${arch}"
     done
     echo "  target_rhoai_version: ${target_rhoai_version}"
+    echo "  long_description: ${long_description}"
+    echo "  short_description: ${short_description}"
   fi
   echo "  is_operator: ${is_operator}"
   if [[ "$is_operator" == "true" ]]; then
@@ -343,7 +413,7 @@ On exit 1: display stderr and stop with:
 ERROR in Step 7 (Upload attachment): Could not attach YAML to Jira. See details above. Aborting.
 ```
 
-Continue to Step 8.
+Continue to Step 7c.
 
 ---
 
@@ -432,6 +502,69 @@ This ticket is ready for onboarding automation. Run /validate-component-onboardi
 On exit 1: display stderr and stop with:
 ```
 ERROR in Step 7b-4 (Upload attachment): Could not attach YAML to new Jira. See details above. Aborting.
+```
+
+Continue to Step 7c.
+
+---
+
+### Step 7c: Update Jira metadata (shared — both paths)
+
+**Skip this entire step if `JIRA_URL` is empty** (RHOAI with no URL provided).
+
+Compute the values for the Jira updates:
+
+```bash
+# Quay image name — org depends on product_context
+if [[ "$product_context" == "ODH" ]]; then
+  QUAY_IMAGE="quay.io/opendatahub/${component_name}"
+else
+  QUAY_IMAGE="quay.io/rhoai/${component_name}-rhel9"
+fi
+
+# Absolute Dockerfile URL — strip leading "./" from context_path, join with dockerfile_path
+CLEAN_CTX="${context_path%/}"; CLEAN_CTX="${CLEAN_CTX#./}"
+if [[ -z "$CLEAN_CTX" || "$CLEAN_CTX" == "." ]]; then
+  DOCKERFILE_LINK="${repo_url}/blob/${repo_branch}/${dockerfile_path}"
+else
+  DOCKERFILE_LINK="${repo_url}/blob/${repo_branch}/${CLEAN_CTX}/${dockerfile_path}"
+fi
+```
+
+**7c-1 — Add label:**
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+  --add-label "component-onboarding"
+```
+
+On exit 1: print a warning and continue — labelling is non-critical:
+```
+WARN in Step 7c-1: Could not add 'component-onboarding' label to $JIRA_URL. Continue manually.
+```
+
+**7c-2 — Update description table:**
+
+Fetch the Jira's current description (run `fetch_jira_details.py "$JIRA_URL"` and read
+`.fields.description`). Locate the following rows in the description table by their label
+cell and replace the value cell with the computed value:
+
+| Label cell | New value |
+|-----------|-----------|
+| `Image / Quay Repo Name` | `$QUAY_IMAGE` |
+| `Build Context` | `$context_path` |
+| `Dockerfile Link or Path` | Jira wiki link: `[$dockerfile_path\|$DOCKERFILE_LINK]` |
+
+Update the Jira description with the modified content using the Jira REST API (`PUT
+/rest/api/2/issue/$JIRA_ID` with `{"fields":{"description":"<new-description>"}}`).
+Use Python with `urllib.request` and `JIRA_USER_EMAIL` / `JIRA_API_TOKEN` for Basic auth.
+
+On failure: print a warning but **do not abort**:
+```
+WARN in Step 7c-2: Could not update Jira description table. Please update manually:
+  Image / Quay Repo Name  → $QUAY_IMAGE
+  Build Context           → $context_path
+  Dockerfile Link or Path → $DOCKERFILE_LINK
 ```
 
 ---
