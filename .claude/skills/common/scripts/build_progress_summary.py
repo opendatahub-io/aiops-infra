@@ -73,7 +73,7 @@ def url_cell(step: dict, url_field: str | None) -> str:
     if url_field is None:
         return "—"
     url = step.get(url_field, "")
-    return f"[link]({url})" if url else "—"
+    return url if url else "—"
 
 
 def build_full_summary(state: dict, component_name: str, product_context: str) -> str:
@@ -173,16 +173,12 @@ def build_pending_summary(
     tag_line = f"@{assignee} — please review the open PRs/MRs.\n\n" if assignee else ""
 
     lines = [
-        f"{tag_line}## Pending PRs / MRs: `{component_name}`",
-        "",
-        "The following PRs/MRs are still open and awaiting merge:",
-        "",
         "| Step | PR / MR | Next action on merge |",
         "|------|---------|----------------------|",
     ]
     lines.extend(pending_rows)
     lines.append("")
-    return "\n".join(lines)
+    return tag_line + "\n".join(lines)
 
 
 def main():

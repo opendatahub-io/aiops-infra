@@ -84,22 +84,25 @@ fi
 # skopeo failed — inspect stderr to distinguish cases
 STDERR_LOWER=$(echo "$STDERR_CONTENT" | tr '[:upper:]' '[:lower:]')
 
-# Auth error — Quay.io returns 401 for BOTH private repos AND non-existent repos
-# in public orgs (e.g. opendatahub). Confirm via the Quay API before assuming "exists".
+# Auth error from skopeo — Quay.io returns 401 for BOTH non-existent repos AND
+# private repos, so skopeo's "unauthorized" alone cannot confirm existence.
+# Use the Quay REST API as a tie-breaker: only HTTP 200 is a definitive "exists".
+# 401/404 from the API are both treated as "does not exist" because:
+#   - public repos that exist → 200
+#   - non-existent repos     → 401 (Quay hides existence) or 404
+#   - private repos          → 401 (ambiguous, but false-negative is safe here
+#     since the Step 8 YAML idempotency check prevents actual duplicates)
 if echo "$STDERR_LOWER" | grep -qE 'unauthorized|authentication required|access denied|403'; then
   ORG=$(echo "$REPO" | cut -d/ -f1)
   REPO_NAME=$(echo "$REPO" | cut -d/ -f2)
   QUAY_API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     "https://quay.io/api/v1/repository/${ORG}/${REPO_NAME}" 2>/dev/null || echo "000")
 
-  if [[ "$QUAY_API_STATUS" == "200" || "$QUAY_API_STATUS" == "401" || "$QUAY_API_STATUS" == "403" ]]; then
-    info "${FULL_REPO} exists (confirmed via Quay API, status=${QUAY_API_STATUS})."
+  if [[ "$QUAY_API_STATUS" == "200" ]]; then
+    info "${FULL_REPO} exists (confirmed via Quay API)."
     exit 0
-  elif [[ "$QUAY_API_STATUS" == "404" ]]; then
-    info "${FULL_REPO} does not exist (Quay API returned 404; skopeo 401 was a false positive)."
-    exit 1
   else
-    warn "skopeo returned auth error but Quay API returned unexpected status ${QUAY_API_STATUS} — treating as does-not-exist."
+    info "${FULL_REPO} not confirmed via Quay API (status=${QUAY_API_STATUS}) — treating as does not exist."
     exit 1
   fi
 fi

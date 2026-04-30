@@ -36,6 +36,7 @@ def cmd_append_items_array(args):
     """Append an entry to a top-level 'items' sequence."""
     yaml = YAML()
     yaml.preserve_quotes = True
+    yaml.width = 4096
     path = Path(args.file)
     data = _load(path, yaml)
 
@@ -54,6 +55,7 @@ def cmd_append_yaml_doc(args):
     """Append a YAML document block to a multi-document YAML file."""
     yaml = YAML()
     yaml.preserve_quotes = True
+    yaml.width = 4096
     path = Path(args.file)
 
     new_doc = yaml.load(args.yaml_string)
@@ -73,6 +75,7 @@ def cmd_insert_map_key(args):
     """Insert a key into a nested map at the given parent key."""
     yaml = YAML()
     yaml.preserve_quotes = True
+    yaml.width = 4096
     path = Path(args.file)
     data = _load(path, yaml)
 
@@ -93,6 +96,7 @@ def cmd_append_array_entry(args):
     """Append an object entry to a nested array."""
     yaml = YAML()
     yaml.preserve_quotes = True
+    yaml.width = 4096
     path = Path(args.file)
     data = _load(path, yaml)
 
@@ -120,6 +124,7 @@ def cmd_append_rpa_component(args):
     """Append a ReleasePlanAdmission component entry {name, repositories: [{url}]} to a nested array."""
     yaml = YAML()
     yaml.preserve_quotes = True
+    yaml.width = 4096
     path = Path(args.file)
     data = _load(path, yaml)
 
@@ -143,6 +148,7 @@ def cmd_insert_simple_map_entry(args):
     """Set a simple key=value string pair in a nested map (supports integer indices in dot-path)."""
     yaml = YAML()
     yaml.preserve_quotes = True
+    yaml.width = 4096
     path = Path(args.file)
     data = _load(path, yaml)
 
@@ -169,6 +175,7 @@ def cmd_insert_list_item(args):
     """Insert a scalar value into a list at the given key."""
     yaml = YAML()
     yaml.preserve_quotes = True
+    yaml.width = 4096
     path = Path(args.file)
     data = _load(path, yaml)
 
@@ -193,6 +200,7 @@ def cmd_append_renovate_repo(args):
     """Append a sync-repositories entry to the first matching renovate distribution group."""
     yaml = YAML()
     yaml.preserve_quotes = True
+    yaml.width = 4096
     path = Path(args.file)
     data = _load(path, yaml)
 
