@@ -245,7 +245,24 @@ Then stop with: `ERROR in Step 5c (Dockerfile Digest Check): FROM instructions w
 
 ### Step 6: Update Jira on success and report
 
-Update the Jira issue to reflect successful validation, then print the completion summary.
+Check whether the `validation-successful` label is already present on the issue
+(from the JSON fetched in Step 3):
+
+```bash
+ALREADY_VALIDATED=$(jq -r '[.fields.labels[] | select(. == "validation-successful")] | length > 0' \
+  "$WORKDIR/component_onboarding_details.json")
+```
+
+If `ALREADY_VALIDATED == "true"`, skip the comment — just update labels and status silently:
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+  --add-label "validation-successful" \
+  --remove-label "validation-failed" \
+  --status "In Progress"
+```
+
+If `ALREADY_VALIDATED != "true"`, post the full success comment:
 
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
