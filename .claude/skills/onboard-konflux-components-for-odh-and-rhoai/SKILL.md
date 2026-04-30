@@ -399,7 +399,7 @@ if [[ -n "$LAST_CHANGE" ]]; then
 fi
 
 HAS_OPEN=$(jq -r '[.steps | to_entries[] | select(.value.status == "pr_raised" or .value.status == "mr_raised")] | length' "$PIPELINE_STATE")
-ASSIGNEE=$(jq -r '.fields.assignee.displayName // ""' "$WORKDIR/component_onboarding_details.json" 2>/dev/null || true)
+ASSIGNEE=$(jq -r '.fields.assignee.accountId // ""' "$WORKDIR/component_onboarding_details.json" 2>/dev/null || true)
 
 POST_IDLE_REMINDER="false"
 if [[ "$HAS_OPEN" -gt 0 && "$IDLE_DAYS" -ge 2 && -n "$ASSIGNEE" ]]; then

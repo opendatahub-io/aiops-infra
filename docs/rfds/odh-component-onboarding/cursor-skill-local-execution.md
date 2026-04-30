@@ -1,10 +1,12 @@
-# Approach 2: Claude Code / Cursor Skills — Local Execution
+# Claude Code / Cursor Skills — Local Execution
 
 ## Overview
 
-The ODH/RHOAI component onboarding workflow is implemented as a **suite of modular Claude Code skills**, each responsible for one discrete step of the pipeline. A component team member first runs the `create-component-onboarding-jira` skill to create the Jira ticket and capture onboarding parameters. The DevOps engineer then invokes the `onboard-konflux-components-for-odh-and-rhoai` wrapper skill with the Jira URL; the wrapper reads the attached YAML, derives the **product context** (ODH or RHOAI), executes each applicable step skill in sequence, raises PRs/MRs to the target repositories, and launches background monitors to track merges. Jira is updated automatically at each milestone, and the ticket transitions to "Resolved" once all PRs and MRs are merged.
+The ODH/RHOAI component onboarding workflow is implemented as a **suite of modular Claude Code skills**, each responsible for one discrete step of the pipeline. A component team member first runs the `create-component-onboarding-jira` skill to create the Jira ticket and capture onboarding parameters. The DevOps engineer then invokes the `onboard-konflux-components-for-odh-and-rhoai` wrapper skill with the Jira URL; the wrapper reads the attached YAML, derives the **product context** (ODH or RHOAI), executes each applicable step skill in sequence, raises PRs/MRs to the target repositories, and posts a summary of what changed to Jira. Jira is updated automatically at each milestone, and the ticket transitions to "Resolved" once all PRs and MRs are merged.
 
-The skill supports both **ODH** and **RHOAI** onboarding from a single invocation. ODH and RHOAI share a common core pipeline (Steps 1–7) but diverge on product-specific steps: RHOAI includes additional steps for Dockerfile label validation, delivery repo provisioning, auto-merge configuration, and Renovate enablement (Steps 8–11), while ODH triggers a deferred GitHub Actions workflow (Step 5) instead.
+The skill supports both **ODH** and **RHOAI** onboarding from a single invocation. ODH and RHOAI share a common core pipeline (Steps 1–7) but diverge on product-specific steps: RHOAI includes additional steps for delivery repo provisioning, product listing update, auto-merge configuration, and Renovate enablement (Steps 8–11), while ODH triggers a deferred GitHub Actions workflow (Step 5) instead. For RHOAI, Step 4 also raises a second PR for push-request PipelineRuns in konflux-central.
+
+The skill follows an **idempotent re-run model**: invoke it any number of times for the same Jira URL. Each run syncs PR/MR state from the GitHub/GitLab APIs and Jira labels, executes newly-unblocked steps, and posts a comment only when something changed. No background processes are used.
 
 All skills run **locally** in the engineer's Claude Code / Cursor IDE session. A planned follow-on phase will automatically trigger the wrapper skill on Jira ticket creation via a webhook or CI pipeline, eliminating the manual invocation step.
 
@@ -30,10 +32,13 @@ All skills live under `.claude/skills/` in the `aiops-infra` repository:
 ├── onboard-component-to-konflux-release-data/ # Step 3: GitLab MR to konflux-release-data
 │   ├── SKILL.md
 │   └── install.sh
-├── add-component-to-odh-konflux-central/      # Step 4 (ODH): GitHub PR for Tekton pipelineruns
+├── add-component-to-odh-konflux-central/      # Step 4 (ODH): GitHub PR for push PipelineRuns
 │   ├── SKILL.md
 │   └── install.sh
-├── add-component-to-rhoai-konflux-central/    # Step 4 (RHOAI): GitHub PR for Tekton pipelineruns
+├── add-component-to-rhoai-konflux-central/    # Step 4 (RHOAI): GitHub PR for push PipelineRuns
+│   ├── SKILL.md
+│   └── install.sh
+├── create-pull-pipelines-in-rhoai-konflux-central/ # Step 4b (RHOAI): GitHub PR for pull-request PipelineRuns
 │   ├── SKILL.md
 │   └── install.sh
 ├── run-odh-konflux-onboarder-workflow/        # Step 5 (ODH only): GitHub Actions workflow trigger
@@ -45,10 +50,10 @@ All skills live under `.claude/skills/` in the `aiops-infra` repository:
 ├── integrate-component-with-bundle/           # Step 7: GitHub PR to ODH-Build-Config
 │   ├── SKILL.md
 │   └── install.sh
-├── add-rhoai-dockerfile-labels/               # Step 8 (RHOAI only): GitHub PR to add OCI labels
+├── create-rhoai-delivery-repo/                # Step 8 (RHOAI only): GitLab MR to pyxis-repo-configs
 │   ├── SKILL.md
 │   └── install.sh
-├── create-rhoai-delivery-repo/                # Step 9 (RHOAI only): GitLab MR to pyxis-repo-configs
+├── update-rhoai-product-listing/             # Step 9 (RHOAI only): GitLab MR to pyxis-repo-configs
 │   ├── SKILL.md
 │   └── install.sh
 ├── setup-auto-merge/                          # Step 10 (RHOAI only): GitHub PR to rhods-devops-infra
@@ -58,6 +63,9 @@ All skills live under `.claude/skills/` in the `aiops-infra` repository:
 │   ├── SKILL.md
 │   └── install.sh
 ├── sync-rhoai-renovate-configs/               # Step 11 deferred (RHOAI only): triggers renovate sync workflow
+│   ├── SKILL.md
+│   └── install.sh
+├── add-rhoai-dockerfile-labels/               # Standalone skill (not part of orchestrator pipeline)
 │   ├── SKILL.md
 │   └── install.sh
 ├── onboard-konflux-components-for-odh-and-rhoai/  # Wrapper — orchestrates all steps
@@ -79,9 +87,15 @@ All skills live under `.claude/skills/` in the `aiops-infra` repository:
         ├── check_quay_repo.sh
         ├── check_konflux_component.sh
         ├── login_to_konflux_cluster.sh
-        ├── launch_monitor.sh             # Launches background PR/MR monitors
-        ├── monitor_pr.sh                 # Worker: retry loop + Jira update on merge
-        └── watch_monitors.sh             # Live event stream across all monitors
+        ├── parse_jira_url.sh              # Extracts JIRA_URL / JIRA_ID from args
+        ├── check_prerequisites.sh         # Validates env vars and CLI tools
+        ├── init_pipeline.sh               # Creates/resumes pipeline_state.json
+        ├── parse_component_details.sh     # Reads YAML, derives computed vars
+        ├── sync_state_from_jira.py        # Rebuilds state from Jira labels + comments
+        ├── check_pr_mr_status.sh          # Queries GitHub/GitLab APIs for merge status
+        ├── pipeline_state.sh              # Low-level state read/write helper
+        ├── build_progress_summary.py      # Renders Jira comment bodies (full/pending/changes)
+        └── raise_jira_review.sh          # Transitions Jira to Review status
 ```
 
 ---
@@ -99,28 +113,27 @@ flowchart TD
 
     subgraph devopsEngineer [DevOps Engineer — Claude Code / Cursor]
         Eng([DevOps Engineer])
-        Wrapper["onboard-konflux-components-for-odh-and-rhoai\n(wrapper skill)"]
+        Wrapper["onboard-konflux-components-for-odh-and-rhoai\n(wrapper skill — idempotent re-run)"]
         State["pipeline_state.json\n(resumable state)"]
 
         S1["validate-component-onboarding-jira"]
         S2["create-quay-repo"]
         S3["onboard-component-to-konflux-release-data"]
         S4ODH["add-component-to-odh-konflux-central\n(ODH)"]
-        S4RHOAI["add-component-to-rhoai-konflux-central\n(RHOAI)"]
-        S5["run-odh-konflux-onboarder-workflow\n(deferred, background — ODH only)"]
+        S4RHOAI["add-component-to-rhoai-konflux-central\n(RHOAI push pipelines)"]
+        S4b["create-pull-pipelines-in-rhoai-konflux-central\n(RHOAI pull pipelines)"]
+        S5["run-odh-konflux-onboarder-workflow\n(once krd+okc merged — ODH only)"]
         S6["integrate-component-with-odh-operator\n(if is_operator=true)"]
         S7["integrate-component-with-bundle"]
-        S8["add-rhoai-dockerfile-labels\n(RHOAI only)"]
-        S9["create-rhoai-delivery-repo\n(RHOAI only)"]
+        S8["create-rhoai-delivery-repo\n(RHOAI only)"]
+        S9["update-rhoai-product-listing\n(RHOAI only, after delivery-repo merges)"]
         S10["setup-auto-merge\n(RHOAI only)"]
         S11["enable-renovate-on-rhoai-component-repo\n+ deferred renovate sync\n(RHOAI only)"]
-        BG["Background monitors\n(launch_monitor.sh / monitor_completion.sh)"]
 
         Eng -->|"/onboard-konflux-components-for-odh-and-rhoai <jira-url>"| Wrapper
         Wrapper --> S1 --> S2 --> S3
         S3 --> S4ODH --> S5 --> S6 --> S7
-        S3 --> S4RHOAI --> S6 --> S7 --> S8 --> S9 --> S10 --> S11
-        Wrapper --> BG
+        S3 --> S4RHOAI --> S4b --> S6 --> S7 --> S8 --> S9 --> S10 --> S11
         Wrapper <-->|"Read / Write"| State
     end
 
@@ -140,15 +153,16 @@ flowchart TD
     end
 
     Wrapper -->|"Fetch YAML"| JiraTicket
-    BG -->|"Update labels + comment + status"| JiraTicket
+    Wrapper -->|"Update labels + comment + status"| JiraTicket
     S2 --> AppInterface
     S3 --> KonfluxRD
     S4ODH --> ODHKonflux
     S4RHOAI --> RHOAIKonflux
+    S4b --> RHOAIKonflux
     S5 --> ODHKonflux
     S6 --> ODHOperator
     S7 --> ODHBC
-    S8 --> ODHKonflux
+    S8 --> PyxisRepo
     S9 --> PyxisRepo
     S10 --> RHODSInfra
     S11 --> RHOAIKonflux
@@ -177,11 +191,12 @@ The YAML attachment is the **contract** between the component team and the DevOp
 This is the **wrapper / parent skill** that drives the full onboarding pipeline. It:
 
 1. Validates prerequisites (env vars, CLI tools).
-2. Reads `pipeline_state.json` and resumes from the last completed step if interrupted.
+2. Reads `pipeline_state.json` (or restores it from Jira labels) and resumes from where it left off.
 3. Derives `PRODUCT_CONTEXT` (ODH or RHOAI) from the Jira key prefix or ticket summary, and marks non-applicable steps as skipped.
-4. Invokes each step skill in sequence, overriding their blocking PR/MR monitors with background monitors.
-5. Updates Jira labels and status at each milestone.
-6. Transitions the ticket to "Resolved" automatically when all PRs/MRs are merged.
+4. Queries GitHub/GitLab APIs to detect any PRs/MRs that merged since the last run.
+5. Executes each newly-unblocked step (raises PR/MR only — no blocking waits).
+6. Posts a Jira comment only when something changed (new PR raised or existing PR merged).
+7. Transitions the ticket to "Resolved" automatically when all applicable steps are done.
 
 ```
 /onboard-konflux-components-for-odh-and-rhoai <jira-url>
@@ -193,43 +208,44 @@ This is the **wrapper / parent skill** that drives the full onboarding pipeline.
 
 | Step | Skill | Action | Target Repo | ODH / RHOAI | HITL Gate |
 |------|-------|--------|-------------|-------------|-----------|
-| 0 | *(wrapper)* | Parse inputs, check prerequisites, derive product context, init/resume `pipeline_state.json` | — | Both | — |
+| 0 | *(wrapper)* | Parse inputs, check prerequisites, derive product context, init/resume `pipeline_state.json`, sync state from Jira labels | — | Both | — |
 | 1 | `validate-component-onboarding-jira` | Fetch YAML from Jira; validate against schema; set Jira → "In Progress" | — | Both | Blocks on schema failure |
 | 2 | `create-quay-repo` | Raise GitLab MR to `app-interface` to create Quay repository | `gitlab.cee.redhat.com` | Both | MR review + merge |
 | 3 | `onboard-component-to-konflux-release-data` | Render Konflux Component YAML; raise GitLab MR to `konflux-release-data`; run `build-single.sh` | `gitlab.cee.redhat.com` | Both | MR review + merge |
-| 4 | `add-component-to-odh-konflux-central` / `add-component-to-rhoai-konflux-central` | Add Tekton PipelineRun YAMLs; raise GitHub PR to the product-specific konflux-central repo | `odh-konflux-central` / `rhoai-konflux-central` | Both (product-specific skill) | PR review + merge |
-| 5 | `run-odh-konflux-onboarder-workflow` | *(Deferred, ODH only)* Waits for Steps 2–4 to merge, then triggers `odh-konflux-onboarder.yml`; monitors resulting Tekton PR | `odh-konflux-central` | ODH only | Tekton PR review + merge |
+| 4 | `add-component-to-odh-konflux-central` / `add-component-to-rhoai-konflux-central` | Add push-pipeline Tekton PipelineRun YAMLs; raise GitHub PR to the product-specific konflux-central repo | `odh-konflux-central` / `rhoai-konflux-central` | Both (product-specific skill) | PR review + merge |
+| 4b | `create-pull-pipelines-in-rhoai-konflux-central` | Add pull-request Tekton PipelineRun YAMLs; raise GitHub PR to `rhoai-konflux-central` | `rhoai-konflux-central` | RHOAI only | PR review + merge |
+| 5 | `run-odh-konflux-onboarder-workflow` | *(Deferred, ODH only)* Once Steps 3 and 4 are both merged, triggers `odh-konflux-onboarder.yml` and monitors the resulting Tekton PR | `odh-konflux-central` | ODH only | Tekton PR review + merge |
 | 6 | `integrate-component-with-odh-operator` | Skipped if `is_operator=false`. Raise GitHub PR to add manifest config to `opendatahub-operator` | `opendatahub-operator` | Both | PR review + merge |
 | 7 | `integrate-component-with-bundle` | Fetch latest image digest from Quay; add `relatedImages` entry to `bundle-patch.yaml`; raise GitHub PR | `ODH-Build-Config` | Both | PR review + merge |
-| 8 | `add-rhoai-dockerfile-labels` | Check component Dockerfile for mandatory RHOAI OCI labels; raise GitHub PR to add any missing labels | component repo | RHOAI only | PR review + merge |
-| 9 | `create-rhoai-delivery-repo` | Raise GitLab MR to `pyxis-repo-configs` to provision the RHOAI delivery repository | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
+| 8 | `create-rhoai-delivery-repo` | Raise GitLab MR to `pyxis-repo-configs` to provision the RHOAI delivery repository | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
+| 9 | `update-rhoai-product-listing` | Raise GitLab MR to `pyxis-repo-configs` to add the component to the RHOAI product listing; runs after Step 8 merges | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
 | 10 | `setup-auto-merge` | Raise GitHub PR to `rhods-devops-infra` to configure auto-merge for the component repo | `rhods-devops-infra` | RHOAI only | PR review + merge |
 | 11 | `enable-renovate-on-rhoai-component-repo` | Raise GitHub PR to `rhoai-konflux-central` to enable Renovate; on merge, trigger deferred `sync-rhoai-renovate-configs` workflow | `rhoai-konflux-central` | RHOAI only | PR review + merge |
 
-After all PRs/MRs are merged, Jira is transitioned to **Resolved** automatically by the background completion monitor.
+After all PRs/MRs are merged, Jira is transitioned to **Resolved** automatically on the next re-run.
 
 ---
 
-## Background Monitoring Pattern
+## Re-run Model
 
-The wrapper replaces each step skill's **blocking** PR/MR monitor with a non-blocking background process. This allows the wrapper to raise all PRs/MRs in a single session and then exit, letting monitors run in the background.
+The wrapper uses an **idempotent re-run model** — there are no persistent background processes. Re-invoking the skill for the same Jira URL is the mechanism for advancing the pipeline after PRs/MRs are merged.
 
-- **`launch_monitor.sh`** — starts `monitor_pr.sh` via `nohup`, returns immediately.
-- **`monitor_pr.sh`** — polls for merge; on merge, calls `update_jira_issue.py` to post a comment and remove the "raised" label. Retries automatically on connection errors and transient VPN drops.
-- **`deferred_workflow.sh`** *(ODH only)* — waits for Steps 2, 3, and 4 to merge before triggering the GitHub Actions workflow for Step 5, then monitors the resulting Tekton PR.
-- **`renovate_sync.sh`** *(RHOAI only)* — waits for the Step 11 Renovate PR to merge, then triggers the `sync-rhoai-renovate-configs` workflow to push the config to all registered component repos.
-- **`monitor_completion.sh`** — polls `pipeline_state.json` until all applicable steps are done, then transitions Jira to "Resolved".
+Each run follows this pattern:
 
-Live event stream (run in a separate terminal while the wrapper is active):
-```bash
-bash .claude/skills/common/scripts/watch_monitors.sh --workdir ./<JIRA_ID>
-```
+1. **Sync state** — `sync_state_from_jira.py` reconstructs `pipeline_state.json` from Jira labels and comments (resilient to fresh checkouts or lost state files).
+2. **Check PR/MR status** — `check_pr_mr_status.sh` queries the GitHub/GitLab APIs for every step currently in `pr_raised` or `mr_raised` status and updates `pipeline_state.json` with any merges detected.
+3. **Compute unblocked steps** — steps whose `depends_on` list is fully satisfied and whose status is still `pending` are eligible for execution this run.
+4. **Execute unblocked steps** — each child skill is followed through to the PR/MR raise only; no blocking wait is performed. The PR/MR URL is recorded in `pipeline_state.json` and the corresponding label added to Jira.
+5. **Post Jira comment** — if anything changed this run (new PRs raised or existing ones merged), a pending-PRs-only summary is posted to Jira. If nothing changed, no comment is posted.
+6. **Resolve or keep in Review** — if all steps are done, the full pipeline table is posted and Jira transitions to Resolved; otherwise, Jira is set to Review.
+
+The recommended cadence is to re-run the skill once a day (or whenever a PR/MR is merged) until the ticket resolves.
 
 ---
 
 ## State Management
 
-The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the working directory. Each step writes its status (`pending` → `mr_raised` / `pr_raised` → `merged` / `skipped` / `done`) and the PR/MR URL. Non-applicable steps are marked `skipped` immediately after the product context is derived. On re-invocation with the same Jira URL, completed steps are skipped and the workflow resumes from where it left off.
+The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the working directory. Each step writes its status (`pending` → `mr_raised` / `pr_raised` → `merged` / `skipped` / `done`) and the PR/MR URL. Non-applicable steps are marked `skipped` immediately after the product context is derived. On re-invocation with the same Jira URL, `sync_state_from_jira.py` restores state from Jira labels even if the local file is missing, ensuring the pipeline can always resume correctly.
 
 ```json
 {
@@ -241,18 +257,21 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the working directory. 
   "quay_visibility": "private",
   "quay_repo_uri": "quay.io/rhoai/my-component-rhel9",
   "is_operator": false,
+  "last_status_change_at": "2025-04-01T10:00:00Z",
   "steps": {
     "validate":          { "status": "done" },
     "quay":              { "mr_url": "https://gitlab.../merge_requests/456", "status": "merged" },
     "krd":               { "mr_url": "https://gitlab.../merge_requests/789", "status": "mr_raised" },
     "okc":               { "pr_url": "", "status": "pending" },
-    "onboarder":         { "run_id": "", "tekton_pr_url": "", "status": "skipped" },
+    "pull_pipelines":    { "pr_url": "", "status": "pending" },
+    "onboarder_workflow":{ "status": "pending" },
     "operator":          { "pr_url": "", "status": "skipped" },
     "bundle":            { "pr_url": "", "status": "pending" },
-    "dockerfile_labels": { "pr_url": "", "status": "pending" },
     "delivery_repo":     { "mr_url": "", "status": "pending" },
+    "product_listing":   { "mr_url": "", "status": "pending" },
     "auto_merge":        { "pr_url": "", "status": "pending" },
-    "renovate":          { "pr_url": "", "status": "pending" }
+    "renovate":          { "pr_url": "", "status": "pending" },
+    "renovate_sync":     { "status": "pending" }
   }
 }
 ```
@@ -264,7 +283,7 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the working directory. 
 | # | Requirement | Details |
 |---|-------------|---------|
 | 1 | **Claude Code or Cursor IDE** | Agent mode enabled. |
-| 2 | **VPN connected** | Required for GitLab (`gitlab.cee.redhat.com`) and Konflux cluster access (Steps 2, 3, 9). |
+| 2 | **VPN connected** | Required for GitLab (`gitlab.cee.redhat.com`) access (Steps 2, 3, 8, 9). |
 | 3 | **Environment variables** | `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, `GITLAB_USER`, `GITLAB_TOKEN` (api + write_repository), `GITHUB_USER`, `GITHUB_TOKEN` (repo + actions:write). Optional overrides for each target repo URL. |
 | 4 | **CLI tools** | `uv`, `git`, `oc`, `skopeo`, `yamllint`, `jq`, `kustomize`. Run `install.sh` in the wrapper directory to set up any missing shims. |
 | 5 | **Skills installed** | Run `install.sh` in each skill directory, or run it from the wrapper directory which installs all dependencies. |
@@ -282,12 +301,14 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the working directory. 
 | Quay MR merged | Review | `quay-mr-raised` removed |
 | KRD MR merged | Review | `konflux-mr-raised` removed |
 | OKC/RKC PR merged | Review | `okc-pr-raised` / `rkc-pr-raised` removed |
-| Tekton PR merged *(ODH)* | Review | `tekton-pr-merged` added |
-| Dockerfile labels PR merged *(RHOAI)* | Review | `dockerfile-labels-pr-raised` removed |
+| Pull pipelines PR raised *(RHOAI)* | Review | `rkc-pull-pr-raised` added |
+| Pull pipelines PR merged *(RHOAI)* | Review | `rkc-pull-pr-raised` removed |
+| ODH onboarder workflow triggered *(ODH)* | Review | `onboarder-workflow-triggered` added |
 | Delivery repo MR merged *(RHOAI)* | Review | `delivery-repo-mr-raised` removed |
-| Auto-merge PR merged *(RHOAI)* | Review | `auto-merge-setup-done` removed |
+| Product listing MR merged *(RHOAI)* | Review | `product-listing-mr-raised` removed |
+| Auto-merge PR merged *(RHOAI)* | Review | `auto-merge-pr-raised` removed |
 | Renovate PR merged + sync triggered *(RHOAI)* | Review | `renovate-sync-triggered` added |
-| All steps done | Resolved | `onboarding-complete` added, `onboarding-in-review` removed |
+| All steps done | Resolved | `component-onboarding-completed` added, `onboarding-in-review` removed |
 
 ---
 
@@ -297,12 +318,13 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the working directory. 
 |---------|----------|
 | Missing env var or CLI tool | Wrapper exits with a remediation message at Step 1. Fix and re-run. |
 | YAML schema validation fails | `validate-component-onboarding-jira` stops with specific errors. Fix YAML, re-upload to Jira, re-run. |
-| VPN drops mid-run | GitLab calls fail. Background monitors retry automatically (60 s intervals). Re-run wrapper for incomplete foreground steps. |
-| MR/PR creation fails (3 retries) | Wrapper stops at that step. Check credentials and VPN. Re-run; completed steps are skipped via `pipeline_state.json`. |
-| Deferred workflow times out (3 h) *(ODH)* | Check `deferred_workflow.log`; re-run `deferred_workflow.sh` manually. |
-| Renovate sync times out (3 h) *(RHOAI)* | Check `renovate_sync.log`; re-run `/sync-rhoai-renovate-configs` manually. |
-| Completion monitor times out (4 h) | Check individual `.result` files; re-run `monitor_completion.sh` manually. |
-| Re-run after any failure | Re-invoke the wrapper with the same Jira URL. `pipeline_state.json` skips completed steps. |
+| VPN drops mid-run | GitLab calls fail. Re-activate VPN and re-run; completed steps are skipped via `pipeline_state.json`. |
+| MR/PR creation fails (3 retries) | Wrapper stops at that step. Check credentials and VPN. Re-run; completed steps are skipped. |
+| State file lost (fresh checkout) | Re-run; Step 5 (`sync_state_from_jira.py`) restores state from Jira labels and comments. |
+| Onboarder workflow 422 *(ODH)* | krd or okc not yet merged — re-run after both merge. |
+| Renovate sync workflow fails *(RHOAI)* | Re-run `/sync-rhoai-renovate-configs` manually after renovate PR merges. |
+| Re-run after any failure | Re-invoke the wrapper with the same Jira URL. `pipeline_state.json` (restored if needed from Jira) skips completed steps. |
+| PR/MR still not detected as merged | Check if URL in `pipeline_state.json` is correct; verify API connectivity. |
 
 ---
 
@@ -324,15 +346,15 @@ This mirrors **Approach 1 (Jira-triggered ACP execution)** but uses the same Cla
 
 - **Minimal infrastructure** — no new servers or CI pipelines required for the current phase.
 - **Modular and maintainable** — each onboarding step is a separate skill; changes to one step don't affect others.
-- **Resumable** — `pipeline_state.json` enables clean recovery from any interruption.
+- **Resumable** — `pipeline_state.json` (backed by Jira labels) enables clean recovery from any interruption or fresh checkout.
 - **Jira as source of truth** — all progress, PR/MR links, and status transitions are recorded in Jira automatically.
-- **Non-blocking** — background monitors allow the engineer to raise all PRs/MRs in one session and not wait for each merge manually.
+- **Non-blocking** — each run raises PRs/MRs and exits; no waiting or background processes needed.
 - **ODH and RHOAI from one invocation** — product context is derived automatically; a single wrapper handles both pipelines.
 - **Incremental path to automation** — the same skills will be reused when the Jira-triggered phase is implemented.
 
 ## Cons
 
-- **Manual invocation** — currently requires a DevOps engineer to start the wrapper skill locally.
+- **Manual re-invocation** — currently requires a DevOps engineer to re-run the wrapper after each batch of PR/MR merges.
 - **Local environment dependency** — VPN, credentials, and CLI tools must be set up on every engineer's machine.
 - **Context window limits** — very long sessions may truncate earlier context; `pipeline_state.json` mitigates this.
 - **Bundle PR requires manual image digest fix** — the SHA placeholder in `bundle-patch.yaml` must be updated once the first Konflux build completes, which may fall outside the automated pipeline.

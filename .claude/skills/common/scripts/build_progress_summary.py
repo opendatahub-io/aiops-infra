@@ -170,7 +170,7 @@ def build_pending_summary(
     if not pending_rows:
         return ""
 
-    tag_line = f"@{assignee} — please review the open PRs/MRs.\n\n" if assignee else ""
+    tag_line = f"[~accountid:{assignee}] — please review the open PRs/MRs.\n\n" if assignee else ""
 
     lines = [
         "| Step | PR / MR | Next action on merge |",
@@ -203,7 +203,7 @@ def main():
     prefix = ""
     if args.idle_days >= 2 and args.assignee:
         prefix = (
-            f"@{args.assignee} — Reminder: this onboarding has had no PR/MR merges "
+            f"[~accountid:{args.assignee}] — Reminder: this onboarding has had no PR/MR merges "
             f"for {args.idle_days} day(s). Please review the open PRs/MRs listed below.\n\n"
         )
 
