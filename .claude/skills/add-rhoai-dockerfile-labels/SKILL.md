@@ -1,7 +1,7 @@
 ---
 name: add-rhoai-dockerfile-labels
 description: Checks a component Dockerfile for mandatory RHOAI labels (name, com.redhat.component, summary, description, maintainer, io.k8s.display-name, io.k8s.description). If any are missing or incorrect, clones the component repo, adds the labels, and raises a GitHub PR. Updates the Jira ticket throughout.
-allowed-tools: Bash, Read, Edit, Write
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -63,19 +63,11 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 ## Step 0: Parse Inputs
 
-1. Extract `<jira-url>` from the first positional argument (may be empty/omitted).
-
-2. If provided but does not contain `/browse/`, stop with:
-   > ERROR: Invalid Jira URL. Expected format: https://redhat.atlassian.net/browse/RHOAIENG-1234
-
-3. Set `JIRA_URL` to the parsed URL, or empty string if omitted.
-   Set `JIRA_ID` to the last path segment (e.g. `RHOAIENG-1234`), or empty string.
-
-4. Echo the resolved values:
-   ```bash
-   echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
-   echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
-   ```
+```bash
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
+echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
+```
 
 ---
 
@@ -83,34 +75,17 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 Check in order. Stop with a remediation message if any check fails.
 
-Always required:
 ```bash
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"; exit 1
-fi
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken (needs repo scope)"; exit 1
-fi
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1
-fi
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."; exit 1
-fi
-if ! command -v curl &>/dev/null; then
-  echo "ERROR: curl is not installed."; exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN" \
+  --tools "uv git curl"
 ```
 
 Required only when `JIRA_URL` is non-empty:
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
-  if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-    echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"; exit 1
-  fi
-  if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-    echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"; exit 1
-  fi
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+    --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
@@ -119,12 +94,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-if [[ -n "$JIRA_ID" ]]; then
-  WORKDIR="$(pwd)/${JIRA_ID}"
-else
-  WORKDIR="$(pwd)"
-fi
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -178,21 +148,26 @@ ERROR in Step 3d (Fetch Jira): Could not fetch issue details. Aborting.
 
 ## Step 4: Parse YAML and Derive Variables
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
+Extract from `$WORKDIR/component_onboarding_details.yaml` (all under the `inputs:` key):
 
-Extract (all under the `inputs:` key):
+```bash
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+  --workdir     "$WORKDIR" \
+  --jira-id     "$JIRA_ID" \
+  --scripts-dir "$COMMON_SCRIPTS_DIR")"
+# Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT, QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
 
-| Variable | YAML field | Required |
-|----------|-----------|----------|
-| `COMPONENT_NAME` | `inputs.component_name` | Yes |
-| `REPO_URL` | `inputs.repo_url` | Yes |
-| `CONTEXT_PATH` | `inputs.context_path` | Yes |
-| `DOCKERFILE_PATH` | `inputs.dockerfile_path` | Yes |
+YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
+CONTEXT_PATH=$(grep -m1   'context_path:'     "$YAML_FILE" | awk '{print $2}')
+DOCKERFILE_PATH=$(grep -m1 'dockerfile_path:' "$YAML_FILE" | awk '{print $2}')
 
-If any required field is missing, stop:
-```
-ERROR in Step 4: Missing required field '<field>' in component_onboarding_details.yaml.
-  Re-generate the YAML with /create-component-onboarding-jira <jira-url>.
+for _field in CONTEXT_PATH DOCKERFILE_PATH; do
+  [[ -z "${!_field}" ]] && {
+    echo "ERROR in Step 4: Missing required field '${_field}' in component_onboarding_details.yaml."
+    echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
+    exit 1
+  }
+done
 ```
 
 Derive:
@@ -334,84 +309,53 @@ git push origin "$DEST_BRANCH"
 
 ## Step 7: Add/Update Missing Labels in Dockerfile
 
-Use the `Read` tool to read `$CLONE_DIR/$DOCKERFILE_REPO_PATH`.
-
-If the file does not exist, stop:
-```
-ERROR in Step 7: Dockerfile not found at $CLONE_DIR/$DOCKERFILE_REPO_PATH.
-  Verify context_path and dockerfile_path in component_onboarding_details.yaml.
-```
-
-Parse all `LABEL` instructions (including multi-line `\` continuation) to identify:
-- Labels already present with the correct value → skip
-- Labels present with a wrong value → update in place with `Edit`
-- Labels absent entirely → add
-
-**Editing strategy:**
-
-*Case A — A `LABEL` instruction already exists in the file:*
-
-Locate the last `LABEL` block. Use the `Edit` tool to:
-1. Add any entirely missing labels to the end of the block (before the final line, extending
-   multi-line `\` continuation).
-2. Fix any labels with wrong values by replacing just the `key="wrong-value"` segment.
-
-Example — appending two missing labels to an existing block that ends with:
-```dockerfile
-      maintainer="some-team"
-```
-becomes:
-```dockerfile
-      maintainer="some-team" \
-      io.k8s.display-name="$LABEL_DEFAULT" \
-      io.k8s.description="$LABEL_DEFAULT"
+Verify the file exists:
+```bash
+[[ -f "$CLONE_DIR/$DOCKERFILE_REPO_PATH" ]] || {
+  echo "ERROR in Step 7: Dockerfile not found at $CLONE_DIR/$DOCKERFILE_REPO_PATH."
+  echo "  Verify context_path and dockerfile_path in component_onboarding_details.yaml."
+  exit 1
+}
 ```
 
-*Case B — No `LABEL` instruction exists in the file:*
+Apply and verify all 7 mandatory labels using the shared helper script:
 
-Locate the last `FROM` instruction. Use `Edit` to insert a complete new `LABEL` block
-immediately after it:
-```dockerfile
-LABEL name="$LABEL_NAME" \
-      com.redhat.component="$LABEL_COMPONENT" \
-      summary="$LABEL_DEFAULT" \
-      description="$LABEL_DEFAULT" \
-      maintainer="$LABEL_DEFAULT" \
-      io.k8s.display-name="$LABEL_DEFAULT" \
-      io.k8s.description="$LABEL_DEFAULT"
+```bash
+uv run --script "$COMMON_SCRIPTS_DIR/update_dockerfile_labels.py" \
+  "$CLONE_DIR/$DOCKERFILE_REPO_PATH" \
+  --name      "$LABEL_NAME" \
+  --component "$LABEL_COMPONENT" \
+  --default   "$LABEL_DEFAULT"
 ```
 
-**After each `Edit`:** use `Read` to verify all 7 mandatory labels are now present with
-correct values and that surrounding Dockerfile content is undisturbed. If verification fails,
-apply a corrective `Edit` before continuing.
+The script appends missing/incorrect labels after the last `FROM` instruction and verifies all
+7 mandatory labels are present with correct values before exiting. On failure it exits 1 with
+an error message — stop and report the error if it does so.
+
+Confirm the result with:
+```bash
+grep -q "name=\"${LABEL_NAME}\"" "$CLONE_DIR/$DOCKERFILE_REPO_PATH" || {
+  echo "ERROR in Step 7: Verification failed — 'name' label not set correctly"; exit 1
+}
+echo "All mandatory RHOAI labels confirmed present in $DOCKERFILE_REPO_PATH."
+```
 
 ---
 
 ## Step 8: Commit and Push
 
 ```bash
-cd "$CLONE_DIR"
-git add "$DOCKERFILE_REPO_PATH"
-git status   # confirm only the expected file is staged
-git commit -m "Add mandatory RHOAI Dockerfile labels for $COMPONENT_NAME
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "$DOCKERFILE_REPO_PATH" \
+  --message   "Add mandatory RHOAI Dockerfile labels for $COMPONENT_NAME
 
 Adds the required OCI/Red Hat labels to $DOCKERFILE_REPO_PATH:
   name, com.redhat.component, summary, description,
   maintainer, io.k8s.display-name, io.k8s.description
 
-Related: $JIRA_ID"
-git push origin "$DEST_BRANCH"
-```
-
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
-```
-
-On any other push failure, display stderr and stop:
-```
-ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH' to origin. See details above.
+Related: ${JIRA_ID:-no-jira}" \
+  --branch    "$DEST_BRANCH"
 ```
 
 ---

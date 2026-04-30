@@ -85,6 +85,16 @@
           "type": "string",
           "description": "Destination path in the odh-operator container image where manifests are copied (required when is_operator is true)",
           "minLength": 1
+        },
+        "long_description": {
+          "type": "string",
+          "description": "One or two sentences describing what the component does (required when product_context is RHOAI)",
+          "minLength": 1
+        },
+        "short_description": {
+          "type": "string",
+          "description": "A short noun phrase of a few words summarising the component (required when product_context is RHOAI)",
+          "minLength": 1
         }
       },
       "allOf": [
@@ -103,7 +113,7 @@
             "required": ["product_context"]
           },
           "then": {
-            "required": ["architectures", "target_rhoai_version"]
+            "required": ["architectures", "target_rhoai_version", "long_description", "short_description"]
           }
         },
         {

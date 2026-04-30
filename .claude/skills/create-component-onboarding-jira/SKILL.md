@@ -1,7 +1,7 @@
 ---
 name: create-component-onboarding-jira
-description: Interactively collects ODH/RHOAI component onboarding parameters from the user, generates a validated component_onboarding_details.yaml, and (when a Jira URL is given) uploads it as an attachment to the ticket. Use this before running other onboarding skills.
-allowed-tools: Bash, Read, Write
+description: Interactively collects ODH/RHOAI component onboarding parameters from the user, generates a validated component_onboarding_details.yaml, and creates or updates a Jira ticket with the YAML attached. When no Jira URL is provided, automatically creates a new ticket by cloning the product-specific onboarding template. Use this before running other onboarding skills.
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -9,14 +9,16 @@ user-invocable: true
 
 Interactively collects all parameters needed to onboard an ODH or RHOAI component onto
 the Konflux CI/build platform, produces a validated `component_onboarding_details.yaml`,
-and attaches it to the Jira ticket.
+and creates or updates a Jira ticket with the YAML attached. When no Jira URL is
+provided, a new ticket is automatically created by cloning the product-specific
+onboarding template (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`).
 
 ## Prerequisites
 
 - `uv` must be installed and in PATH
-- `jq` must be installed and in PATH (needed for the no-URL ODH clone flow)
-- `JIRA_USER_EMAIL` — set to your Atlassian account email (required when Jira URL is given or creating one)
-- `JIRA_API_TOKEN` — Atlassian Cloud API token (required when Jira URL is given or creating one)
+- `jq` must be installed and in PATH (needed for the template clone flow)
+- `JIRA_USER_EMAIL` — set to your Atlassian account email (always required)
+- `JIRA_API_TOKEN` — Atlassian Cloud API token (always required)
   - Create at: https://id.atlassian.com/manage-profile/security/api-tokens
 - Optional: `JIRA_SERVER` (default: `https://redhat.atlassian.net`)
 - The `validate-component-onboarding-jira` skill must be installed alongside this one
@@ -24,13 +26,26 @@ and attaches it to the Jira ticket.
 ## Usage
 
 ```
+/create-component-onboarding-jira
 /create-component-onboarding-jira [<jira-url>]
 ```
 
+The Jira URL is **optional**. Without it, the skill automatically creates a new Jira by
+cloning the product-specific onboarding template, then attaches the YAML and updates the
+ticket. Providing a URL skips template cloning and attaches directly to the given ticket.
+
+| Invocation | ODH | RHOAI |
+|---|---|---|
+| No URL | Clones `RHOAIENG-35683`, attaches YAML, updates ticket | Clones `RHOAIENG-17225`, attaches YAML, updates ticket |
+| With URL | Attaches YAML to given ticket, updates ticket | Attaches YAML to given ticket, updates ticket |
+
 Examples:
 ```
-/create-component-onboarding-jira https://redhat.atlassian.net/browse/RHOAIENG-1234
+# Primary usage — creates a new Jira from the template automatically
 /create-component-onboarding-jira
+
+# With an existing Jira ticket — attaches the YAML and updates the ticket
+/create-component-onboarding-jira https://redhat.atlassian.net/browse/RHOAIENG-1234
 ```
 
 ## Implementation
@@ -51,24 +66,14 @@ If a value is present but does not contain `/browse/`, stop with:
 Set `JIRA_URL` to the parsed URL, or empty string if omitted.
 Set `JIRA_ID` to the last path segment of `JIRA_URL` (e.g. `RHOAIENG-1234`), or empty.
 
-**Jira credentials check (only when JIRA_URL is non-empty):**
+**Tool check:**
 ```bash
-if [[ -n "$JIRA_URL" ]]; then
-  if [[ -z "${JIRA_USER_EMAIL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
-    echo "ERROR: Jira credentials required when a Jira URL is provided."
-    echo "  export JIRA_USER_EMAIL='you@example.com'"
-    echo "  export JIRA_API_TOKEN='your-api-token'"
-    exit 1
-  fi
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --tools "uv jq"
 ```
 
-**uv check:**
+**Jira credentials check (always required):**
 ```bash
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh"
-  exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 ```
 
 ---
@@ -76,12 +81,7 @@ fi
 ## Step 1: Set up working directory
 
 ```bash
-if [[ -n "$JIRA_ID" ]]; then
-  WORKDIR="$(pwd)/${JIRA_ID}"
-else
-  WORKDIR="$(pwd)"
-fi
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 YAML_PATH="${WORKDIR}/component_onboarding_details.yaml"
 echo "Working directory: $WORKDIR"
 ```
@@ -103,9 +103,12 @@ ERROR in Step 2 (Fetch Jira): Could not fetch issue details. See above. Aborting
 
 On success: `$WORKDIR/component_onboarding_details.json` is created.
 
-Use the Read tool to read `$WORKDIR/component_onboarding_details.json`. Extract:
-- `JIRA_SUMMARY` = `fields.summary`
-- `JIRA_DESCRIPTION` = `fields.description`
+Extract Jira fields using jq:
+
+```bash
+JIRA_SUMMARY=$(jq -r '.fields.summary' "$WORKDIR/component_onboarding_details.json")
+JIRA_DESCRIPTION=$(jq -r '.fields.description // ""' "$WORKDIR/component_onboarding_details.json")
+```
 
 Print:
 ```
@@ -189,6 +192,72 @@ Transform the validated input to the canonical form and store in `target_rhoai_v
 → Store in `repo_url`.
   Validate: must match `^https://github\.com/.+/.+$`. Re-ask if invalid.
 
+**Q4.5 — Component descriptions (RHOAI only)**
+
+_Execute only when `product_context == RHOAI`. Skip entirely for ODH._
+
+Immediately after receiving `repo_url`, attempt to auto-suggest descriptions by fetching
+the repository README (try `main` branch, then `master` as fallback):
+
+```bash
+REPO_RAW_BASE="${repo_url/github.com/raw.githubusercontent.com}"
+README_CONTENT=$(curl -sf "${REPO_RAW_BASE}/main/README.md" 2>/dev/null \
+  || curl -sf "${REPO_RAW_BASE}/main/README.rst" 2>/dev/null \
+  || curl -sf "${REPO_RAW_BASE}/master/README.md" 2>/dev/null \
+  || echo "")
+```
+
+**If `README_CONTENT` is non-empty:**
+
+Read the README and extract a suggested `long_description` (one to two sentences
+describing what the component does) and a suggested `short_description` (a noun phrase
+of a few words summarizing the component).
+
+Present each suggestion and ask the user to confirm or edit:
+
+```
+Fetched README from $repo_url.
+
+Suggested long description:
+  <suggested_long_description>
+
+Accept? (yes / edit)
+```
+
+- `yes` → store as `long_description`
+- `edit` → display the suggestion as pre-filled text, let the user modify it, then store
+
+```
+Suggested short description:
+  <suggested_short_description>
+
+Accept? (yes / edit)
+```
+
+- `yes` → store as `short_description`
+- `edit` → display the suggestion as pre-filled text, let the user modify it, then store
+
+**If `README_CONTENT` is empty (all fetches failed):**
+
+Ask directly:
+> Please provide a long description for this component (one or two sentences describing what it does):
+
+→ Store in `long_description`. Must be non-empty.
+
+Then summarize `long_description` into a short noun phrase (a few words) and offer it
+as the suggested `short_description`:
+
+```
+Suggested short description:
+  <summarized_short_description>
+
+Accept? (yes / edit)
+```
+
+→ Confirm or modify, store in `short_description`. Must be non-empty.
+
+---
+
 **Q5 — Branch**
 
 _If `product_context == ODH`:_
@@ -215,6 +284,10 @@ Print: `repo_branch auto-set to: <repo_branch>`
 > (e.g. Dockerfile or docker/Dockerfile)
 
 → Store in `dockerfile_path`. Must be non-empty.
+  If `product_context == RHOAI`: validate that the filename portion (basename) starts with
+  `Dockerfile.konflux`. Re-ask if invalid, showing the rule:
+  > For RHOAI components, the Dockerfile name must start with `Dockerfile.konflux`
+  > (e.g. `Dockerfile.konflux`, `docker/Dockerfile.konflux.cuda`)
 
 **Q8 — Operator/controller**
 > Is this component an operator or controller? (yes / no)
@@ -253,6 +326,8 @@ Component onboarding details collected:
   repo_branch                  : <value>
   context_path                 : <value>
   dockerfile_path              : <value>
+  long_description             : <value or N/A>   # only shown for RHOAI
+  short_description            : <value or N/A>   # only shown for RHOAI
   is_operator                  : <value>
   operator_manifest_src_path   : <value or N/A>
   operator_manifest_dest_path  : <value or N/A>
@@ -268,29 +343,46 @@ Proceed? (yes / no / edit)
 
 ## Step 5: Generate YAML file
 
-Use the Write tool to write `$YAML_PATH`.
-Only include keys that are relevant — omit `build_type` for RHOAI, omit `architectures`
-for ODH, omit operator fields when `is_operator == false`:
+Build the argument list from collected values, then call:
 
-```yaml
-inputs:
-  product_context: <product_context>
-  component_name: <component_name>
-  repo_url: <repo_url>
-  repo_branch: <repo_branch>
-  context_path: <context_path>
-  dockerfile_path: <dockerfile_path>
-  build_type: <build_type>           # only when product_context == ODH
-  architectures:                     # only when product_context == RHOAI
-    - x86_64
-    - arm64
-  target_rhoai_version: <value>      # only when product_context == RHOAI (e.g. 3.4 or 3.4-ea-2)
-  is_operator: <true|false>
-  operator_manifest_src_path: <value>   # only when is_operator == true
-  operator_manifest_dest_path: <value>  # only when is_operator == true
+```bash
+YAML_ARGS=(
+  --output "$YAML_PATH"
+  --product-context "$product_context"
+  --component-name "$component_name"
+  --repo-url "$repo_url"
+  --repo-branch "$repo_branch"
+  --context-path "$context_path"
+  --dockerfile-path "$dockerfile_path"
+)
+
+# ODH-only
+[[ "$product_context" == "ODH" ]] && YAML_ARGS+=(--build-type "$build_type")
+
+# RHOAI-only
+if [[ "$product_context" == "RHOAI" ]]; then
+  YAML_ARGS+=(
+    --target-rhoai-version "$target_rhoai_version"
+    --architectures "$(IFS=,; echo "${architectures[*]}")"
+    --long-description "$long_description"
+    --short-description "$short_description"
+  )
+fi
+
+# Operator fields
+[[ "$is_operator" == "true" ]] && YAML_ARGS+=(
+  --is-operator
+  --operator-manifest-src-path "$operator_manifest_src_path"
+  --operator-manifest-dest-path "$operator_manifest_dest_path"
+)
+
+uv run --script <COMMON_SCRIPTS_DIR>/generate_onboarding_yaml.py "${YAML_ARGS[@]}"
 ```
 
-Print: `YAML written to: $YAML_PATH`
+On exit 1: display stderr and stop with:
+```
+ERROR in Step 5 (Generate YAML): Could not write YAML file. See above. Aborting.
+```
 
 ---
 
@@ -311,6 +403,52 @@ On failure (exit 1): capture stderr as `<validation_errors>`. Display the errors
 
 - `yes` → return to Step 3b for the relevant fields, regenerate, re-validate
 - `no` → stop with: `ERROR: YAML failed schema validation. Aborting.`
+
+---
+
+## Step 6b: Dockerfile digest check
+
+**Skip this entire step if `product_context == "ODH"`.** Digest pinning is only required
+for RHOAI components. If ODH, print:
+```
+Dockerfile digest check skipped (not required for ODH components).
+```
+and proceed to Step 7.
+
+Construct the raw GitHub URL for the Dockerfile and check that every `FROM` instruction
+pins its image with a `@sha256:` digest:
+
+```bash
+# Build raw URL: replace github.com with raw.githubusercontent.com, append branch + path
+REPO_RAW_BASE="${repo_url/github.com/raw.githubusercontent.com}"
+CLEAN_CTX="${context_path%/}"; CLEAN_CTX="${CLEAN_CTX#./}"
+if [[ -z "$CLEAN_CTX" || "$CLEAN_CTX" == "." ]]; then
+  DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${dockerfile_path}"
+else
+  DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${CLEAN_CTX}/${dockerfile_path}"
+fi
+
+uv run --script <COMMON_SCRIPTS_DIR>/check_dockerfile_digests.py \
+  --dockerfile-url "$DOCKERFILE_RAW_URL" 2>&1
+DIGEST_EXIT=$?
+```
+
+**If exit 2** (Dockerfile not reachable — branch or file may not exist yet): print a notice
+and continue. Do not block — the Dockerfile may be created after the Jira is raised:
+```
+NOTICE: Could not fetch Dockerfile at $DOCKERFILE_RAW_URL — skipping digest check.
+         Ensure all FROM images use @sha256 digests before running /validate-component-onboarding-jira.
+```
+
+**If exit 1** (violations found): display the stderr output, then warn the user:
+```
+WARN: The Dockerfile contains FROM instructions that do not use @sha256 digests (see above).
+      This will block /validate-component-onboarding-jira.
+      Please update the Dockerfile to pin all base and builder images with SHA digests before validating.
+```
+Do not abort — continue to Step 7 so the Jira is still created and the YAML attached.
+
+**If exit 0**: print `Dockerfile digest check passed.`
 
 ---
 
@@ -344,7 +482,7 @@ On exit 1: display stderr and stop with:
 ERROR in Step 7 (Upload attachment): Could not attach YAML to Jira. See details above. Aborting.
 ```
 
-Continue to Step 8.
+Continue to Step 7c.
 
 ---
 
@@ -357,45 +495,21 @@ Continue to Step 8.
 → Validate: must match `^[A-Z]+-\d+$`. Re-ask if invalid, showing the expected format.
 → Store in `PARENT_FEATURE_ID`.
 
-#### Step 7b-2: ODH — clone template Jira and customise
+#### Step 7b-2: Clone the product-specific template Jira
 
-**If `product_context != "ODH"`**, skip the clone and print:
-```
-No Jira URL provided for RHOAI context.
-YAML saved locally at: $YAML_PATH
-Create a Jira ticket and re-run with its URL to attach the YAML:
-  /create-component-onboarding-jira <jira-url>
-```
-Then continue to Step 8 (JIRA_URL remains empty).
-
-**If `product_context == "ODH"`**, fetch the template title and compute the new title:
+Select the template based on `product_context`:
+- `ODH`  → clone `RHOAIENG-35683`
+- `RHOAI` → clone `RHOAIENG-17225`
 
 ```bash
-TEMPLATE_JIRA_URL="https://redhat.atlassian.net/browse/RHOAIENG-35683"
+if [[ "$product_context" == "ODH" ]]; then
+  TEMPLATE_ID="RHOAIENG-35683"
+else
+  TEMPLATE_ID="RHOAIENG-17225"
+fi
 
-# Fetch template details to extract its current title
-(cd "$WORKDIR" && uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$TEMPLATE_JIRA_URL")
-
-TEMPLATE_TITLE=$(jq -r '.fields.summary' "$WORKDIR/component_onboarding_details.json")
-echo "Template title: $TEMPLATE_TITLE"
-
-# Transform title: remove "[Template] " prefix, replace "[Component Name]"
-NEW_TITLE="${TEMPLATE_TITLE//\[Template\] /}"
-NEW_TITLE="${NEW_TITLE//\[Component Name\]/$COMPONENT_NAME}"
-echo "New title: $NEW_TITLE"
-```
-
-On fetch failure (exit 1 or `jq` error): stop with:
-```
-ERROR in Step 7b-2: Could not fetch template Jira RHOAIENG-35683. Check Jira credentials and VPN.
-```
-
-#### Step 7b-3: Clone template and apply all updates in one call
-
-```bash
 NEW_JIRA_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "new" \
-  --clone-from "RHOAIENG-35683" \
-  --set-title "$NEW_TITLE" \
+  --clone-from "$TEMPLATE_ID" \
   --remove-label "template" \
   --link-related "$PARENT_FEATURE_ID" \
   --set-reporter-to-current)
@@ -403,10 +517,10 @@ NEW_JIRA_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "new" \
 
 On exit 1: display stderr and stop with:
 ```
-ERROR in Step 7b-3: Could not clone Jira template. See details above. Aborting.
+ERROR in Step 7b-2: Could not clone Jira template ($TEMPLATE_ID). See details above. Aborting.
 ```
 
-On success: capture `NEW_JIRA_URL` from stdout (e.g. `https://redhat.atlassian.net/browse/RHOAIENG-99999`).
+On success: capture `NEW_JIRA_URL` from stdout.
 
 ```bash
 JIRA_URL="$NEW_JIRA_URL"
@@ -414,7 +528,7 @@ JIRA_ID="${NEW_JIRA_URL##*/}"
 echo "New Jira created: $NEW_JIRA_URL"
 ```
 
-#### Step 7b-4: Attach YAML to the new Jira
+#### Step 7b-3: Attach YAML to the new Jira
 
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
@@ -432,7 +546,34 @@ This ticket is ready for onboarding automation. Run /validate-component-onboardi
 
 On exit 1: display stderr and stop with:
 ```
-ERROR in Step 7b-4 (Upload attachment): Could not attach YAML to new Jira. See details above. Aborting.
+ERROR in Step 7b-3 (Upload attachment): Could not attach YAML to new Jira. See details above. Aborting.
+```
+
+Continue to Step 7c.
+
+---
+
+### Step 7c: Update Jira metadata (shared — all cases where JIRA_URL is set)
+
+**Skip this entire step if `JIRA_URL` is empty.**
+
+Applies to both ODH and RHOAI, and to both Path A (existing Jira) and Path B (newly
+created Jira). Delegates all Jira metadata work to `update_onboarding_jira.py`, which
+handles: title cleanup, description table replacement, and label addition.
+
+```bash
+uv run --script <COMMON_SCRIPTS_DIR>/update_onboarding_jira.py "$JIRA_URL" \
+  --component-name "$component_name" \
+  --product-context "$product_context" \
+  --repo-url "$repo_url" \
+  --repo-branch "$repo_branch" \
+  --context-path "$context_path" \
+  --dockerfile-path "$dockerfile_path"
+```
+
+On exit 1: print a warning and continue — metadata updates are non-critical:
+```
+WARN in Step 7c: Could not update Jira metadata. See above. Update manually.
 ```
 
 ---
@@ -445,7 +586,7 @@ Done.
 
   component_onboarding_details.yaml  — generated and validated
   Jira                               — <JIRA_ID> (<JIRA_URL>)
-                                       (created from template, or provided, or N/A for RHOAI with no URL)
+                                       (created from template <TEMPLATE_ID>, or provided by user)
   Jira attachment                    — uploaded (label: yaml-attached)
   Jira comment                       — posted
 
@@ -454,13 +595,8 @@ Done.
 Next step: /validate-component-onboarding-jira <JIRA_URL>
 ```
 
-If JIRA_URL is still empty (RHOAI, no URL given), omit the "Jira" and "attachment" lines and instead print:
-```
-  Output file: $YAML_PATH
-
-Attach the YAML to a Jira ticket and run:
-  /create-component-onboarding-jira <jira-url>
-```
+If `TEMPLATE_ID` was not used (i.e. the user provided a Jira URL directly), omit the
+`(created from template ...)` parenthetical.
 
 ---
 
@@ -471,11 +607,11 @@ Attach the YAML to a Jira ticket and run:
 | Invalid Jira URL format | 0 | Correct the URL and re-run |
 | `JIRA_USER_EMAIL` / `JIRA_API_TOKEN` not set | 0 | Export the env vars |
 | `uv` not installed | 0 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| `jq` not installed | 7b-2 | `brew install jq` or `sudo dnf install jq` |
+| `jq` not installed | 2 | `brew install jq` or `sudo dnf install jq` |
 | Jira fetch fails (401/403/404) | 2 | Check credentials and issue key |
-| Template fetch fails | 7b-2 | Check credentials; ensure VPN is active |
-| Clone fails | 7b-3 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
-| "relates to" link type not found | 7b-3 | Check available link types with a Jira admin |
-| Attach/upload fails | 7, 7b-4 | Check credentials; re-run the skill |
+| YAML generation fails | 5 | Check arguments; see stderr from `generate_onboarding_yaml.py` |
 | YAML validation fails | 6 | Correct the inputs and re-generate |
-| `validate-component-onboarding-jira` skill not found | 6, 7 | Run its `install.sh` first |
+| Clone fails (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) | 7b-2 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
+| "relates to" link type not found | 7b-2 | Check available link types with a Jira admin |
+| Attach/upload fails | 7, 7b-3 | Check credentials; re-run the skill |
+| Metadata update fails | 7c | Warnings printed; update title/description/label manually in Jira |

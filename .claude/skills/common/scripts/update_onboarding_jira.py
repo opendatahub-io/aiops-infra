@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = []
+# ///
+"""Apply all onboarding-specific Jira metadata updates:
+  - Strip template tokens from title, insert component name
+  - Replace description table first data row with actual values
+  - Add component-onboarding label
+
+Works for both ODH and RHOAI, and for both existing and newly-created Jira tickets.
+"""
+
+import argparse
+import base64
+import json
+import os
+import sys
+import urllib.request
+
+
+def jira_request(url, *, email, token, method="GET", data=None):
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+    headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(req) as resp:
+        body = resp.read()
+        return resp.status, json.loads(body) if body else {}
+
+
+def main():
+    p = argparse.ArgumentParser(description="Update Jira metadata for component onboarding")
+    p.add_argument("jira_url", help="e.g. https://redhat.atlassian.net/browse/RHOAIENG-1234")
+    p.add_argument("--component-name", required=True)
+    p.add_argument("--product-context", required=True, choices=["ODH", "RHOAI"])
+    p.add_argument("--repo-url", required=True)
+    p.add_argument("--repo-branch", required=True)
+    p.add_argument("--context-path", required=True)
+    p.add_argument("--dockerfile-path", required=True)
+    args = p.parse_args()
+
+    email = os.environ.get("JIRA_USER_EMAIL", "")
+    token = os.environ.get("JIRA_API_TOKEN", "")
+    if not email or not token:
+        print("ERROR: JIRA_USER_EMAIL and JIRA_API_TOKEN must be set", file=sys.stderr)
+        sys.exit(1)
+
+    jira_server = os.environ.get("JIRA_SERVER", "https://redhat.atlassian.net")
+    jira_id = args.jira_url.rstrip("/").split("/")[-1]
+    api_base = f"{jira_server}/rest/api/2/issue/{jira_id}"
+
+    # Derived values
+    if args.product_context == "ODH":
+        quay_image = f"quay.io/opendatahub/{args.component_name}"
+    else:
+        quay_image = f"quay.io/rhoai/{args.component_name}-rhel9"
+
+    clean_ctx = args.context_path.rstrip("/").lstrip("./")
+    if clean_ctx and clean_ctx != ".":
+        dockerfile_link = f"{args.repo_url}/blob/{args.repo_branch}/{clean_ctx}/{args.dockerfile_path}"
+    else:
+        dockerfile_link = f"{args.repo_url}/blob/{args.repo_branch}/{args.dockerfile_path}"
+
+    # Fetch current issue fields
+    _, issue = jira_request(f"{api_base}?fields=summary,description,labels", email=email, token=token)
+    current_summary = issue["fields"]["summary"]
+    description = issue["fields"].get("description") or ""
+    current_labels = issue["fields"].get("labels") or []
+
+    warnings = []
+
+    # --- Update title ---
+    new_summary = current_summary
+    for tmpl_token in ("[TEMPLATE] ", "[Template] "):
+        new_summary = new_summary.replace(tmpl_token, "")
+    for name_token in ("[COMPONENT NAME]", "[Component Name]"):
+        new_summary = new_summary.replace(name_token, args.component_name)
+
+    if new_summary != current_summary:
+        try:
+            payload = json.dumps({"fields": {"summary": new_summary}}).encode()
+            jira_request(api_base, method="PUT", data=payload, email=email, token=token)
+            print(f"  Title updated: {new_summary}")
+        except Exception as exc:
+            warnings.append(f"WARN: Could not update title — rename manually to: {new_summary} ({exc})")
+    else:
+        print(f"  Title unchanged: {current_summary}")
+
+    # --- Update description table ---
+    lines = description.split("\n")
+    header_idx = next(
+        (i for i, line in enumerate(lines) if line.startswith("||*Upstream Git Repo*||")),
+        None,
+    )
+    if header_idx is not None:
+        values_row = (
+            f"| {args.repo_url} "
+            f"| {quay_image} "
+            f"| {args.context_path} "
+            f"| [{args.dockerfile_path}|{dockerfile_link}] "
+            f"| |"
+        )
+        # Replace first data row; drop any additional | rows after it
+        lines[header_idx + 1] = values_row
+        i = header_idx + 2
+        while i < len(lines) and lines[i].startswith("|"):
+            lines.pop(i)
+
+        new_desc = "\n".join(lines)
+        try:
+            payload = json.dumps({"fields": {"description": new_desc}}).encode()
+            jira_request(api_base, method="PUT", data=payload, email=email, token=token)
+            print("  Description table updated.")
+        except Exception as exc:
+            warnings.append(
+                f"WARN: Could not update description table ({exc}). Update manually:\n"
+                f"  Upstream Git Repo        → {args.repo_url}\n"
+                f"  Image / Quay Repo Name   → {quay_image}\n"
+                f"  Build Context            → {args.context_path}\n"
+                f"  Dockerfile Link or Path  → {dockerfile_link}"
+            )
+    else:
+        print("  No '||*Upstream Git Repo*||' table found — skipping table update.")
+
+    # --- Add label ---
+    label = "component-onboarding"
+    if label not in current_labels:
+        try:
+            payload = json.dumps({"fields": {"labels": current_labels + [label]}}).encode()
+            jira_request(api_base, method="PUT", data=payload, email=email, token=token)
+            print(f"  Label added: {label}")
+        except Exception as exc:
+            warnings.append(f"WARN: Could not add '{label}' label ({exc}). Add manually.")
+    else:
+        print(f"  Label already present: {label}")
+
+    for w in warnings:
+        print(w)
+
+    print(f"Done. {jira_id} updated.")
+
+
+if __name__ == "__main__":
+    main()

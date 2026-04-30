@@ -1,7 +1,7 @@
 ---
 name: integrate-component-with-bundle
 description: Updates the build-config repository (ODH-Build-Config for ODH, RHOAI-Build-Config for RHOAI) with a new component's relatedImages entry (bundle/bundle-patch.yaml) and optionally config/build-config.yaml (RHOAI only), then raises a GitHub PR. Automates Step 8 of the ODH/RHOAI component onboarding pipeline.
-allowed-tools: Bash, Read, Edit, Write
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -54,32 +54,29 @@ Examples:
 
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
 COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
+
+If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and exit 0. The orchestrator passes this when the URL is already recorded in pipeline_state.json.
+
 ---
 
 ## Step 0: Parse Inputs
 
-1. Extract `<jira-url>` (the first positional argument).
-   Extract `<jira-id>` as the last path segment (e.g., `RHODS-14226`).
-
-   If the argument cannot be parsed as a Jira URL (no `/browse/` segment), stop with:
-   > ERROR: Invalid Jira URL. Expected format: https://redhat.atlassian.net/browse/RHODS-14226
-
-2. Resolve `BC_URL` — only if `BUILD_CONFIG_REPO_URL` is explicitly set. If not set, the
-   default will be derived from `product_context` in Step 3d. Execute this exact block;
-   do NOT skip the `echo`:
+1. Parse and validate the Jira URL:
 
    ```bash
-   if [[ -n "${BUILD_CONFIG_REPO_URL:-}" ]]; then
-     BC_URL="$BUILD_CONFIG_REPO_URL"
-     echo "BUILD_CONFIG_REPO_URL is set; BC_URL resolved to: $BC_URL"
-   else
-     BC_URL=""
-     echo "BUILD_CONFIG_REPO_URL is not set — will derive default from product_context in Step 3d."
-   fi
+   eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+   echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
+   echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
    ```
 
-   **Never override or re-derive `BC_URL` after Step 3d.** `BC_PATH` is derived in Step 3d
-   once `BC_URL` is finalised.
+2. Note whether `BUILD_CONFIG_REPO_URL` is set — it will be passed to `resolve_bc_url.sh`
+   in Step 3d once `product_context` is known:
+
+   ```bash
+   echo "BUILD_CONFIG_REPO_URL : ${BUILD_CONFIG_REPO_URL:-(not set, will derive from product_context in Step 3d)}"
+   ```
+
+   **`BC_URL` and `BC_PATH` are resolved in Step 3d.** Never set or override them before that.
 
 ---
 
@@ -88,24 +85,9 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"; exit 1
-fi
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken"; exit 1
-fi
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"; exit 1
-fi
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"; exit 1
-fi
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1
-fi
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."; exit 1
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
+  --tools "uv git"
 ```
 
 ---
@@ -113,10 +95,8 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-WORKDIR="$(pwd)/<jira-id>"
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
-cd "$WORKDIR"
 ```
 
 ---
@@ -126,8 +106,10 @@ cd "$WORKDIR"
 **3a. Fetch Jira issue details** (skip if `$WORKDIR/component_onboarding_details.json` already exists):
 
 ```bash
-cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
+  cd "$WORKDIR"
+  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+fi
 ```
 
 On exit 1: display stderr and stop with:
@@ -149,9 +131,19 @@ ERROR in Step 3b (Download YAML): Could not download 'component_onboarding_detai
   Ensure the attachment exists on the Jira issue. Run /create-component-onboarding-jira first.
 ```
 
-**3c. Parse the YAML** using the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
+**3c. Parse the YAML** from `$WORKDIR/component_onboarding_details.yaml`:
 
-Extract and store these values (all under `inputs:`):
+```bash
+eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+  --workdir    "$WORKDIR" \
+  --jira-id    "$JIRA_ID" \
+  --scripts-dir "$COMMON_SCRIPTS_DIR")"
+# Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT,
+#       QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
+
+# Also extract TARGET_RHOAI_VERSION (optional field, required when PRODUCT_CONTEXT=RHOAI)
+TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
+```
 
 | Variable | YAML field | Required | Example |
 |----------|-----------|----------|---------|
@@ -160,11 +152,6 @@ Extract and store these values (all under `inputs:`):
 | `REPO_URL` | `inputs.repo_url` | Yes | `https://github.com/rhoai-rhtap/odh-ai-first-demo` |
 | `REPO_BRANCH` | `inputs.repo_branch` | Yes | `main` |
 | `TARGET_RHOAI_VERSION` | `inputs.target_rhoai_version` | When RHOAI | `2.16` or `2.16-ea-1` |
-
-If any of COMPONENT_NAME, PRODUCT_CONTEXT, REPO_URL, REPO_BRANCH is missing, stop with:
-```
-ERROR in Step 3c: Missing required field '<field>' in component_onboarding_details.yaml. Aborting.
-```
 
 If `product_context=RHOAI` and `target_rhoai_version` is missing, stop with:
 ```
@@ -175,68 +162,32 @@ ERROR in Step 3c: Missing required field 'target_rhoai_version' in component_onb
 **3d. Derive computed variables:**
 
 ```bash
-# 3d-1: Finalise BC_URL and derive BC_PATH
-if [[ -z "${BC_URL:-}" ]]; then
-  if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
-    BC_URL="https://github.com/opendatahub-io/ODH-Build-Config.git"
-  elif [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-    BC_URL="https://github.com/red-hat-data-services/RHOAI-Build-Config.git"
-  fi
-  echo "BC_URL derived from product_context (${PRODUCT_CONTEXT}): $BC_URL"
-fi
-
-BC_PATH=$(echo "$BC_URL" | sed 's|https://github.com/||;s|\.git$||')
+# 3d-1: Resolve BC_URL and BC_PATH from product_context (with optional override)
+eval "$(bash "$COMMON_SCRIPTS_DIR/resolve_bc_url.sh" \
+  --product-context "$PRODUCT_CONTEXT" \
+  ${BUILD_CONFIG_REPO_URL:+--override "$BUILD_CONFIG_REPO_URL"})"
+# Sets: BC_URL, BC_PATH
+echo "BC_URL : $BC_URL"
 echo "BC_PATH: $BC_PATH"
 
-# 3d-2: Parse target_rhoai_version and derive version/branch variables (RHOAI only)
+# 3d-2: Parse target_rhoai_version into version/branch variables (RHOAI only)
 if [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-  if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
-    x="${BASH_REMATCH[1]}"; y="${BASH_REMATCH[2]}"; n="${BASH_REMATCH[3]}"
-    version_var="v${x}-${y}-ea-${n}"
-    branch_var="${x}.${y}-ea.${n}"
-  elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
-    x="${BASH_REMATCH[1]}"; y="${BASH_REMATCH[2]}"
-    version_var="v${x}-${y}"
-    branch_var="${x}.${y}"
-  else
-    echo "ERROR in Step 3d: Invalid target_rhoai_version '${TARGET_RHOAI_VERSION}'. Expected x.y or x.y-ea-n."
-    exit 1
-  fi
-  branch_name="rhoai-${branch_var}"
-  echo "version_var  : $version_var"
-  echo "branch_var   : $branch_var"
-  echo "branch_name  : $branch_name"
+  eval "$(bash "$COMMON_SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION")"
+  # Sets: VERSION_VAR, BRANCH_VAR, BRANCH_NAME, RHOAI_MINOR_VERSION, CONTENT_STREAM_TAG
 fi
 
-# 3d-3: Quay organisation based on product context
-if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
-  QUAY_ORG="opendatahub"
-elif [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-  QUAY_ORG="rhoai"
+# 3d-3: Resolve RELATED_IMAGE_NAME, RELATED_IMAGE_VALUE, USING_PLACEHOLDER
+if [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
+  QUAY_REPO_NAME="${COMPONENT_NAME}-rhel9"
 else
-  echo "ERROR in Step 3d: Unknown PRODUCT_CONTEXT '$PRODUCT_CONTEXT'. Expected 'ODH' or 'RHOAI'."
-  exit 1
+  QUAY_REPO_NAME="$COMPONENT_NAME"
 fi
 
-# relatedImages entry name: uppercase component name with hyphens → underscores
-RELATED_IMAGE_NAME="RELATED_IMAGE_$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:upper:]_')_IMAGE"
-# e.g. odh-ai-first-demo → RELATED_IMAGE_ODH_AI_FIRST_DEMO_IMAGE
-
-# relatedImages entry value — try to fetch the real SHA256 digest from Quay first
-STABLE_IMAGE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}:odh-stable"
-REAL_DIGEST=$(skopeo inspect --no-creds "docker://${STABLE_IMAGE}" 2>/dev/null \
-  | jq -r '.Digest // ""' 2>/dev/null || echo "")
-
-if [[ -n "$REAL_DIGEST" && "$REAL_DIGEST" == sha256:* ]]; then
-  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@${REAL_DIGEST}"
-  USING_PLACEHOLDER=false
-  echo "  Fetched real digest from Quay: $REAL_DIGEST"
-else
-  RELATED_IMAGE_VALUE="quay.io/${QUAY_ORG}/${COMPONENT_NAME}@sha256:$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-  USING_PLACEHOLDER=true
-  echo "  WARNING: Image not yet published to Quay — using placeholder digest."
-  echo "  Update bundle-patch.yaml with the real digest before merging the PR."
-fi
+eval "$(bash "$COMMON_SCRIPTS_DIR/resolve_bundle_image.sh" \
+  --component-name "$COMPONENT_NAME" \
+  --quay-org       "$QUAY_ORG" \
+  --quay-repo      "$QUAY_REPO_NAME")"
+# Sets: RELATED_IMAGE_NAME, RELATED_IMAGE_VALUE, USING_PLACEHOLDER
 ```
 
 Print a summary:
@@ -259,38 +210,22 @@ Before cloning, check whether `$RELATED_IMAGE_NAME` already has an entry in
 > Do NOT substitute the hardcoded upstream path.
 
 ```bash
-BUNDLE_TMPFILE=$(mktemp)
-HTTP_STATUS=$(curl -s -w "%{http_code}" \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3.raw" \
-  "https://api.github.com/repos/${BC_PATH}/contents/bundle/bundle-patch.yaml?ref=main" \
-  -o "$BUNDLE_TMPFILE")
+check_result=0
+bash "$COMMON_SCRIPTS_DIR/check_github_file.sh" \
+  --repo-path "$BC_PATH" \
+  --file-path "bundle/bundle-patch.yaml" \
+  --ref       "main" \
+  --grep      "$RELATED_IMAGE_NAME" || check_result=$?
+# check_result: 0=found, 1=not found or 404, 2=API error
 ```
 
-**If `HTTP_STATUS` is not `200`:**
-- `404` — file not found. Warn and continue to Step 5:
+- `check_result=2` (API error) — warn and continue to Step 5:
   ```
-  WARN in Step 4: bundle/bundle-patch.yaml not found on main branch (HTTP 404).
-    Verify BC_URL points to the correct repo. Continuing.
+  WARN in Step 4: Could not fetch bundle/bundle-patch.yaml via GitHub API. Continuing.
   ```
-- Any other non-200 — Warn and continue to Step 5:
-  ```
-  WARN in Step 4: Could not fetch bundle/bundle-patch.yaml (HTTP $HTTP_STATUS). Continuing.
-  ```
-- Do NOT abort — the API check is a fast-path optimisation; proceed with the full flow if inconclusive.
+- Do NOT abort — this is a fast-path optimisation; proceed if inconclusive.
 
-**If `HTTP_STATUS` is `200`:**
-
-```bash
-if grep -q "${RELATED_IMAGE_NAME}" "$BUNDLE_TMPFILE"; then
-  ENTRY_EXISTS=true
-else
-  ENTRY_EXISTS=false
-fi
-rm -f "$BUNDLE_TMPFILE"
-```
-
-If `ENTRY_EXISTS=true`:
+If `check_result=0` (entry already present):
 
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
@@ -315,58 +250,7 @@ rm -f "$BUNDLE_TMPFILE"
 
 ---
 
-## Step 5: Check for Existing Open PR in Jira Comments
-
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
-
-```bash
-BC_REPO_NAME="${BC_PATH##*/}"
-# e.g. "ODH-Build-Config" or "RHOAI-Build-Config"
-```
-
-Search the array at `fields.comment.comments[].body` for GitHub PR URLs matching:
-```
-https://github\.com/[^/\s]+/${BC_REPO_NAME}/pull/\d+
-```
-
-For each URL found, run:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url <found-url> --check-only
-```
-
-Parse stdout:
-
-- If `state=open` **and** `title=` contains `$COMPONENT_NAME`:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "Existing open GitHub PR found for '$COMPONENT_NAME' in ${BC_PATH}: <found-url>.
-
-No new PR will be raised. Review and merge the existing PR to complete this step."
-  ```
-  Print:
-  ```
-  Found existing open PR for $COMPONENT_NAME: <found-url>
-  Jira updated. No new PR raised — review and merge the existing PR.
-  ```
-  **Stop with exit 0.**
-
-- If `state=merged`:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --add-label "obc-changes-done" \
-    --comment "${BC_PATH} PR for '$COMPONENT_NAME' was already merged: <found-url>. No action needed.
-
-Step 8 (Integrate with Bundle) is complete."
-  ```
-  Print: `PR already merged. Step 8 (integrate-with-bundle) is complete.`
-  **Stop with exit 0.**
-
-If no matching PR is found, continue to Step 6.
-
----
-
-## Step 6: Set Up Playpen (Clone)
+## Step 5: Set Up Playpen (Clone)
 
 > **Reminder:** Pass `--src-url "$BC_URL"` — finalised in Step 3d (or Step 0 if
 > `BUILD_CONFIG_REPO_URL` was explicitly set). Do NOT hardcode the upstream URL here.
@@ -410,131 +294,136 @@ git push origin "<jira-id>"
 
 ---
 
-## Step 7: Update bundle/bundle-patch.yaml
+## Step 6: Update bundle/bundle-patch.yaml
 
-Use the `Read` tool to read `$CLONE_DIR/bundle/bundle-patch.yaml`.
+```bash
+[[ -f "$CLONE_DIR/bundle/bundle-patch.yaml" ]] || {
+  echo "ERROR in Step 7: bundle/bundle-patch.yaml not found in $CLONE_DIR."
+  echo "  Verify that $BC_URL points to the correct build-config repository."
+  exit 1
+}
 
-If the file does not exist, stop with:
+if grep -qF "$RELATED_IMAGE_NAME" "$CLONE_DIR/bundle/bundle-patch.yaml"; then
+  echo "$RELATED_IMAGE_NAME already in bundle-patch.yaml — skipping edit."
+else
+  COMPONENT_ARG=""
+  [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]] && COMPONENT_ARG="--component $COMPONENT_NAME"
+
+  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-array-entry \
+    "$CLONE_DIR/bundle/bundle-patch.yaml" \
+    --array-key "patch.relatedImages" \
+    --name      "$RELATED_IMAGE_NAME" \
+    --value     "$RELATED_IMAGE_VALUE" \
+    $COMPONENT_ARG || {
+    echo "ERROR in Step 7 (Update bundle-patch.yaml): Could not append relatedImages entry. Aborting."
+    exit 1
+  }
+
+  grep -qF "$RELATED_IMAGE_NAME" "$CLONE_DIR/bundle/bundle-patch.yaml" || {
+    echo "ERROR: $RELATED_IMAGE_NAME not found in bundle-patch.yaml after insert."
+    exit 1
+  }
+fi
 ```
-ERROR in Step 7: bundle/bundle-patch.yaml not found in $CLONE_DIR.
-  Verify that $BC_URL points to the correct build-config repository.
-```
-
-Locate the `patch.relatedImages:` array. It will contain existing entries like:
-```yaml
-patch:
-  relatedImages:
-    - name: RELATED_IMAGE_EXISTING_COMPONENT_IMAGE
-      value: quay.io/opendatahub/existing-component@sha256:abc123...
-      component: existing-component
-    - name: RELATED_IMAGE_ANOTHER_COMPONENT_IMAGE
-      value: quay.io/opendatahub/another-component@sha256:def456...
-      component: another-component
-```
-
-**Check if `$RELATED_IMAGE_NAME` already appears in the file:**
-- **Already present**: Print `$RELATED_IMAGE_NAME already in bundle-patch.yaml — skipping edit.`
-- **Not present**: Use the `Edit` tool to append the new entry at the **end of the
-  `relatedImages` array**, before any sibling key (or at end of file if it is the last key).
-  Match the indentation of existing entries (4 spaces for `- name:`, 6 spaces for `value:`).
-
-  **ODH** (include `component:` field):
-  ```yaml
-      - name: $RELATED_IMAGE_NAME
-        value: $RELATED_IMAGE_VALUE
-        component: $COMPONENT_NAME
-  ```
-
-  **RHOAI** (omit `component:` field):
-  ```yaml
-      - name: $RELATED_IMAGE_NAME
-        value: $RELATED_IMAGE_VALUE
-  ```
-
-After editing, verify with the `Read` tool that:
-- `name: $RELATED_IMAGE_NAME` is present under `patch.relatedImages`
-- `value: $RELATED_IMAGE_VALUE` is present and on the line immediately following
-- Surrounding entries are undisturbed
-
-If verification fails, fix with another `Edit` call before continuing.
 
 ---
 
-## Step 8: Update config/build-config.yaml (RHOAI only)
+## Step 7: Update config/build-config.yaml (RHOAI only)
 
 > **Execute this step only when `product_context=RHOAI`. Skip entirely for ODH.**
 
 **8a. Read the file**
 
-Use the `Read` tool to read `$CLONE_DIR/config/build-config.yaml`.
-
-If the file does not exist, stop with:
-```
-ERROR in Step 8: config/build-config.yaml not found in $CLONE_DIR.
-  Verify that $BC_URL points to the correct RHOAI-Build-Config repository.
+```bash
+[[ -f "$CLONE_DIR/config/build-config.yaml" ]] || {
+  echo "ERROR in Step 8: config/build-config.yaml not found in $CLONE_DIR."
+  echo "  Verify that $BC_URL points to the correct RHOAI-Build-Config repository."
+  exit 1
+}
 ```
 
 **8b. Idempotency check**
 
 Check if `rhoai/${COMPONENT_NAME}-rhel9:` already appears under
-`config.replacements[0].repo_mappings`. If present:
-```
-rhoai/${COMPONENT_NAME}-rhel9 already in config.replacements[0].repo_mappings — skipping.
-```
-Continue to Step 9.
+`config.replacements[0].repo_mappings`. If present, skip to Step 9.
 
 **8c. Insert the new entry**
 
-Use the `Edit` tool to append the new entry to `config.replacements[0].repo_mappings`,
-matching the indentation of surrounding entries:
-```yaml
-    rhoai/<COMPONENT_NAME>-rhel9: rhoai/<COMPONENT_NAME>-rhel9
+```bash
+if grep -q "rhoai/${COMPONENT_NAME}-rhel9:" "$CLONE_DIR/config/build-config.yaml" 2>/dev/null; then
+  echo "rhoai/${COMPONENT_NAME}-rhel9 already in config.replacements[0].repo_mappings — skipping."
+else
+  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" insert-simple-map-entry \
+    "$CLONE_DIR/config/build-config.yaml" \
+    --map-key "config.replacements.0.repo_mappings" \
+    --key     "rhoai/${COMPONENT_NAME}-rhel9" \
+    --value   "rhoai/${COMPONENT_NAME}-rhel9"
+fi
+```
+
+On exit 1 from `edit_yaml.py`: display stderr and stop with:
+```
+ERROR in Step 8c (Update build-config.yaml): Could not insert repo_mappings entry. See details above. Aborting.
 ```
 
 **8d. Verify**
 
-Use the `Read` tool to confirm:
-- `rhoai/${COMPONENT_NAME}-rhel9: rhoai/${COMPONENT_NAME}-rhel9` is present
-- Surrounding entries are undisturbed
+```bash
+grep -q "rhoai/${COMPONENT_NAME}-rhel9:" "$CLONE_DIR/config/build-config.yaml" \
+  || { echo "ERROR: rhoai/${COMPONENT_NAME}-rhel9 not found in build-config.yaml after insert."; exit 1; }
+```
 
-If verification fails, apply a corrective `Edit` before continuing.
+**8e. Update bundle/Dockerfile**
+
+```bash
+DOCKERFILE="$CLONE_DIR/bundle/Dockerfile"
+[[ -f "$DOCKERFILE" ]] || {
+  echo "ERROR in Step 8e: bundle/Dockerfile not found in $CLONE_DIR."
+  echo "  Verify that $BC_URL points to the correct RHOAI-Build-Config repository."
+  exit 1
+}
+
+eval "$(uv run --script "$COMMON_SCRIPTS_DIR/update_bundle_dockerfile_git_labels.py" \
+  "$DOCKERFILE" --component-name "$COMPONENT_NAME")" || {
+  echo "ERROR in Step 8e: Could not update bundle/Dockerfile. See details above. Aborting."
+  exit 1
+}
+# Sets: GIT_URL_LABEL, GIT_COMMIT_LABEL
+echo "GIT_URL_LABEL   : $GIT_URL_LABEL"
+echo "GIT_COMMIT_LABEL: $GIT_COMMIT_LABEL"
+```
 
 ---
 
-## Step 9: Commit and Push
+## Step 8: Commit and Push
 
 > **Reminder:** `origin` was set to `$BC_URL` by `setup_github_playpen.sh` in Step 6.
 > Pushing to `origin` is correct — do NOT change the remote URL here.
 
 ```bash
-cd "$CLONE_DIR"
-git add bundle/bundle-patch.yaml
-if [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-  git add config/build-config.yaml
-fi
-git status   # verify only the expected file(s) are staged
 if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
-  git commit -m "Add $COMPONENT_NAME to bundle-patch.yaml"
+  COMMIT_FILES="bundle/bundle-patch.yaml"
+  COMMIT_MSG="Add $COMPONENT_NAME to bundle-patch.yaml"
 else
-  git commit -m "Add $COMPONENT_NAME to bundle-patch.yaml and build-config.yaml"
+  COMMIT_FILES="bundle/bundle-patch.yaml config/build-config.yaml bundle/Dockerfile"
+  COMMIT_MSG="Add $COMPONENT_NAME to bundle-patch.yaml, build-config.yaml, and bundle/Dockerfile"
 fi
-git push origin "$DEST_BRANCH"
+
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "$COMMIT_FILES" \
+  --message   "$COMMIT_MSG" \
+  --branch    "$DEST_BRANCH"
 ```
 
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
+On exit 1: display stderr and stop with:
 ```
-
-On any other push failure, display stderr and stop with:
-```
-ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH' to origin. See details above.
+ERROR in Step 9 (Commit/Push): Could not commit or push changes. See details above. Aborting.
 ```
 
 ---
 
-## Step 10: Raise PR (up to 3 attempts)
+## Step 9: Raise PR (up to 3 attempts)
 
 > **Reminder:** Both `--src-url` and `--dest-url` must be `"$BC_URL"`. Do NOT replace
 > either with the hardcoded upstream URL.
@@ -558,7 +447,8 @@ if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
 else
   FILES_CHANGED="**Files changed:**
 - \`bundle/bundle-patch.yaml\` — added \`$RELATED_IMAGE_NAME\` to \`patch.relatedImages\`
-- \`config/build-config.yaml\` — added \`rhoai/${COMPONENT_NAME}-rhel9\` to \`config.replacements[0].repo_mappings\` (RHOAI only)"
+- \`config/build-config.yaml\` — added \`rhoai/${COMPONENT_NAME}-rhel9\` to \`config.replacements[0].repo_mappings\` (RHOAI only)
+- \`bundle/Dockerfile\` — added ARG \`${GIT_URL_LABEL}\`, ARG \`${GIT_COMMIT_LABEL}\`, and git label entries for \`${COMPONENT_NAME}\` (RHOAI only)"
 fi
 
 PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
@@ -589,12 +479,13 @@ On failure:
 
 After 3 failures, stop with:
 ```
-ERROR in Step 10 (Raise PR): Could not create PR after 3 attempts. See errors above. Aborting.
+ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. See errors above. Aborting.
 ```
 
 After a successful PR creation, update Jira:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+  --add-label "bundle-pr-raised" \
   --add-label "obc-changes-done" \
   --comment "GitHub PR raised to add '$COMPONENT_NAME' to ${BC_PATH}.
 
@@ -602,90 +493,13 @@ PR URL: $PR_URL
 
 Files changed:
 - bundle/bundle-patch.yaml: $RELATED_IMAGE_NAME added to patch.relatedImages
-- config/build-config.yaml: rhoai/${COMPONENT_NAME}-rhel9 added to repo_mappings (RHOAI only)"
+- config/build-config.yaml: rhoai/${COMPONENT_NAME}-rhel9 added to repo_mappings (RHOAI only)
+- bundle/Dockerfile: ARG and LABEL entries added for ${COMPONENT_NAME} (RHOAI only)"
 ```
 
 ---
 
-## Step 11: Monitor the PR
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "$PR_URL" \
-  --timeout 60
-```
-
-Read the stdout result:
-
-**`merged` (exit 0):** PR merged.
-
-Update Jira:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --remove-label "obc-changes-done" \
-  --add-label "obc-pr-merged" \
-  --comment "${BC_PATH} PR merged: $PR_URL
-
-bundle/bundle-patch.yaml for '$COMPONENT_NAME' is now live on main.
-
-Step 12 (Integrate with Bundle) is complete."
-```
-
-Continue to Step 12.
-
-**`closed` (exit 1):** PR closed without merging.
-
-Update Jira:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --comment "${BC_PATH} PR was closed without merging: $PR_URL
-
-Please review and re-trigger if needed."
-```
-
-Stop with:
-```
-ERROR in Step 11: PR was closed without merging.
-PR: $PR_URL
-```
-
-**`pipeline_failed` or `pipeline_canceled` (exit 1):** CI checks failed on the PR.
-
-Update Jira:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --comment "CI checks failed on ${BC_PATH} PR: $PR_URL
-
-Please review the PR checks and push a fix, then re-run this skill to resume monitoring."
-```
-
-Stop with:
-```
-ERROR in Step 11: CI checks failed on PR $PR_URL.
-Manual intervention required — review the PR and push a fix, then re-run.
-```
-
-**`timeout` (exit 1):** PR still open after 60 minutes.
-
-Update Jira:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --comment "PR monitoring timed out after 60 minutes. PR is still open: $PR_URL
-
-Re-run /integrate-component-with-bundle to resume — at Step 5 it will detect the
-existing PR and jump straight to monitoring."
-```
-
-Print:
-```
-WARNING: PR monitoring timed out after 60 minutes.
-PR is still open: $PR_URL
-Re-run this skill to resume monitoring (Step 5 will skip raising a new PR).
-```
-
----
-
-## Step 12: Report Completion
+## Step 10: Report Completion
 
 Print:
 ```
@@ -693,8 +507,9 @@ Done.
 
   bundle/bundle-patch.yaml    — $RELATED_IMAGE_NAME added to patch.relatedImages
   config/build-config.yaml    — rhoai/${COMPONENT_NAME}-rhel9 added (RHOAI only)
-  GitHub PR                   — merged: $PR_URL
-  Jira                        — updated (label: obc-pr-merged)
+  bundle/Dockerfile           — ARG + LABEL entries added for $COMPONENT_NAME (RHOAI only)
+  GitHub PR                   — raised: $PR_URL
+  Jira                        — updated (labels: bundle-pr-raised, obc-changes-done)
 
   component_name              : $COMPONENT_NAME
   product_context             : $PRODUCT_CONTEXT
@@ -721,13 +536,9 @@ Integrate with Bundle (pipeline step 8) is complete.
 | Invalid `target_rhoai_version` format | Step 3d | Expected format is `x.y` or `x.y-ea-n` (e.g. `2.16` or `2.16-ea-1`) |
 | Unknown `PRODUCT_CONTEXT` | Step 3d | Set `product_context: ODH` or `product_context: RHOAI` in the YAML and re-upload |
 | Component already in bundle-patch.yaml (main) | Step 4 | Expected — Jira updated; skill exits 0 cleanly |
-| Existing open PR found | Step 5 | Expected — Jira updated; merge the existing PR |
-| PR already merged | Step 5 | Expected — skill exits 0 cleanly |
-| Clone or push fails | Step 6 | Check GITHUB_TOKEN push scope on `$BC_PATH` |
-| Shallow push rejected | Steps 6, 9 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
-| `bundle/bundle-patch.yaml` not found in clone | Step 7 | Check `BC_URL` points to the correct build-config repo |
-| `config/build-config.yaml` not found in clone | Step 8 | Check `BC_URL` points to the correct RHOAI-Build-Config repo |
-| PR creation fails 3× | Step 10 | Check GITHUB_TOKEN; verify branch was pushed; fix manually |
-| PR closed without merge | Step 11 | Review and re-run |
-| PR CI checks failed | Step 11 | Review PR checks; push fix; re-run |
-| PR monitoring timeout | Step 11 | Re-run skill — Step 5 detects existing PR and skips raising a new one |
+| Clone or push fails | Step 5 | Check GITHUB_TOKEN push scope on `$BC_PATH` |
+| Shallow push rejected | Steps 5, 8 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
+| `bundle/bundle-patch.yaml` not found in clone | Step 6 | Check `BC_URL` points to the correct build-config repo |
+| `config/build-config.yaml` not found in clone | Step 7 | Check `BC_URL` points to the correct RHOAI-Build-Config repo |
+| `bundle/Dockerfile` not found in clone | Step 7e | Check `BC_URL` points to the correct RHOAI-Build-Config repo |
+| PR creation fails 3× | Step 9 | Check GITHUB_TOKEN; verify branch was pushed; fix manually |

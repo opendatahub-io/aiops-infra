@@ -4,7 +4,7 @@ description: Configures auto-merge for a new component repo by adding entries to
   rhods-devops-infra's upstream-source-map.yaml and main-release-source-map.yaml,
   registering the repo in both auto-merge GitHub Actions workflows, and raising a
   GitHub PR targeting main. Part of the ODH/RHOAI component onboarding pipeline.
-allowed-tools: Bash, Read, Edit, Write
+allowed-tools: Bash
 user-invocable: true
 ---
 
@@ -79,6 +79,10 @@ be placed in the working directory. Otherwise it will be downloaded from Jira.
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
 COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
+**Idempotency fast-path:** If invoked with `--existing-pr-url <url>`, print
+`PR already raised: <url>` and exit 0. The orchestrator passes this when the URL is already
+recorded in `pipeline_state.json`.
+
 ---
 
 ## Step 0: Parse Inputs
@@ -121,33 +125,14 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 ## Step 1: Check Prerequisites
 
-Check in order. Stop with a remediation message if any check fails.
-
 ```bash
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  echo "ERROR: GITHUB_USER is not set. export GITHUB_USER=yourusername"; exit 1
-fi
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "ERROR: GITHUB_TOKEN is not set. export GITHUB_TOKEN=yourtoken (needs repo scope)"; exit 1
-fi
-if ! command -v uv &>/dev/null; then
-  echo "ERROR: uv is not installed. curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1
-fi
-if ! command -v git &>/dev/null; then
-  echo "ERROR: git is not installed."; exit 1
-fi
-if ! command -v curl &>/dev/null; then
-  echo "ERROR: curl is not installed."; exit 1
-fi
-```
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  --env "GITHUB_USER GITHUB_TOKEN" \
+  --tools "uv git curl"
 
-When `JIRA_URL` is non-empty, also check:
-```bash
-if [[ -z "${JIRA_USER_EMAIL:-}" ]]; then
-  echo "ERROR: JIRA_USER_EMAIL is not set. export JIRA_USER_EMAIL=you@example.com"; exit 1
-fi
-if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
-  echo "ERROR: JIRA_API_TOKEN is not set. export JIRA_API_TOKEN=your-api-token"; exit 1
+if [[ -n "$JIRA_URL" ]]; then
+  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+    --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
@@ -156,12 +141,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-if [[ -n "$JIRA_ID" ]]; then
-  WORKDIR="$(pwd)/${JIRA_ID}"
-else
-  WORKDIR="$(pwd)"
-fi
-mkdir -p "$WORKDIR"
+eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -203,11 +183,12 @@ ERROR in Step 3: No component_onboarding_details.yaml found and no Jira URL prov
 
 ### 3d. Fetch Jira details
 
-Skip if `$WORKDIR/component_onboarding_details.json` already exists.
 Only when `JIRA_URL` is non-empty:
 ```bash
-cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
+  cd "$WORKDIR"
+  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+fi
 ```
 On exit 1, display stderr and stop:
 ```
@@ -216,42 +197,22 @@ ERROR in Step 3d (Fetch Jira details): Could not fetch Jira issue. See details a
 
 ### 3e. Parse YAML
 
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.yaml`.
-
-Extract `inputs.repo_url` into `REPO_URL`. If missing, stop:
-```
-ERROR in Step 3e: Missing required field 'inputs.repo_url' in component_onboarding_details.yaml.
-  Re-generate the YAML with /create-component-onboarding-jira <jira-url>.
+```bash
+REPO_URL=$(grep -m1 'repo_url:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}')
+[[ -z "$REPO_URL" ]] && {
+  echo "ERROR in Step 3e: Missing required field 'inputs.repo_url' in component_onboarding_details.yaml."
+  echo "  Re-generate the YAML with /create-component-onboarding-jira <jira-url>."
+  exit 1
+}
 ```
 
 ### 3f. Derive Global Variables
 
 ```bash
-# repo_name: last path segment without .git
 REPO_NAME="${REPO_URL##*/}"
 REPO_NAME="${REPO_NAME%.git}"
 
-# Repo slug for GitHub API calls (owner/repo, no .git)
-REPO_SLUG=$(echo "$REPO_URL" | sed 's|https://github.com/||;s|\.git$||')
-
-# Find upstream (parent) repo via GitHub API
-GH_REPO_INFO=$(curl -s \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3+json" \
-  "https://api.github.com/repos/${REPO_SLUG}")
-
-IS_FORK=$(echo "$GH_REPO_INFO" | python3 -c \
-  "import sys,json; d=json.load(sys.stdin); print(str(d.get('fork',False)).lower())" 2>/dev/null \
-  || echo "false")
-
-if [[ "$IS_FORK" == "true" ]]; then
-  UPSTREAM_REPO_URL=$(echo "$GH_REPO_INFO" | python3 -c \
-    "import sys,json; d=json.load(sys.stdin); print(d['parent']['html_url'])" 2>/dev/null)
-  echo "  Repo is a fork — upstream: $UPSTREAM_REPO_URL"
-else
-  UPSTREAM_REPO_URL="${REPO_URL%.git}"
-  echo "  Repo is not a fork — using repo_url as upstream."
-fi
+eval "$(bash "$COMMON_SCRIPTS_DIR/detect_repo_upstream.sh" --repo-url "$REPO_URL")"
 
 echo "REPO_NAME        : $REPO_NAME"
 echo "REPO_URL         : $REPO_URL"
@@ -306,49 +267,7 @@ WARN: Could not fetch config files from GitHub API. Proceeding to check via loca
 
 ---
 
-## Step 5: Check for Existing Open PR in Jira Comments
-
-Skip entirely if `$WORKDIR/component_onboarding_details.json` does not exist.
-
-Use the `Read` tool to read `$WORKDIR/component_onboarding_details.json`.
-
-```bash
-RDI_REPO_NAME="${RDI_PATH##*/}"
-# e.g. "rhods-devops-infra"
-```
-
-Search `fields.comment.comments[].body` for GitHub PR URLs matching:
-```
-https://github\.com/[^/\s]+/${RDI_REPO_NAME}/pull/\d+
-```
-
-For each URL found:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "<found-url>" --check-only
-```
-
-Parse stdout:
-- If `state=open` and the `title=` line contains `REPO_NAME`:
-  ```bash
-  PR_URL="<found-url>"
-  if [[ -n "$JIRA_URL" ]]; then
-    uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-      --comment "Found existing open GitHub PR for auto-merge setup of '${REPO_NAME}': ${PR_URL}
-Resuming monitoring of this PR."
-  fi
-  echo "Found existing open PR: $PR_URL. Jumping to Step 10 to monitor."
-  ```
-  **Set `PR_URL` and jump directly to Step 10** (Monitor PR).
-
-- If `state=merged`: update Jira with `auto-merge-setup-done` label and a merged comment. **Stop exit 0.**
-- If `state=closed`: note it and continue searching.
-
-If no matching open PR found, continue to Step 6.
-
----
-
-## Step 6: Set Up Playpen (Clone main branch)
+## Step 5: Set Up Playpen (Clone main branch)
 
 > **NOTE:** Clone from `main`. Pass `--dest-branch` only when `JIRA_ID` is available.
 > Sparse checkout the two directories containing all 4 target files.
@@ -371,7 +290,7 @@ DEST_BRANCH=$(echo "$PLAYPEN_OUTPUT" | tail -1)
 
 On exit 1, display stderr and stop:
 ```
-ERROR in Step 6 (Playpen setup): Clone or push failed. See details above.
+ERROR in Step 5 (Playpen setup): Clone or push failed. See details above.
   Check network connectivity and GITHUB_TOKEN (needs push access to $RDI_PATH).
 ```
 
@@ -384,144 +303,148 @@ git push origin "$DEST_BRANCH"
 
 ---
 
-## Step 7: Edit the Four Target Files
+## Step 6: Edit the Four Target Files
 
-> **Reminder:** `origin` was set to `$RDI_URL` by `setup_github_playpen.sh` in Step 6.
+> **Reminder:** `origin` was set to `$RDI_URL` by `setup_github_playpen.sh` in Step 5.
 > All edits happen in `$CLONE_DIR`. Read each file first before editing.
 
-### 7a. `src/config/upstream-source-map.yaml`
+### 6a. `src/config/upstream-source-map.yaml`
 
-Use the `Read` tool to read `$CLONE_DIR/src/config/upstream-source-map.yaml`.
+```bash
+USM_FILE="$CLONE_DIR/src/config/upstream-source-map.yaml"
+[[ -f "$USM_FILE" ]] || {
+  echo "ERROR in Step 6a: src/config/upstream-source-map.yaml not found in $CLONE_DIR."
+  echo "  Verify that $RDI_URL points to the correct rhods-devops-infra repository."
+  exit 1
+}
 
-If the file does not exist, stop:
-```
-ERROR in Step 7a: src/config/upstream-source-map.yaml not found in $CLONE_DIR.
-  Verify that $RDI_URL points to the correct rhods-devops-infra repository.
-```
-
-**Idempotency:** If `name: ${REPO_NAME}` already appears in the file, print:
-```
-${REPO_NAME} already in upstream-source-map.yaml — skipping edit.
-```
-Continue to 7b.
-
-Otherwise, use the `Edit` tool to append the new entry after the last existing `- name:` entry
-in the file. Match the indentation of surrounding entries (2-space for `- name:`, 4-space for
-nested fields):
-
-```yaml
-- name: <REPO_NAME>
+if grep -qF "name: ${REPO_NAME}" "$USM_FILE"; then
+  echo "${REPO_NAME} already in upstream-source-map.yaml — skipping edit."
+else
+  cat >> "$USM_FILE" <<EOF
+- name: ${REPO_NAME}
   automerge: 'yes'
   src:
-    url: <UPSTREAM_REPO_URL>.git
+    url: ${UPSTREAM_REPO_URL}.git
     branch: main
   dest:
-    url: <REPO_URL>.git
+    url: ${REPO_URL}.git
     branch: main
+EOF
+  grep -qF "name: ${REPO_NAME}" "$USM_FILE" || {
+    echo "ERROR in Step 6a: Verification failed — '${REPO_NAME}' not found in upstream-source-map.yaml"
+    exit 1
+  }
+  echo "${REPO_NAME} added to upstream-source-map.yaml."
+fi
 ```
 
-Verify with the `Read` tool that the new entry is present and surrounding entries are undisturbed.
-If verification fails, apply a corrective `Edit` before continuing.
+### 6b. `src/config/main-release-source-map.yaml`
 
-### 7b. `src/config/main-release-source-map.yaml`
+```bash
+MRSM_FILE="$CLONE_DIR/src/config/main-release-source-map.yaml"
+[[ -f "$MRSM_FILE" ]] || {
+  echo "ERROR in Step 6b: src/config/main-release-source-map.yaml not found in $CLONE_DIR."
+  echo "  Verify that $RDI_URL points to the correct rhods-devops-infra repository."
+  exit 1
+}
 
-Use the `Read` tool to read `$CLONE_DIR/src/config/main-release-source-map.yaml`.
-
-If file does not exist, stop:
-```
-ERROR in Step 7b: src/config/main-release-source-map.yaml not found in $CLONE_DIR.
-  Verify that $RDI_URL points to the correct rhods-devops-infra repository.
-```
-
-**Idempotency:** If `name: ${REPO_NAME}` already appears, skip.
-
-Otherwise, append after the last existing `- name:` entry:
-```yaml
-- name: <REPO_NAME>
+if grep -qF "name: ${REPO_NAME}" "$MRSM_FILE"; then
+  echo "${REPO_NAME} already in main-release-source-map.yaml — skipping edit."
+else
+  cat >> "$MRSM_FILE" <<EOF
+- name: ${REPO_NAME}
   automerge: 'yes'
-  repo-url: <REPO_URL>.git
+  repo-url: ${REPO_URL}.git
+EOF
+  grep -qF "name: ${REPO_NAME}" "$MRSM_FILE" || {
+    echo "ERROR in Step 6b: Verification failed — '${REPO_NAME}' not found in main-release-source-map.yaml"
+    exit 1
+  }
+  echo "${REPO_NAME} added to main-release-source-map.yaml."
+fi
 ```
 
-Verify with the `Read` tool. Apply a corrective `Edit` if verification fails.
+### 6c. `.github/workflows/upstream-auto-merge.yaml`
 
-### 7c. `.github/workflows/upstream-auto-merge.yaml`
+```bash
+UAM_FILE="$CLONE_DIR/.github/workflows/upstream-auto-merge.yaml"
+[[ -f "$UAM_FILE" ]] || {
+  echo "ERROR in Step 6c: .github/workflows/upstream-auto-merge.yaml not found in $CLONE_DIR."
+  echo "  Verify that $RDI_URL points to the correct rhods-devops-infra repository."
+  exit 1
+}
 
-Use the `Read` tool to read `$CLONE_DIR/.github/workflows/upstream-auto-merge.yaml`.
-
-If file does not exist, stop:
-```
-ERROR in Step 7c: .github/workflows/upstream-auto-merge.yaml not found in $CLONE_DIR.
-  Verify that $RDI_URL points to the correct rhods-devops-infra repository.
-```
-
-Locate the `repositories` input under `on.workflow_dispatch.inputs`. It has an `options:` list
-where each entry is on its own line prefixed with `- ` (at the appropriate YAML indentation).
-
-**Idempotency:** If `$REPO_NAME` already appears anywhere in the `options:` list, print:
-```
-${REPO_NAME} already in upstream-auto-merge.yaml repositories options — skipping edit.
-```
-Continue to 7d.
-
-Otherwise, use the `Edit` tool to append a new `- <REPO_NAME>` option immediately after the
-last existing option entry, matching the exact indentation of surrounding entries.
-
-Verify with the `Read` tool that `$REPO_NAME` is now present in the options list.
-
-### 7d. `.github/workflows/main-release-auto-merge.yaml`
-
-Use the `Read` tool to read `$CLONE_DIR/.github/workflows/main-release-auto-merge.yaml`.
-
-If file does not exist, stop:
-```
-ERROR in Step 7d: .github/workflows/main-release-auto-merge.yaml not found in $CLONE_DIR.
-  Verify that $RDI_URL points to the correct rhods-devops-infra repository.
+if grep -qF "${REPO_NAME}" "$UAM_FILE"; then
+  echo "${REPO_NAME} already in upstream-auto-merge.yaml repositories options — skipping edit."
+else
+  # Find the last option line in the repositories options list and insert after it
+  LAST_OPT=$(grep -n '^\s*- ' "$UAM_FILE" | grep -v 'name:' | tail -1 | cut -d: -f1)
+  INDENT=$(grep -m1 '^\s*- ' "$UAM_FILE" | grep -v 'name:' | sed 's/[^ ].*//')
+  awk -v line="$LAST_OPT" -v entry="${INDENT}- ${REPO_NAME}" \
+    'NR==line{print; print entry; next}1' "$UAM_FILE" > "${UAM_FILE}.tmp" && mv "${UAM_FILE}.tmp" "$UAM_FILE"
+  grep -qF "${REPO_NAME}" "$UAM_FILE" || {
+    echo "ERROR in Step 6c: Verification failed — '${REPO_NAME}' not found in upstream-auto-merge.yaml"
+    exit 1
+  }
+  echo "${REPO_NAME} added to upstream-auto-merge.yaml repositories options."
+fi
 ```
 
-Apply the same idempotency check and edit logic as Step 7c for the `repositories` input's
-`options:` list.
+### 6d. `.github/workflows/main-release-auto-merge.yaml`
 
-Verify with the `Read` tool.
+```bash
+MRAM_FILE="$CLONE_DIR/.github/workflows/main-release-auto-merge.yaml"
+[[ -f "$MRAM_FILE" ]] || {
+  echo "ERROR in Step 6d: .github/workflows/main-release-auto-merge.yaml not found in $CLONE_DIR."
+  echo "  Verify that $RDI_URL points to the correct rhods-devops-infra repository."
+  exit 1
+}
+
+if grep -qF "${REPO_NAME}" "$MRAM_FILE"; then
+  echo "${REPO_NAME} already in main-release-auto-merge.yaml repositories options — skipping edit."
+else
+  LAST_OPT=$(grep -n '^\s*- ' "$MRAM_FILE" | grep -v 'name:' | tail -1 | cut -d: -f1)
+  INDENT=$(grep -m1 '^\s*- ' "$MRAM_FILE" | grep -v 'name:' | sed 's/[^ ].*//')
+  awk -v line="$LAST_OPT" -v entry="${INDENT}- ${REPO_NAME}" \
+    'NR==line{print; print entry; next}1' "$MRAM_FILE" > "${MRAM_FILE}.tmp" && mv "${MRAM_FILE}.tmp" "$MRAM_FILE"
+  grep -qF "${REPO_NAME}" "$MRAM_FILE" || {
+    echo "ERROR in Step 6d: Verification failed — '${REPO_NAME}' not found in main-release-auto-merge.yaml"
+    exit 1
+  }
+  echo "${REPO_NAME} added to main-release-auto-merge.yaml repositories options."
+fi
+```
 
 ---
 
-## Step 8: Commit and Push
+## Step 7: Commit and Push
 
-> **Reminder:** `origin` was set to `$RDI_URL` by `setup_github_playpen.sh` in Step 6.
+> **Reminder:** `origin` was set to `$RDI_URL` by `setup_github_playpen.sh` in Step 5.
 > Pushing to `origin` is correct — do NOT change the remote URL here.
 
 ```bash
-cd "$CLONE_DIR"
-git add \
-  src/config/upstream-source-map.yaml \
-  src/config/main-release-source-map.yaml \
-  .github/workflows/upstream-auto-merge.yaml \
-  .github/workflows/main-release-auto-merge.yaml
-git status   # verify only the expected files are staged
-git commit -m "Configure auto-merge for ${REPO_NAME}
+bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+  --clone-dir "$CLONE_DIR" \
+  --files     "src/config/upstream-source-map.yaml src/config/main-release-source-map.yaml .github/workflows/upstream-auto-merge.yaml .github/workflows/main-release-auto-merge.yaml" \
+  --message   "Configure auto-merge for ${REPO_NAME}
 
 Adds '${REPO_NAME}' to upstream and main-release source maps
 and registers it in both auto-merge workflows.
 
-Related: ${JIRA_ID:-no-jira}"
-git push origin "$DEST_BRANCH"
+Related: ${JIRA_ID:-no-jira}" \
+  --branch    "$DEST_BRANCH"
 ```
 
-If push fails with "shallow update not allowed":
-```bash
-git fetch --unshallow origin
-git push origin "$DEST_BRANCH"
+On exit 1, display stderr and stop:
 ```
-
-On any other push failure, display stderr and stop:
-```
-ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH' to origin. See details above.
+ERROR in Step 7 (Push): Could not push branch '$DEST_BRANCH' to origin. See details above.
   Check GITHUB_TOKEN has push access to $RDI_PATH.
 ```
 
 ---
 
-## Step 9: Raise PR (up to 3 attempts)
+## Step 8: Raise PR (up to 3 attempts)
 
 > **Reminder:** Both `--src-url` and `--dest-url` must be `"$RDI_URL"`. Do NOT replace
 > either with a hardcoded URL. The PR target branch is `main`.
@@ -559,7 +482,7 @@ On failure:
 
 After 3 failures, stop:
 ```
-ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. Aborting.
+ERROR in Step 8 (Raise PR): Could not create PR after 3 attempts. Aborting.
   Check GITHUB_TOKEN has 'repo' scope and push access to $RDI_PATH.
 ```
 
@@ -578,73 +501,11 @@ Files changed:
 - .github/workflows/main-release-auto-merge.yaml: '${REPO_NAME}' added to repositories"
 ```
 
-> **Proceed immediately to Step 10. Do NOT stop here.**
+Print the PR URL and exit 0.
 
 ---
 
-## Step 10: Monitor PR
-
-```bash
-RESULT=$(uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "$PR_URL" \
-  --timeout 60)
-```
-
-The script polls every 60 seconds and writes progress to stderr.
-
-**`merged` (exit 0):**
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --add-label "auto-merge-setup-done" \
-    --remove-label "auto-merge-pr-raised" \
-    --comment "GitHub PR merged: $PR_URL
-
-Auto-merge is now configured for '${REPO_NAME}' (${REPO_URL}) in ${RDI_PATH}."
-fi
-```
-Continue to Step 11.
-
-**`closed` (exit 1):** PR closed without merging.
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --comment "GitHub PR was closed without merging: $PR_URL
-Please review and re-run /setup-auto-merge ${JIRA_URL} to re-open."
-fi
-```
-Stop with:
-```
-ERROR in Step 10 (Monitor PR): PR was closed without merging.
-PR: $PR_URL
-```
-
-**`pipeline_failed` or `pipeline_canceled` (exit 1):** CI checks failed.
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --comment "CI checks failed on PR: $PR_URL
-Please review the PR checks and re-run /setup-auto-merge ${JIRA_URL:-} to retry."
-fi
-```
-Stop with:
-```
-ERROR in Step 10: CI checks failed on PR $PR_URL. Manual intervention required.
-```
-
-**`timeout` (exit 1):** PR still open after 60 minutes.
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --comment "PR monitoring timed out after 60 minutes: $PR_URL
-Re-run /setup-auto-merge ${JIRA_URL:-} to resume."
-fi
-```
-Print warning and continue to Step 11 (no hard stop).
-
----
-
-## Step 11: Report Completion
+## Step 9: Report Completion
 
 ```
 Done.
@@ -653,8 +514,8 @@ Done.
   src/config/main-release-source-map.yaml        — ${REPO_NAME} entry added
   .github/workflows/upstream-auto-merge.yaml     — ${REPO_NAME} added to repositories
   .github/workflows/main-release-auto-merge.yaml — ${REPO_NAME} added to repositories
-  GitHub PR                                      : $PR_URL — $RESULT
-  Jira                                           : ${JIRA_ID:-(none)} — label: auto-merge-setup-done
+  GitHub PR                                      : $PR_URL
+  Jira                                           : ${JIRA_ID:-(none)} — label: auto-merge-pr-raised
 
   repo_name         : $REPO_NAME
   repo_url          : $REPO_URL
@@ -675,11 +536,7 @@ Done.
 | YAML attachment missing | 3b | Ensure `component_onboarding_details.yaml` is attached to Jira |
 | `inputs.repo_url` missing | 3e | Add field to YAML; re-run `/create-component-onboarding-jira` |
 | Both entries already exist | 4 | Expected — exits 0; Jira labelled `auto-merge-setup-done` |
-| Open PR already found | 5 | Expected — jumps to Step 10 to monitor |
-| Push fails (shallow) | 6, 8 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
-| Config file not found in clone | 7a/7b | Check `RDI_URL` points to correct rhods-devops-infra repo |
-| Workflow file not found in clone | 7c/7d | Check `RDI_URL` points to correct rhods-devops-infra repo |
-| PR creation fails 3× | 9 | Check GITHUB_TOKEN `repo` scope and push access to `$RDI_PATH` |
-| PR closed without merge | 10 | Review PR manually; re-run skill |
-| PR CI checks failed | 10 | Review PR checks; re-run skill |
-| PR monitoring timeout | 10 | PR still open; re-run to resume monitoring |
+| Push fails (shallow) | 5, 7 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
+| Config file not found in clone | 6a/6b | Check `RDI_URL` points to correct rhods-devops-infra repo |
+| Workflow file not found in clone | 6c/6d | Check `RDI_URL` points to correct rhods-devops-infra repo |
+| PR creation fails 3× | 8 | Check GITHUB_TOKEN `repo` scope and push access to `$RDI_PATH` |
