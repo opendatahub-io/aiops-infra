@@ -66,6 +66,10 @@ New entry format (2-space indent, matching all existing entries):
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
 COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
+**Idempotency fast-path:** If invoked with `--existing-pr-url <url>`, print
+`PR already raised: <url>` and exit 0. The orchestrator passes this when the URL is already
+recorded in `pipeline_state.json`.
+
 ---
 
 ## Step 0: Parse Inputs
@@ -163,11 +167,12 @@ ERROR in Step 3: No component_onboarding_details.yaml found and no Jira URL prov
 
 ### 3d. Fetch Jira details
 
-Skip if `$WORKDIR/component_onboarding_details.json` already exists.
 Only when `JIRA_URL` is non-empty:
 ```bash
-cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
+  cd "$WORKDIR"
+  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+fi
 ```
 On exit 1, display stderr and stop:
 ```
@@ -204,20 +209,13 @@ RENOVATE_ENTRY : $RENOVATE_ENTRY
 
 ## Step 4: Fast-Path Check — Is Entry Already in Renovate Config?
 
-Fetch `config.yaml` from the `main` branch via GitHub API and search for the entry:
+Fetch `config.yaml` from the `main` branch via raw GitHub URL and search for the entry:
 
 ```bash
-CONFIG_API_URL="https://api.github.com/repos/${RKC_PATH}/contents/config.yaml?ref=main"
-
-CONFIG_RESPONSE=$(curl -s \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3+json" \
-  "$CONFIG_API_URL")
-
-# Decode base64 content
-CONFIG_CONTENT=$(echo "$CONFIG_RESPONSE" | python3 -c \
-  "import sys,json,base64; d=json.load(sys.stdin); print(base64.b64decode(d['content']).decode())" \
-  2>/dev/null)
+# Use raw.githubusercontent.com to avoid base64 decoding the /contents API response
+CONFIG_CONTENT=$(curl -sf \
+  -H "Authorization: token ${GITHUB_TOKEN}" \
+  "https://raw.githubusercontent.com/${RKC_PATH}/main/config.yaml" 2>/dev/null || echo "")
 
 if [[ -n "$CONFIG_CONTENT" ]] && echo "$CONFIG_CONTENT" | grep -qF "${RENOVATE_ENTRY}"; then
   echo "Entry '${RENOVATE_ENTRY}' already exists in renovate config. Nothing to do."
@@ -237,50 +235,7 @@ WARN: Could not fetch config.yaml from GitHub API. Proceeding to check via local
 
 ---
 
-## Step 5: Check for Existing Open PR in Jira Comments
-
-Skip entirely if `$WORKDIR/component_onboarding_details.json` does not exist.
-
-Extract PR URLs from `$WORKDIR/component_onboarding_details.json`:
-```bash
-EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
-  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
-  | grep -oE 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
-  | sort -u || true)
-```
-
-Search `fields.comment.comments[].body` for GitHub PR URLs matching:
-```
-https://github\.com/[^/\s]+/[^/\s]+/pull/\d+
-```
-
-For each URL found:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "<found-url>" --check-only
-```
-
-Parse stdout:
-- If `state=open` and the `title=` line contains `REPO_NAME` or `renovate`:
-  ```bash
-  PR_URL="<found-url>"
-  if [[ -n "$JIRA_URL" ]]; then
-    uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-      --comment "Found existing open GitHub PR for renovate config update: ${PR_URL}
-Resuming monitoring of this PR."
-  fi
-  echo "Found existing open PR: $PR_URL. Jumping to Step 9 to monitor."
-  ```
-  **Set `PR_URL` and jump directly to Step 9** (Monitor PR).
-
-- If `state=merged`: update Jira with `renovate-changes-done` label and a merged comment. **Stop exit 0.**
-- If `state=closed`: note it and continue searching.
-
-If no matching open PR found, continue to Step 6.
-
----
-
-## Step 6: Set Up Playpen (Clone main branch)
+## Step 5: Set Up Playpen (Clone main branch)
 
 > **NOTE:** Clone from `main`. Do **NOT** pass `--dest-branch` (let the playpen script
 > auto-generate a branch name). Sparse checkout only `config.yaml`.
@@ -299,7 +254,7 @@ DEST_BRANCH=$(echo "$PLAYPEN_OUTPUT" | tail -1)
 
 On exit 1, display stderr and stop:
 ```
-ERROR in Step 6 (Playpen setup): Clone or push failed. See details above.
+ERROR in Step 5 (Playpen setup): Clone or push failed. See details above.
   Check GITHUB_TOKEN has 'repo' scope and push access to $RKC_PATH.
 ```
 
@@ -312,7 +267,7 @@ git push origin "$DEST_BRANCH"
 
 ---
 
-## Step 7: Edit config.yaml
+## Step 6: Edit config.yaml
 
 ```bash
 uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-renovate-repo \
@@ -328,7 +283,7 @@ echo "$RENOVATE_ENTRY added to sync-repositories in config.yaml."
 
 ---
 
-## Step 8: Commit and Push
+## Step 7: Commit and Push
 
 ```bash
 bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
@@ -344,13 +299,13 @@ Related: ${JIRA_ID:-no-jira}" \
 
 On exit 1, display stderr and stop:
 ```
-ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH' to $RKC_URL. See details above.
+ERROR in Step 7 (Push): Could not push branch '$DEST_BRANCH' to $RKC_URL. See details above.
   Check GITHUB_TOKEN has 'repo' scope and write access to $RKC_PATH.
 ```
 
 ---
 
-## Step 9: Raise PR (up to 3 attempts)
+## Step 8: Raise PR (up to 3 attempts)
 
 > **PR target is `main`**, not a version-specific branch. Both `--src-url` and `--dest-url`
 > must be `"$RKC_URL"`.
@@ -382,7 +337,7 @@ On failure:
 
 After 3 failures, stop:
 ```
-ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. Aborting.
+ERROR in Step 8 (Raise PR): Could not create PR after 3 attempts. Aborting.
   Check GITHUB_TOKEN has 'repo' scope and push access to $RKC_PATH.
 ```
 
@@ -398,97 +353,20 @@ Entry added: ${RENOVATE_ENTRY}
 Renovate will start managing dependencies in '${REPO_NAME}' once this PR is merged."
 ```
 
-> **Proceed immediately to Step 10.** Do NOT stop here.
+Print the PR URL and exit 0.
 
 ---
 
-## Step 10: Monitor PR
-
-```bash
-RESULT=$(uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "$PR_URL" \
-  --timeout 60)
-```
-
-The script polls every 60 seconds and writes progress to stderr.
-
-**`merged` (exit 0):**
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --add-label "renovate-changes-done" \
-    --remove-label "renovate-pr-raised" \
-    --comment "GitHub PR merged: $PR_URL
-
-Renovate is now enabled for '${REPO_NAME}' (${REPO_URL}).
-Entry '${RENOVATE_ENTRY}' is active in the default Renovate distribution."
-fi
-```
-Continue to Step 11.
-
-**`closed` (exit 1):** PR closed without merging.
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --comment "GitHub PR was closed without merging: $PR_URL
-Please review and re-run /enable-renovate-on-rhoai-component-repo ${JIRA_URL} to re-open."
-fi
-```
-Stop with:
-```
-ERROR in Step 10 (Monitor PR): PR was closed without merging. Check: $PR_URL
-```
-
-**`pipeline_failed` or `pipeline_canceled` (exit 1):** Attempt automated fix:
-1. Inspect `$CLONE_DIR/config.yaml` for YAML issues:
-   ```bash
-   python3 -c "import yaml; yaml.safe_load(open('$CLONE_DIR/config.yaml'))" 2>&1
-   ```
-2. If YAML is valid but pipeline still failed, check for indentation inconsistencies:
-   ```bash
-   grep -n '  - name:' "$CLONE_DIR/config.yaml" | tail -5
-   ```
-3. If fixable (re-run `edit_yaml.py` to re-apply correct entry):
-   ```bash
-   uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-renovate-repo \
-     "$CLONE_DIR/config.yaml" \
-     --renovate-config "renovate/default-renovate-distribution.json" \
-     --name "$RENOVATE_ENTRY"
-   bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
-     --clone-dir "$CLONE_DIR" \
-     --files     "config.yaml" \
-     --message   "Fix renovate config.yaml YAML syntax" \
-     --branch    "$DEST_BRANCH"
-   ```
-   Update Jira with fix attempt. **Jump back to Step 10** to re-monitor once.
-4. If not fixable: update Jira with failure details and stop:
-   ```
-   ERROR in Step 10 (Monitor PR): CI checks failed and could not be auto-fixed.
-   PR: $PR_URL — manual intervention required.
-   ```
-
-**`timeout` (exit 1):** PR still open after 60 minutes.
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --comment "PR monitoring timed out after 60 minutes: $PR_URL
-Re-run /enable-renovate-on-rhoai-component-repo ${JIRA_URL:-} to resume."
-fi
-```
-Print warning and continue to Step 11 (no hard stop).
-
----
-
-## Step 11: Report Completion
+## Step 9: Report Completion
 
 ```
 Done.
 
   config.yaml — entry added: ${RENOVATE_ENTRY}
-  GitHub PR   : $PR_URL — $RESULT
-  Jira        : ${JIRA_ID:-(none)} — label: renovate-changes-done
+  GitHub PR   : $PR_URL
+  Jira        : ${JIRA_ID:-(none)} — label: renovate-pr-raised
 
-Renovate will now manage dependencies in '${REPO_NAME}'.
+Renovate will now manage dependencies in '${REPO_NAME}' once the PR is merged.
 Source: ${REPO_URL}
 ```
 
@@ -505,9 +383,5 @@ Source: ${REPO_URL}
 | YAML attachment missing | 3b | Ensure `component_onboarding_details.yaml` is attached to Jira |
 | `inputs.repo_url` missing | 3e | Add field to YAML; re-run `/create-component-onboarding-jira` |
 | Entry already exists | 4 | Expected — exits 0; Jira labelled `renovate-changes-done` |
-| Open PR already found | 5 | Expected — jumps to Step 9 to monitor |
-| Push fails (shallow) | 6, 8 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
-| PR creation fails 3× | 9 | Check GITHUB_TOKEN `repo` scope |
-| PR closed without merge | 10 | Review PR manually; re-run skill |
-| Pipeline failed | 10 | Skill attempts auto-fix and retries monitor once |
-| PR monitoring timeout | 10 | PR still open; re-run to resume monitoring |
+| Push fails (shallow) | 5, 7 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
+| PR creation fails 3× | 8 | Check GITHUB_TOKEN `repo` scope |

@@ -53,6 +53,17 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
 ---
 
+## Idempotency: --existing-mr-url fast-path
+
+If the skill is invoked with `--existing-mr-url <url>`, print:
+```
+MR already raised: <url>
+```
+and exit 0 immediately. The orchestrator passes this argument when the MR URL is already
+recorded in `pipeline_state.json`, meaning this step was completed in a prior run.
+
+---
+
 ## Step 0: Parse Inputs
 
 Parse the arguments provided by the user:
@@ -128,49 +139,9 @@ bash <COMMON_SCRIPTS_DIR>/check_quay_repo.sh quay.io/<org>/<repo>
   ```
   And **stop**.
 
-- **Exit 1** (does not exist): Continue to Step 4.
+- **Exit 1** (does not exist): Continue to Step 5.
 
 - **Exit 2** (tool error): Display the error output and stop.
-
----
-
-## Step 4: Check for Existing Open MR in Jira Comments
-
-This step only runs if `$WORKDIR/component_onboarding_details.json` exists (produced by the
-`validate-component-onboarding-jira` skill).
-
-Extract existing GitLab MR URLs from the Jira comments:
-
-```bash
-EXISTING_MR_URLS=$(jq -r '.fields.comment.comments[].body' \
-  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
-  | grep -oE 'https://gitlab\.cee\.redhat\.com/[^/[:space:]]+/[^/[:space:]]+/-/merge_requests/[0-9]+' \
-  | sort -u || true)
-```
-
-Search `$EXISTING_MR_URLS` for GitLab MR URLs matching the
-regular expression:
-```
-https://gitlab\.cee\.redhat\.com/[^/\s]+/[^/\s]+/-/merge_requests/\d+
-```
-
-For each URL found, run:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_gitlab_mr.py --mr-url <found-url> --check-only
-```
-
-Parse the stdout:
-- If `state=opened` **and** the `title=` line contains `<repo>` (the quay repo name):
-  - This is an existing open MR for the same quay repo.
-  - If `--jira-url` provided:
-    ```bash
-    uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-      --comment "Found existing open GitLab MR for quay.io/<org>/<repo>: <found-url>. Monitoring it."
-    ```
-  - Print: `Found existing open MR: <found-url>. Skipping MR creation and jumping to monitor step.`
-  - **Jump directly to Step 10** (Monitor MR) using `MR_URL=<found-url>`.
-
-If no matching open MR is found, continue to Step 5.
 
 ---
 
@@ -343,120 +314,12 @@ MR URL: $MR_URL
 The Quay repo will be created automatically once this MR is merged."
 ```
 
----
-
-## Step 10: Monitor MR
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_gitlab_mr.py \
-  --mr-url "$MR_URL" \
-  --timeout 60
+Print the MR URL and stop:
+```
+MR raised: $MR_URL
 ```
 
-The script polls every 60 seconds and writes progress to stderr.
-
-Read the **stdout** result:
-
-- **`merged`** (exit 0): MR is merged; GitOps reconciliation will create the Quay repo shortly. If `--jira-url` provided:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --remove-label "quay-mr-raised" \
-    --comment "MR merged: $MR_URL
-
-app-interface GitOps reconciliation is in progress. Monitoring quay.io/<org>/<repo> for creation..."
-  ```
-  Then print:
-  ```
-  MR merged: <MR_URL>
-  Proceeding to monitor Quay repo creation...
-  ```
-  **Continue to Step 11.**
-
-- **`closed`** (exit 1): MR was closed without merging. If `--jira-url` provided:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "GitLab MR was closed without merging: $MR_URL
-
-Please review the MR and re-run /create-quay-repo if needed."
-  ```
-  Then stop with:
-  ```
-  ERROR in Step 10 (Monitor MR): MR was closed without merging. Check the MR: <MR_URL>. Aborting.
-  ```
-
-- **`pipeline_failed`** or **`pipeline_canceled`** (exit 1): Pipeline failed. The monitor
-  script has already printed the failed job names and URLs to stderr. If `--jira-url` provided:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "Pipeline failed on GitLab MR: $MR_URL
-
-Check the pipeline failures reported above and fix them, then re-run /create-quay-repo."
-  ```
-  Then stop with:
-  ```
-  ERROR in Step 10 (Monitor MR): Pipeline failed. Fix the pipeline issues and retry. MR: <MR_URL>. Aborting.
-  ```
-
-- **`timeout`** (exit 1): MR is still open after 60 minutes. If `--jira-url` provided:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "Monitoring timed out after 60 minutes. MR is still open: $MR_URL
-
-Please check the MR status manually and re-run /create-quay-repo if needed."
-  ```
-  Then print:
-  ```
-  WARNING: MR monitoring timed out after 60 minutes.
-  The MR is still open: <MR_URL>
-  Check it manually and re-run this skill when the MR is merged (it will short-circuit at Step 3).
-  ```
-
----
-
-## Step 11: Monitor Quay Repo Creation
-
-This step runs only when the MR was successfully merged in Step 10. Poll `check_quay_repo.sh`
-every 60 seconds for up to 30 minutes until the repo appears on Quay.
-
-```bash
-bash "$COMMON_SCRIPTS_DIR/monitor_quay_repo.sh" \
-  --quay-repo  "quay.io/<org>/<repo>" \
-  --jira-url   "${JIRA_URL:-}" \
-  --mr-url     "$MR_URL" \
-  --scripts-dir "$COMMON_SCRIPTS_DIR"
-```
-
-Handle the result:
-
-- **`CHECK_EXIT=0`** (repo created): If `--jira-url` provided:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --add-label "quay-repo-created" \
-    --comment "Quay repository successfully created: quay.io/<org>/<repo>
-
-Confirmed by skopeo after GitOps reconciliation completed.
-Step 2 (Create Quay Repo) is complete."
-  ```
-  Then print:
-  ```
-  ✓ quay.io/<org>/<repo> is live on Quay.
-    Step 2 (Create Quay Repo) complete.
-  ```
-
-- **`CHECK_EXIT=3`** (30-minute timeout, repo not yet visible): If `--jira-url` provided:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "Quay repo monitoring timed out after 30 minutes. quay.io/<org>/<repo> has not yet appeared.
-
-The MR was merged ($MR_URL) so reconciliation may still be in progress.
-Re-run /create-quay-repo to re-check — it will short-circuit at Step 3 once the repo exists."
-  ```
-  Then print:
-  ```
-  WARNING: quay.io/<org>/<repo> not visible after 30 minutes.
-  The MR was merged so app-interface reconciliation may still be running.
-  Re-run this skill later — it will short-circuit at Step 3 once the repo exists.
-  ```
+The skill is complete. The orchestrator will monitor the MR separately.
 
 ---
 
@@ -468,12 +331,9 @@ Re-run /create-quay-repo to re-check — it will short-circuit at Step 3 once th
 | `GITLAB_TOKEN` not set | Step 1 | `export GITLAB_TOKEN=yourtoken` |
 | `uv` not installed | Step 1 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | `skopeo` not installed | Step 1 | `brew install skopeo` / `sudo dnf install skopeo` |
-| VPN not active | Steps 5, 7, 9, 10 | Activate VPN and re-run |
+| VPN not active | Steps 5, 7, 9 | Activate VPN and re-run |
 | Fork creation fails | Step 5 | Check GITLAB_TOKEN permissions (needs `api` scope) |
 | Clone fails | Step 7 | Check VPN and GITLAB_TOKEN `write_repository` scope |
 | Clone timed out (45 min) | Step 7 | Check VPN; retry once connectivity is stable |
 | Push fails | Step 9 | Check GITLAB_TOKEN `write_repository` scope |
 | MR creation fails 3x | Step 9 | Check VPN; inspect stderr; manual fallback |
-| MR closed without merge | Step 10 | Review the MR; re-run after fixing |
-| Pipeline failed | Step 10 | Fix pipeline issues; re-run |
-| Quay repo not visible after 30m | Step 11 | Reconciliation may still be running; re-run to re-check |

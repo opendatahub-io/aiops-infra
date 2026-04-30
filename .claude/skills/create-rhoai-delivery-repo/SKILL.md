@@ -53,6 +53,10 @@ onboarding pipeline (which places the YAML in the working directory automaticall
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
 COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
+**Idempotency fast-path:** If invoked with `--existing-mr-url <url>`, print
+`MR already raised: <url>` and exit 0. The orchestrator passes this when the URL is already
+recorded in `pipeline_state.json`.
+
 ---
 
 ## Step 0: Parse Inputs
@@ -153,11 +157,12 @@ ERROR in Step 3: No component_onboarding_details.yaml found and no Jira URL prov
   Either provide a Jira URL or run from within the master onboarding pipeline.
 ```
 
-**3d. Fetch Jira issue details** (skip if `$WORKDIR/component_onboarding_details.json` already
-exists; only when `JIRA_URL` is non-empty):
+**3d. Fetch Jira issue details** (only when `JIRA_URL` is non-empty):
 ```bash
-cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
+  cd "$WORKDIR"
+  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+fi
 ```
 
 On exit 1: display stderr and stop:
@@ -264,60 +269,7 @@ If `REPO_EXISTS=false`: continue to Step 6.
 
 ---
 
-## Step 6: Check for Existing Open MR in Jira Comments
-
-Skip this step if `$WORKDIR/component_onboarding_details.json` does not exist.
-
-Extract MR URLs from `$WORKDIR/component_onboarding_details.json`:
-```bash
-EXISTING_MR_URLS=$(jq -r '.fields.comment.comments[].body' \
-  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
-  | grep -oE 'https://gitlab\.cee\.redhat\.com/[^/[:space:]]+/[^/[:space:]]+/-/merge_requests/[0-9]+' \
-  | sort -u || true)
-```
-
-Search `fields.comment.comments[].body` for GitLab MR URLs matching:
-```
-https://gitlab\.cee\.redhat\.com/[^/\s]+/[^/\s]+/-/merge_requests/\d+
-```
-
-For each URL found, run:
-```bash
-GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/monitor_gitlab_mr.py \
-  --mr-url "<found-url>" --check-only
-```
-
-Parse stdout:
-- If `state=opened` and the `title=` line contains `COMPONENT_NAME` or `REPOSITORY_NAME`:
-  ```bash
-  MR_URL="<found-url>"
-  if [[ -n "$JIRA_URL" ]]; then
-    uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-      --comment "Found existing open GitLab MR for '${REPOSITORY_NAME}': ${MR_URL}
-  Resuming monitoring of this MR."
-  fi
-  ```
-  Print: `Found existing open MR: $MR_URL. Skipping MR creation and jumping to monitor.`
-  **Set `MR_URL` and jump directly to Step 11** (Monitor MR).
-
-- If `state=merged`:
-  ```bash
-  if [[ -n "$JIRA_URL" ]]; then
-    uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-      --add-label "delivery-repo-exists" \
-      --comment "Previously raised MR has been merged: <found-url>
-  The delivery repository '${REPOSITORY_NAME}' has been provisioned."
-  fi
-  ```
-  Print success and **stop with exit 0.**
-
-- If `state=closed`: note it and continue checking other URLs, then continue to Step 7.
-
-If no matching open MR is found, continue to Step 7.
-
----
-
-## Step 7: Set Up GitLab Playpen (Clone)
+## Step 6: Set Up GitLab Playpen (Clone)
 
 Run from inside `$WORKDIR`:
 
@@ -337,7 +289,7 @@ DEST_BRANCH=$(echo "$PLAYPEN_OUTPUT" | tail -1)
 
 On exit 1: display stderr and stop:
 ```
-ERROR in Step 7 (Playpen setup): Clone or push failed. See details above.
+ERROR in Step 6 (Playpen setup): Clone or push failed. See details above.
   Check GITLAB_TOKEN has 'write_repository' scope and push access to $PYXIS_PATH.
   Ensure VPN is active and you can reach gitlab.cee.redhat.com.
 ```
@@ -351,63 +303,33 @@ git push origin "$DEST_BRANCH"
 
 ---
 
-## Step 8: Add Entry to products/rhoai/rhoai.yaml
+## Step 7: Add Entry to products/rhoai/rhoai.yaml
 
 ```bash
 RHOAI_YAML="$CLONE_DIR/products/rhoai/rhoai.yaml"
 [[ -f "$RHOAI_YAML" ]] || {
-  echo "ERROR in Step 8: products/rhoai/rhoai.yaml not found in $CLONE_DIR."
+  echo "ERROR in Step 7: products/rhoai/rhoai.yaml not found in $CLONE_DIR."
   echo "  Verify PYXIS_URL points to the correct pyxis-repo-configs repository."
   exit 1
 }
 
-if grep -qF "repository: ${REPOSITORY_NAME}" "$RHOAI_YAML"; then
-  echo "repository: ${REPOSITORY_NAME} already present in rhoai.yaml — skipping edit."
+RESULT=$(uv run --script "$COMMON_SCRIPTS_DIR/append_delivery_repo_entry.py" \
+  --yaml-file           "$RHOAI_YAML" \
+  --repository-name     "$REPOSITORY_NAME" \
+  --content-stream-tag  "$CONTENT_STREAM_TAG" \
+  --display-name        "$DISPLAY_NAME" \
+  --short-description   "$SHORT_DESCRIPTION" \
+  --long-description    "$LONG_DESCRIPTION")
+if [[ "$RESULT" == "already-present" ]]; then
+  echo "Entry for ${REPOSITORY_NAME} already present in rhoai.yaml — skipping edit."
 else
-  cat >> "$RHOAI_YAML" <<EOF
-- image_type: Layered
-  base_rhel_version: rhel9
-  repository:
-    repository: ${REPOSITORY_NAME}
-    release_categories:
-      - Generally Available
-    includes_multiple_content_streams: true
-    auto_rebuild_tags: []
-    content_stream_tags: ['${CONTENT_STREAM_TAG}']
-    build_categories:
-      - Standalone image
-    team_id: 617017858ebd9a62aec7c3b8
-    display_data:
-      name: ${DISPLAY_NAME}
-      short_description: ${SHORT_DESCRIPTION}
-      long_description: ${LONG_DESCRIPTION}
-    vendor_label: redhat
-    application_categories:
-      - Developer Tools
-    privileged_images_allowed: false
-    publish_on_push: true
-    documentation_links: []
-    contacts:
-      *team_contacts
-    use_latest: false
-    requires_terms: true
-EOF
-
-  grep -qF "repository: ${REPOSITORY_NAME}" "$RHOAI_YAML" || {
-    echo "ERROR in Step 8: Verification failed — '${REPOSITORY_NAME}' not found in rhoai.yaml"
-    exit 1
-  }
-  grep -qF "content_stream_tags: ['${CONTENT_STREAM_TAG}']" "$RHOAI_YAML" || {
-    echo "ERROR in Step 8: Verification failed — content_stream_tags not correct in rhoai.yaml"
-    exit 1
-  }
   echo "Entry for ${REPOSITORY_NAME} added to products/rhoai/rhoai.yaml."
 fi
 ```
 
 ---
 
-## Step 9: Commit and Push
+## Step 8: Commit and Push
 
 ```bash
 bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
@@ -425,12 +347,12 @@ Related: ${JIRA_ID:-no-jira}" \
 
 On exit 1, display stderr and stop:
 ```
-ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH'. See details above.
+ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH'. See details above.
 ```
 
 ---
 
-## Step 10: Raise MR (up to 3 attempts)
+## Step 9: Raise MR (up to 3 attempts)
 
 ```bash
 MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/raise_gitlab_mr.py \
@@ -461,7 +383,7 @@ On failure:
 
 After 3 failures, stop:
 ```
-ERROR in Step 10 (Raise MR): Could not create MR after 3 attempts. See errors above. Aborting.
+ERROR in Step 9 (Raise MR): Could not create MR after 3 attempts. See errors above. Aborting.
 ```
 
 On success, update Jira (only when `JIRA_URL` is non-empty):
@@ -479,107 +401,11 @@ Content stream tag: ${CONTENT_STREAM_TAG}
 The delivery repository will be provisioned automatically once the MR is merged."
 ```
 
-> **CRITICAL: Proceed immediately to Step 11.** Do NOT stop here. Step 11 is mandatory
-> follow-through after every successful MR creation.
+Print the MR URL and exit 0.
 
 ---
 
-## Step 11: Monitor MR
-
-```bash
-RESULT=$(GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/monitor_gitlab_mr.py \
-  --mr-url "$MR_URL" \
-  --timeout 60)
-```
-
-The script polls every 60 seconds and writes progress to stderr. Read **stdout** for the result.
-
-**`merged` (exit 0):**
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --add-label "delivery-repo-created" \
-    --remove-label "delivery-repo-mr-raised" \
-    --comment "GitLab MR merged: $MR_URL
-
-The delivery repository '${REPOSITORY_NAME}' has been provisioned in the Red Hat container registry.
-Provisioning typically completes within a few minutes of merge."
-fi
-```
-Print:
-```
-MR merged: $MR_URL
-Delivery repository '$REPOSITORY_NAME' is being provisioned.
-```
-Continue to Step 12.
-
-**`closed` (exit 1):**
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --add-label "delivery-repo-mr-closed" \
-    --comment "GitLab MR was closed without merging: $MR_URL
-Please review and re-run /create-rhoai-delivery-repo <jira-url>."
-fi
-```
-Stop with:
-```
-ERROR in Step 11 (Monitor MR): MR was closed without merging. Check: $MR_URL
-```
-
-**`pipeline_failed` or `pipeline_canceled` (exit 1):**
-
-Attempt automated fix:
-1. Check YAML validity:
-   ```bash
-   python3 -c "import yaml; yaml.safe_load(open('$CLONE_DIR/products/rhoai/rhoai.yaml'))" 2>&1
-   ```
-2. Verify the added entry is present:
-   ```bash
-   grep -qF "repository: ${REPOSITORY_NAME}" "$CLONE_DIR/products/rhoai/rhoai.yaml" \
-     && echo "Entry present." || echo "WARN: Entry missing — re-apply may be needed."
-   ```
-3. If reapply needed, re-run the cat-append from Step 8 and push a new commit:
-   ```bash
-   bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
-     --clone-dir "$CLONE_DIR" \
-     --files     "products/rhoai/rhoai.yaml" \
-     --message   "Fix rhoai.yaml YAML for ${REPOSITORY_NAME}" \
-     --branch    "$DEST_BRANCH"
-   ```
-   Update Jira:
-   ```bash
-   uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-     --comment "Pipeline failed on MR $MR_URL. Attempted automated fix and pushed update.
-Please review the MR pipeline and re-run if the issue persists."
-   ```
-   **Jump back to Step 11** to re-monitor the updated MR (once).
-4. If the pipeline fails again or the issue is not fixable, update Jira with failure details and stop:
-   ```
-   ERROR in Step 11 (Monitor MR): Pipeline failed after fix attempt. Manual intervention needed.
-   MR: $MR_URL
-   ```
-
-**`timeout` (exit 1):**
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --comment "MR monitoring timed out after 60 minutes: $MR_URL
-The MR is still open. Check it manually and re-run /create-rhoai-delivery-repo <jira-url>
-when ready — it will detect the open MR and resume monitoring."
-fi
-```
-Print:
-```
-WARNING: MR monitoring timed out after 60 minutes.
-The MR is still open: $MR_URL
-Re-run this skill — it will detect the open MR in Jira comments and resume monitoring.
-```
-Continue to Step 12 (reporting only; no hard stop).
-
----
-
-## Step 12: Report Completion
+## Step 10: Report Completion
 
 Print:
 ```
@@ -587,10 +413,10 @@ Done.
 
   products/rhoai/rhoai.yaml  — ${REPOSITORY_NAME} entry added
   content_stream_tags        : ['${CONTENT_STREAM_TAG}']
-  GitLab MR                  : $MR_URL — $RESULT
-  Jira                       : ${JIRA_ID:-(none)} — label: delivery-repo-created
+  GitLab MR                  : $MR_URL
+  Jira                       : ${JIRA_ID:-(none)} — label: delivery-repo-mr-raised
 
-The delivery repository will be available at:
+The delivery repository will be provisioned once the MR is merged:
   https://quay.io/${REPOSITORY_NAME}
 ```
 
@@ -605,14 +431,10 @@ The delivery repository will be available at:
 | `JIRA_USER_EMAIL` not set | 1 | `export JIRA_USER_EMAIL=you@example.com` |
 | `JIRA_API_TOKEN` not set | 1 | `export JIRA_API_TOKEN=your-api-token` |
 | `uv` not installed | 1 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| VPN not active | 5, 7, 10, 11 | Connect to Red Hat VPN then retry |
+| VPN not active | 5, 6, 9 | Connect to Red Hat VPN then retry |
 | No YAML and no Jira URL | 3 | Provide Jira URL or run from master pipeline |
 | YAML attachment missing on Jira | 3b | Run `/create-component-onboarding-jira <jira-url>` first |
 | `target_rhoai_version` missing/invalid | 4 | Fix field in YAML and re-upload to Jira |
 | Delivery repo already exists | 5 | Expected — exits 0; Jira labelled `delivery-repo-exists` |
-| Open MR already found in Jira comments | 6 | Expected — jumps to Step 11 to monitor |
-| Push fails (shallow update) | 7, 9 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
-| MR creation fails 3× | 10 | Check GITLAB_TOKEN scopes; ensure VPN active |
-| MR closed without merge | 11 | Review MR manually; re-run skill |
-| Pipeline failed | 11 | Skill attempts auto-fix and retries monitor once |
-| MR monitoring timeout (60 min) | 11 | MR still open; re-run to resume monitoring |
+| Push fails (shallow update) | 6, 8 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
+| MR creation fails 3× | 9 | Check GITLAB_TOKEN scopes; ensure VPN active |

@@ -56,6 +56,9 @@ Examples:
 
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
 COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
+
+If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and exit 0. The orchestrator passes this when the URL is already recorded in pipeline_state.json.
+
 ---
 
 ## Step 0: Parse Inputs
@@ -114,8 +117,10 @@ This step ensures both `component_onboarding_details.json` (full Jira issue) and
 **3a. Fetch Jira issue details** (skip if `$WORKDIR/component_onboarding_details.json` already exists):
 
 ```bash
-cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
+  cd "$WORKDIR"
+  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+fi
 ```
 
 On exit 1: display stderr and stop with:
@@ -295,66 +300,7 @@ rm -f "$MANIFESTS_TMPFILE"
 
 ---
 
-## Step 6: Check for Existing Open PR in Jira Comments
-
-Extract existing GitHub PR URLs from the Jira comments:
-
-```bash
-EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
-  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
-  | grep -oE 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
-  | sort -u || true)
-```
-
-First derive the operator repo name for matching:
-```bash
-OPERATOR_REPO_NAME="${ODH_OPERATOR_PATH##*/}"
-# e.g. "opendatahub-operator" or "rhods-operator"
-```
-
-Search the array at `fields.comment.comments[].body` for GitHub PR URLs matching:
-```
-https://github\.com/[^/\s]+/${OPERATOR_REPO_NAME}/pull/\d+
-```
-
-For each URL found, run:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url <found-url> --check-only
-```
-
-Parse stdout:
-
-- If `state=open` **and** `title=` contains `$COMPONENT_NAME`:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "Existing open GitHub PR found for '$COMPONENT_NAME' in ${ODH_OPERATOR_PATH}: <found-url>.
-
-No new PR will be raised. Review and merge the existing PR to complete this step."
-  ```
-  Print:
-  ```
-  Found existing open PR for $COMPONENT_NAME: <found-url>
-  Jira updated. No new PR raised — review and merge the existing PR.
-  ```
-  **Stop with exit 0.**
-
-- If `state=merged`:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --add-label "odh-operator-changes-done" \
-    --comment "odh-operator PR for '$COMPONENT_NAME' was already merged: <found-url>. No action needed.
-
-Step 9 (Integrate with odh-operator) is complete."
-  ```
-  Print: `PR already merged. Step 9 (odh-operator integration) is complete.`
-  **Stop with exit 0.**
-
-If no matching PR is found, continue to Step 7.
-
----
-
-## Step 7: Set Up Playpen (Clone)
+## Step 6: Set Up Playpen (Clone)
 
 > **Reminder:** Pass `--src-url "$ODH_OPERATOR_URL"` — the URL finalised in Step 3d
 > (or Step 0 if `ODH_OPERATOR_REPO_URL` was explicitly set). Do NOT hardcode the URL here.
@@ -390,7 +336,7 @@ git push origin "<jira-id>"
 
 ---
 
-## Step 8: Update manifests-config.yaml
+## Step 7: Update manifests-config.yaml
 
 Check the file exists:
 
@@ -432,7 +378,7 @@ grep -q "^  ${COMPONENT_NAME}:" "$CLONE_DIR/build/manifests-config.yaml" \
 
 ---
 
-## Step 9: Commit and Push
+## Step 8: Commit and Push
 
 > **Reminder:** `origin` was set to `$ODH_OPERATOR_URL` by `setup_github_playpen.sh` in Step 7.
 
@@ -451,7 +397,7 @@ ERROR in Step 9 (Commit/Push): Could not commit or push changes. See details abo
 
 ---
 
-## Step 10: Raise PR (up to 3 attempts)
+## Step 9: Raise PR (up to 3 attempts)
 
 > **Reminder:** Both `--src-url` and `--dest-url` must be `"$ODH_OPERATOR_URL"`. Do NOT
 > replace either with the hardcoded upstream URL, even if `$ODH_OPERATOR_URL` resolves to
@@ -485,13 +431,13 @@ On failure:
 
 After 3 failures, stop with:
 ```
-ERROR in Step 10 (Raise PR): Could not create PR after 3 attempts. See errors above. Aborting.
+ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. See errors above. Aborting.
 ```
 
 After a successful PR creation, update Jira:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --add-label "odh-operator-pr-raised" \
+  --add-label "operator-pr-raised" \
   --comment "GitHub PR raised to add '$COMPONENT_NAME' to ${ODH_OPERATOR_PATH} manifests config.
 
 PR URL: $PR_URL
@@ -502,7 +448,7 @@ File changed: build/manifests-config.yaml (map entry added for $COMPONENT_NAME).
 
 ---
 
-## Step 11: Report Completion
+## Step 10: Report Completion
 
 Print:
 ```
@@ -510,7 +456,7 @@ Done.
 
   build/manifests-config.yaml  — $COMPONENT_NAME entry added under map:
   GitHub PR                    — raised: $PR_URL
-  Jira                         — updated (label: odh-operator-pr-raised)
+  Jira                         — updated (label: operator-pr-raised)
 
   component_name               : $COMPONENT_NAME
   operator_manifest_src_path   : $OPERATOR_MANIFEST_SRC_PATH
@@ -535,9 +481,7 @@ Next step: review and merge the PR, then mark Step 9 complete in Jira.
 | `is_operator=false` | Step 4a | Expected — no operator changes needed; skill exits 0 |
 | Operator manifest fields missing | Step 4b | Add `operator_manifest_src_path` and `operator_manifest_dest_path` to YAML and re-upload |
 | Component already in manifests-config.yaml (main) | Step 5 | Expected — Jira updated; skill exits 0 cleanly |
-| Existing open PR found | Step 6 | Expected — Jira updated; merge the existing PR |
-| PR already merged | Step 6 | Expected — skill exits 0 cleanly |
-| `build/manifests-config.yaml` not found in clone | Step 8 | Check `ODH_OPERATOR_URL` points to the correct repo |
-| Clone or push fails | Step 7 | Check GITHUB_TOKEN push scope on `$ODH_OPERATOR_PATH` |
-| Shallow push rejected | Steps 7, 9 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
-| PR creation fails 3× | Step 10 | Check GITHUB_TOKEN; verify branch was pushed; fix manually |
+| `build/manifests-config.yaml` not found in clone | Step 7 | Check `ODH_OPERATOR_URL` points to the correct repo |
+| Clone or push fails | Step 6 | Check GITHUB_TOKEN push scope on `$ODH_OPERATOR_PATH` |
+| Shallow push rejected | Steps 6, 8 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
+| PR creation fails 3× | Step 9 | Check GITHUB_TOKEN; verify branch was pushed; fix manually |

@@ -49,6 +49,16 @@ This YAML is the source of truth for all component parameters.
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
 COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 
+---
+
+## Idempotency: --existing-pr-url fast-path
+
+If the skill is invoked with `--existing-pr-url <url>`, print:
+```
+PR already raised: <url>
+```
+and exit 0 immediately. The orchestrator passes this argument when the PR URL is already
+recorded in `pipeline_state.json`, meaning this step was completed in a prior run.
 
 ---
 
@@ -121,8 +131,10 @@ This step ensures both `component_onboarding_details.json` (full Jira issue) and
 **3a. Fetch Jira issue details** (skip if `$WORKDIR/component_onboarding_details.json` already exists):
 
 ```bash
-cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
+  cd "$WORKDIR"
+  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+fi
 ```
 
 On exit 1: display stderr and stop with:
@@ -279,49 +291,12 @@ PR_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   ```
   Print: `PipelineRuns already exist in OKC. Nothing to do.` and **stop**.
 
-- **Either returns non-200**: Continue to Step 6.
+- **Either returns non-200**: Continue to Step 7.
 
 - **curl fails entirely** (network error): Display error and stop with:
   ```
   ERROR in Step 5: Could not reach GitHub API. Check network connectivity and GITHUB_TOKEN.
   ```
-
----
-
-## Step 6: Check for Existing Open PR in Jira Comments
-
-Extract existing GitHub PR URLs from the Jira comments:
-
-```bash
-EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
-  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
-  | grep -oE 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
-  | sort -u || true)
-```
-
-Search `$EXISTING_PR_URLS` for GitHub PR URLs matching:
-```
-https://github\.com/[^/\s]+/[^/\s]+/pull/\d+
-```
-
-For each URL found, run:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url <found-url> --check-only
-```
-
-Parse stdout:
-- If `state=open` **and** `title=` line contains `COMPONENT_NAME` or `KONFLUX_COMPONENT_NAME`:
-  - This is an existing open PR for the same component.
-  - Update Jira:
-    ```bash
-    uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-      --comment "Found existing open GitHub PR for $COMPONENT_NAME: <found-url>. Monitoring it."
-    ```
-  - Print: `Found existing open PR: <found-url>. Skipping PR creation and jumping to monitor.`
-  - Set `PR_URL=<found-url>` and **jump directly to Step 10** (Monitor PR).
-
-If no matching open PR is found, continue to Step 7.
 
 ---
 
@@ -553,115 +528,12 @@ PR URL: $PR_URL
 CI builds will start for '$COMPONENT_NAME' once this PR is merged."
 ```
 
-> **CRITICAL: Proceed immediately to Step 10.** Do NOT stop here. Steps 10 and 11 are
-> mandatory follow-through after every successful PR creation.
-
----
-
-## Step 10: Monitor PR
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "$PR_URL" \
-  --timeout 60
+Print the PR URL and stop:
+```
+PR raised: $PR_URL
 ```
 
-The script polls every 60 seconds and writes progress to stderr.
-
-Read the **stdout** result:
-
-- **`merged`** (exit 0): PR merged.
-  Update Jira:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --remove-label "okc-pr-raised" \
-    --comment "PR merged: $PR_URL
-
-Konflux CI is now configured for '$COMPONENT_NAME'. Builds will trigger on pushes and
-pull requests to '$REPO_BRANCH' branch of $REPO_URL.
-
-Step 4 (odh-konflux-central update) is complete."
-  ```
-  Print: `PR merged. Step 4 (odh-konflux-central update) complete.`
-  **Continue to Step 11.**
-
-- **`closed`** (exit 1): PR closed without merging.
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "GitHub PR was closed without merging: $PR_URL
-
-Please review the PR and re-run /update-component-using-odh-konflux-central if needed."
-  ```
-  Stop with:
-  ```
-  ERROR in Step 10 (Monitor PR): PR was closed without merging. Check the PR: $PR_URL
-  ```
-
-- **`pipeline_failed`** or **`pipeline_canceled`** (exit 1): CI checks failed.
-  Attempt to diagnose the failure from the PR's check annotations, fix the generated YAML
-  in `$CLONE_DIR/pipelineruns/$REPO_NAME/`, recommit, and push to update the PR:
-  ```bash
-  cd "$CLONE_DIR"
-  # Inspect the generated YAML via bash (cat / sed / python3 one-liner) and fix it, then:
-  git add -A
-  git commit -m "Fix $KONFLUX_COMPONENT_NAME PipelineRun definition"
-  git push origin "$DEST_BRANCH"
-  ```
-  Update Jira:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "CI checks failed on PR $PR_URL. Attempted automated fix and pushed update.
-
-Please review the PR checks and re-run if the issue persists."
-  ```
-  **Jump back to Step 10** to re-monitor (once). If checks fail again, stop with:
-  ```
-  ERROR in Step 10 (Monitor PR): CI checks failed after fix attempt. Manual intervention needed.
-  PR: $PR_URL
-  ```
-
-- **`timeout`** (exit 1): PR still open after 60 minutes.
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "PR monitoring timed out after 60 minutes. PR is still open: $PR_URL
-
-Please check the PR status manually. Re-run /update-component-using-odh-konflux-central
-to resume — it will detect the existing open PR at Step 6 and jump straight to monitoring."
-  ```
-  Print:
-  ```
-  WARNING: PR monitoring timed out after 60 minutes.
-  The PR is still open: $PR_URL
-  Re-run this skill when the PR is merged (it will short-circuit at Step 6).
-  ```
-
----
-
-## Step 11: Final Jira Update
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --add-label "okc-changes-done" \
-  --comment "odh-konflux-central update complete.
-
-Component: $COMPONENT_NAME ($KONFLUX_COMPONENT_NAME)
-Repo: $REPO_URL @ $REPO_BRANCH
-Output image: quay.io/$QUAY_ORG/$COMPONENT_NAME:$OUTPUT_IMAGE_TAG
-PipelineRuns added:
-  - pipelineruns/$REPO_NAME/$PUSH_YAML_FILE
-  - pipelineruns/$REPO_NAME/$PR_YAML_FILE
-Workflow updated: .github/workflows/odh-konflux-onboarder.yml
-
-PR: $PR_URL (merged)
-
-Step 4 (Add to odh-konflux-central) is complete."
-```
-
-Print:
-```
-✓ odh-konflux-central updated. '$COMPONENT_NAME' PipelineRuns are live.
-  Step 4 (Add to odh-konflux-central) complete.
-```
+The skill is complete. The orchestrator will monitor the PR separately.
 
 ---
 
@@ -706,5 +578,3 @@ their resolved values:
 | Clone fails | Step 7 | Check GITHUB_TOKEN repo scope |
 | Shallow push rejected | Steps 7, 8g | `git fetch --unshallow origin` then retry |
 | PR creation fails 3× | Step 9 | Check GITHUB_TOKEN; inspect stderr; fix manually |
-| PR CI checks fail | Step 10 | Automated fix attempted; check PR if it fails again |
-| PR closed without merge | Step 10 | Review the PR; re-run after fixing |

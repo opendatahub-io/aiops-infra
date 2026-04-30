@@ -54,6 +54,9 @@ Examples:
 
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
 COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
+
+If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and exit 0. The orchestrator passes this when the URL is already recorded in pipeline_state.json.
+
 ---
 
 ## Step 0: Parse Inputs
@@ -103,8 +106,10 @@ echo "Working directory: $WORKDIR"
 **3a. Fetch Jira issue details** (skip if `$WORKDIR/component_onboarding_details.json` already exists):
 
 ```bash
-cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
+  cd "$WORKDIR"
+  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+fi
 ```
 
 On exit 1: display stderr and stop with:
@@ -245,63 +250,7 @@ rm -f "$BUNDLE_TMPFILE"
 
 ---
 
-## Step 5: Check for Existing Open PR in Jira Comments
-
-Extract existing GitHub PR URLs from the Jira comments:
-
-```bash
-BC_REPO_NAME="${BC_PATH##*/}"
-# e.g. "ODH-Build-Config" or "RHOAI-Build-Config"
-
-EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
-  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
-  | grep -oE "https://github\.com/[^/[:space:]]+/${BC_REPO_NAME}/pull/[0-9]+" \
-  | sort -u || true)
-```
-
-Search `$EXISTING_PR_URLS` for GitHub PR URLs matching:
-```
-https://github\.com/[^/\s]+/${BC_REPO_NAME}/pull/\d+
-```
-
-For each URL found, run:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url <found-url> --check-only
-```
-
-Parse stdout:
-
-- If `state=open` **and** `title=` contains `$COMPONENT_NAME`:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --comment "Existing open GitHub PR found for '$COMPONENT_NAME' in ${BC_PATH}: <found-url>.
-
-No new PR will be raised. Review and merge the existing PR to complete this step."
-  ```
-  Print:
-  ```
-  Found existing open PR for $COMPONENT_NAME: <found-url>
-  Jira updated. No new PR raised — review and merge the existing PR.
-  ```
-  **Stop with exit 0.**
-
-- If `state=merged`:
-  ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-    --add-label "obc-changes-done" \
-    --comment "${BC_PATH} PR for '$COMPONENT_NAME' was already merged: <found-url>. No action needed.
-
-Step 8 (Integrate with Bundle) is complete."
-  ```
-  Print: `PR already merged. Step 8 (integrate-with-bundle) is complete.`
-  **Stop with exit 0.**
-
-If no matching PR is found, continue to Step 6.
-
----
-
-## Step 6: Set Up Playpen (Clone)
+## Step 5: Set Up Playpen (Clone)
 
 > **Reminder:** Pass `--src-url "$BC_URL"` — finalised in Step 3d (or Step 0 if
 > `BUILD_CONFIG_REPO_URL` was explicitly set). Do NOT hardcode the upstream URL here.
@@ -345,7 +294,7 @@ git push origin "<jira-id>"
 
 ---
 
-## Step 7: Update bundle/bundle-patch.yaml
+## Step 6: Update bundle/bundle-patch.yaml
 
 ```bash
 [[ -f "$CLONE_DIR/bundle/bundle-patch.yaml" ]] || {
@@ -379,7 +328,7 @@ fi
 
 ---
 
-## Step 8: Update config/build-config.yaml (RHOAI only)
+## Step 7: Update config/build-config.yaml (RHOAI only)
 
 > **Execute this step only when `product_context=RHOAI`. Skip entirely for ODH.**
 
@@ -446,7 +395,7 @@ echo "GIT_COMMIT_LABEL: $GIT_COMMIT_LABEL"
 
 ---
 
-## Step 9: Commit and Push
+## Step 8: Commit and Push
 
 > **Reminder:** `origin` was set to `$BC_URL` by `setup_github_playpen.sh` in Step 6.
 > Pushing to `origin` is correct — do NOT change the remote URL here.
@@ -474,7 +423,7 @@ ERROR in Step 9 (Commit/Push): Could not commit or push changes. See details abo
 
 ---
 
-## Step 10: Raise PR (up to 3 attempts)
+## Step 9: Raise PR (up to 3 attempts)
 
 > **Reminder:** Both `--src-url` and `--dest-url` must be `"$BC_URL"`. Do NOT replace
 > either with the hardcoded upstream URL.
@@ -530,12 +479,13 @@ On failure:
 
 After 3 failures, stop with:
 ```
-ERROR in Step 10 (Raise PR): Could not create PR after 3 attempts. See errors above. Aborting.
+ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. See errors above. Aborting.
 ```
 
 After a successful PR creation, update Jira:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+  --add-label "bundle-pr-raised" \
   --add-label "obc-changes-done" \
   --comment "GitHub PR raised to add '$COMPONENT_NAME' to ${BC_PATH}.
 
@@ -549,85 +499,7 @@ Files changed:
 
 ---
 
-## Step 11: Monitor the PR
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "$PR_URL" \
-  --timeout 60
-```
-
-Read the stdout result:
-
-**`merged` (exit 0):** PR merged.
-
-Update Jira:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --remove-label "obc-changes-done" \
-  --add-label "obc-pr-merged" \
-  --comment "${BC_PATH} PR merged: $PR_URL
-
-bundle/bundle-patch.yaml for '$COMPONENT_NAME' is now live on main.
-
-Step 12 (Integrate with Bundle) is complete."
-```
-
-Continue to Step 12.
-
-**`closed` (exit 1):** PR closed without merging.
-
-Update Jira:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --comment "${BC_PATH} PR was closed without merging: $PR_URL
-
-Please review and re-trigger if needed."
-```
-
-Stop with:
-```
-ERROR in Step 11: PR was closed without merging.
-PR: $PR_URL
-```
-
-**`pipeline_failed` or `pipeline_canceled` (exit 1):** CI checks failed on the PR.
-
-Update Jira:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --comment "CI checks failed on ${BC_PATH} PR: $PR_URL
-
-Please review the PR checks and push a fix, then re-run this skill to resume monitoring."
-```
-
-Stop with:
-```
-ERROR in Step 11: CI checks failed on PR $PR_URL.
-Manual intervention required — review the PR and push a fix, then re-run.
-```
-
-**`timeout` (exit 1):** PR still open after 60 minutes.
-
-Update Jira:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --comment "PR monitoring timed out after 60 minutes. PR is still open: $PR_URL
-
-Re-run /integrate-component-with-bundle to resume — at Step 5 it will detect the
-existing PR and jump straight to monitoring."
-```
-
-Print:
-```
-WARNING: PR monitoring timed out after 60 minutes.
-PR is still open: $PR_URL
-Re-run this skill to resume monitoring (Step 5 will skip raising a new PR).
-```
-
----
-
-## Step 12: Report Completion
+## Step 10: Report Completion
 
 Print:
 ```
@@ -636,8 +508,8 @@ Done.
   bundle/bundle-patch.yaml    — $RELATED_IMAGE_NAME added to patch.relatedImages
   config/build-config.yaml    — rhoai/${COMPONENT_NAME}-rhel9 added (RHOAI only)
   bundle/Dockerfile           — ARG + LABEL entries added for $COMPONENT_NAME (RHOAI only)
-  GitHub PR                   — merged: $PR_URL
-  Jira                        — updated (label: obc-pr-merged)
+  GitHub PR                   — raised: $PR_URL
+  Jira                        — updated (labels: bundle-pr-raised, obc-changes-done)
 
   component_name              : $COMPONENT_NAME
   product_context             : $PRODUCT_CONTEXT
@@ -664,14 +536,9 @@ Integrate with Bundle (pipeline step 8) is complete.
 | Invalid `target_rhoai_version` format | Step 3d | Expected format is `x.y` or `x.y-ea-n` (e.g. `2.16` or `2.16-ea-1`) |
 | Unknown `PRODUCT_CONTEXT` | Step 3d | Set `product_context: ODH` or `product_context: RHOAI` in the YAML and re-upload |
 | Component already in bundle-patch.yaml (main) | Step 4 | Expected — Jira updated; skill exits 0 cleanly |
-| Existing open PR found | Step 5 | Expected — Jira updated; merge the existing PR |
-| PR already merged | Step 5 | Expected — skill exits 0 cleanly |
-| Clone or push fails | Step 6 | Check GITHUB_TOKEN push scope on `$BC_PATH` |
-| Shallow push rejected | Steps 6, 9 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
-| `bundle/bundle-patch.yaml` not found in clone | Step 7 | Check `BC_URL` points to the correct build-config repo |
-| `config/build-config.yaml` not found in clone | Step 8 | Check `BC_URL` points to the correct RHOAI-Build-Config repo |
-| `bundle/Dockerfile` not found in clone | Step 8e | Check `BC_URL` points to the correct RHOAI-Build-Config repo |
-| PR creation fails 3× | Step 10 | Check GITHUB_TOKEN; verify branch was pushed; fix manually |
-| PR closed without merge | Step 11 | Review and re-run |
-| PR CI checks failed | Step 11 | Review PR checks; push fix; re-run |
-| PR monitoring timeout | Step 11 | Re-run skill — Step 5 detects existing PR and skips raising a new one |
+| Clone or push fails | Step 5 | Check GITHUB_TOKEN push scope on `$BC_PATH` |
+| Shallow push rejected | Steps 5, 8 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
+| `bundle/bundle-patch.yaml` not found in clone | Step 6 | Check `BC_URL` points to the correct build-config repo |
+| `config/build-config.yaml` not found in clone | Step 7 | Check `BC_URL` points to the correct RHOAI-Build-Config repo |
+| `bundle/Dockerfile` not found in clone | Step 7e | Check `BC_URL` points to the correct RHOAI-Build-Config repo |
+| PR creation fails 3× | Step 9 | Check GITHUB_TOKEN; verify branch was pushed; fix manually |

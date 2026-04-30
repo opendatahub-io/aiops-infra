@@ -1,6 +1,6 @@
 ---
 name: add-component-to-rhoai-konflux-central
-description: Adds a Tekton PipelineRun YAML to the rhoai-konflux-central GitHub repository for a new RHOAI component, then raises and monitors a GitHub PR targeting the version-specific branch.
+description: Adds a Tekton PipelineRun YAML to the rhoai-konflux-central GitHub repository for a new RHOAI component, then raises a GitHub PR targeting the version-specific branch.
 allowed-tools: Bash
 user-invocable: true
 ---
@@ -10,7 +10,8 @@ user-invocable: true
 Creates a Tekton `PipelineRun` resource for a new RHOAI component by:
 1. Generating a push PipelineRun YAML under `pipelineruns/<repo_name>/.tekton/`.
 2. Raising a pull request to the version-specific branch of `rhoai-konflux-central`.
-3. Monitoring the PR until it merges. When merged, Konflux CI will start building the component.
+
+When the PR is merged, Konflux CI will start building the component.
 
 > **CRITICAL — `RHOAI_KONFLUX_CENTRAL_REPO_URL` overrides the default repo for every step.**
 > This env var is resolved once in Step 0 into `RKC_URL` and `RKC_PATH`.
@@ -48,6 +49,8 @@ be placed in the working directory. Otherwise the Jira attachment will be downlo
 
 SKILL_DIR is the absolute path of the directory containing this SKILL.md.
 COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
+
+If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and exit 0. The orchestrator passes this when the URL is already recorded in pipeline_state.json.
 
 ---
 
@@ -149,10 +152,12 @@ ERROR in Step 3: No component_onboarding_details.yaml found and no Jira URL prov
 
 ### 3d. Fetch Jira details
 
-Skip if `$WORKDIR/component_onboarding_details.json` already exists. Only when `JIRA_URL` non-empty:
+Only when `JIRA_URL` non-empty and `$WORKDIR/component_onboarding_details.json` does not already exist:
 ```bash
-cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
+  cd "$WORKDIR"
+  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+fi
 ```
 
 On exit 1: display stderr and stop with:
@@ -275,67 +280,23 @@ WARN: GitHub API returned HTTP $HTTP_STATUS for fast-path check. Proceeding anyw
 
 ---
 
-## Step 5: Check for Existing Open PR in Jira Comments
-
-Skip this step entirely if `$WORKDIR/component_onboarding_details.json` does not exist.
-
-Extract PR URLs from `$WORKDIR/component_onboarding_details.json`:
-```bash
-EXISTING_PR_URLS=$(jq -r '.fields.comment.comments[].body' \
-  "$WORKDIR/component_onboarding_details.json" 2>/dev/null \
-  | grep -oE 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
-  | sort -u || true)
-```
-
-Search `fields.comment.comments[].body` for GitHub PR URLs matching:
-```
-https://github\.com/[^/\s]+/[^/\s]+/pull/\d+
-```
-
-For each URL found, run:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "<found-url>" --check-only
-```
-
-Parse stdout:
-- If `state=open` **and** the `title=` line contains `COMPONENT_NAME` or `VERSION_VAR`:
-  - This is the open PR for the same component + version. Resume monitoring.
-  ```bash
-  PR_URL="<found-url>"
-  if [[ -n "$JIRA_URL" ]]; then
-    uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-      --comment "Found existing open GitHub PR for '${COMPONENT_NAME}-${VERSION_VAR}': ${PR_URL}
-Resuming monitoring of this PR."
-  fi
-  echo "Found existing open PR: $PR_URL. Skipping PR creation and jumping to monitor."
-  ```
-  **Set `PR_URL` and jump directly to Step 11** (Monitor PR).
-
-- If `state=merged`: update Jira with `rkc-changes-done` label and merged comment. **Stop exit 0.**
-- If `state=closed`: note it and continue searching.
-
-If no matching open PR found, continue to Step 6.
-
----
-
-## Step 6: Set Up Playpen (Clone)
+## Step 5: Set Up Playpen (Clone)
 
 > **CRITICAL:** Clone from `$BRANCH_NAME`, NOT from `main`. The `--src-branch` must be `$BRANCH_NAME`.
 
-### 6a. Ensure the remote branch exists (create from `main` if missing)
+### 5a. Ensure the remote branch exists (create from `main` if missing)
 
 ```bash
 bash "$COMMON_SCRIPTS_DIR/ensure_github_branch.sh" \
   --repo-path "$RKC_PATH" \
   --branch-name "$BRANCH_NAME" || {
-  echo "ERROR in Step 6a: Failed to ensure branch '$BRANCH_NAME' exists in $RKC_PATH."
+  echo "ERROR in Step 5a: Failed to ensure branch '$BRANCH_NAME' exists in $RKC_PATH."
   echo "  Check GITHUB_TOKEN has repo scope."
   exit 1
 }
 ```
 
-### 6b. Clone the branch into a playpen
+### 5b. Clone the branch into a playpen
 
 Run from inside `$WORKDIR`:
 
@@ -354,7 +315,7 @@ DEST_BRANCH=$(echo "$PLAYPEN_OUTPUT" | tail -1)
 
 On exit 1: display stderr and stop:
 ```
-ERROR in Step 6b (Playpen setup): Clone or push failed. See details above.
+ERROR in Step 5b (Playpen setup): Clone or push failed. See details above.
   Check GITHUB_TOKEN has 'repo' scope and push access to $RKC_PATH.
 ```
 
@@ -367,7 +328,7 @@ git push origin "$DEST_BRANCH"
 
 ---
 
-## Step 7: Create PipelineRun Directory
+## Step 6: Create PipelineRun Directory
 
 Check case-insensitively whether the `.tekton` directory already exists:
 ```bash
@@ -391,9 +352,9 @@ PIPELINERUN_PATH="$TEKTON_DIR/$PIPELINERUN_FILE"
 
 ---
 
-## Step 8: Write PipelineRun YAML
+## Step 7: Write PipelineRun YAML
 
-### 8a. Determine prefetch-input
+### 7a. Determine prefetch-input
 
 ```bash
 eval "$(bash "$COMMON_SCRIPTS_DIR/detect_prefetch_input.sh" \
@@ -403,7 +364,7 @@ eval "$(bash "$COMMON_SCRIPTS_DIR/detect_prefetch_input.sh" \
 echo "PREFETCH_INPUT: $PREFETCH_INPUT"
 ```
 
-### 8b. Write the file
+### 7b. Write the file
 
 > **CRITICAL — `{{...}}` and `{{ ... }}` are Tekton/PAC templating variables.**
 > Write them **verbatim** — do NOT substitute their content with actual values.
@@ -494,21 +455,21 @@ echo "PipelineRun written to $PIPELINERUN_PATH"
 > **Note:** `pipelineRef.params[url]` uses `$RKC_URL` so that overriding
 > `RHOAI_KONFLUX_CENTRAL_REPO_URL` (e.g. to a fork for testing) is respected everywhere.
 
-### 8c. Verify the written file
+### 7c. Verify the written file
 
 ```bash
 grep -q "name: ${COMPONENT_NAME}-${VERSION_VAR}-on-push" "$PIPELINERUN_PATH" || {
-  echo "ERROR in Step 8c: name field not set correctly in $PIPELINERUN_PATH"; exit 1
+  echo "ERROR in Step 7c: name field not set correctly in $PIPELINERUN_PATH"; exit 1
 }
 grep -q "serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}" "$PIPELINERUN_PATH" || {
-  echo "ERROR in Step 8c: serviceAccountName not set correctly"; exit 1
+  echo "ERROR in Step 7c: serviceAccountName not set correctly"; exit 1
 }
 grep -q '{{revision}}' "$PIPELINERUN_PATH" || {
-  echo "ERROR in Step 8c: Tekton template variables missing from $PIPELINERUN_PATH"; exit 1
+  echo "ERROR in Step 7c: Tekton template variables missing from $PIPELINERUN_PATH"; exit 1
 }
 # Check no angle-bracket placeholders remain
 grep -qE '<[A-Z_]+>' "$PIPELINERUN_PATH" && {
-  echo "ERROR in Step 8c: Unreplaced placeholders remain in $PIPELINERUN_PATH"
+  echo "ERROR in Step 7c: Unreplaced placeholders remain in $PIPELINERUN_PATH"
   grep -E '<[A-Z_]+>' "$PIPELINERUN_PATH"
   exit 1
 } || true
@@ -517,7 +478,7 @@ echo "Verification passed for $PIPELINERUN_PATH"
 
 ---
 
-## Step 9: Commit and Push
+## Step 8: Commit and Push
 
 ```bash
 bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
@@ -534,13 +495,13 @@ Related: ${JIRA_ID:-no-jira}" \
 
 On exit 1, display stderr and stop:
 ```
-ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH' to $RKC_URL. See details above.
+ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH' to $RKC_URL. See details above.
   Check GITHUB_TOKEN has 'repo' scope and write access to $RKC_PATH.
 ```
 
 ---
 
-## Step 10: Raise PR (up to 3 attempts)
+## Step 9: Raise PR (up to 3 attempts)
 
 > **CRITICAL:** The PR target branch is `$BRANCH_NAME`, NOT `main`.
 > Both `--src-url` and `--dest-url` must be `"$RKC_URL"`.
@@ -549,7 +510,7 @@ Before raising the PR, assert that `$BRANCH_NAME` is set and is not `main`:
 
 ```bash
 if [[ -z "$BRANCH_NAME" || "$BRANCH_NAME" == "main" ]]; then
-  echo "ERROR in Step 10: BRANCH_NAME is '${BRANCH_NAME:-<empty>}' — refusing to raise PR to main."
+  echo "ERROR in Step 9: BRANCH_NAME is '${BRANCH_NAME:-<empty>}' — refusing to raise PR to main."
   echo "  BRANCH_NAME must be a version-specific branch (e.g. rhoai-3.5-ea.1)."
   echo "  Check that TARGET_RHOAI_VERSION was parsed correctly in Step 3f."
   exit 1
@@ -587,7 +548,7 @@ On failure:
 
 After 3 failures, stop:
 ```
-ERROR in Step 10 (Raise PR): Could not create PR after 3 attempts. Aborting.
+ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. Aborting.
   Check GITHUB_TOKEN has 'repo' scope and push access to $RKC_PATH.
 ```
 
@@ -604,100 +565,19 @@ File: pipelineruns/${REPO_NAME}/.tekton/${PIPELINERUN_FILE}
 CI builds will trigger for '${COMPONENT_NAME}' once this PR is merged."
 ```
 
-> **CRITICAL: Proceed immediately to Step 11.** Do NOT stop here.
-
 ---
 
-## Step 11: Monitor PR
-
-```bash
-RESULT=$(uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "$PR_URL" \
-  --timeout 60)
-```
-
-The script polls every 60 seconds and writes progress to stderr.
-
-**`merged` (exit 0):**
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --add-label "rkc-changes-done" \
-    --remove-label "rkc-pr-raised" \
-    --comment "GitHub PR merged: $PR_URL
-
-Konflux CI is now configured for '${COMPONENT_NAME}'.
-Builds will trigger on pushes to branch '${BRANCH_NAME}' of ${REPO_URL}."
-fi
-```
-Continue to Step 12.
-
-**`closed` (exit 1):** PR closed without merging.
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --comment "GitHub PR was closed without merging: $PR_URL
-Please review and re-run /add-component-to-rhoai-konflux-central ${JIRA_URL} to re-open."
-fi
-```
-Stop with:
-```
-ERROR in Step 11 (Monitor PR): PR was closed without merging. Check: $PR_URL
-```
-
-**`pipeline_failed` or `pipeline_canceled` (exit 1):** Attempt automated fix:
-1. Inspect `$PIPELINERUN_PATH` for YAML validity and structural issues:
-   ```bash
-   python3 -c "import yaml; yaml.safe_load(open('$PIPELINERUN_PATH'))" 2>&1
-   ```
-2. If YAML is invalid, check for common indentation issues:
-   ```bash
-   grep -n 'value:' "$PIPELINERUN_PATH" | tail -10
-   grep -n 'params:' "$PIPELINERUN_PATH" | head -5
-   ```
-3. If fixable (re-write the file with corrected content):
-   ```bash
-   # Re-run the heredoc write from Step 8b with the same variables
-   # then commit and push the fix
-   bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
-     --clone-dir "$CLONE_DIR" \
-     --files     "pipelineruns/$REPO_NAME/.tekton/$PIPELINERUN_FILE" \
-     --message   "Fix ${COMPONENT_NAME}-${VERSION_VAR} PipelineRun YAML definition" \
-     --branch    "$DEST_BRANCH"
-   ```
-   Update Jira with fix attempt. **Jump back to Step 11** to re-monitor once.
-4. If not fixable: update Jira with failure details and stop:
-   ```
-   ERROR in Step 11 (Monitor PR): CI checks failed and could not be auto-fixed.
-   PR: $PR_URL — manual intervention required.
-   ```
-
-**`timeout` (exit 1):** PR still open after 60 minutes.
-```bash
-if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-    --comment "PR monitoring timed out after 60 minutes: $PR_URL
-The PR is still open. Re-run /add-component-to-rhoai-konflux-central ${JIRA_URL:-} to resume."
-fi
-```
-Print warning and continue to Step 12 (no hard stop).
-
----
-
-## Step 12: Report Completion
+## Step 10: Report Completion
 
 ```
 Done.
 
   pipelineruns/$REPO_NAME/.tekton/$PIPELINERUN_FILE — created
   Branch              : $BRANCH_NAME
-  GitHub PR           : $PR_URL — $RESULT
-  Jira                : ${JIRA_ID:-(none)} — label: rkc-changes-done
+  GitHub PR           : $PR_URL
+  Jira                : ${JIRA_ID:-(none)} — label: rkc-pr-raised
 
-Konflux CI builds will trigger for '$COMPONENT_NAME' on pushes to '$BRANCH_NAME'
-in repository: $REPO_URL
-
-Note: Review the prefetch-input array in the PR and update it if auto-detection
+Review the prefetch-input array in the PR and update it if auto-detection
 was incorrect or incomplete.
 ```
 
@@ -735,11 +615,7 @@ Architecture mapping:
 | YAML attachment missing | 3b | Run `/create-component-onboarding-jira <jira-url>` first |
 | `target_rhoai_version` missing/invalid | 3f | Fix field; expected `x.y` or `x.y-ea-n` |
 | `architectures` missing | 3e | Add `architectures: [x86_64, arm64]` etc. to YAML |
-| Branch `$BRANCH_NAME` not found in RKC | 6a | Auto-created from `main`; if creation fails check `GITHUB_TOKEN` `repo` scope |
-| Push fails (shallow) | 6, 9 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
+| Branch `$BRANCH_NAME` not found in RKC | 5a | Auto-created from `main`; if creation fails check `GITHUB_TOKEN` `repo` scope |
+| Push fails (shallow) | 5, 8 | `git fetch --unshallow origin && git push origin "$DEST_BRANCH"` |
 | PipelineRun already exists | 4 | Expected — exits 0; Jira labelled `rkc-changes-done` |
-| Open PR already found | 5 | Expected — jumps to Step 11 to monitor |
-| PR creation fails 3× | 10 | Check GITHUB_TOKEN `repo` scope |
-| PR closed without merge | 11 | Review PR manually; re-run skill |
-| Pipeline failed | 11 | Skill attempts auto-fix and retries monitor once |
-| PR monitoring timeout | 11 | PR still open; re-run to resume monitoring |
+| PR creation fails 3× | 9 | Check GITHUB_TOKEN `repo` scope |
