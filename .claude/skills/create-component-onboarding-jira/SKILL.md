@@ -1,6 +1,6 @@
 ---
 name: create-component-onboarding-jira
-description: Interactively collects ODH/RHOAI component onboarding parameters from the user, generates a validated component_onboarding_details.yaml, and (when a Jira URL is given) uploads it as an attachment to the ticket. Use this before running other onboarding skills.
+description: Interactively collects ODH/RHOAI component onboarding parameters from the user, generates a validated component_onboarding_details.yaml, and creates or updates a Jira ticket with the YAML attached. When no Jira URL is provided, automatically creates a new ticket by cloning the product-specific onboarding template. Use this before running other onboarding skills.
 allowed-tools: Bash
 user-invocable: true
 ---
@@ -9,14 +9,16 @@ user-invocable: true
 
 Interactively collects all parameters needed to onboard an ODH or RHOAI component onto
 the Konflux CI/build platform, produces a validated `component_onboarding_details.yaml`,
-and attaches it to the Jira ticket.
+and creates or updates a Jira ticket with the YAML attached. When no Jira URL is
+provided, a new ticket is automatically created by cloning the product-specific
+onboarding template (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`).
 
 ## Prerequisites
 
 - `uv` must be installed and in PATH
-- `jq` must be installed and in PATH (needed for the no-URL ODH clone flow)
-- `JIRA_USER_EMAIL` — set to your Atlassian account email (required when Jira URL is given or creating one)
-- `JIRA_API_TOKEN` — Atlassian Cloud API token (required when Jira URL is given or creating one)
+- `jq` must be installed and in PATH (needed for the template clone flow)
+- `JIRA_USER_EMAIL` — set to your Atlassian account email (always required)
+- `JIRA_API_TOKEN` — Atlassian Cloud API token (always required)
   - Create at: https://id.atlassian.com/manage-profile/security/api-tokens
 - Optional: `JIRA_SERVER` (default: `https://redhat.atlassian.net`)
 - The `validate-component-onboarding-jira` skill must be installed alongside this one
@@ -24,13 +26,26 @@ and attaches it to the Jira ticket.
 ## Usage
 
 ```
+/create-component-onboarding-jira
 /create-component-onboarding-jira [<jira-url>]
 ```
 
+The Jira URL is **optional**. Without it, the skill automatically creates a new Jira by
+cloning the product-specific onboarding template, then attaches the YAML and updates the
+ticket. Providing a URL skips template cloning and attaches directly to the given ticket.
+
+| Invocation | ODH | RHOAI |
+|---|---|---|
+| No URL | Clones `RHOAIENG-35683`, attaches YAML, updates ticket | Clones `RHOAIENG-17225`, attaches YAML, updates ticket |
+| With URL | Attaches YAML to given ticket, updates ticket | Attaches YAML to given ticket, updates ticket |
+
 Examples:
 ```
-/create-component-onboarding-jira https://redhat.atlassian.net/browse/RHOAIENG-1234
+# Primary usage — creates a new Jira from the template automatically
 /create-component-onboarding-jira
+
+# With an existing Jira ticket — attaches the YAML and updates the ticket
+/create-component-onboarding-jira https://redhat.atlassian.net/browse/RHOAIENG-1234
 ```
 
 ## Implementation
@@ -56,11 +71,9 @@ Set `JIRA_ID` to the last path segment of `JIRA_URL` (e.g. `RHOAIENG-1234`), or 
 bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --tools "uv jq"
 ```
 
-**Jira credentials check (only when JIRA_URL is non-empty):**
+**Jira credentials check (always required):**
 ```bash
-if [[ -n "$JIRA_URL" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
-fi
+bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 ```
 
 ---
@@ -475,22 +488,21 @@ Continue to Step 7c.
 → Validate: must match `^[A-Z]+-\d+$`. Re-ask if invalid, showing the expected format.
 → Store in `PARENT_FEATURE_ID`.
 
-#### Step 7b-2: ODH — clone template Jira
+#### Step 7b-2: Clone the product-specific template Jira
 
-**If `product_context != "ODH"`**, skip the clone and print:
-```
-No Jira URL provided for RHOAI context.
-YAML saved locally at: $YAML_PATH
-Create a Jira ticket and re-run with its URL to attach the YAML:
-  /create-component-onboarding-jira <jira-url>
-```
-Then continue to Step 8 (JIRA_URL remains empty).
-
-**If `product_context == "ODH"`**, clone the template:
+Select the template based on `product_context`:
+- `ODH`  → clone `RHOAIENG-35683`
+- `RHOAI` → clone `RHOAIENG-17225`
 
 ```bash
+if [[ "$product_context" == "ODH" ]]; then
+  TEMPLATE_ID="RHOAIENG-35683"
+else
+  TEMPLATE_ID="RHOAIENG-17225"
+fi
+
 NEW_JIRA_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "new" \
-  --clone-from "RHOAIENG-35683" \
+  --clone-from "$TEMPLATE_ID" \
   --remove-label "template" \
   --link-related "$PARENT_FEATURE_ID" \
   --set-reporter-to-current)
@@ -498,7 +510,7 @@ NEW_JIRA_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "new" \
 
 On exit 1: display stderr and stop with:
 ```
-ERROR in Step 7b-2: Could not clone Jira template. See details above. Aborting.
+ERROR in Step 7b-2: Could not clone Jira template ($TEMPLATE_ID). See details above. Aborting.
 ```
 
 On success: capture `NEW_JIRA_URL` from stdout.
@@ -567,7 +579,7 @@ Done.
 
   component_onboarding_details.yaml  — generated and validated
   Jira                               — <JIRA_ID> (<JIRA_URL>)
-                                       (created from template, or provided, or N/A for RHOAI with no URL)
+                                       (created from template <TEMPLATE_ID>, or provided by user)
   Jira attachment                    — uploaded (label: yaml-attached)
   Jira comment                       — posted
 
@@ -576,13 +588,8 @@ Done.
 Next step: /validate-component-onboarding-jira <JIRA_URL>
 ```
 
-If JIRA_URL is still empty (RHOAI, no URL given), omit the "Jira" and "attachment" lines and instead print:
-```
-  Output file: $YAML_PATH
-
-Attach the YAML to a Jira ticket and run:
-  /create-component-onboarding-jira <jira-url>
-```
+If `TEMPLATE_ID` was not used (i.e. the user provided a Jira URL directly), omit the
+`(created from template ...)` parenthetical.
 
 ---
 
@@ -597,7 +604,7 @@ Attach the YAML to a Jira ticket and run:
 | Jira fetch fails (401/403/404) | 2 | Check credentials and issue key |
 | YAML generation fails | 5 | Check arguments; see stderr from `generate_onboarding_yaml.py` |
 | YAML validation fails | 6 | Correct the inputs and re-generate |
-| Clone fails | 7b-2 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
+| Clone fails (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) | 7b-2 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
 | "relates to" link type not found | 7b-2 | Check available link types with a Jira admin |
 | Attach/upload fails | 7, 7b-3 | Check credentials; re-run the skill |
 | Metadata update fails | 7c | Warnings printed; update title/description/label manually in Jira |

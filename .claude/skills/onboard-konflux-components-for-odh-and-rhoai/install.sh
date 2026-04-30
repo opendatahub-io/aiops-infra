@@ -77,16 +77,23 @@ else
   success "kustomize: $(command -v kustomize)"
 fi
 
-# ── Step 2: Verify all 7 child skills are installed ───────────────────────────
+# ── Step 2: Verify all child skills are installed ─────────────────────────────
 info "Checking child skill installations..."
 CHILD_SKILLS=(
   "validate-component-onboarding-jira"
   "create-quay-repo"
   "onboard-component-to-konflux-release-data"
   "add-component-to-odh-konflux-central"
+  "add-component-to-rhoai-konflux-central"
+  "create-pull-pipelines-in-rhoai-konflux-central"
   "run-odh-konflux-onboarder-workflow"
   "integrate-component-with-odh-operator"
   "integrate-component-with-bundle"
+  "create-rhoai-delivery-repo"
+  "update-rhoai-product-listing"
+  "setup-auto-merge"
+  "enable-renovate-on-rhoai-component-repo"
+  "sync-rhoai-renovate-configs"
 )
 ALL_OK=true
 for skill in "${CHILD_SKILLS[@]}"; do
@@ -110,6 +117,11 @@ COMMON_SCRIPTS=(
   "fetch_jira_details.py"
   "download_jira_attachment.py"
   "validate_yaml_schema.py"
+  "sync_state_from_jira.py"
+  "build_progress_summary.py"
+  "append_delivery_repo_entry.py"
+  "check_pr_mr_status.sh"
+  "init_pipeline.sh"
 )
 for script in "${COMMON_SCRIPTS[@]}"; do
   if [[ -f "${COMMON_DIR}/${script}" ]]; then
@@ -130,7 +142,9 @@ success "SKILL.md -> ${TARGET_DIR}/SKILL.md"
 # ── Step 5: Pre-warm Python dependencies ──────────────────────────────────────
 info "Pre-warming Python dependencies..."
 for script in "monitor_github_pr.py" "monitor_gitlab_mr.py" "update_jira_issue.py" \
-              "run_github_workflow.py" "fetch_jira_details.py"; do
+              "run_github_workflow.py" "fetch_jira_details.py" \
+              "sync_state_from_jira.py" "build_progress_summary.py" \
+              "append_delivery_repo_entry.py"; do
   echo -n "    ${script} ... "
   uv run --script "${COMMON_DIR}/${script}" --help >/dev/null 2>&1 \
     && echo -e "${GREEN}OK${RESET}" \
@@ -149,7 +163,9 @@ for var in JIRA_USER_EMAIL JIRA_API_TOKEN GITLAB_USER GITLAB_TOKEN GITHUB_USER G
   fi
 done
 for var in OC_TOKEN APP_INTERFACE_REPO_URL KONFLUX_RELEASE_DATA_REPO_URL \
-           ODH_KONFLUX_CENTRAL_REPO_URL ODH_OPERATOR_REPO_URL OBC_REPO_URL JIRA_SERVER; do
+           ODH_KONFLUX_CENTRAL_REPO_URL RHOAI_KONFLUX_CENTRAL_REPO_URL \
+           ODH_OPERATOR_REPO_URL BUILD_CONFIG_REPO_URL OBC_REPO_URL \
+           RHODS_DEVOPS_INFRA_REPO_URL PYXIS_REPO_CONFIGS_REPO_URL JIRA_SERVER; do
   [[ -z "${!var:-}" ]] \
     && warn "${var} not set (optional — default applies)" \
     || success "${var}=${!var}"

@@ -86,7 +86,23 @@ Parse the arguments provided by the user:
 3. Extract `<jira-url>` from `--jira-url` if provided. Extract `<jira-id>` as the last
    path segment of the URL (e.g., `RHOAIENG-1234`).
 
-4. Set `APP_INTERFACE_URL` to `$APP_INTERFACE_REPO_URL` if set, else `https://gitlab.cee.redhat.com/service/app-interface`.
+4. Resolve `APP_INTERFACE_URL` — execute this exact block; do NOT skip the `echo`:
+
+   ```bash
+   APP_INTERFACE_URL="${APP_INTERFACE_REPO_URL:-https://gitlab.cee.redhat.com/service/app-interface}"
+   echo "APP_INTERFACE_REPO_URL=${APP_INTERFACE_REPO_URL:-(not set, using default)}"
+   echo "APP_INTERFACE_URL resolved to: $APP_INTERFACE_URL"
+   ```
+
+   **Never override or re-derive `APP_INTERFACE_URL` in later steps.** If any step appears
+   to use a different URL, that is a bug — stop and correct it.
+
+> **IMPORTANT — `APP_INTERFACE_URL` is the single source of truth for all Git and GitLab
+> operations in this skill.**
+> Use `$APP_INTERFACE_URL` for every operation: fork setup (`--gitlab-repo-url`),
+> playpen clone (`--src-url`), and MR destination (`--dest-url`).
+> **Never substitute the upstream URL in place of `$APP_INTERFACE_URL`**, even if it
+> appears to point to a personal fork. The user configured it intentionally.
 
 ---
 

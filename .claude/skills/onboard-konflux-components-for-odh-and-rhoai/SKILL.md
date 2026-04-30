@@ -458,8 +458,17 @@ ALL_DONE=$(jq -r '
 
 **If `ALL_DONE == "true"`:**
 
+Post the full table summary as the final comment, then resolve:
+
 ```bash
+FULL_COMMENT=$(uv run --script "$COMMON_SCRIPTS_DIR/build_progress_summary.py" \
+  --state           "$PIPELINE_STATE" \
+  --component-name  "$COMPONENT_NAME" \
+  --product-context "$PRODUCT_CONTEXT" \
+  --mode            "full")
+
 uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  --comment   "$FULL_COMMENT" \
   --add-label "component-onboarding-completed" \
   --status    "Resolved"
 

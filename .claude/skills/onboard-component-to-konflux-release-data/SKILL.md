@@ -76,8 +76,15 @@ echo "JIRA_URL : $JIRA_URL"
 echo "JIRA_ID  : $JIRA_ID"
 ```
 
-2. Set `KRD_URL` to `$KONFLUX_RELEASE_DATA_REPO_URL` if set, else
-   `https://gitlab.cee.redhat.com/releng/konflux-release-data.git`.
+2. Resolve `KRD_URL` — execute this exact block; do NOT skip the `echo`:
+
+   ```bash
+   KRD_URL="${KONFLUX_RELEASE_DATA_REPO_URL:-https://gitlab.cee.redhat.com/releng/konflux-release-data.git}"
+   echo "KONFLUX_RELEASE_DATA_REPO_URL=${KONFLUX_RELEASE_DATA_REPO_URL:-(not set, using default)}"
+   echo "KRD_URL resolved to: $KRD_URL"
+   ```
+
+   **Never override or re-derive `KRD_URL` in later steps.**
 
 > **IMPORTANT — `KRD_URL` is the single source of truth for all Git operations.**
 > Use `$KRD_URL` for every Git operation in this skill: sparse clone (`--src-url`), push
