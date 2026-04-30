@@ -176,6 +176,13 @@ Then stop with: `"ERROR in Step 3b (Branch Cross-Validation): repo_branch '<repo
 
 ### Step 5c: Dockerfile digest check
 
+**Skip this entire step if `inputs.product_context == "ODH"`.** Digest pinning is only
+required for RHOAI components. If ODH, print:
+```
+Dockerfile digest check skipped (not required for ODH components).
+```
+and proceed to Step 6.
+
 Read `inputs.repo_url`, `inputs.repo_branch`, `inputs.context_path`, and
 `inputs.dockerfile_path` from the downloaded YAML.
 

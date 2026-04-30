@@ -408,6 +408,13 @@ On failure (exit 1): capture stderr as `<validation_errors>`. Display the errors
 
 ## Step 6b: Dockerfile digest check
 
+**Skip this entire step if `product_context == "ODH"`.** Digest pinning is only required
+for RHOAI components. If ODH, print:
+```
+Dockerfile digest check skipped (not required for ODH components).
+```
+and proceed to Step 7.
+
 Construct the raw GitHub URL for the Dockerfile and check that every `FROM` instruction
 pins its image with a `@sha256:` digest:
 

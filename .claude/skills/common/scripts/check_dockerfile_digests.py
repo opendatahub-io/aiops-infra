@@ -11,9 +11,11 @@ Valid forms:
   FROM registry.example.com/image:tag@sha256:<hex>   # tag + digest (tag is informational)
 Skipped:
   FROM scratch
-  FROM $ARG_NAME  (ARG-substituted references cannot be checked statically)
+  FROM $ARG_NAME          (ARG-substituted references cannot be checked statically)
+  FROM --platform=... <local-stage>  (multi-stage alias with no registry hostname)
+  FROM <local-stage>      (local build stage alias — no dot/colon in hostname)
 
-Exit 0  — all FROM instructions are pinned with @sha256:
+Exit 0  — all checkable FROM instructions are pinned with @sha256:
 Exit 1  — one or more violations found (details on stderr)
 Exit 2  — Dockerfile could not be fetched/read
 """
@@ -38,13 +40,36 @@ def fetch(source: str) -> str:
 
 
 def parse_froms(content: str) -> list[tuple[int, str]]:
-    """Return [(lineno, image_ref), ...] for every FROM instruction."""
+    """Return [(lineno, image_ref), ...] for every FROM instruction.
+
+    Handles optional flags like --platform=... that precede the image reference.
+    """
     results = []
     for i, line in enumerate(content.splitlines(), 1):
-        m = re.match(r"^\s*FROM\s+(\S+)", line, re.IGNORECASE)
-        if m:
-            results.append((i, m.group(1)))
+        stripped = line.strip()
+        if not re.match(r"FROM\b", stripped, re.IGNORECASE):
+            continue
+        tokens = stripped.split()
+        image_ref = None
+        for token in tokens[1:]:  # skip "FROM" keyword
+            if token.startswith("--"):
+                continue  # skip --platform=..., --no-cache, etc.
+            image_ref = token
+            break
+        if image_ref:
+            results.append((i, image_ref))
     return results
+
+
+def is_external_image(ref: str) -> bool:
+    """Return True if ref looks like an external registry image.
+
+    Local multi-stage build aliases (e.g. 'builder', 'base') have no dot or
+    colon in the hostname segment and are skipped — they are not registry pulls.
+    """
+    name = ref.split("@")[0].split(":")[0]
+    host = name.split("/")[0]
+    return "." in host or ":" in host or host == "localhost"
 
 
 def main() -> None:
@@ -66,9 +91,11 @@ def main() -> None:
 
     violations = []
     for lineno, ref in froms:
-        # Skip build-time ARG substitutions and scratch
+        # Skip build-time ARG substitutions, scratch, and local multi-stage aliases
         if ref.lower() == "scratch" or ref.startswith("$"):
             continue
+        if not is_external_image(ref):
+            continue  # local build stage alias (e.g. "builder"), not a registry pull
         if "@sha256:" not in ref:
             violations.append((lineno, ref))
 
@@ -88,9 +115,11 @@ def main() -> None:
         )
         sys.exit(1)
 
-    checked = len(froms) - sum(
-        1 for _, ref in froms if ref.lower() == "scratch" or ref.startswith("$")
+    skipped = sum(
+        1 for _, ref in froms
+        if ref.lower() == "scratch" or ref.startswith("$") or not is_external_image(ref)
     )
+    checked = len(froms) - skipped
     print(f"OK: All {checked} checkable FROM instruction(s) use @sha256 digests.")
 
 
