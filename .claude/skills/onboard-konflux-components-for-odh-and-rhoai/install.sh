@@ -122,6 +122,7 @@ COMMON_SCRIPTS=(
   "append_delivery_repo_entry.py"
   "check_pr_mr_status.sh"
   "init_pipeline.sh"
+  "resolve_operator_url.sh"
 )
 for script in "${COMMON_SCRIPTS[@]}"; do
   if [[ -f "${COMMON_DIR}/${script}" ]]; then

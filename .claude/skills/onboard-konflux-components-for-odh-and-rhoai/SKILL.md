@@ -285,10 +285,17 @@ If PipelineRun already exists: set `status = "done"`.
 
 **Execute if** `operator` is in `UNBLOCKED_STEPS`.
 
+> **CRITICAL**: The operator repo URL **must** be resolved by `resolve_operator_url.sh`
+> in the child skill's Step 3d. If `ODH_OPERATOR_REPO_URL` is set in the environment,
+> the script will use it as an override. **Never hardcode** `ODH_OPERATOR_URL` — always
+> let the script resolve it.
+
 If `IS_OPERATOR == false`: child exits at Step 4a — set `status = "skipped"`.
 
 If `IS_OPERATOR == true`: follow through to Step 9 (Raise PR). Capture `$PR_URL`.
 Record: `steps.operator.pr_url = "$PR_URL"`, `status = "pr_raised"`. Add label `operator-pr-raised`.
+
+**Pass `--existing-pr-url`** if `steps.operator.pr_url` is already set — child will skip straight to returning the URL.
 
 ### Step 8f: integrate-component-with-bundle (step key: `bundle`)
 
