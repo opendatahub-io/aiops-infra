@@ -367,11 +367,11 @@ jq --arg u "$TEKTON_PR_URL" --arg s "pr_raised" --arg ts "$NOW" \
   "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
 NEW_PRS_RAISED="true"
 uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
-  --add-label "onboarder-workflow-triggered" || true
+  --add-label "tekton-pr-raised" || true
 ```
 
-(The child skill's Step 9 already adds the `tekton-pr-raised` label to Jira directly.
-`check_pr_mr_status.sh` in Step 6 will detect the merge on the next re-run.)
+(`check_pr_mr_status.sh` in Step 6 will detect the merge on the next re-run and
+advance the status. The `tekton-pr-merged` label will be added when merged.)
 
 ### Step 9b: sync-rhoai-renovate-configs (step key: `renovate_sync`, RHOAI only)
 

@@ -157,8 +157,10 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     },
     "onboarder_workflow": {
       "status": "${SKIP_ODH_ONLY}",
+      "pr_url": "",
       "depends_on": ["krd", "okc"],
-      "label_done": "onboarder-workflow-triggered"
+      "label_raised": "tekton-pr-raised",
+      "label_done": "tekton-pr-merged"
     }
   }
 }

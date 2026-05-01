@@ -51,25 +51,55 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     "product-listing-exists":    ("product_listing",  "done"),
     "auto-merge-setup-done":     ("auto_merge",       "done"),
     "renovate-changes-done":     ("renovate",         "done"),
-    "renovate-sync-triggered":   ("renovate_sync",    "done"),
-    "onboarder-workflow-triggered": ("onboarder_workflow", "done"),
+    "renovate-sync-triggered":      ("renovate_sync",       "done"),
+    "tekton-pr-raised":             ("onboarder_workflow",  "pr_raised"),
+    "onboarder-workflow-triggered": ("onboarder_workflow",  "pr_raised"),
+    "tekton-pr-merged":             ("onboarder_workflow",  "done"),
     # validate
     "yaml-attached":             ("validate",         "done"),
 }
 
-# Keywords per step to match PR/MR URLs from Jira comments
-STEP_COMMENT_PATTERNS: list[tuple[str, str, str]] = [
-    # (step_key, url_field, keyword_pattern_in_comment)
-    ("quay",           "mr_url",  r"quay"),
-    ("krd",            "mr_url",  r"konflux.release"),
-    ("okc",            "pr_url",  r"(?:odh|rhoai)-konflux-central"),
-    ("pull_pipelines", "pr_url",  r"rhoai-konflux-central.*pull|pull.*rhoai-konflux-central"),
-    ("operator",       "pr_url",  r"opendatahub-operator|rhods-operator"),
-    ("bundle",         "pr_url",  r"ODH-Build-Config|RHOAI-Build-Config|build-config"),
-    ("delivery_repo",  "mr_url",  r"pyxis.repo.configs|delivery.repo"),
-    ("product_listing","mr_url",  r"product.listing|pyxis.repo.configs.*product"),
-    ("auto_merge",     "pr_url",  r"auto.merge"),
-    ("renovate",       "pr_url",  r"renovate"),
+# ── URL extraction ────────────────────────────────────────────────────────────
+#
+# PR/MR URLs are the primary matching key.  Jira labels are only used to
+# disambiguate when multiple steps share the same repo URL pattern.
+#
+#   Phase 1 – Unique URL patterns:
+#             The repo name in the URL uniquely identifies the step.
+#             No labels needed.
+#
+#   Phase 2 – Shared URL patterns + label disambiguation:
+#             URL pattern matches multiple steps (same repo).  The step's
+#             Jira label must also be present to claim the URL, preventing
+#             one step from stealing another's URL.
+#
+#   Phase 3 – Unclaimed URLs:
+#             For steps whose PR targets a variable repo (e.g.
+#             onboarder_workflow's Tekton PR goes to the component repo).
+#             Any unclaimed URL is assigned if the step's label is present.
+#
+# All patterns: (step_key, url_field, url_regex).
+STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
+    ("quay",           "mr_url",  re.compile(r"app-interface/-/merge_requests/", re.I)),
+    ("krd",            "mr_url",  re.compile(r"konflux-release-data/-/merge_requests/", re.I)),
+    ("okc",            "pr_url",  re.compile(r"(?:odh|rhoai)-konflux-central/pull/", re.I)),
+    ("operator",       "pr_url",  re.compile(r"(?:opendatahub-operator|rhods-operator)/pull/", re.I)),
+    ("bundle",         "pr_url",  re.compile(r"(?:ODH|RHOAI)-Build-Config/pull/", re.I)),
+    ("auto_merge",     "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I)),
+]
+
+# Shared URL patterns — labels disambiguate which step gets which URL.
+SHARED_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
+    ("delivery_repo",      "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I)),
+    ("product_listing",    "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I)),
+    ("pull_pipelines",     "pr_url",  re.compile(r"konflux-central/pull/", re.I)),
+    ("renovate",           "pr_url",  re.compile(r"konflux-central/pull/", re.I)),
+]
+
+# Steps whose PR targets a variable repo (no URL pattern possible).
+# Labels confirm the step ran; first unclaimed URL is assigned.
+UNCLAIMED_URL_STEPS: list[tuple[str, str]] = [
+    ("onboarder_workflow", "pr_url"),
 ]
 
 # Matches any GitHub PR or GitLab MR URL
@@ -105,28 +135,82 @@ def sync_labels(state: dict, labels: list[str]) -> list[str]:
     return changes
 
 
-def sync_urls_from_comments(state: dict, comments: list[dict]) -> list[str]:
+def sync_urls_from_comments(state: dict, comments: list[dict], labels: list[str]) -> list[str]:
     changes = []
     # Reverse so the most recent comment wins when multiple comments
     # mention the same step (e.g. old PR closed, new PR raised).
     all_comment_bodies = [(c.get("body") or "") for c in reversed(comments)]
 
-    for step_key, url_field, keyword_pattern in STEP_COMMENT_PATTERNS:
-        step = state.get("steps", {}).get(step_key)
-        if step is None:
-            continue
-        if step.get(url_field, ""):
-            continue  # already populated
+    # Collect every PR/MR URL across all comments (newest first).
+    all_urls: list[str] = []
+    for body in all_comment_bodies:
+        all_urls.extend(extract_urls_from_comment(body))
+    # Deduplicate while preserving order (newest first).
+    seen: set[str] = set()
+    unique_urls: list[str] = []
+    for url in all_urls:
+        if url not in seen:
+            seen.add(url)
+            unique_urls.append(url)
+    all_urls = unique_urls
 
-        kw_re = re.compile(keyword_pattern, re.IGNORECASE)
-        for body in all_comment_bodies:
-            if not kw_re.search(body):
+    # Track which URLs have been claimed to avoid double-assignment.
+    claimed_urls: set[str] = set()
+
+    # Build label→step lookup for disambiguation.
+    label_to_steps: dict[str, set] = {}
+    for label, (step_key, _status) in LABEL_MAP.items():
+        label_to_steps.setdefault(step_key, set()).add(label)
+    label_set = set(labels)
+
+    def _step_has_label(step_key: str) -> bool:
+        return bool(label_to_steps.get(step_key, set()) & label_set)
+
+    # Phase 1: Unique URL patterns — repo name in URL identifies the step.
+    for step_key, url_field, url_re in STEP_URL_PATTERNS:
+        step = state.get("steps", {}).get(step_key)
+        if step is None or step.get(url_field, ""):
+            continue
+        for url in all_urls:
+            if url in claimed_urls:
                 continue
-            urls = extract_urls_from_comment(body)
-            if urls:
-                step[url_field] = urls[0]
-                changes.append(f"{step_key}.{url_field} = {urls[0]} (from comment)")
+            if url_re.search(url):
+                step[url_field] = url
+                claimed_urls.add(url)
+                changes.append(f"{step_key}.{url_field} = {url} (from comment)")
                 break
+
+    # Phase 2: Shared URL patterns — URL matches, label disambiguates.
+    for step_key, url_field, url_re in SHARED_URL_PATTERNS:
+        step = state.get("steps", {}).get(step_key)
+        if step is None or step.get(url_field, ""):
+            continue
+        if not _step_has_label(step_key):
+            continue
+        for url in all_urls:
+            if url in claimed_urls:
+                continue
+            if url_re.search(url):
+                step[url_field] = url
+                claimed_urls.add(url)
+                changes.append(f"{step_key}.{url_field} = {url} (from comment)")
+                break
+
+    # Phase 3: Unclaimed URLs — for steps whose PR targets a variable repo.
+    # Label confirms the step ran; first unclaimed PR/MR URL is assigned.
+    for step_key, url_field in UNCLAIMED_URL_STEPS:
+        step = state.get("steps", {}).get(step_key)
+        if step is None or step.get(url_field, ""):
+            continue
+        if not _step_has_label(step_key):
+            continue
+        for url in all_urls:
+            if url in claimed_urls:
+                continue
+            step[url_field] = url
+            claimed_urls.add(url)
+            changes.append(f"{step_key}.{url_field} = {url} (from comment, unclaimed)")
+            break
 
     return changes
 
@@ -164,7 +248,7 @@ def main():
     label_changes = sync_labels(state, labels)
     all_changes.extend(label_changes)
 
-    url_changes = sync_urls_from_comments(state, comments_raw)
+    url_changes = sync_urls_from_comments(state, comments_raw, labels)
     all_changes.extend(url_changes)
 
     if all_changes:
