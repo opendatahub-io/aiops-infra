@@ -76,12 +76,23 @@ def url_cell(step: dict, url_field: str | None) -> str:
     return url if url else "—"
 
 
+def _all_done(steps: dict) -> bool:
+    for step in steps.values():
+        s = step.get("status", "pending")
+        if s == "skipped":
+            continue
+        if s not in ("done", "merged"):
+            return False
+    return True
+
+
 def build_full_summary(state: dict, component_name: str, product_context: str) -> str:
     steps_def = STEPS_RHOAI if product_context == "RHOAI" else STEPS_ODH
     steps = state.get("steps", {})
 
+    heading = "Component Onboarding - Completed" if _all_done(steps) else "Component Onboarding - Progress"
     lines = [
-        f"h2. Onboarding Pipeline — Status: {{{{{component_name}}}}}",
+        f"h2. {heading}: {{{{{component_name}}}}}",
         "",
         "||#||Step||Status||PR / MR||",
     ]
