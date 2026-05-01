@@ -91,17 +91,17 @@ def sync_labels(state: dict, labels: list[str]) -> list[str]:
         if step is None:
             continue
         current = step.get("status", "pending")
-        if current == "skipped":
-            continue
         if new_status == "done":
-            if current != "done":
+            if current not in ("done",):
                 step["status"] = "done"
                 changes.append(f"{step_key}: {current} → done (label: {label})")
         else:
-            # raised label — only upgrade from pending
-            if current == "pending":
+            # raised label — upgrade from pending or skipped (skipped can
+            # happen when the initial state was created before is_operator
+            # was known, but the PR was raised in a previous run)
+            if current in ("pending", "skipped"):
                 step["status"] = new_status
-                changes.append(f"{step_key}: pending → {new_status} (label: {label})")
+                changes.append(f"{step_key}: {current} → {new_status} (label: {label})")
     return changes
 
 

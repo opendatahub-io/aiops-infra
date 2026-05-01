@@ -177,6 +177,24 @@ else
     TMP=$(mktemp)
     jq --arg v "$PRODUCT_CONTEXT" '.product_context = $v' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
   fi
+
+  # Fix operator step: the initial init (Step 2) runs before IS_OPERATOR is
+  # known, so it defaults to "skipped". Once Step 4 re-invokes with the real
+  # value, correct the status if needed.
+  if [[ "$IS_OPERATOR" == "true" ]]; then
+    CURRENT_OP=$(jq -r '.steps.operator.status // "pending"' "$PIPELINE_STATE")
+    if [[ "$CURRENT_OP" == "skipped" ]]; then
+      TMP=$(mktemp)
+      jq '.steps.operator.status = "pending"' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  operator step: skipped → pending (is_operator=true)" >&2
+    fi
+    # Also ensure is_operator is set correctly in state
+    CURRENT_IS_OP=$(jq -r '.is_operator // false' "$PIPELINE_STATE")
+    if [[ "$CURRENT_IS_OP" != "true" ]]; then
+      TMP=$(mktemp)
+      jq '.is_operator = true' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+    fi
+  fi
 fi
 
 printf 'JIRA_ID=%q\n' "$JIRA_ID"
