@@ -64,8 +64,8 @@ STEP_COMMENT_PATTERNS: list[tuple[str, str, str]] = [
     ("krd",            "mr_url",  r"konflux.release"),
     ("okc",            "pr_url",  r"(?:odh|rhoai)-konflux-central"),
     ("pull_pipelines", "pr_url",  r"rhoai-konflux-central.*pull|pull.*rhoai-konflux-central"),
-    ("operator",       "pr_url",  r"opendatahub-io/opendatahub-operator"),
-    ("bundle",         "pr_url",  r"ODH-Build-Config|odh-build-config"),
+    ("operator",       "pr_url",  r"opendatahub-operator|rhods-operator"),
+    ("bundle",         "pr_url",  r"ODH-Build-Config|RHOAI-Build-Config|build-config"),
     ("delivery_repo",  "mr_url",  r"pyxis.repo.configs|delivery.repo"),
     ("product_listing","mr_url",  r"product.listing|pyxis.repo.configs.*product"),
     ("auto_merge",     "pr_url",  r"auto.merge"),
@@ -107,7 +107,9 @@ def sync_labels(state: dict, labels: list[str]) -> list[str]:
 
 def sync_urls_from_comments(state: dict, comments: list[dict]) -> list[str]:
     changes = []
-    all_comment_bodies = [(c.get("body") or "") for c in comments]
+    # Reverse so the most recent comment wins when multiple comments
+    # mention the same step (e.g. old PR closed, new PR raised).
+    all_comment_bodies = [(c.get("body") or "") for c in reversed(comments)]
 
     for step_key, url_field, keyword_pattern in STEP_COMMENT_PATTERNS:
         step = state.get("steps", {}).get(step_key)
