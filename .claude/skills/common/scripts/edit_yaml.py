@@ -22,6 +22,68 @@ from pathlib import Path
 from ruamel.yaml import YAML
 
 
+def _detect_formatting(path: Path) -> dict:
+    """Detect explicit_start and sequence indent from an existing YAML file."""
+    import re
+    raw = path.read_text()
+    lines = raw.splitlines()
+    info: dict = {"explicit_start": False, "map_indent": 2, "seq_indent": 2, "seq_offset": 0}
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped == "---":
+            info["explicit_start"] = True
+        break
+
+    # Detect mapping indent from the first indented non-comment, non-sequence line
+    for line in lines:
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("-"):
+            continue
+        leading = len(line) - len(stripped)
+        if leading > 0:
+            info["map_indent"] = leading
+            break
+
+    # Detect sequence indent relative to its parent mapping key.
+    # Walk lines to find "key:\n  - item" and measure the dash offset.
+    parent_col = 0
+    for line in lines:
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        m = re.match(r'^( *)\S[^#]*:\s*$', line)
+        if m:
+            parent_col = len(m.group(1))
+            continue
+        m = re.match(r'^( *)- ', line)
+        if m:
+            dash_col = len(m.group(1))
+            offset = dash_col - parent_col
+            if offset > 0:
+                info["seq_indent"] = offset + 2
+                info["seq_offset"] = offset
+            break
+
+    return info
+
+
+def _make_yaml(path: Path) -> YAML:
+    """Create a YAML instance configured to match the file's existing formatting."""
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.width = 4096
+
+    if path.exists():
+        fmt = _detect_formatting(path)
+        yaml.explicit_start = fmt["explicit_start"]
+        yaml.indent(mapping=fmt["map_indent"], sequence=fmt["seq_indent"], offset=fmt["seq_offset"])
+
+    return yaml
+
+
 def _load(path: Path, yaml: YAML):
     with path.open() as f:
         return yaml.load(f)
@@ -34,10 +96,8 @@ def _save(path: Path, data, yaml: YAML):
 
 def cmd_append_items_array(args):
     """Append an entry to a top-level 'items' sequence."""
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096
     path = Path(args.file)
+    yaml = _make_yaml(path)
     data = _load(path, yaml)
 
     entry = {"name": args.name, "description": args.description}
@@ -53,10 +113,8 @@ def cmd_append_items_array(args):
 
 def cmd_append_yaml_doc(args):
     """Append a YAML document block to a multi-document YAML file."""
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096
     path = Path(args.file)
+    yaml = _make_yaml(path)
 
     new_doc = yaml.load(args.yaml_string)
     docs = []
@@ -73,10 +131,8 @@ def cmd_append_yaml_doc(args):
 
 def cmd_insert_map_key(args):
     """Insert a key into a nested map at the given parent key."""
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096
     path = Path(args.file)
+    yaml = _make_yaml(path)
     data = _load(path, yaml)
 
     # Navigate to the map key (supports dot notation)
@@ -94,10 +150,8 @@ def cmd_insert_map_key(args):
 
 def cmd_append_array_entry(args):
     """Append an object entry to a nested array."""
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096
     path = Path(args.file)
+    yaml = _make_yaml(path)
     data = _load(path, yaml)
 
     # Navigate dot-path to the array
@@ -122,10 +176,8 @@ def cmd_append_array_entry(args):
 
 def cmd_append_rpa_component(args):
     """Append a ReleasePlanAdmission component entry {name, repositories: [{url}]} to a nested array."""
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096
     path = Path(args.file)
+    yaml = _make_yaml(path)
     data = _load(path, yaml)
 
     parts = args.array_key.split(".")
@@ -146,10 +198,8 @@ def cmd_append_rpa_component(args):
 
 def cmd_insert_simple_map_entry(args):
     """Set a simple key=value string pair in a nested map (supports integer indices in dot-path)."""
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096
     path = Path(args.file)
+    yaml = _make_yaml(path)
     data = _load(path, yaml)
 
     parts = args.map_key.split(".")
@@ -173,10 +223,8 @@ def cmd_insert_simple_map_entry(args):
 
 def cmd_insert_list_item(args):
     """Insert a scalar value into a list at the given key."""
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096
     path = Path(args.file)
+    yaml = _make_yaml(path)
     data = _load(path, yaml)
 
     parts = args.list_key.split(".")
@@ -198,10 +246,8 @@ def cmd_insert_list_item(args):
 
 def cmd_append_renovate_repo(args):
     """Append a sync-repositories entry to the first matching renovate distribution group."""
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096
     path = Path(args.file)
+    yaml = _make_yaml(path)
     data = _load(path, yaml)
 
     if not isinstance(data, list):
