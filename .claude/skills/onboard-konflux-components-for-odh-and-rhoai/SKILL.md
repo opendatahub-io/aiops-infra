@@ -341,8 +341,9 @@ If entry already exists: set `status = "done"`.
 
 ## Step 9: Handle Workflow Triggers
 
-Workflow triggers are not PRs — they execute once their dependencies are merged and
-produce no URL to track. Mark as `"done"` immediately after triggering.
+Workflow triggers execute once their dependencies are merged. `onboarder_workflow`
+produces a Tekton PR URL that must be tracked (record as `pr_raised`); `renovate_sync`
+completes with no URL and is marked `done` immediately.
 
 ### Step 9a: run-odh-konflux-onboarder-workflow (step key: `onboarder_workflow`, ODH only)
 
@@ -350,15 +351,20 @@ produce no URL to track. Mark as `"done"` immediately after triggering.
 
 The `depends_on: ["krd", "okc"]` check in Step 7 ensures both are merged before this runs.
 
-Follow `run-odh-konflux-onboarder-workflow` completely. On success:
+Follow `run-odh-konflux-onboarder-workflow` through **Step 9** (Update Jira with PR URL).
+Capture `$TEKTON_PR_URL` from Step 8. On success:
 ```bash
 TMP=$(mktemp); NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-jq --arg ts "$NOW" \
-  '.steps.onboarder_workflow.status = "done" | .last_status_change_at = $ts' \
+jq --arg u "$TEKTON_PR_URL" --arg s "pr_raised" --arg ts "$NOW" \
+  '.steps.onboarder_workflow.pr_url = $u | .steps.onboarder_workflow.status = $s | .last_status_change_at = $ts' \
   "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+NEW_PRS_RAISED="true"
 uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "onboarder-workflow-triggered" || true
 ```
+
+(The child skill's Step 9 already adds the `tekton-pr-raised` label to Jira directly.
+`check_pr_mr_status.sh` in Step 6 will detect the merge on the next re-run.)
 
 ### Step 9b: sync-rhoai-renovate-configs (step key: `renovate_sync`, RHOAI only)
 
