@@ -133,7 +133,6 @@ def find_existing_fork(project, gitlab_user: str):
     try:
         forks = project.forks.list(all=True)
         for fork in forks:
-            # fork.namespace is a dict with 'path' key
             ns = fork.namespace if isinstance(fork.namespace, dict) else {}
             if ns.get("path", "").lower() == gitlab_user.lower():
                 return fork
@@ -142,12 +141,43 @@ def find_existing_fork(project, gitlab_user: str):
     return None
 
 
+def _get_forked_from_id(project) -> int | None:
+    """Extract the forked_from_project id from a project object."""
+    forked_from = getattr(project, "forked_from_project", None)
+    if forked_from is None:
+        return None
+    if isinstance(forked_from, dict):
+        return forked_from.get("id")
+    return getattr(forked_from, "id", None)
+
+
+def find_same_name_project(gl: gitlab.Gitlab, gitlab_user: str, project_name: str):
+    """Look up <gitlab_user>/<project_name> directly, return project or None."""
+    candidate_path = f"{gitlab_user}/{project_name}"
+    try:
+        return gl.projects.get(candidate_path)
+    except GitlabGetError:
+        return None
+    except Exception:
+        return None
+
+
+def delete_fork_relationship(project) -> bool:
+    """Remove the fork relationship so the project can be re-forked from a different parent."""
+    try:
+        project.delete_fork_relation()
+        print(f"  Deleted stale fork relationship for project id={project.id}.", file=sys.stderr)
+        return True
+    except GitlabError as exc:
+        print(f"  WARNING: Could not delete fork relationship: {exc}", file=sys.stderr)
+        return False
+
+
 def create_fork(project, gitlab_user: str):
     """Create a fork and wait for it to finish importing."""
     try:
         fork = project.forks.create({"namespace": gitlab_user})
     except GitlabError as exc:
-        # 409 Conflict → fork may already exist under a different name; treat as warning
         if getattr(exc, "response_code", None) == 409:
             print("WARNING: Fork creation returned 409 (may already exist). Searching again...", file=sys.stderr)
             return None
@@ -194,6 +224,7 @@ def main() -> None:
 
     base_url = parse_gitlab_base_url(args.gitlab_repo_url)
     project_path = parse_project_path(args.gitlab_repo_url)
+    project_name = project_path.rsplit("/", 1)[-1]
 
     print(f"Connecting to {base_url}...", file=sys.stderr)
     gl = get_gitlab_client(base_url, gitlab_token)
@@ -209,15 +240,48 @@ def main() -> None:
         print(fork.http_url_to_repo)
         return
 
-    print(f"  No existing fork found. Creating fork in namespace '{gitlab_user}'...", file=sys.stderr)
+    # No fork found via the forks API. Before creating, check if the user
+    # already has a same-named project that is a fork of a *different* parent.
+    candidate = find_same_name_project(gl, gitlab_user, project_name)
+    if candidate is not None:
+        parent_id = _get_forked_from_id(candidate)
+        if parent_id == source.id:
+            # Fork exists with correct parent but wasn't listed (API lag)
+            print(f"  Fork found by name with correct parent: {candidate.http_url_to_repo}", file=sys.stderr)
+            print(candidate.http_url_to_repo)
+            return
+        # Fork exists but points to a different parent — fix it
+        if parent_id is not None:
+            forked_from = getattr(candidate, "forked_from_project", {})
+            stale_parent = forked_from.get("path_with_namespace", parent_id) if isinstance(forked_from, dict) else parent_id
+            print(f"  WARNING: {gitlab_user}/{project_name} is forked from '{stale_parent}', "
+                  f"not '{project_path}'. Removing stale fork relationship...", file=sys.stderr)
+            if delete_fork_relationship(candidate):
+                print(f"  Re-forking from '{project_path}'...", file=sys.stderr)
+            else:
+                print(f"ERROR: Cannot re-fork — stale fork relationship could not be removed.", file=sys.stderr)
+                print(f"  Manually delete {gitlab_user}/{project_name} on {base_url} and retry.", file=sys.stderr)
+                sys.exit(1)
+        else:
+            # Same-named project exists but is not a fork at all
+            print(f"ERROR: {gitlab_user}/{project_name} already exists but is not a fork.", file=sys.stderr)
+            print(f"  Manually delete or rename it on {base_url} and retry.", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"  Creating fork in namespace '{gitlab_user}'...", file=sys.stderr)
     fork = create_fork(source, gitlab_user)
 
     if fork is None:
         # 409 case — search one more time
         fork = find_existing_fork(source, gitlab_user)
         if fork is None:
-            print("ERROR: Fork creation returned 409 but no existing fork was found.", file=sys.stderr)
-            print("  Try running again, or check your GitLab namespace manually.", file=sys.stderr)
+            candidate = find_same_name_project(gl, gitlab_user, project_name)
+            if candidate is not None and _get_forked_from_id(candidate) == source.id:
+                fork = candidate
+        if fork is None:
+            print("ERROR: Fork creation returned 409 but no matching fork was found.", file=sys.stderr)
+            print(f"  A project named '{project_name}' may already exist under {gitlab_user}/.", file=sys.stderr)
+            print(f"  Check {base_url}/{gitlab_user}/{project_name} and retry.", file=sys.stderr)
             sys.exit(1)
 
     print(f"  Fork ready: {fork.http_url_to_repo}", file=sys.stderr)

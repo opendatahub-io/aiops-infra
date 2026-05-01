@@ -189,6 +189,19 @@ def main() -> None:
         print("  Did the push in setup_gitlab_playpen.sh succeed?", file=sys.stderr)
         sys.exit(1)
 
+    # ── Cross-project MR: verify fork relationship ────────────────────────────
+    if fork_project.id != target_project.id:
+        forked_from = getattr(fork_project, "forked_from_project", None)
+        forked_from_id = forked_from["id"] if isinstance(forked_from, dict) else getattr(forked_from, "id", None)
+        if forked_from_id != target_project.id:
+            actual_parent = forked_from.get("path_with_namespace", forked_from_id) if isinstance(forked_from, dict) else forked_from_id
+            print(f"ERROR: Source project '{src_path}' is not a fork of target project '{dest_path}'.", file=sys.stderr)
+            print(f"  Source project's fork parent: {actual_parent}", file=sys.stderr)
+            print(f"  Expected fork parent: {dest_path} (id={target_project.id})", file=sys.stderr)
+            print("  Cross-project MRs require a direct fork relationship.", file=sys.stderr)
+            print("  Run setup_gitlab_fork.py to fix the fork relationship and retry.", file=sys.stderr)
+            sys.exit(1)
+
     # ── Create MR ──────────────────────────────────────────────────────────────
     print(f"Creating cross-project MR: {src_path}:{args.src_branch} → {dest_path}:{dest_branch}", file=sys.stderr)
     try:
