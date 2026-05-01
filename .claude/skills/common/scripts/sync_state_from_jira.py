@@ -102,8 +102,9 @@ UNCLAIMED_URL_STEPS: list[tuple[str, str]] = [
     ("onboarder_workflow", "pr_url"),
 ]
 
-# Matches any GitHub PR or GitLab MR URL
-_URL_RE = re.compile(r"https://(?:github\.com/[^\s/]+/[^\s/]+/pull/\d+|gitlab[^\s]+/-/merge_requests/\d+)")
+# Matches any GitHub PR or GitLab MR URL.
+# Excludes | and ] to avoid capturing Jira wiki-markup link syntax [url|url].
+_URL_RE = re.compile(r"https://(?:github\.com/[^\s/]+/[^\s/]+/pull/\d+|gitlab[^\s|)\]]+/-/merge_requests/\d+)")
 
 
 def extract_urls_from_comment(body: str) -> list[str]:

@@ -14,7 +14,7 @@ Usage:
     [--assignee <name>] \
     [--idle-days <N>]
 
-Output (stdout): markdown comment body ready to post to Jira.
+Output (stdout): Jira wiki markup comment body ready to post.
 """
 import argparse
 import json
@@ -81,10 +81,9 @@ def build_full_summary(state: dict, component_name: str, product_context: str) -
     steps = state.get("steps", {})
 
     lines = [
-        f"## Onboarding Pipeline — Status: `{component_name}`",
+        f"h2. Onboarding Pipeline — Status: {{{{{component_name}}}}}",
         "",
-        "| # | Step | Status | PR / MR |",
-        "|---|------|--------|---------|",
+        "||#||Step||Status||PR / MR||",
     ]
 
     for i, (key, label, url_field) in enumerate(steps_def, 1):
@@ -94,19 +93,18 @@ def build_full_summary(state: dict, component_name: str, product_context: str) -
             continue
         status_str = status_emoji(status)
         url_str = url_cell(step, url_field)
-        lines.append(f"| {i} | {label} | {status_str} | {url_str} |")
+        lines.append(f"|{i}|{label}|{status_str}|{url_str}|")
 
     lines.append("")
 
-    # Dependency hints
     pending_deps = []
     for dep_step, next_label in DEPENDENCY_NEXT_STEP.items():
         step = steps.get(dep_step, {})
         if step.get("status") in ("pr_raised", "mr_raised"):
-            pending_deps.append(f"- `{dep_step}` merged → triggers `{next_label}`")
+            pending_deps.append(f"* {{{{{dep_step}}}}} merged → triggers {{{{{next_label}}}}}")
 
     if pending_deps:
-        lines.append("**Next steps pending merge of:**")
+        lines.append("*Next steps pending merge of:*")
         lines.extend(pending_deps)
         lines.append("")
 
@@ -128,12 +126,11 @@ def build_changes_summary(
     url_field_map = {k: uf for k, _, uf in steps_def}
 
     lines = [
-        f"## Status update: `{component_name}`",
+        f"h2. Status update: {{{{{component_name}}}}}",
         "",
         "The following PRs/MRs changed status since the last run:",
         "",
-        "| Step | PR / MR | Status | Next action |",
-        "|------|---------|--------|-------------|",
+        "||Step||PR / MR||Status||Next action||",
     ]
 
     for key in newly_merged:
@@ -142,7 +139,7 @@ def build_changes_summary(
         url_field = url_field_map.get(key)
         url_str = url_cell(step, url_field)
         next_action = DEPENDENCY_NEXT_STEP.get(key, "—")
-        lines.append(f"| {label} | {url_str} | ✅ merged | {next_action} |")
+        lines.append(f"|{label}|{url_str}|✅ merged|{next_action}|")
 
     lines.append("")
     return "\n".join(lines)
@@ -165,7 +162,7 @@ def build_pending_summary(
             continue
         url_str = url_cell(step, url_field)
         next_action = DEPENDENCY_NEXT_STEP.get(key, "—")
-        pending_rows.append(f"| {label} | {url_str} | {next_action} |")
+        pending_rows.append(f"|{label}|{url_str}|{next_action}|")
 
     if not pending_rows:
         return ""
@@ -173,8 +170,7 @@ def build_pending_summary(
     tag_line = f"[~accountid:{assignee}] — please review the open PRs/MRs.\n\n" if assignee else ""
 
     lines = [
-        "| Step | PR / MR | Next action on merge |",
-        "|------|---------|----------------------|",
+        "||Step||PR / MR||Next action on merge||",
     ]
     lines.extend(pending_rows)
     lines.append("")
@@ -204,7 +200,7 @@ def main():
     if args.idle_days >= 2 and args.assignee:
         prefix = (
             f"[~accountid:{args.assignee}] — Reminder: this onboarding has had no PR/MR merges "
-            f"for {args.idle_days} day(s). Please review the open PRs/MRs listed below.\n\n"
+            f"for {args.idle_days} day(s). Please review the open PRs/MRs below.\n\n"
         )
 
     if args.mode == "full":
