@@ -312,7 +312,32 @@ def cmd_append_renovate_repo(args):
         isinstance(r.get("name"), DoubleQuotedScalarString) for r in repos if isinstance(r, dict)
     )
     name_val = DoubleQuotedScalarString(args.name) if existing_quoted else args.name
-    repos.append({"name": name_val})
+
+    # ruamel.yaml stores the blank-line separator between top-level groups
+    # as a CommentToken on the *last key* of the last mapping in
+    # sync-repositories (slot [2] = end-of-value comment).  When we
+    # append a new entry, the old last entry keeps its trailing "\n\n",
+    # so the new entry appears after the blank line.
+    # Fix: steal trailing blank-line tokens from the old last entry and
+    # move them to the new entry after appending.
+    from ruamel.yaml.comments import CommentedMap
+    old_last = repos[-1] if repos else None
+    trailing_comment = None
+    if old_last is not None and hasattr(old_last, "ca"):
+        for key in reversed(list(old_last.keys())):
+            if key in old_last.ca.items:
+                token = old_last.ca.items[key]
+                if token[2] is not None and hasattr(token[2], "value") and "\n" in token[2].value:
+                    trailing_comment = token[2]
+                    token[2] = None
+                    break
+
+    new_entry = CommentedMap([("name", name_val)])
+    repos.append(new_entry)
+
+    if trailing_comment is not None:
+        new_entry.ca.items["name"] = [None, None, trailing_comment, None]
+
     _save(path, data, yaml)
     print(f"Appended '{args.name}' to sync-repositories in {path}")
 
