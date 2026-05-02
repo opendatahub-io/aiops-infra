@@ -305,18 +305,20 @@ import sys
 with open('$RHOAI_YAML', 'r') as f:
     lines = f.readlines()
 
-entry_line = '- $PRODUCT_LISTING_ENTRY\n'
-
 # Find the repositories: key and append after the last - entry in that list
 in_repos = False
 last_repo_idx = None
+indent = '  '
 for i, line in enumerate(lines):
     if line.strip().startswith('repositories:'):
         in_repos = True
     elif in_repos and line.lstrip().startswith('- '):
         last_repo_idx = i
+        indent = line[:len(line) - len(line.lstrip())]
     elif in_repos and line.strip() and not line.lstrip().startswith('- ') and not line.strip().startswith('#'):
         in_repos = False
+
+entry_line = indent + '- $PRODUCT_LISTING_ENTRY\n'
 
 if last_repo_idx is not None:
     lines.insert(last_repo_idx + 1, entry_line)
