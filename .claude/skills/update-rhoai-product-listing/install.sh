@@ -110,6 +110,7 @@ COMMON_SCRIPTS=(
   "update_jira_issue.py"
   "fetch_jira_details.py"
   "download_jira_attachment.py"
+  "append_yaml_list_entry.py"
 )
 
 for script in "${COMMON_SCRIPTS[@]}"; do
@@ -173,6 +174,7 @@ REQUIRED_FILES=(
   "${COMMON_DIR}/update_jira_issue.py"
   "${COMMON_DIR}/fetch_jira_details.py"
   "${COMMON_DIR}/download_jira_attachment.py"
+  "${COMMON_DIR}/append_yaml_list_entry.py"
 )
 
 ALL_OK=true

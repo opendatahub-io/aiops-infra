@@ -120,6 +120,7 @@ COMMON_SCRIPTS=(
   "sync_state_from_jira.py"
   "build_progress_summary.py"
   "append_delivery_repo_entry.py"
+  "append_yaml_list_entry.py"
   "check_pr_mr_status.sh"
   "init_pipeline.sh"
   "resolve_operator_url.sh"
