@@ -183,9 +183,13 @@ For each newly merged step, add its `label_done` Jira label so the state persist
 ```bash
 for MERGED_KEY in $NEWLY_MERGED; do
   DONE_LABEL=$(jq -r --arg k "$MERGED_KEY" '.steps[$k].label_done // ""' "$PIPELINE_STATE")
-  if [[ -n "$DONE_LABEL" ]]; then
+  RAISED_LABEL=$(jq -r --arg k "$MERGED_KEY" '.steps[$k].label_raised // ""' "$PIPELINE_STATE")
+  LABEL_ARGS=""
+  [[ -n "$DONE_LABEL" ]]   && LABEL_ARGS="$LABEL_ARGS --add-label $DONE_LABEL"
+  [[ -n "$RAISED_LABEL" ]] && LABEL_ARGS="$LABEL_ARGS --remove-label $RAISED_LABEL"
+  if [[ -n "$LABEL_ARGS" ]]; then
     uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
-      --add-label "$DONE_LABEL" || true
+      $LABEL_ARGS || true
   fi
 done
 ```
