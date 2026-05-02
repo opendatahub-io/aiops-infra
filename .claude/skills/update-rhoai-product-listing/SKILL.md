@@ -374,7 +374,7 @@ On success, update Jira (only when `JIRA_URL` is non-empty):
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
   --add-label "product-listing-mr-raised" \
-  --comment "GitLab MR raised to add '${COMPONENT_NAME}' to the RHOAI product listing.
+  --comment "[step:product_listing] GitLab MR raised to add '${COMPONENT_NAME}' to the RHOAI product listing.
 
 MR URL: $MR_URL
 

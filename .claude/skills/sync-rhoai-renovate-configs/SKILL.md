@@ -291,7 +291,7 @@ Only when `JIRA_URL` is non-empty:
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
   --add-label "renovate-sync-done" \
   --remove-label "renovate-sync-triggered" \
-  --comment "sync-renovate-configs workflow completed successfully.
+  --comment "[step:renovate_sync] sync-renovate-configs workflow completed successfully.
 
 Run URL: https://github.com/${RKC_PATH}/actions/runs/${RUN_ID}
 

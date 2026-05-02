@@ -89,13 +89,27 @@ STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
     ("auto_merge",     "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I)),
 ]
 
-# Shared URL patterns — labels disambiguate which step gets which URL.
-SHARED_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
-    ("delivery_repo",      "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I)),
-    ("product_listing",    "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I)),
-    ("okc",                "pr_url",  re.compile(r"konflux-central/pull/", re.I)),
-    ("pull_pipelines",     "pr_url",  re.compile(r"konflux-central/pull/", re.I)),
-    ("renovate",           "pr_url",  re.compile(r"konflux-central/pull/", re.I)),
+# Shared URL patterns — multiple steps share the same repo URL pattern.
+# Labels gate eligibility; comment keywords disambiguate which URL belongs
+# to which step.  Tuple: (step_key, url_field, url_regex, keyword_regex).
+# The keyword regex is matched against the Jira comment body that contains
+# the URL.  Newest matching comment wins for each step.
+#
+# Each skill's Jira comment includes a machine-readable tag [step:<key>]
+# (e.g. [step:okc]).  The keyword regex matches that tag first, with
+# natural-language fallbacks for older comments posted before the tag was
+# added.
+SHARED_URL_PATTERNS: list[tuple[str, str, re.Pattern, re.Pattern]] = [
+    ("delivery_repo",   "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
+                                   re.compile(r"\[step:delivery_repo\]|delivery.repo", re.I)),
+    ("product_listing", "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
+                                   re.compile(r"\[step:product_listing\]|product.listing", re.I)),
+    ("okc",             "pr_url",  re.compile(r"konflux-central/pull/", re.I),
+                                   re.compile(r"\[step:okc\]|add.+Konflux\s+PipelineRun", re.I)),
+    ("pull_pipelines",  "pr_url",  re.compile(r"konflux-central/pull/", re.I),
+                                   re.compile(r"\[step:pull_pipelines\]|pull.request\s+PipelineRun", re.I)),
+    ("renovate",        "pr_url",  re.compile(r"konflux-central/pull/", re.I),
+                                   re.compile(r"\[step:renovate\]|enable\s+Renovate", re.I)),
 ]
 
 # Steps whose PR targets a variable repo (no URL pattern possible).
@@ -107,6 +121,16 @@ UNCLAIMED_URL_STEPS: list[tuple[str, str]] = [
 # Matches any GitHub PR or GitLab MR URL.
 # Excludes | and ] to avoid capturing Jira wiki-markup link syntax [url|url].
 _URL_RE = re.compile(r"https://(?:github\.com/[^\s/]+/[^\s/]+/pull/\d+|gitlab[^\s|)\]]+/-/merge_requests/\d+)")
+
+# Matches GitHub Actions workflow run URLs.
+_RUN_URL_RE = re.compile(r"https://github\.com/[^\s/]+/[^\s/]+/actions/runs/\d+")
+
+# Workflow run URL patterns — (step_key, url_field, url_regex, keyword_regex).
+# Extracted separately from PR/MR URLs since they use a different URL shape.
+WORKFLOW_RUN_PATTERNS: list[tuple[str, str, re.Pattern, re.Pattern]] = [
+    ("renovate_sync", "run_url", re.compile(r"konflux-central/actions/runs/", re.I),
+                                 re.compile(r"\[step:renovate_sync\]|sync.renovate.configs", re.I)),
+]
 
 
 def _flatten_adf(node) -> str:
@@ -161,7 +185,13 @@ def sync_urls_from_comments(state: dict, comments: list[dict], labels: list[str]
     changes = []
     # Reverse so the most recent comment wins when multiple comments
     # mention the same step (e.g. old PR closed, new PR raised).
-    all_comment_bodies = [(c.get("body") or "") for c in reversed(comments)]
+    # Flatten ADF bodies to plain text up-front.
+    all_comment_bodies: list[str] = []
+    for c in reversed(comments):
+        body = c.get("body") or ""
+        if isinstance(body, dict):
+            body = _flatten_adf(body)
+        all_comment_bodies.append(body)
 
     # Collect every PR/MR URL across all comments (newest first).
     all_urls: list[str] = []
@@ -202,20 +232,28 @@ def sync_urls_from_comments(state: dict, comments: list[dict], labels: list[str]
                 changes.append(f"{step_key}.{url_field} = {url} (from comment)")
                 break
 
-    # Phase 2: Shared URL patterns — URL matches, label disambiguates.
-    for step_key, url_field, url_re in SHARED_URL_PATTERNS:
+    # Phase 2: Shared URL patterns — comment keywords disambiguate.
+    # Walk each comment (newest first) and match URLs by both URL pattern
+    # and keyword context in the comment body.  First match per step wins.
+    for step_key, url_field, url_re, kw_re in SHARED_URL_PATTERNS:
         step = state.get("steps", {}).get(step_key)
         if step is None or step.get(url_field, ""):
             continue
         if not _step_has_label(step_key):
             continue
-        for url in all_urls:
-            if url in claimed_urls:
+        for body in all_comment_bodies:
+            if not kw_re.search(body):
                 continue
-            if url_re.search(url):
-                step[url_field] = url
-                claimed_urls.add(url)
-                changes.append(f"{step_key}.{url_field} = {url} (from comment)")
+            body_urls = extract_urls_from_comment(body)
+            for url in body_urls:
+                if url in claimed_urls:
+                    continue
+                if url_re.search(url):
+                    step[url_field] = url
+                    claimed_urls.add(url)
+                    changes.append(f"{step_key}.{url_field} = {url} (from comment)")
+                    break
+            if step.get(url_field, ""):
                 break
 
     # Phase 3: Unclaimed URLs — for steps whose PR targets a variable repo.
@@ -233,6 +271,26 @@ def sync_urls_from_comments(state: dict, comments: list[dict], labels: list[str]
             claimed_urls.add(url)
             changes.append(f"{step_key}.{url_field} = {url} (from comment, unclaimed)")
             break
+
+    # Phase 4: Workflow run URLs (e.g. GitHub Actions runs).
+    # Same comment-keyword approach as Phase 2.
+    for step_key, url_field, url_re, kw_re in WORKFLOW_RUN_PATTERNS:
+        step = state.get("steps", {}).get(step_key)
+        if step is None or step.get(url_field, ""):
+            continue
+        if not _step_has_label(step_key):
+            continue
+        for body in all_comment_bodies:
+            if not kw_re.search(body):
+                continue
+            body_run_urls = _RUN_URL_RE.findall(body)
+            for url in body_run_urls:
+                if url_re.search(url):
+                    step[url_field] = url
+                    changes.append(f"{step_key}.{url_field} = {url} (from comment)")
+                    break
+            if step.get(url_field, ""):
+                break
 
     return changes
 

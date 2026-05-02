@@ -345,7 +345,7 @@ On success, update Jira (only when `JIRA_URL` non-empty):
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
   --add-label "renovate-pr-raised" \
-  --comment "GitHub PR raised to enable Renovate for '${REPO_NAME}' in ${RKC_PATH}.
+  --comment "[step:renovate] GitHub PR raised to enable Renovate for '${REPO_NAME}' in ${RKC_PATH}.
 
 PR URL: $PR_URL
 Entry added: ${RENOVATE_ENTRY}

@@ -392,7 +392,7 @@ On success, update Jira (only when `JIRA_URL` is non-empty):
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
   --add-label "delivery-repo-mr-raised" \
-  --comment "GitLab MR raised to create RHOAI delivery repository '${REPOSITORY_NAME}'.
+  --comment "[step:delivery_repo] GitLab MR raised to create RHOAI delivery repository '${REPOSITORY_NAME}'.
 
 MR URL: $MR_URL
 

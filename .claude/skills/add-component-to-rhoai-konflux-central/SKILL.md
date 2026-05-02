@@ -556,7 +556,7 @@ On success, update Jira (only when `JIRA_URL` non-empty):
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
   --add-label "rkc-pr-raised" \
-  --comment "GitHub PR raised to add Konflux PipelineRun for '${COMPONENT_NAME}' to rhoai-konflux-central.
+  --comment "[step:okc] GitHub PR raised to add Konflux PipelineRun for '${COMPONENT_NAME}' to rhoai-konflux-central.
 
 PR URL: $PR_URL
 Branch: ${BRANCH_NAME}

@@ -399,11 +399,14 @@ The `depends_on: ["renovate"]` check in Step 7 ensures renovate PR is merged bef
 RKC_URL="${RHOAI_KONFLUX_CENTRAL_REPO_URL:-https://github.com/red-hat-data-services/konflux-central.git}"
 ```
 
-Follow `sync-rhoai-renovate-configs` completely. On success:
+Follow `sync-rhoai-renovate-configs` completely. On success, store the
+workflow `run_url` in pipeline state (the `RUN_ID` and `RKC_PATH` variables
+are set by the sync skill):
 ```bash
+RUN_URL="https://github.com/${RKC_PATH}/actions/runs/${RUN_ID}"
 TMP=$(mktemp); NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-jq --arg ts "$NOW" \
-  '.steps.renovate_sync.status = "done" | .last_status_change_at = $ts' \
+jq --arg ts "$NOW" --arg url "$RUN_URL" \
+  '.steps.renovate_sync.status = "done" | .steps.renovate_sync.run_url = $url | .last_status_change_at = $ts' \
   "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
 uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "renovate-sync-triggered" || true
