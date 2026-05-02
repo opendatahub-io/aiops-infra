@@ -48,24 +48,35 @@ def _detect_formatting(path: Path) -> dict:
             break
 
     # Detect sequence indent relative to its parent mapping key.
-    # Walk lines to find "key:\n  - item" and measure the dash offset.
-    parent_col = 0
+    # Walk lines to find "key:\n  - item" patterns.  Pick the deepest
+    # (most-indented) parent whose child is a sequence item, since that
+    # is the nesting level most sensitive to ruamel.yaml's indent setting.
+    best_offset = 0
+    best_parent_col = -1
+    parent_col: int | None = None
     for line in lines:
         stripped = line.lstrip()
         if not stripped or stripped.startswith("#"):
             continue
-        m = re.match(r'^( *)\S[^#]*:\s*$', line)
-        if m:
-            parent_col = len(m.group(1))
+        # Check sequence item first (e.g. "    - repo_mappings:") so it
+        # isn't misidentified as a mapping key by the pattern below.
+        m_seq = re.match(r'^( *)- ', line)
+        if m_seq:
+            if parent_col is not None:
+                dash_col = len(m_seq.group(1))
+                offset = dash_col - parent_col
+                if offset > 0 and parent_col > best_parent_col:
+                    best_parent_col = parent_col
+                    best_offset = offset
+                parent_col = None
             continue
-        m = re.match(r'^( *)- ', line)
-        if m:
-            dash_col = len(m.group(1))
-            offset = dash_col - parent_col
-            if offset > 0:
-                info["seq_indent"] = offset + 2
-                info["seq_offset"] = offset
-            break
+        m_key = re.match(r'^( *)\S[^#]*:\s*$', line)
+        if m_key:
+            parent_col = len(m_key.group(1))
+
+    if best_offset > 0:
+        info["seq_indent"] = best_offset + 2
+        info["seq_offset"] = best_offset
 
     return info
 
@@ -90,8 +101,33 @@ def _load(path: Path, yaml: YAML):
 
 
 def _save(path: Path, data, yaml: YAML):
-    with path.open("w") as f:
-        yaml.dump(data, f)
+    import io
+    buf = io.BytesIO()
+    yaml.dump(data, buf)
+    output = buf.getvalue().decode("utf-8")
+
+    # ruamel.yaml applies seq_offset globally, which can indent top-level
+    # list items when the offset was detected from a deeper nesting level.
+    # Fix: if the file originally started with "- " at column 0 but the
+    # output has leading whitespace before "- ", strip that extra indent.
+    if path.exists():
+        orig = path.read_text()
+        orig_lines = orig.splitlines()
+        first_orig = next((l for l in orig_lines if l.strip() and not l.strip().startswith("#")), "")
+        out_lines = output.splitlines(True)
+        first_out = next((l for l in out_lines if l.strip() and not l.strip().startswith("#")), "")
+
+        if first_orig.startswith("- ") and first_out != first_orig[:len(first_out.rstrip())] + "\n":
+            import re
+            m = re.match(r'^(\s+)', first_out)
+            if m:
+                extra = m.group(1)
+                output = "\n".join(
+                    l[len(extra):] if l.startswith(extra) else l
+                    for l in output.splitlines()
+                ) + "\n"
+
+    path.write_text(output)
 
 
 def cmd_append_items_array(args):
@@ -270,7 +306,13 @@ def cmd_append_renovate_repo(args):
         print(f"'{args.name}' already present in sync-repositories — skipping.")
         return
 
-    repos.append({"name": args.name})
+    # Match quote style of existing entries
+    from ruamel.yaml.scalarstring import DoubleQuotedScalarString
+    existing_quoted = any(
+        isinstance(r.get("name"), DoubleQuotedScalarString) for r in repos if isinstance(r, dict)
+    )
+    name_val = DoubleQuotedScalarString(args.name) if existing_quoted else args.name
+    repos.append({"name": name_val})
     _save(path, data, yaml)
     print(f"Appended '{args.name}' to sync-repositories in {path}")
 

@@ -51,26 +51,29 @@ done
 [[ -z "$IS_OPERATOR" ]] && IS_OPERATOR="false"
 
 # --- Derive PRODUCT_CONTEXT ---
-# 1. From Jira key prefix
-if [[ "$JIRA_ID" == RHOAIENG* ]]; then
+# Primary source: component_onboarding_details.yaml (authoritative).
+# Fallback: Jira key prefix, then Jira issue summary.
+YAML_PC=$(grep -m1 'product_context:' "$YAML_FILE" | awk '{print $2}' | tr -d '"' || true)
+YAML_PC="${YAML_PC^^}"  # normalise to uppercase
+
+if [[ "$YAML_PC" == "RHOAI" || "$YAML_PC" == "ODH" ]]; then
+  PRODUCT_CONTEXT="$YAML_PC"
+elif [[ "$JIRA_ID" == RHOAIENG* ]]; then
   PRODUCT_CONTEXT="RHOAI"
 elif [[ "$JIRA_ID" == RHODS* ]]; then
   PRODUCT_CONTEXT="ODH"
 elif [[ -f "$JSON_FILE" ]]; then
-  # 2. From Jira issue summary
   SUMMARY=$(jq -r '.fields.summary // ""' "$JSON_FILE" 2>/dev/null || echo "")
   if echo "$SUMMARY" | grep -qi 'rhoai'; then
     PRODUCT_CONTEXT="RHOAI"
   elif echo "$SUMMARY" | grep -qi '\bodh\b'; then
     PRODUCT_CONTEXT="ODH"
   else
-    echo "ERROR: Cannot determine PRODUCT_CONTEXT from Jira key '${JIRA_ID}' or summary." >&2
-    echo "  Expected key prefix RHOAIENG (RHOAI) or RHODS (ODH)." >&2
+    echo "ERROR: Cannot determine PRODUCT_CONTEXT from YAML, Jira key '${JIRA_ID}', or summary." >&2
     exit 1
   fi
 else
-  echo "ERROR: Cannot determine PRODUCT_CONTEXT from Jira key '${JIRA_ID}'." >&2
-  echo "  Expected key prefix RHOAIENG (RHOAI) or RHODS (ODH)." >&2
+  echo "ERROR: Cannot determine PRODUCT_CONTEXT from YAML or Jira key '${JIRA_ID}'." >&2
   exit 1
 fi
 

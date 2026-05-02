@@ -200,9 +200,11 @@ LONG_DESCRIPTION=$(grep -m1 'long_description:' "$YAML_FILE" | sed 's/^[[:space:
 [[ -z "$SHORT_DESCRIPTION" ]] && SHORT_DESCRIPTION="$COMPONENT_NAME"
 [[ -z "$LONG_DESCRIPTION" ]]  && LONG_DESCRIPTION="$COMPONENT_NAME"
 
-# Compute display name: replace hyphens with spaces, then title-case each word
+# Compute display name: replace hyphens with spaces, title-case each word,
+# then uppercase known acronyms (ODH, RHOAI, AI, CLI, API).
 DISPLAY_NAME=$(echo "$COMPONENT_NAME" | tr '-' ' ' \
-  | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1')
+  | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1' \
+  | sed -E 's/\bOdh\b/ODH/g; s/\bRhoai\b/RHOAI/g; s/\bAi\b/AI/g; s/\bCli\b/CLI/g; s/\bApi\b/API/g')
 ```
 
 Print resolved values:

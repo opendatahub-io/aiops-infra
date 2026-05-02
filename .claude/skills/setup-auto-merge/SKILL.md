@@ -378,9 +378,16 @@ UAM_FILE="$CLONE_DIR/.github/workflows/upstream-auto-merge.yaml"
 if grep -qF "${REPO_NAME}" "$UAM_FILE"; then
   echo "${REPO_NAME} already in upstream-auto-merge.yaml repositories options — skipping edit."
 else
-  # Find the last option line in the repositories options list and insert after it
-  LAST_OPT=$(grep -n '^\s*- ' "$UAM_FILE" | grep -v 'name:' | tail -1 | cut -d: -f1)
-  INDENT=$(grep -m1 '^\s*- ' "$UAM_FILE" | grep -v 'name:' | sed 's/[^ ].*//')
+  # Find the 'options:' line under 'repositories:' (within on.workflow_dispatch.inputs),
+  # then find the last '- <value>' item in that options array and insert after it.
+  OPTIONS_LINE=$(grep -n 'repositories:' "$UAM_FILE" | head -1 | cut -d: -f1)
+  # Scan from OPTIONS_LINE to find the 'options:' sub-key
+  OPTIONS_START=$(awk -v start="$OPTIONS_LINE" 'NR>start && /options:/{print NR; exit}' "$UAM_FILE")
+  # Find the indent of the first option item after 'options:'
+  INDENT=$(awk -v start="$OPTIONS_START" 'NR>start && /^\s*- /{match($0,/^[[:space:]]*/); print substr($0,1,RLENGTH); exit}' "$UAM_FILE")
+  # Find the last contiguous option item (lines starting with INDENT + "- ")
+  LAST_OPT=$(awk -v start="$OPTIONS_START" -v indent="$INDENT" \
+    'NR>start { if ($0 ~ "^" indent "- ") last=NR; else if (last) { print last; exit } } END { if (last) print last }' "$UAM_FILE")
   awk -v line="$LAST_OPT" -v entry="${INDENT}- ${REPO_NAME}" \
     'NR==line{print; print entry; next}1' "$UAM_FILE" > "${UAM_FILE}.tmp" && mv "${UAM_FILE}.tmp" "$UAM_FILE"
   grep -qF "${REPO_NAME}" "$UAM_FILE" || {
@@ -404,8 +411,11 @@ MRAM_FILE="$CLONE_DIR/.github/workflows/main-release-auto-merge.yaml"
 if grep -qF "${REPO_NAME}" "$MRAM_FILE"; then
   echo "${REPO_NAME} already in main-release-auto-merge.yaml repositories options — skipping edit."
 else
-  LAST_OPT=$(grep -n '^\s*- ' "$MRAM_FILE" | grep -v 'name:' | tail -1 | cut -d: -f1)
-  INDENT=$(grep -m1 '^\s*- ' "$MRAM_FILE" | grep -v 'name:' | sed 's/[^ ].*//')
+  OPTIONS_LINE=$(grep -n 'repositories:' "$MRAM_FILE" | head -1 | cut -d: -f1)
+  OPTIONS_START=$(awk -v start="$OPTIONS_LINE" 'NR>start && /options:/{print NR; exit}' "$MRAM_FILE")
+  INDENT=$(awk -v start="$OPTIONS_START" 'NR>start && /^\s*- /{match($0,/^[[:space:]]*/); print substr($0,1,RLENGTH); exit}' "$MRAM_FILE")
+  LAST_OPT=$(awk -v start="$OPTIONS_START" -v indent="$INDENT" \
+    'NR>start { if ($0 ~ "^" indent "- ") last=NR; else if (last) { print last; exit } } END { if (last) print last }' "$MRAM_FILE")
   awk -v line="$LAST_OPT" -v entry="${INDENT}- ${REPO_NAME}" \
     'NR==line{print; print entry; next}1' "$MRAM_FILE" > "${MRAM_FILE}.tmp" && mv "${MRAM_FILE}.tmp" "$MRAM_FILE"
   grep -qF "${REPO_NAME}" "$MRAM_FILE" || {

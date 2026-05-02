@@ -214,9 +214,20 @@ check_result=0
 bash "$COMMON_SCRIPTS_DIR/check_github_file.sh" \
   --repo-path "$BC_PATH" \
   --file-path "bundle/bundle-patch.yaml" \
-  --ref       "main" \
+  --ref       "$SRC_BRANCH" \
   --grep      "$RELATED_IMAGE_NAME" || check_result=$?
 # check_result: 0=found, 1=not found or 404, 2=API error
+```
+
+> `SRC_BRANCH` is `main` for ODH and `$branch_name` for RHOAI (set in Step 5).
+> Set it early here so the correct ref is used:
+
+```bash
+if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
+  SRC_BRANCH="main"
+else
+  SRC_BRANCH="$branch_name"
+fi
 ```
 
 - `check_result=2` (API error) — warn and continue to Step 5:
@@ -455,7 +466,7 @@ PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
   --src-url "$BC_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$BC_URL" \
-  --dest-branch main \
+  --dest-branch "$SRC_BRANCH" \
   --title "Add $COMPONENT_NAME to bundle-patch.yaml" \
   --description "Adds '$COMPONENT_NAME' to the ${BC_PATH} bundle relatedImages.
 

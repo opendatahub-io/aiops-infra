@@ -48,13 +48,22 @@ STEPS_RHOAI = [
     ("renovate_sync",     "Sync Renovate configs (workflow)",       None),
 ]
 
-# Which steps are "blocking" (i.e. have a PR/MR that must merge to progress)
-DEPENDENCY_NEXT_STEP: dict[str, str] = {
-    "delivery_repo":  "product_listing",
-    "renovate":       "renovate_sync",
-    "krd":            "onboarder_workflow (ODH only, when okc also merged)",
-    "okc":            "onboarder_workflow (ODH only, when krd also merged)",
+# Which steps are "blocking" (i.e. have a PR/MR that must merge to progress).
+# Keys present in _ODH but absent in _RHOAI (and vice versa) are product-specific.
+_DEPENDENCY_ODH: dict[str, str] = {
+    "krd": "onboarder_workflow (when okc also merged)",
+    "okc": "onboarder_workflow (when krd also merged)",
 }
+_DEPENDENCY_RHOAI: dict[str, str] = {
+    "delivery_repo": "product_listing",
+    "renovate":      "renovate_sync",
+}
+
+
+def _dependency_map(product_context: str) -> dict[str, str]:
+    if product_context == "RHOAI":
+        return _DEPENDENCY_RHOAI
+    return _DEPENDENCY_ODH
 
 
 def status_emoji(status: str) -> str:
@@ -108,8 +117,9 @@ def build_full_summary(state: dict, component_name: str, product_context: str) -
 
     lines.append("")
 
+    dep_map = _dependency_map(product_context)
     pending_deps = []
-    for dep_step, next_label in DEPENDENCY_NEXT_STEP.items():
+    for dep_step, next_label in dep_map.items():
         step = steps.get(dep_step, {})
         if step.get("status") in ("pr_raised", "mr_raised"):
             pending_deps.append(f"* {{{{{dep_step}}}}} merged → triggers {{{{{next_label}}}}}")
@@ -149,7 +159,8 @@ def build_changes_summary(
         label = label_map.get(key, key)
         url_field = url_field_map.get(key)
         url_str = url_cell(step, url_field)
-        next_action = DEPENDENCY_NEXT_STEP.get(key, "—")
+        dep_map = _dependency_map(product_context)
+        next_action = dep_map.get(key, "—")
         lines.append(f"|{label}|{url_str}|✅ merged|{next_action}|")
 
     lines.append("")
@@ -172,7 +183,8 @@ def build_pending_summary(
         if status not in ("pr_raised", "mr_raised"):
             continue
         url_str = url_cell(step, url_field)
-        next_action = DEPENDENCY_NEXT_STEP.get(key, "—")
+        dep_map = _dependency_map(product_context)
+        next_action = dep_map.get(key, "—")
         pending_rows.append(f"|{label}|{url_str}|{next_action}|")
 
     if not pending_rows:
