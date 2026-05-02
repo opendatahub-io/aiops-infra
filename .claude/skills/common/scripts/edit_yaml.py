@@ -7,7 +7,7 @@
 YAML editing utility with ruamel.yaml (preserves comments and formatting).
 
 Subcommands:
-  append-items-array      <file> --name <n> --description <d> [--public]
+  append-items-array      <file> --name <n> --description <d> [--public|--no-public]
   append-yaml-doc         <file> --yaml-string <str>
   insert-map-key          <file> --map-key <parent> --name <n> --src <s> --dest <d>
   append-array-entry      <file> --array-key <k> --name <n> --value <v> [--component <c>]
@@ -137,8 +137,10 @@ def cmd_append_items_array(args):
     data = _load(path, yaml)
 
     entry = {"name": args.name, "description": args.description}
-    if args.public:
+    if args.public is True:
         entry["public"] = True
+    elif args.public is False:
+        entry["public"] = False
 
     if "items" not in data or data["items"] is None:
         data["items"] = []
@@ -351,7 +353,9 @@ def main():
     p1.add_argument("file")
     p1.add_argument("--name", required=True)
     p1.add_argument("--description", required=True)
-    p1.add_argument("--public", action="store_true")
+    p1_vis = p1.add_mutually_exclusive_group()
+    p1_vis.add_argument("--public", action="store_true", default=None, dest="public")
+    p1_vis.add_argument("--no-public", action="store_false", dest="public")
 
     # append-yaml-doc
     p2 = sub.add_parser("append-yaml-doc")
