@@ -45,7 +45,7 @@ STEPS_RHOAI = [
     ("product_listing",   "Update RHOAI product listing",          "mr_url"),
     ("auto_merge",        "Setup auto-merge",                       "pr_url"),
     ("renovate",          "Enable Renovate",                        "pr_url"),
-    ("renovate_sync",     "Sync Renovate configs (workflow)",       None),
+    ("renovate_sync",     "Sync Renovate configs (workflow)",       "run_url"),
 ]
 
 # Which steps are "blocking" (i.e. have a PR/MR that must merge to progress).

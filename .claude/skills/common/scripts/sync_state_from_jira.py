@@ -52,11 +52,13 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     "auto-merge-setup-done":     ("auto_merge",       "done"),
     "renovate-changes-done":     ("renovate",         "done"),
     "renovate-sync-triggered":      ("renovate_sync",       "done"),
+    "renovate-sync-done":           ("renovate_sync",       "done"),
     "tekton-pr-raised":             ("onboarder_workflow",  "pr_raised"),
     "onboarder-workflow-triggered": ("onboarder_workflow",  "pr_raised"),
     "tekton-pr-merged":             ("onboarder_workflow",  "done"),
     # validate
     "yaml-attached":             ("validate",         "done"),
+    "validation-successful":     ("validate",         "done"),
 }
 
 # ── URL extraction ────────────────────────────────────────────────────────────
@@ -82,7 +84,6 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
 STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
     ("quay",           "mr_url",  re.compile(r"app-interface/-/merge_requests/", re.I)),
     ("krd",            "mr_url",  re.compile(r"konflux-release-data/-/merge_requests/", re.I)),
-    ("okc",            "pr_url",  re.compile(r"(?:odh|rhoai)-konflux-central/pull/", re.I)),
     ("operator",       "pr_url",  re.compile(r"(?:opendatahub-operator|rhods-operator)/pull/", re.I)),
     ("bundle",         "pr_url",  re.compile(r"(?:ODH|RHOAI)-Build-Config/pull/", re.I)),
     ("auto_merge",     "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I)),
@@ -92,6 +93,7 @@ STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
 SHARED_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
     ("delivery_repo",      "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I)),
     ("product_listing",    "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I)),
+    ("okc",                "pr_url",  re.compile(r"konflux-central/pull/", re.I)),
     ("pull_pipelines",     "pr_url",  re.compile(r"konflux-central/pull/", re.I)),
     ("renovate",           "pr_url",  re.compile(r"konflux-central/pull/", re.I)),
 ]
@@ -107,7 +109,26 @@ UNCLAIMED_URL_STEPS: list[tuple[str, str]] = [
 _URL_RE = re.compile(r"https://(?:github\.com/[^\s/]+/[^\s/]+/pull/\d+|gitlab[^\s|)\]]+/-/merge_requests/\d+)")
 
 
-def extract_urls_from_comment(body: str) -> list[str]:
+def _flatten_adf(node) -> str:
+    """Extract plain text and link hrefs from Atlassian Document Format."""
+    parts: list[str] = []
+    if isinstance(node, dict):
+        if node.get("type") == "text":
+            parts.append(node.get("text", ""))
+        for mark in node.get("marks", []):
+            if mark.get("type") == "link":
+                parts.append(mark.get("attrs", {}).get("href", ""))
+        for child in node.get("content", []):
+            parts.append(_flatten_adf(child))
+    elif isinstance(node, list):
+        for item in node:
+            parts.append(_flatten_adf(item))
+    return " ".join(parts)
+
+
+def extract_urls_from_comment(body) -> list[str]:
+    if isinstance(body, dict):
+        body = _flatten_adf(body)
     return _URL_RE.findall(body or "")
 
 
