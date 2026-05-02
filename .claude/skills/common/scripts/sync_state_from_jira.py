@@ -27,7 +27,7 @@ from pathlib import Path
 LABEL_MAP: dict[str, tuple[str, str]] = {
     # raised labels
     "quay-mr-raised":          ("quay",             "mr_raised"),
-    "konflux-mr-raised":       ("krd",              "mr_raised"),
+    "krd-mr-raised":       ("krd",              "mr_raised"),
     "okc-pr-raised":           ("okc",              "pr_raised"),
     "rkc-pr-raised":           ("okc",              "pr_raised"),
     "rkc-pull-pr-raised":      ("pull_pipelines",   "pr_raised"),
@@ -39,12 +39,12 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     "renovate-pr-raised":      ("renovate",         "pr_raised"),
     # done labels
     "quay-mr-merged":            ("quay",             "done"),
-    "konflux-mr-merged":         ("krd",              "done"),
+    "krd-mr-merged":         ("krd",              "done"),
     "okc-pr-merged":             ("okc",              "done"),
     "rkc-pr-merged":             ("okc",              "done"),
     "rkc-pull-changes-done":     ("pull_pipelines",   "done"),
     "operator-pr-merged":        ("operator",         "done"),
-    "obc-changes-done":          ("bundle",           "done"),
+    "bundle-changes-done":          ("bundle",           "done"),
     "delivery-repo-created":     ("delivery_repo",    "done"),
     "delivery-repo-exists":      ("delivery_repo",    "done"),
     "product-listing-created":   ("product_listing",  "done"),

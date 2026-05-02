@@ -240,7 +240,7 @@ If `check_result=0` (entry already present):
 
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --add-label "obc-changes-done" \
+  --add-label "bundle-changes-done" \
   --comment "'$COMPONENT_NAME' ($RELATED_IMAGE_NAME) is already present in bundle/bundle-patch.yaml on the main branch of ${BC_PATH}.
 
 No changes are needed. The build-config integration for this component is already complete."
@@ -249,7 +249,7 @@ No changes are needed. The build-config integration for this component is alread
 Print:
 ```
 $RELATED_IMAGE_NAME already exists in bundle/bundle-patch.yaml (main branch).
-Jira updated with label 'obc-changes-done'. No action needed.
+Jira updated with label 'bundle-changes-done'. No action needed.
 ```
 
 **Stop with exit 0.**
@@ -497,7 +497,6 @@ After a successful PR creation, update Jira:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
   --add-label "bundle-pr-raised" \
-  --add-label "obc-changes-done" \
   --comment "GitHub PR raised to add '$COMPONENT_NAME' to ${BC_PATH}.
 
 PR URL: $PR_URL
@@ -520,7 +519,7 @@ Done.
   config/build-config.yaml    — rhoai/${COMPONENT_NAME}-rhel9 added (RHOAI only)
   bundle/Dockerfile           — ARG + LABEL entries added for $COMPONENT_NAME (RHOAI only)
   GitHub PR                   — raised: $PR_URL
-  Jira                        — updated (labels: bundle-pr-raised, obc-changes-done)
+  Jira                        — updated (label: bundle-pr-raised)
 
   component_name              : $COMPONENT_NAME
   product_context             : $PRODUCT_CONTEXT

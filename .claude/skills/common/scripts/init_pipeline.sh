@@ -91,8 +91,8 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "status": "pending",
       "mr_url": "",
       "depends_on": [],
-      "label_raised": "konflux-mr-raised",
-      "label_done": "konflux-mr-merged"
+      "label_raised": "krd-mr-raised",
+      "label_done": "krd-mr-merged"
     },
     "okc": {
       "status": "pending",
@@ -120,7 +120,7 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "pr_url": "",
       "depends_on": [],
       "label_raised": "bundle-pr-raised",
-      "label_done": "obc-changes-done"
+      "label_done": "bundle-changes-done"
     },
     "delivery_repo": {
       "status": "${SKIP_RHOAI_ONLY}",

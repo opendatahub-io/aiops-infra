@@ -682,7 +682,7 @@ ERROR in Step 9 (Raise MR): Could not create MR after 3 attempts. See errors abo
 After a successful MR creation, update Jira:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --add-label "konflux-mr-raised" \
+  --add-label "krd-mr-raised" \
   --comment "GitLab MR raised to create Konflux Component '$KONFLUX_COMPONENT_NAME'.
 
 MR URL: $MR_URL

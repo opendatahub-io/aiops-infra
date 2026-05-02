@@ -178,6 +178,18 @@ NEWLY_MERGED=$(bash "$COMMON_SCRIPTS_DIR/check_pr_mr_status.sh" \
 `NEWLY_MERGED` is a newline-separated list of step keys that transitioned to `"merged"`
 this run (e.g., `quay\nkrd`). Empty string means no changes.
 
+For each newly merged step, add its `label_done` Jira label so the state persists across runs:
+
+```bash
+for MERGED_KEY in $NEWLY_MERGED; do
+  DONE_LABEL=$(jq -r --arg k "$MERGED_KEY" '.steps[$k].label_done // ""' "$PIPELINE_STATE")
+  if [[ -n "$DONE_LABEL" ]]; then
+    uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+      --add-label "$DONE_LABEL" || true
+  fi
+done
+```
+
 ---
 
 ## Step 7: Compute Unblocked Steps
@@ -254,9 +266,9 @@ set `steps.quay.status = "done"` and add label `quay-mr-merged`.
 
 Follow `onboard-component-to-konflux-release-data` through **Step 9** (Raise MR). Capture `$MR_URL`.
 Record: `steps.krd.mr_url = "$MR_URL"`, `status = "mr_raised"`.
-Add label `konflux-mr-raised` to Jira.
+Add label `krd-mr-raised` to Jira.
 
-If child exits because component already exists: set `status = "done"`, add label `konflux-mr-merged`.
+If child exits because component already exists: set `status = "done"`, add label `krd-mr-merged`.
 
 ### Step 8c: add-component-to-*-konflux-central (step key: `okc`)
 
