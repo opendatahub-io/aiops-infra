@@ -118,7 +118,7 @@ flowchart LR
 
     subgraph GRAND[Grandchild x N - 2h timeout]
         G1[Setup env]:::grandNode
-        G2[claude skill<br>JIRA URL]:::grandNode
+        G2[Onboarding Skill Agentic Execution]:::grandNode
         G1 --> G2
     end
 
