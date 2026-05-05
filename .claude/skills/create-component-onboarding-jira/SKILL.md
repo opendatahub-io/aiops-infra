@@ -562,13 +562,24 @@ created Jira). Delegates all Jira metadata work to `update_onboarding_jira.py`, 
 handles: title cleanup, description table replacement, and label addition.
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_onboarding_jira.py "$JIRA_URL" \
-  --component-name "$component_name" \
-  --product-context "$product_context" \
-  --repo-url "$repo_url" \
-  --repo-branch "$repo_branch" \
-  --context-path "$context_path" \
+UPDATE_JIRA_ARGS=(
+  --component-name "$component_name"
+  --product-context "$product_context"
+  --repo-url "$repo_url"
+  --repo-branch "$repo_branch"
+  --context-path "$context_path"
   --dockerfile-path "$dockerfile_path"
+)
+
+# RHOAI-only: pass description and architectures to populate the template table
+if [[ "$product_context" == "RHOAI" ]]; then
+  UPDATE_JIRA_ARGS+=(
+    --short-description "$short_description"
+    --architectures "$(IFS=,; echo "${architectures[*]}")"
+  )
+fi
+
+uv run --script <COMMON_SCRIPTS_DIR>/update_onboarding_jira.py "$JIRA_URL" "${UPDATE_JIRA_ARGS[@]}"
 ```
 
 On exit 1: print a warning and continue — metadata updates are non-critical:

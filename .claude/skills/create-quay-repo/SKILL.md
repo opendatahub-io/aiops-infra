@@ -261,7 +261,7 @@ else
   uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-items-array \
     "$CLONE_DIR/$YAML_FILE" \
     --name "<repo>" \
-    --description "<short_description if product_context==RHOAI, else '<org> <repo> container image'>" \
+    --description "'<short_description if product_context==RHOAI, else '<org> <repo> container image'>'" \
     $VIS_FLAG
 fi
 ```
