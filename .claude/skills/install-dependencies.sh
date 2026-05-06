@@ -296,6 +296,7 @@ else
   echo "  export JIRA_API_TOKEN=your-atlassian-api-token"
   echo ""
   echo "Optional Konflux cluster login:"
-  echo "  export OC_TOKEN=your-cluster-token"
+  echo "  export EXT_OC_TOKEN=your-external-cluster-token  # stone-prd-rh01 (ODH builds)"
+  echo "  export INT_OC_TOKEN=your-internal-cluster-token  # stone-prod-p02 (RHOAI builds)"
   echo ""
 fi

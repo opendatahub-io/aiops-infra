@@ -37,7 +37,7 @@ No background nohup processes are used.
 **Jira:** `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
 **GitLab (VPN required):** `GITLAB_USER`, `GITLAB_TOKEN` (api + write_repository scope)
 **GitHub:** `GITHUB_USER`, `GITHUB_TOKEN` (repo + actions:write scope)
-**OpenShift:** `OC_TOKEN` (if no matching kubeconfig context for Konflux cluster)
+**OpenShift:** `EXT_OC_TOKEN` (external cluster — stone-prd-rh01, ODH builds), `INT_OC_TOKEN` (internal cluster — stone-prod-p02, RHOAI builds) — each required only if no matching kubeconfig context is found for that cluster
 **Tools:** `uv`, `git`, `oc`, `skopeo`, `yamllint`, `jq`, `kustomize` (or `kubectl`)
 
 Optional overrides: `APP_INTERFACE_REPO_URL`, `KONFLUX_RELEASE_DATA_REPO_URL`,

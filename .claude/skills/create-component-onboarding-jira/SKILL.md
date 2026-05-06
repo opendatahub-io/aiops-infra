@@ -440,13 +440,12 @@ NOTICE: Could not fetch Dockerfile at $DOCKERFILE_RAW_URL — skipping digest ch
          Ensure all FROM images use @sha256 digests before running /validate-component-onboarding-jira.
 ```
 
-**If exit 1** (violations found): display the stderr output, then warn the user:
+**If exit 1** (violations found): display the stderr output, then stop with:
 ```
-WARN: The Dockerfile contains FROM instructions that do not use @sha256 digests (see above).
-      This will block /validate-component-onboarding-jira.
-      Please update the Dockerfile to pin all base and builder images with SHA digests before validating.
+ERROR in Step 6b (Dockerfile digest check): The Dockerfile contains FROM instructions that do not use @sha256 digests (see above).
+All base and builder images must be pinned with @sha256 digests before onboarding can proceed.
+Please update the Dockerfile and re-run this skill.
 ```
-Do not abort — continue to Step 7 so the Jira is still created and the YAML attached.
 
 **If exit 0**: print `Dockerfile digest check passed.`
 
@@ -622,6 +621,7 @@ If `TEMPLATE_ID` was not used (i.e. the user provided a Jira URL directly), omit
 | Jira fetch fails (401/403/404) | 2 | Check credentials and issue key |
 | YAML generation fails | 5 | Check arguments; see stderr from `generate_onboarding_yaml.py` |
 | YAML validation fails | 6 | Correct the inputs and re-generate |
+| Dockerfile digest violations found | 6b | Pin all FROM images with @sha256 digests, then re-run |
 | Clone fails (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) | 7b-2 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
 | "relates to" link type not found | 7b-2 | Check available link types with a Jira admin |
 | Attach/upload fails | 7, 7b-3 | Check credentials; re-run the skill |
