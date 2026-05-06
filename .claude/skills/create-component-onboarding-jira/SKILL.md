@@ -286,7 +286,7 @@ Print: `repo_branch auto-set to: <repo_branch>`
 → Store in `dockerfile_path`. Must be non-empty.
   If `product_context == RHOAI`: validate that the filename portion (basename) starts with
   `Dockerfile.konflux`. Re-ask if invalid, showing the rule:
-  > For RHOAI components, the Dockerfile name must start with `Dockerfile.konflux`
+  > For RHOAI components, the Dockerfile name must contain the string `Dockerfile.konflux`
   > (e.g. `Dockerfile.konflux`, `docker/Dockerfile.konflux.cuda`)
 
 **Q8 — Operator/controller**
@@ -490,7 +490,7 @@ Continue to Step 7c.
 
 #### Step 7b-1: Ask for parent feature ID
 
-> What is the Jira ID of the parent feature? (e.g. RHOAIENG-12345)
+> What is the Jira ID of the parent feature? (e.g. RHAISTRAT-1234)
 
 → Validate: must match `^[A-Z]+-\d+$`. Re-ask if invalid, showing the expected format.
 → Store in `PARENT_FEATURE_ID`.

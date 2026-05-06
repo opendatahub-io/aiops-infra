@@ -55,6 +55,12 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     OKC_LABEL_DONE="rkc-pr-merged"
   fi
 
+  # delivery_repo must merge before krd for RHOAI; no dependency for ODH
+  KRD_DEPENDS_ON="[]"
+  if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+    KRD_DEPENDS_ON='["delivery_repo"]'
+  fi
+
   SKIP_RHOAI_ONLY="pending"
   SKIP_ODH_ONLY="pending"
   if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
@@ -90,7 +96,7 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     "krd": {
       "status": "pending",
       "mr_url": "",
-      "depends_on": [],
+      "depends_on": ${KRD_DEPENDS_ON},
       "label_raised": "krd-mr-raised",
       "label_done": "krd-mr-merged"
     },
@@ -195,6 +201,18 @@ else
     if [[ "$CURRENT_IS_OP" != "true" ]]; then
       TMP=$(mktemp)
       jq '.is_operator = true' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+    fi
+  fi
+
+  # Fix krd depends_on for RHOAI: delivery_repo must merge before krd starts.
+  # Old state files have depends_on: [] for krd — patch them on resume.
+  CURRENT_PC=$(jq -r '.product_context // ""' "$PIPELINE_STATE")
+  if [[ "$CURRENT_PC" == "RHOAI" ]]; then
+    if ! jq -e '.steps.krd.depends_on | index("delivery_repo") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      TMP=$(mktemp)
+      jq '.steps.krd.depends_on = ((.steps.krd.depends_on // []) + ["delivery_repo"] | unique)' \
+        "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  krd.depends_on: added delivery_repo (RHOAI prerequisite)" >&2
     fi
   fi
 fi

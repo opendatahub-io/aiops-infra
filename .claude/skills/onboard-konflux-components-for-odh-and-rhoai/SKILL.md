@@ -11,12 +11,12 @@ Orchestrates the complete component onboarding pipeline (idempotent re-run model
 
 1. `validate-component-onboarding-jira` — fetch + validate Jira YAML
 2. `create-quay-repo` — GitLab MR to app-interface
-3. `onboard-component-to-konflux-release-data` — GitLab MR to konflux-release-data
-4. `add-component-to-odh-konflux-central` **(ODH)** / `add-component-to-rhoai-konflux-central` + `create-pull-pipelines-in-rhoai-konflux-central` **(RHOAI)**
-5. `run-odh-konflux-onboarder-workflow` — triggered once krd+okc are both merged **(ODH only)**
-6. `integrate-component-with-odh-operator` — GitHub PR (if is_operator=true)
-7. `integrate-component-with-bundle` — GitHub PR to ODH-Build-Config
-8. `create-rhoai-delivery-repo` — GitLab MR to pyxis-repo-configs **(RHOAI only)**
+3. `create-rhoai-delivery-repo` — GitLab MR to pyxis-repo-configs **(RHOAI only; prerequisite of krd)**
+4. `onboard-component-to-konflux-release-data` — GitLab MR to konflux-release-data (after delivery-repo merges for RHOAI)
+5. `add-component-to-odh-konflux-central` **(ODH)** / `add-component-to-rhoai-konflux-central` + `create-pull-pipelines-in-rhoai-konflux-central` **(RHOAI)**
+6. `run-odh-konflux-onboarder-workflow` — triggered once krd+okc are both merged **(ODH only)**
+7. `integrate-component-with-odh-operator` — GitHub PR (if is_operator=true)
+8. `integrate-component-with-bundle` — GitHub PR to ODH-Build-Config
 9. `update-rhoai-product-listing` — GitLab MR, triggered after delivery-repo merges **(RHOAI only)**
 10. `setup-auto-merge` — GitHub PR to rhods-devops-infra **(RHOAI only)**
 11. `enable-renovate-on-rhoai-component-repo` + deferred `sync-rhoai-renovate-configs` **(RHOAI only)**
@@ -262,11 +262,28 @@ set `steps.quay.status = "done"` and add label `quay-mr-merged`.
 
 **Pass `--existing-mr-url`** if `steps.quay.mr_url` is already set — child will skip straight to returning the URL.
 
-### Step 8b: onboard-component-to-konflux-release-data (step key: `krd`)
+### Step 8b: create-rhoai-delivery-repo (step key: `delivery_repo`, RHOAI only)
+
+**Execute if** `delivery_repo` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
+
+> **VPN must be active. Runs before `krd` — for RHOAI, `krd` has `depends_on: ["delivery_repo"]`,
+> so this MR must merge before `krd` is unblocked.**
+
+Follow `create-rhoai-delivery-repo` through **Step 10** (Raise MR). Capture `$MR_URL`.
+Record: `steps.delivery_repo.mr_url = "$MR_URL"`, `status = "mr_raised"`. Add label `delivery-repo-mr-raised`.
+
+If delivery repo already exists (child Step 5 exits 0): set `status = "done"`, add label `delivery-repo-exists`.
+
+When this MR merges, Step 6 (`check_pr_mr_status.sh`) transitions `delivery_repo` to `"merged"` and
+adds label `delivery-repo-mr-merged`. Step 7 then unblocks `krd` on the next re-run.
+
+### Step 8c: onboard-component-to-konflux-release-data (step key: `krd`)
 
 **Execute if** `krd` is in `UNBLOCKED_STEPS`.
 
 > **VPN must be active.**
+> **For RHOAI:** the `depends_on: ["delivery_repo"]` check in Step 7 ensures the delivery-repo MR is
+> merged before this step is unblocked. For ODH there is no such dependency.
 
 Follow `onboard-component-to-konflux-release-data` through **Step 9** (Raise MR). Capture `$MR_URL`.
 Record: `steps.krd.mr_url = "$MR_URL"`, `status = "mr_raised"`.
@@ -274,7 +291,7 @@ Add label `krd-mr-raised` to Jira.
 
 If child exits because component already exists: set `status = "done"`, add label `krd-mr-merged`.
 
-### Step 8c: add-component-to-*-konflux-central (step key: `okc`)
+### Step 8d: add-component-to-*-konflux-central (step key: `okc`)
 
 **Execute if** `okc` is in `UNBLOCKED_STEPS`.
 
@@ -288,7 +305,7 @@ Record: `steps.okc.pr_url = "$PR_URL"`, `status = "pr_raised"`. Add label `rkc-p
 
 If child exits because PipelineRun already exists: set `status = "done"`.
 
-### Step 8d: create-pull-pipelines-in-rhoai-konflux-central (step key: `pull_pipelines`, RHOAI only)
+### Step 8e: create-pull-pipelines-in-rhoai-konflux-central (step key: `pull_pipelines`, RHOAI only)
 
 **Execute if** `pull_pipelines` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
 
@@ -297,7 +314,7 @@ Record: `steps.pull_pipelines.pr_url = "$PULL_PR_URL"`, `status = "pr_raised"`. 
 
 If PipelineRun already exists: set `status = "done"`.
 
-### Step 8e: integrate-component-with-odh-operator (step key: `operator`)
+### Step 8f: integrate-component-with-odh-operator (step key: `operator`)
 
 **Execute if** `operator` is in `UNBLOCKED_STEPS`.
 
@@ -313,23 +330,12 @@ Record: `steps.operator.pr_url = "$PR_URL"`, `status = "pr_raised"`. Add label `
 
 **Pass `--existing-pr-url`** if `steps.operator.pr_url` is already set — child will skip straight to returning the URL.
 
-### Step 8f: integrate-component-with-bundle (step key: `bundle`)
+### Step 8g: integrate-component-with-bundle (step key: `bundle`)
 
 **Execute if** `bundle` is in `UNBLOCKED_STEPS`.
 
 Follow `integrate-component-with-bundle` through **Step 10** (Raise PR). Capture `$PR_URL`.
 Record: `steps.bundle.pr_url = "$PR_URL"`, `status = "pr_raised"`. Add label `bundle-pr-raised`.
-
-### Step 8g: create-rhoai-delivery-repo (step key: `delivery_repo`, RHOAI only)
-
-**Execute if** `delivery_repo` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
-
-> **VPN must be active.**
-
-Follow `create-rhoai-delivery-repo` through **Step 10** (Raise MR). Capture `$MR_URL`.
-Record: `steps.delivery_repo.mr_url = "$MR_URL"`, `status = "mr_raised"`. Add label `delivery-repo-mr-raised`.
-
-If delivery repo already exists (child Step 5 exits 0): set `status = "done"`, add label `delivery-repo-exists`.
 
 ### Step 8h: update-rhoai-product-listing (step key: `product_listing`, RHOAI only)
 
@@ -567,12 +573,12 @@ Re-run this skill after PRs/MRs are merged to advance the pipeline.
 | YAML fails schema validation | 3 | Fix YAML, re-upload to Jira, re-run skill |
 | VPN not active | 4, 8b, 8g, 8h | Activate Red Hat VPN; re-run (idempotent) |
 | Quay MR fails 3× | 8a | Check VPN and `GITLAB_TOKEN` `api` scope |
-| KRD MR fails | 8b | Check VPN; `GITLAB_TOKEN` needs `write_repository` scope |
-| OKC/RKC PR fails | 8c | Verify `GITHUB_TOKEN` `repo` scope and push access |
-| Pull pipelines PR fails 3× | 8d | Check GITHUB_TOKEN push access to rhoai-konflux-central |
-| Operator PR fails | 8e | Verify `GITHUB_TOKEN` push access to `opendatahub-operator` |
-| Bundle PR fails | 8f | Verify `GITHUB_TOKEN` push access to `ODH-Build-Config` |
-| Delivery repo MR fails 3× | 8g | Check VPN and GITLAB_TOKEN `write_repository` scope |
+| Delivery repo MR fails 3× | 8b | Check VPN and GITLAB_TOKEN `write_repository` scope |
+| KRD MR fails | 8c | Check VPN; `GITLAB_TOKEN` needs `write_repository` scope |
+| OKC/RKC PR fails | 8d | Verify `GITHUB_TOKEN` `repo` scope and push access |
+| Pull pipelines PR fails 3× | 8e | Check GITHUB_TOKEN push access to rhoai-konflux-central |
+| Operator PR fails | 8f | Verify `GITHUB_TOKEN` push access to `opendatahub-operator` |
+| Bundle PR fails | 8g | Verify `GITHUB_TOKEN` push access to `ODH-Build-Config` |
 | Product listing MR fails | 8h | Check VPN; delivery_repo must be merged first |
 | Onboarder workflow 422 | 9a | krd or okc not yet merged — check their status and re-run |
 | Auto-merge PR fails 3× | 8i | Check GITHUB_TOKEN push access to rhods-devops-infra |
