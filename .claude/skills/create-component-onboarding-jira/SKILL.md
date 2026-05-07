@@ -305,7 +305,7 @@ _Q9a:_
 
 _Q9b:_
 > What is the destination path for the manifests in the odh-operator container image?
-> (e.g. opt/manifests/my-component)
+> (e.g. my-component)
 
 → Store in `operator_manifest_dest_path`. Must be non-empty.
 
