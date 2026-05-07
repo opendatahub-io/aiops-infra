@@ -470,6 +470,8 @@ ${PREFETCH_PARAM_BLOCK}
     value: true
   - name: enable-slack-failure-notification
     value: "false"
+  - name: additional-build-secret
+    value: "rhel-ai-private-index-auth"
   pipelineRef:
     resolver: git
     params:

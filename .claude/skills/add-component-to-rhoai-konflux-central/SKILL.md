@@ -440,6 +440,8 @@ ${PREFETCH_PARAM_BLOCK}
 ${PLATFORM_LIST}
   - name: rhel-subscription-activation-key
     value: "rhel-subscription-activation-key-nonexistent"
+  - name: additional-build-secret
+    value: "rhel-ai-private-index-auth"
   pipelineRef:
     resolver: git
     params:
