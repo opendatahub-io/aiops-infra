@@ -81,11 +81,8 @@ if [[ -z "$DEST_BRANCH" ]]; then
 fi
 
 # ── Inject token into remote URLs ──────────────────────────────────────────────
-# Converts https://<host>/<path> → https://oauth2:<token>@<host>/<path>
-# The token is masked in all log output.
 inject_auth() {
   local url="$1"
-  # Extract host and path from URL
   local scheme host_path
   scheme="${url%%://*}"
   host_path="${url#*://}"
@@ -93,7 +90,6 @@ inject_auth() {
 }
 
 mask_url() {
-  # Replace the token in a URL with *** for display purposes
   local url="$1"
   echo "$url" | sed "s/${GITLAB_TOKEN}/***REDACTED***/g"
 }
@@ -109,7 +105,7 @@ info "Dest:   $(mask_url "$DEST_URL") (branch: ${DEST_BRANCH})"
 CLONE_DIR="$(pwd)/${CLONE_DIR_NAME}"
 
 if [[ -d "$CLONE_DIR" ]]; then
-  warn "Clone directory already exists — removing for a clean state: ${CLONE_DIR}"
+  warn "Clone directory already exists -- removing for a clean state: ${CLONE_DIR}"
   rm -rf "$CLONE_DIR"
 fi
 
@@ -126,7 +122,6 @@ if [[ -n "$SPARSE_FILES" ]]; then
 
   git sparse-checkout init 2>&1 >&2
 
-  # Split space-separated files into individual arguments
   # shellcheck disable=SC2086
   git sparse-checkout set $SPARSE_FILES 2>&1 >&2
   info "Sparse files set: ${SPARSE_FILES}"
@@ -157,17 +152,25 @@ if [[ "$DEST_URL" != "$SRC_URL" ]]; then
 fi
 
 # ── Create and push new branch ─────────────────────────────────────────────────
+# If the requested branch already exists on the remote, append a unique
+# timestamp suffix so each run gets a clean branch without destroying
+# prior work or existing MRs.
+if git ls-remote --heads "$DEST_REMOTE" "$DEST_BRANCH" 2>/dev/null | grep -q "$DEST_BRANCH"; then
+  ORIG_BRANCH="$DEST_BRANCH"
+  DEST_BRANCH="${DEST_BRANCH}-$(date +%s)"
+  info "Branch '${ORIG_BRANCH}' already exists on remote -- using '${DEST_BRANCH}' instead."
+fi
+
 info "Creating branch: ${DEST_BRANCH}"
 git checkout -b "$DEST_BRANCH" 2>&1 >&2
 
 info "Pushing branch '${DEST_BRANCH}' to remote '${DEST_REMOTE}'..."
 if ! git push -u "$DEST_REMOTE" "$DEST_BRANCH" 2>&1 | sed "s/${GITLAB_TOKEN}/***REDACTED***/g" >&2; then
-  die "git push failed. The branch may already exist on the remote, or GITLAB_TOKEN may lack write_repository scope."
+  die "git push failed. Check GITLAB_TOKEN write_repository scope and VPN connectivity."
 fi
 
 info "Branch '${DEST_BRANCH}' pushed successfully."
 
 # ── Output ─────────────────────────────────────────────────────────────────────
-# Print clone dir and branch name to stdout (consumed by SKILL.md)
 echo "$CLONE_DIR"
 echo "$DEST_BRANCH"

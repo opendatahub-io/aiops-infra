@@ -44,6 +44,7 @@ import os
 import re
 import sys
 import time
+import warnings
 from urllib.parse import urlparse
 
 import gitlab
@@ -82,7 +83,10 @@ def parse_mr_url(mr_url: str) -> tuple[str, str, int]:
 
 def _ssl_verify() -> bool:
     val = os.environ.get("GITLAB_SSL_VERIFY", "true").strip().lower()
-    return val not in ("0", "false", "no", "off")
+    skip = val in ("0", "false", "no", "off")
+    if skip:
+        warnings.filterwarnings("ignore", message="Unverified HTTPS request")
+    return not skip
 
 
 def get_gitlab_client(base_url: str, token: str) -> gitlab.Gitlab:

@@ -286,7 +286,7 @@ Print: `repo_branch auto-set to: <repo_branch>`
 → Store in `dockerfile_path`. Must be non-empty.
   If `product_context == RHOAI`: validate that the filename portion (basename) starts with
   `Dockerfile.konflux`. Re-ask if invalid, showing the rule:
-  > For RHOAI components, the Dockerfile name must start with `Dockerfile.konflux`
+  > For RHOAI components, the Dockerfile name must contain the string `Dockerfile.konflux`
   > (e.g. `Dockerfile.konflux`, `docker/Dockerfile.konflux.cuda`)
 
 **Q8 — Operator/controller**
@@ -440,13 +440,12 @@ NOTICE: Could not fetch Dockerfile at $DOCKERFILE_RAW_URL — skipping digest ch
          Ensure all FROM images use @sha256 digests before running /validate-component-onboarding-jira.
 ```
 
-**If exit 1** (violations found): display the stderr output, then warn the user:
+**If exit 1** (violations found): display the stderr output, then stop with:
 ```
-WARN: The Dockerfile contains FROM instructions that do not use @sha256 digests (see above).
-      This will block /validate-component-onboarding-jira.
-      Please update the Dockerfile to pin all base and builder images with SHA digests before validating.
+ERROR in Step 6b (Dockerfile digest check): The Dockerfile contains FROM instructions that do not use @sha256 digests (see above).
+All base and builder images must be pinned with @sha256 digests before onboarding can proceed.
+Please update the Dockerfile and re-run this skill.
 ```
-Do not abort — continue to Step 7 so the Jira is still created and the YAML attached.
 
 **If exit 0**: print `Dockerfile digest check passed.`
 
@@ -490,7 +489,7 @@ Continue to Step 7c.
 
 #### Step 7b-1: Ask for parent feature ID
 
-> What is the Jira ID of the parent feature? (e.g. RHOAIENG-12345)
+> What is the Jira ID of the parent feature? (e.g. RHAISTRAT-1234)
 
 → Validate: must match `^[A-Z]+-\d+$`. Re-ask if invalid, showing the expected format.
 → Store in `PARENT_FEATURE_ID`.
@@ -562,13 +561,24 @@ created Jira). Delegates all Jira metadata work to `update_onboarding_jira.py`, 
 handles: title cleanup, description table replacement, and label addition.
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_onboarding_jira.py "$JIRA_URL" \
-  --component-name "$component_name" \
-  --product-context "$product_context" \
-  --repo-url "$repo_url" \
-  --repo-branch "$repo_branch" \
-  --context-path "$context_path" \
+UPDATE_JIRA_ARGS=(
+  --component-name "$component_name"
+  --product-context "$product_context"
+  --repo-url "$repo_url"
+  --repo-branch "$repo_branch"
+  --context-path "$context_path"
   --dockerfile-path "$dockerfile_path"
+)
+
+# RHOAI-only: pass description and architectures to populate the template table
+if [[ "$product_context" == "RHOAI" ]]; then
+  UPDATE_JIRA_ARGS+=(
+    --short-description "$short_description"
+    --architectures "$(IFS=,; echo "${architectures[*]}")"
+  )
+fi
+
+uv run --script <COMMON_SCRIPTS_DIR>/update_onboarding_jira.py "$JIRA_URL" "${UPDATE_JIRA_ARGS[@]}"
 ```
 
 On exit 1: print a warning and continue — metadata updates are non-critical:
@@ -611,6 +621,7 @@ If `TEMPLATE_ID` was not used (i.e. the user provided a Jira URL directly), omit
 | Jira fetch fails (401/403/404) | 2 | Check credentials and issue key |
 | YAML generation fails | 5 | Check arguments; see stderr from `generate_onboarding_yaml.py` |
 | YAML validation fails | 6 | Correct the inputs and re-generate |
+| Dockerfile digest violations found | 6b | Pin all FROM images with @sha256 digests, then re-run |
 | Clone fails (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) | 7b-2 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
 | "relates to" link type not found | 7b-2 | Check available link types with a Jira admin |
 | Attach/upload fails | 7, 7b-3 | Check credentials; re-run the skill |

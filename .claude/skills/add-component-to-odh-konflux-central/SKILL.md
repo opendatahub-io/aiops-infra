@@ -521,7 +521,7 @@ After a successful PR creation, update Jira:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
   --add-label "okc-pr-raised" \
-  --comment "GitHub PR raised to add Konflux PipelineRuns for '$COMPONENT_NAME' to odh-konflux-central.
+  --comment "[step:okc] GitHub PR raised to add Konflux PipelineRuns for '$COMPONENT_NAME' to odh-konflux-central.
 
 PR URL: $PR_URL
 

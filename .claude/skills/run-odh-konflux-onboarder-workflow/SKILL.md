@@ -1,6 +1,6 @@
 ---
 name: run-odh-konflux-onboarder-workflow
-description: Triggers the odh-konflux-onboarder GitHub Actions workflow in odh-konflux-central, monitors it to completion, extracts the Tekton PR URL from workflow logs, and updates the Jira issue. Automates Step 6 of the ODH component onboarding pipeline.
+description: Triggers the odh-konflux-onboarder GitHub Actions workflow in odh-konflux-central, extracts the resulting Tekton PR URL from workflow logs, and records it for tracking by the parent orchestrator. Automates Step 5 of the ODH component onboarding pipeline.
 allowed-tools: Bash
 user-invocable: true
 ---
@@ -8,9 +8,9 @@ user-invocable: true
 # Run ODH Konflux Onboarder Workflow
 
 Triggers the `odh-konflux-onboarder` GitHub Actions workflow in the
-`odh-konflux-central` repository, monitors it to completion, extracts the
-Tekton PR URL from the workflow logs, and optionally updates the Jira issue with
-progress labels and comments.
+`odh-konflux-central` repository, extracts the resulting Tekton PR URL from the
+workflow logs, and records it for tracking by the parent orchestrator. Jira is
+updated with the PR URL; merge tracking is handled on the next orchestrator re-run.
 
 This is **Step 6** of the ODH component onboarding pipeline ("Run CI/Nightly Build").
 
@@ -375,9 +375,7 @@ PR target branch: $PR_TARGET_BRANCH
 Build type      : $BUILD_TYPE${VERSION:+
 Version         : $VERSION}
 
-Workflow run: https://github.com/${OKC_PATH}/actions/runs/${RUN_ID}
-
-Monitoring in progress (max 30 minutes)..."
+Workflow run: https://github.com/${OKC_PATH}/actions/runs/${RUN_ID}"
 ```
 
 ---
@@ -535,9 +533,7 @@ Component        : $COMPONENT
 PR target branch : $PR_TARGET_BRANCH
 Build type       : $BUILD_TYPE${VERSION:+
 Version          : $VERSION}
-Workflow run     : https://github.com/${OKC_PATH}/actions/runs/${RUN_ID}
-
-Monitoring the PR for merge..."
+Workflow run     : https://github.com/${OKC_PATH}/actions/runs/${RUN_ID}"
 ```
 
 On exit 1: display stderr but **do not abort** — the PR URL has been found, so log
@@ -545,82 +541,7 @@ the Jira error as a warning and continue to Step 10.
 
 ---
 
-## Step 10: Monitor the Tekton PR
-
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
-  --pr-url "$TEKTON_PR_URL" \
-  --timeout 60
-```
-
-Read the stdout result:
-
-**`merged` (exit 0):** PR merged.
-
-If `JIRA_URL` is non-empty:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-  --remove-label "tekton-pr-raised" \
-  --add-label "tekton-pr-merged" \
-  --comment "Tekton PR merged: $TEKTON_PR_URL
-
-Konflux CI pipeline definitions for '$COMPONENT' are now live on '$PR_TARGET_BRANCH'.
-
-Step 6 (Run CI/Nightly Build) is complete."
-```
-Print: `PR merged. Step 6 (Run CI/Nightly Build) complete.`
-Continue to Step 11.
-
-**`closed` (exit 1):** PR closed without merging.
-
-If `JIRA_URL` is non-empty:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-  --comment "Tekton PR was closed without merging: $TEKTON_PR_URL
-
-Please review and re-trigger if needed."
-```
-Stop with:
-```
-ERROR in Step 10: PR was closed without merging.
-PR: $TEKTON_PR_URL
-```
-
-**`pipeline_failed` or `pipeline_canceled` (exit 1):** CI checks failed on the PR.
-
-Display the failure to the user. If `JIRA_URL` is non-empty:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-  --comment "CI checks failed on Tekton PR: $TEKTON_PR_URL
-
-Please review the PR checks and push a fix, then re-run this skill to resume monitoring."
-```
-Stop with:
-```
-ERROR in Step 10: CI checks failed on PR $TEKTON_PR_URL.
-Manual intervention required — review the PR and push a fix, then re-run.
-```
-
-**`timeout` (exit 1):** PR still open after 60 minutes.
-
-If `JIRA_URL` is non-empty:
-```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
-  --comment "PR monitoring timed out after 60 minutes. PR is still open: $TEKTON_PR_URL
-
-Re-run /run-odh-konflux-onboarder-workflow to resume — at Step 5 it will detect the
-existing PR and jump straight to monitoring."
-```
-Print:
-```
-WARNING: PR monitoring timed out after 60 minutes.
-PR is still open: $TEKTON_PR_URL
-Re-run this skill to resume monitoring (Step 5 will skip triggering a new run).
-```
-
----
-
-## Step 11: Final Status Report
+## Step 10: Final Status Report
 
 Print:
 ```
@@ -632,11 +553,11 @@ Print:
   Version               : $VERSION}
 
   Workflow run          : https://github.com/${OKC_PATH}/actions/runs/${RUN_ID}
-  Tekton PR             : $TEKTON_PR_URL (merged)
+  Tekton PR             : $TEKTON_PR_URL (raised — awaiting merge)
 
   Jira updated          : ${JIRA_URL:-(no Jira URL provided)}
 
-Step 6 (Run CI/Nightly Build) complete.
+Tekton PR raised. Re-run the parent orchestrator after the PR merges to advance the pipeline.
 ```
 
 ---
@@ -661,6 +582,3 @@ Step 6 (Run CI/Nightly Build) complete.
 | Workflow run cancelled | 7 | Re-trigger manually or re-run the skill |
 | Workflow monitoring timeout | 7 | Re-run skill — Step 5 will detect existing PR |
 | "Create pull request" step not found | 8 | Paste PR URL manually when prompted |
-| PR CI checks failed | 10 | Review PR checks; push fix; re-run |
-| PR closed without merge | 10 | Review and re-run |
-| PR monitoring timeout | 10 | Re-run skill — Step 5 detects existing PR and skips triggering |

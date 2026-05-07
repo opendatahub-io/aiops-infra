@@ -27,7 +27,7 @@ from pathlib import Path
 LABEL_MAP: dict[str, tuple[str, str]] = {
     # raised labels
     "quay-mr-raised":          ("quay",             "mr_raised"),
-    "konflux-mr-raised":       ("krd",              "mr_raised"),
+    "krd-mr-raised":       ("krd",              "mr_raised"),
     "okc-pr-raised":           ("okc",              "pr_raised"),
     "rkc-pr-raised":           ("okc",              "pr_raised"),
     "rkc-pull-pr-raised":      ("pull_pipelines",   "pr_raised"),
@@ -39,44 +39,120 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     "renovate-pr-raised":      ("renovate",         "pr_raised"),
     # done labels
     "quay-mr-merged":            ("quay",             "done"),
-    "konflux-mr-merged":         ("krd",              "done"),
+    "krd-mr-merged":         ("krd",              "done"),
     "okc-pr-merged":             ("okc",              "done"),
     "rkc-pr-merged":             ("okc",              "done"),
     "rkc-pull-changes-done":     ("pull_pipelines",   "done"),
     "operator-pr-merged":        ("operator",         "done"),
-    "obc-changes-done":          ("bundle",           "done"),
+    "bundle-changes-done":          ("bundle",           "done"),
     "delivery-repo-created":     ("delivery_repo",    "done"),
     "delivery-repo-exists":      ("delivery_repo",    "done"),
     "product-listing-created":   ("product_listing",  "done"),
     "product-listing-exists":    ("product_listing",  "done"),
     "auto-merge-setup-done":     ("auto_merge",       "done"),
     "renovate-changes-done":     ("renovate",         "done"),
-    "renovate-sync-triggered":   ("renovate_sync",    "done"),
-    "onboarder-workflow-triggered": ("onboarder_workflow", "done"),
+    "renovate-sync-triggered":      ("renovate_sync",       "done"),
+    "renovate-sync-done":           ("renovate_sync",       "done"),
+    "tekton-pr-raised":             ("onboarder_workflow",  "pr_raised"),
+    "onboarder-workflow-triggered": ("onboarder_workflow",  "pr_raised"),
+    "tekton-pr-merged":             ("onboarder_workflow",  "done"),
     # validate
     "yaml-attached":             ("validate",         "done"),
+    "validation-successful":     ("validate",         "done"),
 }
 
-# Keywords per step to match PR/MR URLs from Jira comments
-STEP_COMMENT_PATTERNS: list[tuple[str, str, str]] = [
-    # (step_key, url_field, keyword_pattern_in_comment)
-    ("quay",           "mr_url",  r"quay"),
-    ("krd",            "mr_url",  r"konflux.release"),
-    ("okc",            "pr_url",  r"(?:odh|rhoai)-konflux-central"),
-    ("pull_pipelines", "pr_url",  r"rhoai-konflux-central.*pull|pull.*rhoai-konflux-central"),
-    ("operator",       "pr_url",  r"opendatahub-io/opendatahub-operator"),
-    ("bundle",         "pr_url",  r"ODH-Build-Config|odh-build-config"),
-    ("delivery_repo",  "mr_url",  r"pyxis.repo.configs|delivery.repo"),
-    ("product_listing","mr_url",  r"product.listing|pyxis.repo.configs.*product"),
-    ("auto_merge",     "pr_url",  r"auto.merge"),
-    ("renovate",       "pr_url",  r"renovate"),
+# ── URL extraction ────────────────────────────────────────────────────────────
+#
+# PR/MR URLs are the primary matching key.  Jira labels are only used to
+# disambiguate when multiple steps share the same repo URL pattern.
+#
+#   Phase 1 – Unique URL patterns:
+#             The repo name in the URL uniquely identifies the step.
+#             No labels needed.
+#
+#   Phase 2 – Shared URL patterns + label disambiguation:
+#             URL pattern matches multiple steps (same repo).  The step's
+#             Jira label must also be present to claim the URL, preventing
+#             one step from stealing another's URL.
+#
+#   Phase 3 – Unclaimed URLs:
+#             For steps whose PR targets a variable repo (e.g.
+#             onboarder_workflow's Tekton PR goes to the component repo).
+#             Any unclaimed URL is assigned if the step's label is present.
+#
+# All patterns: (step_key, url_field, url_regex).
+STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
+    ("quay",           "mr_url",  re.compile(r"app-interface/-/merge_requests/", re.I)),
+    ("krd",            "mr_url",  re.compile(r"konflux-release-data/-/merge_requests/", re.I)),
+    ("operator",       "pr_url",  re.compile(r"(?:opendatahub-operator|rhods-operator)/pull/", re.I)),
+    ("bundle",         "pr_url",  re.compile(r"(?:ODH|RHOAI)-Build-Config/pull/", re.I)),
+    ("auto_merge",     "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I)),
 ]
 
-# Matches any GitHub PR or GitLab MR URL
-_URL_RE = re.compile(r"https://(?:github\.com/[^\s/]+/[^\s/]+/pull/\d+|gitlab[^\s]+/-/merge_requests/\d+)")
+# Shared URL patterns — multiple steps share the same repo URL pattern.
+# Labels gate eligibility; comment keywords disambiguate which URL belongs
+# to which step.  Tuple: (step_key, url_field, url_regex, keyword_regex).
+# The keyword regex is matched against the Jira comment body that contains
+# the URL.  Newest matching comment wins for each step.
+#
+# Each skill's Jira comment includes a machine-readable tag [step:<key>]
+# (e.g. [step:okc]).  The keyword regex matches that tag first, with
+# natural-language fallbacks for older comments posted before the tag was
+# added.
+SHARED_URL_PATTERNS: list[tuple[str, str, re.Pattern, re.Pattern]] = [
+    ("delivery_repo",   "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
+                                   re.compile(r"\[step:delivery_repo\]|delivery.repo", re.I)),
+    ("product_listing", "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
+                                   re.compile(r"\[step:product_listing\]|product.listing", re.I)),
+    ("okc",             "pr_url",  re.compile(r"konflux-central/pull/", re.I),
+                                   re.compile(r"\[step:okc\]|add.+Konflux\s+PipelineRun", re.I)),
+    ("pull_pipelines",  "pr_url",  re.compile(r"konflux-central/pull/", re.I),
+                                   re.compile(r"\[step:pull_pipelines\]|pull.request\s+PipelineRun", re.I)),
+    ("renovate",        "pr_url",  re.compile(r"konflux-central/pull/", re.I),
+                                   re.compile(r"\[step:renovate\]|enable\s+Renovate", re.I)),
+]
+
+# Steps whose PR targets a variable repo (no URL pattern possible).
+# Labels confirm the step ran; first unclaimed URL is assigned.
+UNCLAIMED_URL_STEPS: list[tuple[str, str]] = [
+    ("onboarder_workflow", "pr_url"),
+]
+
+# Matches any GitHub PR or GitLab MR URL.
+# Excludes | and ] to avoid capturing Jira wiki-markup link syntax [url|url].
+_URL_RE = re.compile(r"https://(?:github\.com/[^\s/]+/[^\s/]+/pull/\d+|gitlab[^\s|)\]]+/-/merge_requests/\d+)")
+
+# Matches GitHub Actions workflow run URLs.
+_RUN_URL_RE = re.compile(r"https://github\.com/[^\s/]+/[^\s/]+/actions/runs/\d+")
+
+# Workflow run URL patterns — (step_key, url_field, url_regex, keyword_regex).
+# Extracted separately from PR/MR URLs since they use a different URL shape.
+WORKFLOW_RUN_PATTERNS: list[tuple[str, str, re.Pattern, re.Pattern]] = [
+    ("renovate_sync", "run_url", re.compile(r"konflux-central/actions/runs/", re.I),
+                                 re.compile(r"\[step:renovate_sync\]|sync.renovate.configs", re.I)),
+]
 
 
-def extract_urls_from_comment(body: str) -> list[str]:
+def _flatten_adf(node) -> str:
+    """Extract plain text and link hrefs from Atlassian Document Format."""
+    parts: list[str] = []
+    if isinstance(node, dict):
+        if node.get("type") == "text":
+            parts.append(node.get("text", ""))
+        for mark in node.get("marks", []):
+            if mark.get("type") == "link":
+                parts.append(mark.get("attrs", {}).get("href", ""))
+        for child in node.get("content", []):
+            parts.append(_flatten_adf(child))
+    elif isinstance(node, list):
+        for item in node:
+            parts.append(_flatten_adf(item))
+    return " ".join(parts)
+
+
+def extract_urls_from_comment(body) -> list[str]:
+    if isinstance(body, dict):
+        body = _flatten_adf(body)
     return _URL_RE.findall(body or "")
 
 
@@ -91,39 +167,129 @@ def sync_labels(state: dict, labels: list[str]) -> list[str]:
         if step is None:
             continue
         current = step.get("status", "pending")
-        if current == "skipped":
-            continue
         if new_status == "done":
-            if current != "done":
+            if current not in ("done",):
                 step["status"] = "done"
                 changes.append(f"{step_key}: {current} → done (label: {label})")
         else:
-            # raised label — only upgrade from pending
-            if current == "pending":
+            # raised label — upgrade from pending or skipped (skipped can
+            # happen when the initial state was created before is_operator
+            # was known, but the PR was raised in a previous run)
+            if current in ("pending", "skipped"):
                 step["status"] = new_status
-                changes.append(f"{step_key}: pending → {new_status} (label: {label})")
+                changes.append(f"{step_key}: {current} → {new_status} (label: {label})")
     return changes
 
 
-def sync_urls_from_comments(state: dict, comments: list[dict]) -> list[str]:
+def sync_urls_from_comments(state: dict, comments: list[dict], labels: list[str]) -> list[str]:
     changes = []
-    all_comment_bodies = [(c.get("body") or "") for c in comments]
+    # Reverse so the most recent comment wins when multiple comments
+    # mention the same step (e.g. old PR closed, new PR raised).
+    # Flatten ADF bodies to plain text up-front.
+    all_comment_bodies: list[str] = []
+    for c in reversed(comments):
+        body = c.get("body") or ""
+        if isinstance(body, dict):
+            body = _flatten_adf(body)
+        all_comment_bodies.append(body)
 
-    for step_key, url_field, keyword_pattern in STEP_COMMENT_PATTERNS:
+    # Collect every PR/MR URL across all comments (newest first).
+    all_urls: list[str] = []
+    for body in all_comment_bodies:
+        all_urls.extend(extract_urls_from_comment(body))
+    # Deduplicate while preserving order (newest first).
+    seen: set[str] = set()
+    unique_urls: list[str] = []
+    for url in all_urls:
+        if url not in seen:
+            seen.add(url)
+            unique_urls.append(url)
+    all_urls = unique_urls
+
+    # Track which URLs have been claimed to avoid double-assignment.
+    claimed_urls: set[str] = set()
+
+    # Build label→step lookup for disambiguation.
+    label_to_steps: dict[str, set] = {}
+    for label, (step_key, _status) in LABEL_MAP.items():
+        label_to_steps.setdefault(step_key, set()).add(label)
+    label_set = set(labels)
+
+    def _step_has_label(step_key: str) -> bool:
+        return bool(label_to_steps.get(step_key, set()) & label_set)
+
+    # Phase 1: Unique URL patterns — repo name in URL identifies the step.
+    for step_key, url_field, url_re in STEP_URL_PATTERNS:
         step = state.get("steps", {}).get(step_key)
-        if step is None:
+        if step is None or step.get(url_field, ""):
             continue
-        if step.get(url_field, ""):
-            continue  # already populated
+        for url in all_urls:
+            if url in claimed_urls:
+                continue
+            if url_re.search(url):
+                step[url_field] = url
+                claimed_urls.add(url)
+                changes.append(f"{step_key}.{url_field} = {url} (from comment)")
+                break
 
-        kw_re = re.compile(keyword_pattern, re.IGNORECASE)
+    # Phase 2: Shared URL patterns — comment keywords disambiguate.
+    # Walk each comment (newest first) and match URLs by both URL pattern
+    # and keyword context in the comment body.  First match per step wins.
+    for step_key, url_field, url_re, kw_re in SHARED_URL_PATTERNS:
+        step = state.get("steps", {}).get(step_key)
+        if step is None or step.get(url_field, ""):
+            continue
+        if not _step_has_label(step_key):
+            continue
         for body in all_comment_bodies:
             if not kw_re.search(body):
                 continue
-            urls = extract_urls_from_comment(body)
-            if urls:
-                step[url_field] = urls[0]
-                changes.append(f"{step_key}.{url_field} = {urls[0]} (from comment)")
+            body_urls = extract_urls_from_comment(body)
+            for url in body_urls:
+                if url in claimed_urls:
+                    continue
+                if url_re.search(url):
+                    step[url_field] = url
+                    claimed_urls.add(url)
+                    changes.append(f"{step_key}.{url_field} = {url} (from comment)")
+                    break
+            if step.get(url_field, ""):
+                break
+
+    # Phase 3: Unclaimed URLs — for steps whose PR targets a variable repo.
+    # Label confirms the step ran; first unclaimed PR/MR URL is assigned.
+    for step_key, url_field in UNCLAIMED_URL_STEPS:
+        step = state.get("steps", {}).get(step_key)
+        if step is None or step.get(url_field, ""):
+            continue
+        if not _step_has_label(step_key):
+            continue
+        for url in all_urls:
+            if url in claimed_urls:
+                continue
+            step[url_field] = url
+            claimed_urls.add(url)
+            changes.append(f"{step_key}.{url_field} = {url} (from comment, unclaimed)")
+            break
+
+    # Phase 4: Workflow run URLs (e.g. GitHub Actions runs).
+    # Same comment-keyword approach as Phase 2.
+    for step_key, url_field, url_re, kw_re in WORKFLOW_RUN_PATTERNS:
+        step = state.get("steps", {}).get(step_key)
+        if step is None or step.get(url_field, ""):
+            continue
+        if not _step_has_label(step_key):
+            continue
+        for body in all_comment_bodies:
+            if not kw_re.search(body):
+                continue
+            body_run_urls = _RUN_URL_RE.findall(body)
+            for url in body_run_urls:
+                if url_re.search(url):
+                    step[url_field] = url
+                    changes.append(f"{step_key}.{url_field} = {url} (from comment)")
+                    break
+            if step.get(url_field, ""):
                 break
 
     return changes
@@ -162,7 +328,7 @@ def main():
     label_changes = sync_labels(state, labels)
     all_changes.extend(label_changes)
 
-    url_changes = sync_urls_from_comments(state, comments_raw)
+    url_changes = sync_urls_from_comments(state, comments_raw, labels)
     all_changes.extend(url_changes)
 
     if all_changes:

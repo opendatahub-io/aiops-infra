@@ -16,12 +16,14 @@ Adds a new operator component to the operator repository (`opendatahub-operator`
 
 > **CRITICAL — `ODH_OPERATOR_URL` is the single source of truth for every Git and GitHub
 > operation in this skill.**
-> It is resolved in Step 0 if `ODH_OPERATOR_REPO_URL` is explicitly set; otherwise it is
-> derived in Step 3d from `product_context` (ODH → `opendatahub-io/opendatahub-operator`;
+> It is resolved in Step 3d by `resolve_operator_url.sh`, which checks the
+> `ODH_OPERATOR_REPO_URL` env var first (override) and falls back to the product-context
+> default (ODH → `opendatahub-io/opendatahub-operator`;
 > RHOAI → `red-hat-data-services/rhods-operator`).
-> Every clone, push, and PR call (`--src-url`, `--dest-url`) **must** use `$ODH_OPERATOR_URL`
-> — never a hardcoded URL. `ODH_OPERATOR_PATH` is derived from `ODH_OPERATOR_URL` in Step 3d
-> and must be used for all GitHub API calls.
+> **Never set `ODH_OPERATOR_URL` or `ODH_OPERATOR_PATH` manually.** Always use the values
+> produced by the script. Every clone, push, and PR call (`--src-url`, `--dest-url`) **must**
+> use `$ODH_OPERATOR_URL` — never a hardcoded URL. `ODH_OPERATOR_PATH` (also set by the
+> script) must be used for all GitHub API calls.
 > This rule applies for the entire skill execution even if the URL resolves to a fork.
 
 ## Usage
@@ -69,22 +71,10 @@ If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and 
    If the argument cannot be parsed as a Jira URL (no `/browse/` segment), stop with:
    > ERROR: Invalid Jira URL. Expected format: https://redhat.atlassian.net/browse/RHODS-14226
 
-2. Resolve `ODH_OPERATOR_URL` — only if `ODH_OPERATOR_REPO_URL` is explicitly set. If not
-   set, the default will be derived from `product_context` in Step 3d. Execute this exact
-   block; do NOT skip the `echo`:
-
-   ```bash
-   if [[ -n "${ODH_OPERATOR_REPO_URL:-}" ]]; then
-     ODH_OPERATOR_URL="$ODH_OPERATOR_REPO_URL"
-     echo "ODH_OPERATOR_REPO_URL is set; ODH_OPERATOR_URL resolved to: $ODH_OPERATOR_URL"
-   else
-     ODH_OPERATOR_URL=""
-     echo "ODH_OPERATOR_REPO_URL is not set — will derive default from product_context in Step 3d."
-   fi
-   ```
-
-   **Never override or re-derive `ODH_OPERATOR_URL` after Step 3d.** `ODH_OPERATOR_PATH`
-   is derived in Step 3d once `ODH_OPERATOR_URL` is finalised.
+2. `ODH_OPERATOR_URL` and `ODH_OPERATOR_PATH` will be resolved in Step 3d by the
+   `resolve_operator_url.sh` script. Do **not** set `ODH_OPERATOR_URL` or
+   `ODH_OPERATOR_PATH` manually in any step — the script handles the
+   `ODH_OPERATOR_REPO_URL` env-var override and product-context defaults.
 
 ---
 
@@ -162,30 +152,26 @@ If any of COMPONENT_NAME, PRODUCT_CONTEXT, IS_OPERATOR, REPO_URL, REPO_BRANCH is
 ERROR in Step 3c: Missing required field '<field>' in component_onboarding_details.yaml. Aborting.
 ```
 
-**3d. Finalise `ODH_OPERATOR_URL` and derive `ODH_OPERATOR_PATH`:**
+**3d. Resolve `ODH_OPERATOR_URL` and `ODH_OPERATOR_PATH`:**
 
-If `ODH_OPERATOR_URL` is still empty (i.e., `ODH_OPERATOR_REPO_URL` was not set in Step 0),
-derive it from `PRODUCT_CONTEXT`:
+Run the `resolve_operator_url.sh` script. This script checks the `ODH_OPERATOR_REPO_URL`
+env var first (override), then falls back to the product-context default. You **must** use
+`eval` so the exported variables are available in subsequent steps.
 
 ```bash
-if [[ -z "${ODH_OPERATOR_URL:-}" ]]; then
-  if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
-    ODH_OPERATOR_URL="https://github.com/opendatahub-io/opendatahub-operator.git"
-  elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
-    ODH_OPERATOR_URL="https://github.com/red-hat-data-services/rhods-operator.git"
-  else
-    echo "ERROR in Step 3d: Unrecognised product_context '${PRODUCT_CONTEXT}'. Expected 'ODH' or 'RHOAI'."
-    exit 1
-  fi
-  echo "ODH_OPERATOR_URL derived from product_context (${PRODUCT_CONTEXT}): $ODH_OPERATOR_URL"
-fi
-
-ODH_OPERATOR_PATH=$(echo "$ODH_OPERATOR_URL" | sed 's|https://github.com/||;s|\.git$||')
+eval "$(bash "$COMMON_SCRIPTS_DIR/resolve_operator_url.sh" \
+  --product-context "$PRODUCT_CONTEXT")"
+echo "ODH_OPERATOR_URL:  $ODH_OPERATOR_URL"
 echo "ODH_OPERATOR_PATH: $ODH_OPERATOR_PATH"
 ```
 
+On exit 1: display stderr and stop with:
+```
+ERROR in Step 3d: Could not resolve operator URL. See details above.
+```
+
 **`ODH_OPERATOR_URL` and `ODH_OPERATOR_PATH` are now fixed for the remainder of the skill.
-Never override or re-derive them in later steps.**
+Never hardcode a URL — always use `$ODH_OPERATOR_URL` and `$ODH_OPERATOR_PATH`.**
 
 ---
 

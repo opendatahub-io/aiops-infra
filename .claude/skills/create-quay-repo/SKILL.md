@@ -253,13 +253,16 @@ if grep -q "^  name: <repo>$" "$CLONE_DIR/$YAML_FILE" 2>/dev/null || \
   echo "Entry for '<repo>' already exists in the YAML — skipping append."
   # Continue to Step 9
 else
-  PUBLIC_FLAG=""
-  [[ "$visibility" == "public" ]] && PUBLIC_FLAG="--public"
+  if [[ "$visibility" == "public" ]]; then
+    VIS_FLAG="--public"
+  else
+    VIS_FLAG="--no-public"
+  fi
   uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-items-array \
     "$CLONE_DIR/$YAML_FILE" \
     --name "<repo>" \
-    --description "<short_description if product_context==RHOAI, else '<org> <repo> container image'>" \
-    $PUBLIC_FLAG
+    --description "'<short_description if product_context==RHOAI, else '<org> <repo> container image'>'" \
+    $VIS_FLAG
 fi
 ```
 

@@ -37,6 +37,8 @@ def main():
     p.add_argument("--repo-branch", required=True)
     p.add_argument("--context-path", required=True)
     p.add_argument("--dockerfile-path", required=True)
+    p.add_argument("--short-description", default="")
+    p.add_argument("--architectures", default="")
     args = p.parse_args()
 
     email = os.environ.get("JIRA_USER_EMAIL", "")
@@ -87,12 +89,19 @@ def main():
         print(f"  Title unchanged: {current_summary}")
 
     # --- Update description table ---
+    # ODH template:  ||*Upstream Git Repo*||...
+    # RHOAI template: ||*Image / Quay Repo Name*||...
     lines = description.split("\n")
-    header_idx = next(
+    odh_header_idx = next(
         (i for i, line in enumerate(lines) if line.startswith("||*Upstream Git Repo*||")),
         None,
     )
-    if header_idx is not None:
+    rhoai_header_idx = next(
+        (i for i, line in enumerate(lines) if line.startswith("||*Image / Quay Repo Name*||")),
+        None,
+    )
+
+    if odh_header_idx is not None:
         values_row = (
             f"| {args.repo_url} "
             f"| {quay_image} "
@@ -100,6 +109,22 @@ def main():
             f"| [{args.dockerfile_path}|{dockerfile_link}] "
             f"| |"
         )
+        header_idx = odh_header_idx
+    elif rhoai_header_idx is not None:
+        arch_str = args.architectures.replace(",", ", ") if args.architectures else ""
+        values_row = (
+            f"| {quay_image} "
+            f"| {args.short_description} "
+            f"| {arch_str} "
+            f"| {args.context_path} "
+            f"| [{args.dockerfile_path}|{dockerfile_link}] "
+            f"| |"
+        )
+        header_idx = rhoai_header_idx
+    else:
+        header_idx = None
+
+    if header_idx is not None:
         # Replace first data row; drop any additional | rows after it
         lines[header_idx + 1] = values_row
         i = header_idx + 2
@@ -114,13 +139,12 @@ def main():
         except Exception as exc:
             warnings.append(
                 f"WARN: Could not update description table ({exc}). Update manually:\n"
-                f"  Upstream Git Repo        → {args.repo_url}\n"
                 f"  Image / Quay Repo Name   → {quay_image}\n"
                 f"  Build Context            → {args.context_path}\n"
                 f"  Dockerfile Link or Path  → {dockerfile_link}"
             )
     else:
-        print("  No '||*Upstream Git Repo*||' table found — skipping table update.")
+        print("  No known description table found — skipping table update.")
 
     # --- Add label ---
     label = "component-onboarding"

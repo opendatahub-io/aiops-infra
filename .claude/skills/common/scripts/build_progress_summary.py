@@ -14,7 +14,7 @@ Usage:
     [--assignee <name>] \
     [--idle-days <N>]
 
-Output (stdout): markdown comment body ready to post to Jira.
+Output (stdout): Jira wiki markup comment body ready to post.
 """
 import argparse
 import json
@@ -28,7 +28,7 @@ STEPS_ODH = [
     ("quay",              "Create Quay repo",                "mr_url"),
     ("krd",               "Onboard to Konflux release data", "mr_url"),
     ("okc",               "Add to ODH Konflux central",      "pr_url"),
-    ("onboarder_workflow","Trigger ODH onboarder workflow",   None),
+    ("onboarder_workflow","Trigger ODH onboarder workflow",   "pr_url"),
     ("operator",          "Integrate with ODH Operator",     "pr_url"),
     ("bundle",            "Integrate with bundle",           "pr_url"),
 ]
@@ -45,16 +45,25 @@ STEPS_RHOAI = [
     ("product_listing",   "Update RHOAI product listing",          "mr_url"),
     ("auto_merge",        "Setup auto-merge",                       "pr_url"),
     ("renovate",          "Enable Renovate",                        "pr_url"),
-    ("renovate_sync",     "Sync Renovate configs (workflow)",       None),
+    ("renovate_sync",     "Sync Renovate configs (workflow)",       "run_url"),
 ]
 
-# Which steps are "blocking" (i.e. have a PR/MR that must merge to progress)
-DEPENDENCY_NEXT_STEP: dict[str, str] = {
-    "delivery_repo":  "product_listing",
-    "renovate":       "renovate_sync",
-    "krd":            "onboarder_workflow (ODH only, when okc also merged)",
-    "okc":            "onboarder_workflow (ODH only, when krd also merged)",
+# Which steps are "blocking" (i.e. have a PR/MR that must merge to progress).
+# Keys present in _ODH but absent in _RHOAI (and vice versa) are product-specific.
+_DEPENDENCY_ODH: dict[str, str] = {
+    "krd": "onboarder_workflow (when okc also merged)",
+    "okc": "onboarder_workflow (when krd also merged)",
 }
+_DEPENDENCY_RHOAI: dict[str, str] = {
+    "delivery_repo": "product_listing",
+    "renovate":      "renovate_sync",
+}
+
+
+def _dependency_map(product_context: str) -> dict[str, str]:
+    if product_context == "RHOAI":
+        return _DEPENDENCY_RHOAI
+    return _DEPENDENCY_ODH
 
 
 def status_emoji(status: str) -> str:
@@ -76,15 +85,25 @@ def url_cell(step: dict, url_field: str | None) -> str:
     return url if url else "—"
 
 
+def _all_done(steps: dict) -> bool:
+    for step in steps.values():
+        s = step.get("status", "pending")
+        if s == "skipped":
+            continue
+        if s not in ("done", "merged"):
+            return False
+    return True
+
+
 def build_full_summary(state: dict, component_name: str, product_context: str) -> str:
     steps_def = STEPS_RHOAI if product_context == "RHOAI" else STEPS_ODH
     steps = state.get("steps", {})
 
+    heading = "Component Onboarding - Completed" if _all_done(steps) else "Component Onboarding - Progress"
     lines = [
-        f"## Onboarding Pipeline — Status: `{component_name}`",
+        f"h2. {heading}: {{{{{component_name}}}}}",
         "",
-        "| # | Step | Status | PR / MR |",
-        "|---|------|--------|---------|",
+        "||#||Step||Status||PR / MR||",
     ]
 
     for i, (key, label, url_field) in enumerate(steps_def, 1):
@@ -94,19 +113,19 @@ def build_full_summary(state: dict, component_name: str, product_context: str) -
             continue
         status_str = status_emoji(status)
         url_str = url_cell(step, url_field)
-        lines.append(f"| {i} | {label} | {status_str} | {url_str} |")
+        lines.append(f"|{i}|{label}|{status_str}|{url_str}|")
 
     lines.append("")
 
-    # Dependency hints
+    dep_map = _dependency_map(product_context)
     pending_deps = []
-    for dep_step, next_label in DEPENDENCY_NEXT_STEP.items():
+    for dep_step, next_label in dep_map.items():
         step = steps.get(dep_step, {})
         if step.get("status") in ("pr_raised", "mr_raised"):
-            pending_deps.append(f"- `{dep_step}` merged → triggers `{next_label}`")
+            pending_deps.append(f"* {{{{{dep_step}}}}} merged → triggers {{{{{next_label}}}}}")
 
     if pending_deps:
-        lines.append("**Next steps pending merge of:**")
+        lines.append("*Next steps pending merge of:*")
         lines.extend(pending_deps)
         lines.append("")
 
@@ -128,12 +147,11 @@ def build_changes_summary(
     url_field_map = {k: uf for k, _, uf in steps_def}
 
     lines = [
-        f"## Status update: `{component_name}`",
+        f"h2. Status update: {{{{{component_name}}}}}",
         "",
         "The following PRs/MRs changed status since the last run:",
         "",
-        "| Step | PR / MR | Status | Next action |",
-        "|------|---------|--------|-------------|",
+        "||Step||PR / MR||Status||Next action||",
     ]
 
     for key in newly_merged:
@@ -141,8 +159,9 @@ def build_changes_summary(
         label = label_map.get(key, key)
         url_field = url_field_map.get(key)
         url_str = url_cell(step, url_field)
-        next_action = DEPENDENCY_NEXT_STEP.get(key, "—")
-        lines.append(f"| {label} | {url_str} | ✅ merged | {next_action} |")
+        dep_map = _dependency_map(product_context)
+        next_action = dep_map.get(key, "—")
+        lines.append(f"|{label}|{url_str}|✅ merged|{next_action}|")
 
     lines.append("")
     return "\n".join(lines)
@@ -164,8 +183,9 @@ def build_pending_summary(
         if status not in ("pr_raised", "mr_raised"):
             continue
         url_str = url_cell(step, url_field)
-        next_action = DEPENDENCY_NEXT_STEP.get(key, "—")
-        pending_rows.append(f"| {label} | {url_str} | {next_action} |")
+        dep_map = _dependency_map(product_context)
+        next_action = dep_map.get(key, "—")
+        pending_rows.append(f"|{label}|{url_str}|{next_action}|")
 
     if not pending_rows:
         return ""
@@ -173,8 +193,7 @@ def build_pending_summary(
     tag_line = f"[~accountid:{assignee}] — please review the open PRs/MRs.\n\n" if assignee else ""
 
     lines = [
-        "| Step | PR / MR | Next action on merge |",
-        "|------|---------|----------------------|",
+        "||Step||PR / MR||Next action on merge||",
     ]
     lines.extend(pending_rows)
     lines.append("")
@@ -204,7 +223,7 @@ def main():
     if args.idle_days >= 2 and args.assignee:
         prefix = (
             f"[~accountid:{args.assignee}] — Reminder: this onboarding has had no PR/MR merges "
-            f"for {args.idle_days} day(s). Please review the open PRs/MRs listed below.\n\n"
+            f"for {args.idle_days} day(s). Please review the open PRs/MRs below.\n\n"
         )
 
     if args.mode == "full":

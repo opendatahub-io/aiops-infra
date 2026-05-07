@@ -5,9 +5,12 @@
 # ]
 # ///
 """
-Create a cross-project GitLab merge request from a fork branch to the target project's master.
+Create a GitLab merge request — supports both same-project and cross-project (fork→upstream) MRs.
 
-Idempotent: if an open MR with the same source branch already exists (from the same fork),
+For cross-project MRs the MR is created on the **source** (fork) project with
+``target_project_id`` pointing to the upstream, which is how the GitLab API expects it.
+
+Idempotent: if an open MR with the same source branch already exists on the target,
 its URL is returned without creating a duplicate.
 
 Authentication:
@@ -34,6 +37,7 @@ Exit codes:
 import argparse
 import os
 import sys
+import warnings
 from urllib.parse import urlparse
 
 import gitlab
@@ -67,7 +71,10 @@ def parse_project_path(url: str) -> str:
 
 def _ssl_verify() -> bool:
     val = os.environ.get("GITLAB_SSL_VERIFY", "true").strip().lower()
-    return val not in ("0", "false", "no", "off")
+    skip = val in ("0", "false", "no", "off")
+    if skip:
+        warnings.filterwarnings("ignore", message="Unverified HTTPS request")
+    return not skip
 
 
 def get_gitlab_client(base_url: str, token: str) -> gitlab.Gitlab:
@@ -125,7 +132,6 @@ def find_existing_mr(target_project, source_project_id: int, src_branch: str):
             all=True,
         )
         for mr in mrs:
-            # Cross-project MRs have source_project_id set to the fork's ID
             if getattr(mr, "source_project_id", None) == source_project_id:
                 return mr
     except GitlabError as exc:
@@ -149,7 +155,6 @@ def main() -> None:
     _gitlab_user = require_env("GITLAB_USER", "export GITLAB_USER=yourusername")
     gitlab_token = require_env("GITLAB_TOKEN", "export GITLAB_TOKEN=yourtoken")
 
-    # Both URLs must live on the same GitLab instance
     src_base  = parse_gitlab_base_url(args.src_url)
     dest_base = parse_gitlab_base_url(args.dest_url)
     if src_base != dest_base:
@@ -173,6 +178,8 @@ def main() -> None:
     dest_branch = args.dest_branch or target_project.default_branch
     print(f"Target branch: {dest_branch}", file=sys.stderr)
 
+    is_cross_project = fork_project.id != target_project.id
+
     # ── Idempotency check ──────────────────────────────────────────────────────
     print(f"Checking for existing open MR (branch: {args.src_branch})...", file=sys.stderr)
     existing = find_existing_mr(target_project, fork_project.id, args.src_branch)
@@ -189,21 +196,52 @@ def main() -> None:
         print("  Did the push in setup_gitlab_playpen.sh succeed?", file=sys.stderr)
         sys.exit(1)
 
+    # ── Cross-project MR: verify fork relationship ────────────────────────────
+    if is_cross_project:
+        forked_from = getattr(fork_project, "forked_from_project", None)
+        forked_from_id = forked_from["id"] if isinstance(forked_from, dict) else getattr(forked_from, "id", None)
+        if forked_from_id != target_project.id:
+            actual_parent = forked_from.get("path_with_namespace", forked_from_id) if isinstance(forked_from, dict) else forked_from_id
+            print(f"ERROR: Source project '{src_path}' is not a fork of target project '{dest_path}'.", file=sys.stderr)
+            print(f"  Source project's fork parent: {actual_parent}", file=sys.stderr)
+            print(f"  Expected fork parent: {dest_path} (id={target_project.id})", file=sys.stderr)
+            print("  Cross-project MRs require a direct fork relationship.", file=sys.stderr)
+            print("  Run setup_gitlab_fork.py to fix the fork relationship and retry.", file=sys.stderr)
+            sys.exit(1)
+
     # ── Create MR ──────────────────────────────────────────────────────────────
-    print(f"Creating cross-project MR: {src_path}:{args.src_branch} → {dest_path}:{dest_branch}", file=sys.stderr)
-    try:
-        mr = target_project.mergerequests.create({
-            "source_project_id": fork_project.id,
-            "source_branch":     args.src_branch,
-            "target_branch":     dest_branch,
-            "title":             args.title,
-            "description":       args.description,
+    # For cross-project MRs the GitLab API requires creating the MR on the
+    # *source* (fork) project and setting target_project_id to the upstream.
+    # python-gitlab only exposes target_project_id in _create_attrs, not
+    # source_project_id, which matches the GitLab REST API design.
+    if is_cross_project:
+        mr_data = {
+            "source_branch":        args.src_branch,
+            "target_project_id":    target_project.id,
+            "target_branch":        dest_branch,
+            "title":                args.title,
+            "description":          args.description,
             "remove_source_branch": True,
-        })
+        }
+        creating_project = fork_project
+        print(f"Creating cross-project MR: {src_path}:{args.src_branch} → {dest_path}:{dest_branch}", file=sys.stderr)
+        print(f"  fork_project_id={fork_project.id}  target_project_id={target_project.id}", file=sys.stderr)
+    else:
+        mr_data = {
+            "source_branch":        args.src_branch,
+            "target_branch":        dest_branch,
+            "title":                args.title,
+            "description":          args.description,
+            "remove_source_branch": True,
+        }
+        creating_project = target_project
+        print(f"Creating same-project MR: {src_path}:{args.src_branch} → {dest_branch}", file=sys.stderr)
+
+    try:
+        mr = creating_project.mergerequests.create(mr_data)
     except GitlabError as exc:
         response_code = getattr(exc, "response_code", None)
         if response_code == 409:
-            # Rare race condition: MR appeared between our check and create
             print("  MR creation returned 409 (conflict). Searching for existing MR...", file=sys.stderr)
             existing = find_existing_mr(target_project, fork_project.id, args.src_branch)
             if existing:
@@ -218,6 +256,36 @@ def main() -> None:
             print(f"ERROR: Cannot reach {dest_base}. Ensure VPN is active.", file=sys.stderr)
         else:
             print(f"ERROR: Unexpected error creating MR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    # ── Post-creation verification ───────────────────────────────────────────
+    errors = []
+    actual_src_id = getattr(mr, "source_project_id", None)
+    actual_tgt_id = getattr(mr, "target_project_id", None)
+    actual_src_branch = getattr(mr, "source_branch", None)
+    actual_tgt_branch = getattr(mr, "target_branch", None)
+
+    if actual_src_id != fork_project.id:
+        errors.append(f"source_project_id: expected {fork_project.id} ({src_path}), got {actual_src_id}")
+    if actual_tgt_id != target_project.id:
+        errors.append(f"target_project_id: expected {target_project.id} ({dest_path}), got {actual_tgt_id}")
+    if actual_src_branch != args.src_branch:
+        errors.append(f"source_branch: expected '{args.src_branch}', got '{actual_src_branch}'")
+    if actual_tgt_branch != dest_branch:
+        errors.append(f"target_branch: expected '{dest_branch}', got '{actual_tgt_branch}'")
+
+    if errors:
+        print(f"  ERROR: MR was created but does not match expected parameters:", file=sys.stderr)
+        for e in errors:
+            print(f"    - {e}", file=sys.stderr)
+        print(f"  MR URL (likely broken): {mr.web_url}", file=sys.stderr)
+        print(f"  Closing the misconfigured MR...", file=sys.stderr)
+        try:
+            mr.state_event = "close"
+            mr.save()
+            print(f"  MR closed.", file=sys.stderr)
+        except Exception as close_exc:
+            print(f"  WARNING: Could not auto-close MR: {close_exc}", file=sys.stderr)
         sys.exit(1)
 
     print(f"  MR created: {mr.web_url}", file=sys.stderr)

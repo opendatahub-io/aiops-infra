@@ -130,10 +130,26 @@ def clone_issue(jira: JIRA, source_id: str) -> str:
     try:
         new_issue = jira.create_issue(fields=fields)
         print(f"  Cloned {source_id} → {new_issue.key}", file=sys.stderr)
-        return new_issue.key
     except JIRAError as e:
         print(f"ERROR: Failed to clone {source_id}: {getattr(e, 'text', e)}", file=sys.stderr)
         sys.exit(1)
+
+    # Establish the Jira "Cloners" relationship so the UI shows "is cloned from"
+    for link_type in ["Cloners", "cloners", "Clone", "clone"]:
+        try:
+            jira.create_issue_link(link_type, new_issue.key, source.key)
+            print(f"  Cloner link set: '{new_issue.key}' clones '{source.key}'", file=sys.stderr)
+            break
+        except JIRAError:
+            continue
+    else:
+        print(
+            f"  WARN: Could not set 'Cloners' link between {new_issue.key} and {source.key} "
+            "— link type not found. The ticket was still created successfully.",
+            file=sys.stderr,
+        )
+
+    return new_issue.key
 
 
 def set_title(jira: JIRA, issue, title: str) -> None:

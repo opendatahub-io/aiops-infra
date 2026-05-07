@@ -36,7 +36,8 @@ Examples:
 - `kubectl` — needed if `kustomize` is not installed (provides built-in kustomize v5.7.1)
 - Optional: `KONFLUX_RELEASE_DATA_REPO_URL` (default: `https://gitlab.cee.redhat.com/releng/konflux-release-data.git`)
 - Optional: `JIRA_SERVER` (default: `https://redhat.atlassian.net`)
-- Optional: `OC_TOKEN` — cluster login token if no matching kubeconfig context is found
+- Optional: `EXT_OC_TOKEN` — token for the external Konflux cluster (stone-prd-rh01, ODH builds) if no matching kubeconfig context is found
+- Optional: `INT_OC_TOKEN` — token for the internal Konflux cluster (stone-prod-p02, RHOAI builds) if no matching kubeconfig context is found
 
 **Network:** Both `gitlab.cee.redhat.com` and the Konflux OpenShift cluster require
 **VPN to be active**.
@@ -259,7 +260,7 @@ bash <COMMON_SCRIPTS_DIR>/check_konflux_component.sh \
 
 - **Exit 2** (tool/login error): Display the error output and stop with:
   ```
-  ERROR in Step 5: Could not check Konflux component status. Check VPN and OC_TOKEN.
+  ERROR in Step 5: Could not check Konflux component status. Check VPN and EXT_OC_TOKEN/INT_OC_TOKEN.
   ```
 
 ---
@@ -682,7 +683,7 @@ ERROR in Step 9 (Raise MR): Could not create MR after 3 attempts. See errors abo
 After a successful MR creation, update Jira:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --add-label "konflux-mr-raised" \
+  --add-label "krd-mr-raised" \
   --comment "GitLab MR raised to create Konflux Component '$KONFLUX_COMPONENT_NAME'.
 
 MR URL: $MR_URL
@@ -711,7 +712,8 @@ The skill is complete. The orchestrator will monitor the MR separately.
 | `oc` not installed | Step 1 | Download from console.redhat.com/openshift/downloads |
 | `component_onboarding_details.yaml` not attached to Jira | Step 3b | Upload the YAML to the Jira issue |
 | VPN not active | Steps 5, 7, 9 | Activate VPN and re-run |
-| `OC_TOKEN` not set | Step 5 | `export OC_TOKEN=<token-from-openshift-console>` |
+| `EXT_OC_TOKEN` not set | Step 5 | `export EXT_OC_TOKEN=<token-from-external-openshift-console>` (stone-prd-rh01) |
+| `INT_OC_TOKEN` not set | Step 5 | `export INT_OC_TOKEN=<token-from-internal-openshift-console>` (stone-prod-p02) |
 | Shallow push rejected | Steps 7, 9 | `git fetch --unshallow origin` then retry push |
 | Clone fails | Step 7 | Check VPN and GITLAB_TOKEN `write_repository` scope |
 | MR creation fails 3× | Step 9 | Check VPN; inspect stderr; fix manually |

@@ -38,7 +38,7 @@ fi
 if ! oc whoami &>/dev/null 2>&1; then
   info "Not logged in. Attempting login to $CLUSTER_INSTANCE cluster..."
   if ! bash "$SCRIPT_DIR/login_to_konflux_cluster.sh" "$CLUSTER_INSTANCE"; then
-    die "Could not log in to the $CLUSTER_INSTANCE Konflux cluster. Check VPN and OC_TOKEN."
+    die "Could not log in to the $CLUSTER_INSTANCE Konflux cluster. Check VPN and EXT_OC_TOKEN/INT_OC_TOKEN."
   fi
 fi
 

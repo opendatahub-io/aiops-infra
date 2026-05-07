@@ -55,6 +55,12 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     OKC_LABEL_DONE="rkc-pr-merged"
   fi
 
+  # delivery_repo must merge before krd for RHOAI; no dependency for ODH
+  KRD_DEPENDS_ON="[]"
+  if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+    KRD_DEPENDS_ON='["delivery_repo"]'
+  fi
+
   SKIP_RHOAI_ONLY="pending"
   SKIP_ODH_ONLY="pending"
   if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
@@ -90,9 +96,9 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     "krd": {
       "status": "pending",
       "mr_url": "",
-      "depends_on": [],
-      "label_raised": "konflux-mr-raised",
-      "label_done": "konflux-mr-merged"
+      "depends_on": ${KRD_DEPENDS_ON},
+      "label_raised": "krd-mr-raised",
+      "label_done": "krd-mr-merged"
     },
     "okc": {
       "status": "pending",
@@ -120,7 +126,7 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "pr_url": "",
       "depends_on": [],
       "label_raised": "bundle-pr-raised",
-      "label_done": "obc-changes-done"
+      "label_done": "bundle-changes-done"
     },
     "delivery_repo": {
       "status": "${SKIP_RHOAI_ONLY}",
@@ -157,8 +163,10 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     },
     "onboarder_workflow": {
       "status": "${SKIP_ODH_ONLY}",
+      "pr_url": "",
       "depends_on": ["krd", "okc"],
-      "label_done": "onboarder-workflow-triggered"
+      "label_raised": "tekton-pr-raised",
+      "label_done": "tekton-pr-merged"
     }
   }
 }
@@ -176,6 +184,36 @@ else
   if [[ -n "$PRODUCT_CONTEXT" ]] && [[ "$(jq -r '.product_context // ""' "$PIPELINE_STATE")" == "" ]]; then
     TMP=$(mktemp)
     jq --arg v "$PRODUCT_CONTEXT" '.product_context = $v' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+  fi
+
+  # Fix operator step: the initial init (Step 2) runs before IS_OPERATOR is
+  # known, so it defaults to "skipped". Once Step 4 re-invokes with the real
+  # value, correct the status if needed.
+  if [[ "$IS_OPERATOR" == "true" ]]; then
+    CURRENT_OP=$(jq -r '.steps.operator.status // "pending"' "$PIPELINE_STATE")
+    if [[ "$CURRENT_OP" == "skipped" ]]; then
+      TMP=$(mktemp)
+      jq '.steps.operator.status = "pending"' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  operator step: skipped → pending (is_operator=true)" >&2
+    fi
+    # Also ensure is_operator is set correctly in state
+    CURRENT_IS_OP=$(jq -r '.is_operator // false' "$PIPELINE_STATE")
+    if [[ "$CURRENT_IS_OP" != "true" ]]; then
+      TMP=$(mktemp)
+      jq '.is_operator = true' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+    fi
+  fi
+
+  # Fix krd depends_on for RHOAI: delivery_repo must merge before krd starts.
+  # Old state files have depends_on: [] for krd — patch them on resume.
+  CURRENT_PC=$(jq -r '.product_context // ""' "$PIPELINE_STATE")
+  if [[ "$CURRENT_PC" == "RHOAI" ]]; then
+    if ! jq -e '.steps.krd.depends_on | index("delivery_repo") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      TMP=$(mktemp)
+      jq '.steps.krd.depends_on = ((.steps.krd.depends_on // []) + ["delivery_repo"] | unique)' \
+        "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  krd.depends_on: added delivery_repo (RHOAI prerequisite)" >&2
+    fi
   fi
 fi
 

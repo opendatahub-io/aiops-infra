@@ -324,11 +324,15 @@ else
   success "JIRA_SERVER=${JIRA_SERVER}"
 fi
 
-if [[ -z "${OC_TOKEN:-}" ]]; then
-  warn "OC_TOKEN is not set — required only if no matching kubeconfig context is found."
-  warn "  Get a token from the OpenShift web console if needed."
+if [[ -z "${EXT_OC_TOKEN:-}" ]]; then
+  warn "EXT_OC_TOKEN is not set — required only if no matching kubeconfig context for the external cluster (stone-prd-rh01)."
 else
-  success "OC_TOKEN=<set>"
+  success "EXT_OC_TOKEN=<set>"
+fi
+if [[ -z "${INT_OC_TOKEN:-}" ]]; then
+  warn "INT_OC_TOKEN is not set — required only if no matching kubeconfig context for the internal cluster (stone-prod-p02)."
+else
+  success "INT_OC_TOKEN=<set>"
 fi
 
 if ! $CREDS_OK; then
@@ -343,7 +347,8 @@ if ! $CREDS_OK; then
   echo "    # Optional overrides:"
   echo "    # export KONFLUX_RELEASE_DATA_REPO_URL='https://gitlab.cee.redhat.com/releng/konflux-release-data.git'"
   echo "    # export JIRA_SERVER='https://redhat.atlassian.net'"
-  echo "    # export OC_TOKEN='<token-from-openshift-console>'"
+  echo "    # export EXT_OC_TOKEN='<token-from-external-openshift-console>'  # stone-prd-rh01 (ODH builds)
+    # export INT_OC_TOKEN='<token-from-internal-openshift-console>'  # stone-prod-p02 (RHOAI builds)"
   echo ""
   echo "  Create GitLab token: GitLab → User Settings → Access Tokens"
   echo "  Create Jira token:   https://id.atlassian.com/manage-profile/security/api-tokens"

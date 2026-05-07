@@ -8,8 +8,10 @@
 #   internal           — stone-prod-p02  (RHOAI builds)
 #
 # Environment:
-#   OC_TOKEN  — optional; cluster login token. Required only when no matching
-#               kubeconfig context is found.
+#   EXT_OC_TOKEN  — optional; token for the external Konflux cluster (stone-prd-rh01).
+#                   Required only when no matching kubeconfig context is found.
+#   INT_OC_TOKEN  — optional; token for the internal Konflux cluster (stone-prod-p02).
+#                   Required only when no matching kubeconfig context is found.
 #
 # Exit codes:
 #   0  Success (already authenticated or login succeeded)
@@ -60,24 +62,31 @@ if oc config get-contexts &>/dev/null 2>&1; then
       info "Already authenticated as: $(oc whoami)"
       exit 0
     fi
-    warn "Context found but token appears expired. Falling back to OC_TOKEN login."
+    warn "Context found but token appears expired. Falling back to token login."
   else
     info "No matching kubeconfig context found for $CLUSTER_INSTANCE cluster ($API_SERVER)."
   fi
 fi
 
-# ── Login with OC_TOKEN ─────────────────────────────────────────────────────────
-OC_TOKEN="${OC_TOKEN:-}"
-if [[ -z "$OC_TOKEN" ]]; then
-  die "No valid kubeconfig context found and OC_TOKEN is not set.
+# ── Select cluster-specific token ───────────────────────────────────────────────
+if [[ "$CLUSTER_INSTANCE" == "external" ]]; then
+  TOKEN="${EXT_OC_TOKEN:-}"
+  TOKEN_VAR="EXT_OC_TOKEN"
+else
+  TOKEN="${INT_OC_TOKEN:-}"
+  TOKEN_VAR="INT_OC_TOKEN"
+fi
+
+if [[ -z "$TOKEN" ]]; then
+  die "No valid kubeconfig context found and $TOKEN_VAR is not set.
   Get a login token from the OpenShift web console at:
     $API_SERVER
-  Then: export OC_TOKEN=<your-token>"
+  Then: export $TOKEN_VAR=<your-token>"
 fi
 
 info "Logging in to $CLUSTER_INSTANCE cluster ($API_SERVER)..."
-if ! oc login --server="$API_SERVER" --token="$OC_TOKEN" 2>&1; then
-  die "oc login failed. Check OC_TOKEN validity and VPN connectivity."
+if ! oc login --server="$API_SERVER" --token="$TOKEN" 2>&1; then
+  die "oc login failed. Check $TOKEN_VAR validity and VPN connectivity."
 fi
 
 info "Logged in as: $(oc whoami)"

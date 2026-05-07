@@ -214,9 +214,20 @@ check_result=0
 bash "$COMMON_SCRIPTS_DIR/check_github_file.sh" \
   --repo-path "$BC_PATH" \
   --file-path "bundle/bundle-patch.yaml" \
-  --ref       "main" \
+  --ref       "$SRC_BRANCH" \
   --grep      "$RELATED_IMAGE_NAME" || check_result=$?
 # check_result: 0=found, 1=not found or 404, 2=API error
+```
+
+> `SRC_BRANCH` is `main` for ODH and `$branch_name` for RHOAI (set in Step 5).
+> Set it early here so the correct ref is used:
+
+```bash
+if [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]]; then
+  SRC_BRANCH="main"
+else
+  SRC_BRANCH="$branch_name"
+fi
 ```
 
 - `check_result=2` (API error) — warn and continue to Step 5:
@@ -229,7 +240,7 @@ If `check_result=0` (entry already present):
 
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
-  --add-label "obc-changes-done" \
+  --add-label "bundle-changes-done" \
   --comment "'$COMPONENT_NAME' ($RELATED_IMAGE_NAME) is already present in bundle/bundle-patch.yaml on the main branch of ${BC_PATH}.
 
 No changes are needed. The build-config integration for this component is already complete."
@@ -238,7 +249,7 @@ No changes are needed. The build-config integration for this component is alread
 Print:
 ```
 $RELATED_IMAGE_NAME already exists in bundle/bundle-patch.yaml (main branch).
-Jira updated with label 'obc-changes-done'. No action needed.
+Jira updated with label 'bundle-changes-done'. No action needed.
 ```
 
 **Stop with exit 0.**
@@ -455,7 +466,7 @@ PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
   --src-url "$BC_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$BC_URL" \
-  --dest-branch main \
+  --dest-branch "$SRC_BRANCH" \
   --title "Add $COMPONENT_NAME to bundle-patch.yaml" \
   --description "Adds '$COMPONENT_NAME' to the ${BC_PATH} bundle relatedImages.
 
@@ -486,7 +497,6 @@ After a successful PR creation, update Jira:
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
   --add-label "bundle-pr-raised" \
-  --add-label "obc-changes-done" \
   --comment "GitHub PR raised to add '$COMPONENT_NAME' to ${BC_PATH}.
 
 PR URL: $PR_URL
@@ -509,7 +519,7 @@ Done.
   config/build-config.yaml    — rhoai/${COMPONENT_NAME}-rhel9 added (RHOAI only)
   bundle/Dockerfile           — ARG + LABEL entries added for $COMPONENT_NAME (RHOAI only)
   GitHub PR                   — raised: $PR_URL
-  Jira                        — updated (labels: bundle-pr-raised, obc-changes-done)
+  Jira                        — updated (label: bundle-pr-raised)
 
   component_name              : $COMPONENT_NAME
   product_context             : $PRODUCT_CONTEXT

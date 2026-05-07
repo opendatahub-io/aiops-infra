@@ -299,34 +299,12 @@ RHOAI_YAML="$CLONE_DIR/product-listings/rhoai/rhoai.yaml"
 if grep -qF "$PRODUCT_LISTING_ENTRY" "$RHOAI_YAML"; then
   echo "'$PRODUCT_LISTING_ENTRY' already present in product-listings/rhoai/rhoai.yaml — skipping edit."
 else
-  python3 -c "
-import sys
-
-with open('$RHOAI_YAML', 'r') as f:
-    lines = f.readlines()
-
-entry_line = '- $PRODUCT_LISTING_ENTRY\n'
-
-# Find the repositories: key and append after the last - entry in that list
-in_repos = False
-last_repo_idx = None
-for i, line in enumerate(lines):
-    if line.strip().startswith('repositories:'):
-        in_repos = True
-    elif in_repos and line.lstrip().startswith('- '):
-        last_repo_idx = i
-    elif in_repos and line.strip() and not line.lstrip().startswith('- ') and not line.strip().startswith('#'):
-        in_repos = False
-
-if last_repo_idx is not None:
-    lines.insert(last_repo_idx + 1, entry_line)
-else:
-    lines.append(entry_line)
-
-with open('$RHOAI_YAML', 'w') as f:
-    f.writelines(lines)
-print('Entry added.')
-"
+  python3 "$COMMON_SCRIPTS_DIR/append_yaml_list_entry.py" "$RHOAI_YAML" \
+    --list-key "repositories" \
+    --value "$PRODUCT_LISTING_ENTRY" || {
+    echo "ERROR in Step 8: Could not append entry to product-listings/rhoai/rhoai.yaml. See details above. Aborting."
+    exit 1
+  }
 
   grep -qF "$PRODUCT_LISTING_ENTRY" "$RHOAI_YAML" || {
     echo "ERROR in Step 8: Verification failed — '$PRODUCT_LISTING_ENTRY' not found after append."
@@ -396,7 +374,7 @@ On success, update Jira (only when `JIRA_URL` is non-empty):
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
   --add-label "product-listing-mr-raised" \
-  --comment "GitLab MR raised to add '${COMPONENT_NAME}' to the RHOAI product listing.
+  --comment "[step:product_listing] GitLab MR raised to add '${COMPONENT_NAME}' to the RHOAI product listing.
 
 MR URL: $MR_URL
 
