@@ -362,6 +362,16 @@ eval "$(bash "$COMMON_SCRIPTS_DIR/detect_prefetch_input.sh" \
   --context-path "$CONTEXT_PATH_NORMALIZED")"
 # Sets PREFETCH_INPUT (JSON array string, defaults to [] on error)
 echo "PREFETCH_INPUT: $PREFETCH_INPUT"
+
+# Build the prefetch-input param block — omit entirely when PREFETCH_INPUT is an empty array
+if [[ "$PREFETCH_INPUT" == "[]" ]]; then
+  PREFETCH_PARAM_BLOCK=""
+  echo "PREFETCH_INPUT is empty — prefetch-input param will be omitted from PipelineRun."
+else
+  PREFETCH_PARAM_BLOCK="  - name: prefetch-input
+    value: |
+      ${PREFETCH_INPUT}"
+fi
 ```
 
 ### 7b. Write the file
@@ -420,9 +430,7 @@ spec:
     value: ${CONTEXT_PATH_NORMALIZED}
   - name: hermetic
     value: true
-  - name: prefetch-input
-    value: |
-      ${PREFETCH_INPUT}
+${PREFETCH_PARAM_BLOCK}
   - name: build-source-image
     value: true
   - name: build-image-index

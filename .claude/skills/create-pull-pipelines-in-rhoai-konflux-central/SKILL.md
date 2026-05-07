@@ -78,7 +78,7 @@ on the `main` branch of `red-hat-data-services/konflux-central`.
 | `51094` (hardcoded PR number suffix in `name:`) | `{{pull_request_number}}` | PAC template variable |
 | `Dockerfile.konflux` in `dockerfile:` | `${DOCKERFILE_PATH}` | YAML `dockerfile_path` |
 | `.` in `path-context:` | `${CONTEXT_PATH_NORMALIZED}` | YAML `context_path` |
-| `[{"type": "npm", "path": "."}]` in `prefetch-input:` | `${PREFETCH_INPUT}` | `detect_prefetch_input.sh` |
+| `[{"type": "npm", "path": "."}]` in `prefetch-input:` | `${PREFETCH_INPUT}` (entire param omitted when `[]`) | `detect_prefetch_input.sh` |
 | All 4 hardcoded `build-platforms` entries | `${PLATFORMS[@]}` | YAML `architectures` |
 | `https://github.com/red-hat-data-services/konflux-central.git` in `pipelineRef.url` | `${RKC_URL}` | env var / default |
 
@@ -388,6 +388,16 @@ eval "$(bash "$COMMON_SCRIPTS_DIR/detect_prefetch_input.sh" \
   --context-path "$CONTEXT_PATH_NORMALIZED")"
 # Sets PREFETCH_INPUT (JSON array string, defaults to [] on error)
 echo "PREFETCH_INPUT: $PREFETCH_INPUT"
+
+# Build the prefetch-input param block — omit entirely when PREFETCH_INPUT is an empty array
+if [[ "$PREFETCH_INPUT" == "[]" ]]; then
+  PREFETCH_PARAM_BLOCK=""
+  echo "PREFETCH_INPUT is empty — prefetch-input param will be omitted from PipelineRun."
+else
+  PREFETCH_PARAM_BLOCK="  - name: prefetch-input
+    value: |
+      ${PREFETCH_INPUT}"
+fi
 ```
 
 ### 8b. Write the file
@@ -455,9 +465,7 @@ ${PLATFORM_LIST}
     value: ${CONTEXT_PATH_NORMALIZED}
   - name: hermetic
     value: true
-  - name: prefetch-input
-    value: |
-      ${PREFETCH_INPUT}
+${PREFETCH_PARAM_BLOCK}
   - name: build-image-index
     value: true
   - name: enable-slack-failure-notification
