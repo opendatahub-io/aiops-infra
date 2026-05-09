@@ -185,6 +185,23 @@ Transform the validated input to the canonical form and store in `target_rhoai_v
   - Remaining characters: lowercase letters, numbers, and hyphens only
   - No consecutive or trailing hyphens
 
+**Q3.5 — Release category (RHOAI only)**
+
+_Execute only when `product_context == RHOAI`. Skip entirely for ODH._
+
+> What is the release category for this component?
+> Options:
+>   1. Generally Available (GA)
+>   2. Tech Preview (TP)
+>   3. Dev Preview / Beta (DP)
+
+→ Accept the full label or the abbreviation (case-insensitive). Map to stored value:
+  - `Generally Available` / `GA` → `"Generally Available"`
+  - `Tech Preview` / `TP` → `"Tech Preview"`
+  - `Dev Preview (Beta)` / `Dev Preview` / `Beta` / `DP` → `"Beta"`
+  Re-ask if the input does not match any of the above.
+→ Store in `release_category`.
+
 **Q4 — Repository URL**
 > What is the full HTTPS URL of the component's GitHub repository?
 > (e.g. https://github.com/opendatahub-io/my-component)
@@ -322,6 +339,7 @@ Component onboarding details collected:
   build_type / architectures   : <value>
   target_rhoai_version         : <value or N/A>   # only shown for RHOAI
   component_name               : <value>
+  release_category             : <value or N/A>   # only shown for RHOAI
   repo_url                     : <value>
   repo_branch                  : <value>
   context_path                 : <value>
@@ -364,6 +382,7 @@ if [[ "$product_context" == "RHOAI" ]]; then
   YAML_ARGS+=(
     --target-rhoai-version "$target_rhoai_version"
     --architectures "$(IFS=,; echo "${architectures[*]}")"
+    --release-category "$release_category"
     --long-description "$long_description"
     --short-description "$short_description"
   )
@@ -453,6 +472,13 @@ Please update the Dockerfile and re-run this skill.
 
 ## Step 7: Jira integration
 
+### Step 7-pre: Ask for parent feature ID (always)
+
+> What is the Jira ID of the parent feature? (e.g. RHAISTRAT-1234)
+
+→ Validate: must match `^[A-Z]+-\d+$`. Re-ask if invalid, showing the expected format.
+→ Store in `PARENT_FEATURE_ID`.
+
 Two paths depending on whether a Jira URL was provided.
 
 ---
@@ -466,6 +492,7 @@ Two paths depending on whether a Jira URL was provided.
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
   --attach "$YAML_PATH" \
   --add-label "yaml-attached" \
+  --link-related "$PARENT_FEATURE_ID" \
   --comment "component_onboarding_details.yaml has been generated and attached to this ticket.
 
 Component: <component_name>
@@ -487,14 +514,7 @@ Continue to Step 7c.
 
 ### Path B — No Jira URL provided
 
-#### Step 7b-1: Ask for parent feature ID
-
-> What is the Jira ID of the parent feature? (e.g. RHAISTRAT-1234)
-
-→ Validate: must match `^[A-Z]+-\d+$`. Re-ask if invalid, showing the expected format.
-→ Store in `PARENT_FEATURE_ID`.
-
-#### Step 7b-2: Clone the product-specific template Jira
+#### Step 7b-1: Clone the product-specific template Jira
 
 Select the template based on `product_context`:
 - `ODH`  → clone `RHOAIENG-35683`
@@ -516,7 +536,7 @@ NEW_JIRA_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "new" \
 
 On exit 1: display stderr and stop with:
 ```
-ERROR in Step 7b-2: Could not clone Jira template ($TEMPLATE_ID). See details above. Aborting.
+ERROR in Step 7b-1: Could not clone Jira template ($TEMPLATE_ID). See details above. Aborting.
 ```
 
 On success: capture `NEW_JIRA_URL` from stdout.
@@ -527,7 +547,7 @@ JIRA_ID="${NEW_JIRA_URL##*/}"
 echo "New Jira created: $NEW_JIRA_URL"
 ```
 
-#### Step 7b-3: Attach YAML to the new Jira
+#### Step 7b-2: Attach YAML to the new Jira
 
 ```bash
 uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
@@ -545,7 +565,7 @@ This ticket is ready for onboarding automation. Run /validate-component-onboardi
 
 On exit 1: display stderr and stop with:
 ```
-ERROR in Step 7b-3 (Upload attachment): Could not attach YAML to new Jira. See details above. Aborting.
+ERROR in Step 7b-2 (Upload attachment): Could not attach YAML to new Jira. See details above. Aborting.
 ```
 
 Continue to Step 7c.
@@ -597,6 +617,7 @@ Done.
   component_onboarding_details.yaml  — generated and validated
   Jira                               — <JIRA_ID> (<JIRA_URL>)
                                        (created from template <TEMPLATE_ID>, or provided by user)
+  Parent feature link                — <PARENT_FEATURE_ID> (relates to)
   Jira attachment                    — uploaded (label: yaml-attached)
   Jira comment                       — posted
 
@@ -622,7 +643,7 @@ If `TEMPLATE_ID` was not used (i.e. the user provided a Jira URL directly), omit
 | YAML generation fails | 5 | Check arguments; see stderr from `generate_onboarding_yaml.py` |
 | YAML validation fails | 6 | Correct the inputs and re-generate |
 | Dockerfile digest violations found | 6b | Pin all FROM images with @sha256 digests, then re-run |
-| Clone fails (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) | 7b-2 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
-| "relates to" link type not found | 7b-2 | Check available link types with a Jira admin |
-| Attach/upload fails | 7, 7b-3 | Check credentials; re-run the skill |
+| Clone fails (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) | 7b-1 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
+| "relates to" link type not found | 7-pre, 7b-1 | Check available link types with a Jira admin |
+| Attach/upload fails | 7, 7b-2 | Check credentials; re-run the skill |
 | Metadata update fails | 7c | Warnings printed; update title/description/label manually in Jira |

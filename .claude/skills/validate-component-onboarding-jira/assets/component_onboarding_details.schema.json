@@ -95,6 +95,11 @@
           "type": "string",
           "description": "A short noun phrase of a few words summarising the component (required when product_context is RHOAI)",
           "minLength": 1
+        },
+        "release_category": {
+          "type": "string",
+          "description": "Release maturity category for the component (required when product_context is RHOAI)",
+          "enum": ["Generally Available", "Tech Preview", "Beta"]
         }
       },
       "allOf": [
@@ -113,7 +118,7 @@
             "required": ["product_context"]
           },
           "then": {
-            "required": ["architectures", "target_rhoai_version", "long_description", "short_description"]
+            "required": ["architectures", "target_rhoai_version", "long_description", "short_description", "release_category"]
           }
         },
         {
