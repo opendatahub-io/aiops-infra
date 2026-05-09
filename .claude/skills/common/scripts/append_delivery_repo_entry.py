@@ -30,7 +30,7 @@ ENTRY_TEMPLATE = """\
   repository:
     repository: {repository_name}
     release_categories:
-      - Generally Available
+      - {release_category}
     includes_multiple_content_streams: true
     auto_rebuild_tags: []
     content_stream_tags: ['{content_stream_tag}']
@@ -62,6 +62,9 @@ def main():
     parser.add_argument("--display-name",       required=True)
     parser.add_argument("--short-description",  required=True)
     parser.add_argument("--long-description",   required=True)
+    parser.add_argument("--release-category",
+                        choices=["Generally Available", "Tech Preview", "Beta"],
+                        default="Generally Available")
     args = parser.parse_args()
 
     yaml_path = Path(args.yaml_file)
@@ -80,6 +83,7 @@ def main():
     entry = ENTRY_TEMPLATE.format(
         repository_name=args.repository_name,
         content_stream_tag=args.content_stream_tag,
+        release_category=args.release_category,
         display_name=args.display_name,
         short_description=args.short_description,
         long_description=args.long_description,

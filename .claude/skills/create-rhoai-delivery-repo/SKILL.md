@@ -195,10 +195,13 @@ eval "$(bash "$COMMON_SCRIPTS_DIR/parse_rhoai_version.sh" \
 # Parse display fields (may contain spaces — use sed, not awk)
 SHORT_DESCRIPTION=$(grep -m1 'short_description:' "$YAML_FILE" | sed 's/^[[:space:]]*short_description:[[:space:]]*//')
 LONG_DESCRIPTION=$(grep -m1 'long_description:' "$YAML_FILE" | sed 's/^[[:space:]]*long_description:[[:space:]]*//')
+RELEASE_CATEGORY=$(grep -m1 'release_category:' "$YAML_FILE" | sed 's/^[[:space:]]*release_category:[[:space:]]*//' | tr -d '"')
 
 # Fall back to COMPONENT_NAME if the fields are absent (ODH or older YAMLs)
 [[ -z "$SHORT_DESCRIPTION" ]] && SHORT_DESCRIPTION="$COMPONENT_NAME"
 [[ -z "$LONG_DESCRIPTION" ]]  && LONG_DESCRIPTION="$COMPONENT_NAME"
+# Fall back to Generally Available for older YAMLs that predate release_category
+[[ -z "$RELEASE_CATEGORY" ]] && RELEASE_CATEGORY="Generally Available"
 
 # Compute display name: replace hyphens with spaces, title-case each word,
 # then uppercase known acronyms (ODH, RHOAI, AI, CLI, API).
@@ -213,6 +216,7 @@ COMPONENT_NAME       : $COMPONENT_NAME
 TARGET_RHOAI_VERSION : $TARGET_RHOAI_VERSION
 REPOSITORY_NAME      : $REPOSITORY_NAME
 CONTENT_STREAM_TAG   : $CONTENT_STREAM_TAG
+RELEASE_CATEGORY     : $RELEASE_CATEGORY
 DISPLAY_NAME         : $DISPLAY_NAME
 SHORT_DESCRIPTION    : $SHORT_DESCRIPTION
 LONG_DESCRIPTION     : $LONG_DESCRIPTION
@@ -319,6 +323,7 @@ RESULT=$(uv run --script "$COMMON_SCRIPTS_DIR/append_delivery_repo_entry.py" \
   --yaml-file           "$RHOAI_YAML" \
   --repository-name     "$REPOSITORY_NAME" \
   --content-stream-tag  "$CONTENT_STREAM_TAG" \
+  --release-category    "$RELEASE_CATEGORY" \
   --display-name        "$DISPLAY_NAME" \
   --short-description   "$SHORT_DESCRIPTION" \
   --long-description    "$LONG_DESCRIPTION")
