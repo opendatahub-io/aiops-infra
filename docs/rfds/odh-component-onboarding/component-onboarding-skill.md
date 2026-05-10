@@ -6,7 +6,7 @@ The ODH/RHOAI component onboarding workflow is implemented as a **suite of modul
 
 Each CI run is **short-lived and non-blocking**: the wrapper checks what has merged since the last run, raises PRs/MRs for any newly-unblocked steps, posts a Jira update, and exits immediately — it never waits for reviews or merges. The scheduler provides the polling cadence; the job itself completes in minutes. The ticket transitions to "Resolved" automatically once all PRs and MRs are merged and detected on a subsequent run.
 
-The skill supports both **ODH** and **RHOAI** onboarding from a single invocation. ODH and RHOAI share a common core pipeline (Steps 1–7) but diverge on product-specific steps: RHOAI includes additional steps for delivery repo provisioning, product listing update, auto-merge configuration, and Renovate enablement (Steps 8–11), while ODH triggers a deferred GitHub Actions workflow (Step 5). The skill is **fully idempotent**: re-running it any number of times for the same Jira issue is safe — completed steps are always skipped, already-raised PRs/MRs are never duplicated, and state is restored from Jira labels if the local file is absent.
+The skill supports both **ODH** and **RHOAI** onboarding from a single invocation. ODH and RHOAI share a common core pipeline (Steps 1–8) but diverge on product-specific steps: for RHOAI, `create-rhoai-delivery-repo` runs early (before `onboard-component-to-konflux-release-data`) and additional steps handle product listing, auto-merge, and Renovate enablement; for ODH, a deferred GitHub Actions workflow is triggered once both `krd` and `okc` are merged. The skill is **fully idempotent**: re-running it any number of times for the same Jira issue is safe — completed steps are always skipped, already-raised PRs/MRs are never duplicated, and state is restored from Jira labels if the local file is absent.
 
 ---
 
@@ -29,23 +29,25 @@ flowchart TD
 
         S1["validate-component-onboarding-jira"]
         S2["create-quay-repo"]
-        S3["onboard-component-to-konflux-release-data"]
-        S4ODH["add-component-to-odh-konflux-central\n(ODH)"]
-        S4RHOAI["add-component-to-rhoai-konflux-central\n(RHOAI push pipelines)"]
-        S4b["create-pull-pipelines-in-rhoai-konflux-central\n(RHOAI pull pipelines)"]
-        S5["run-odh-konflux-onboarder-workflow\n(once krd+okc merged — ODH only)"]
-        S6["integrate-component-with-odh-operator\n(if is_operator=true)"]
-        S7["integrate-component-with-bundle"]
-        S8["create-rhoai-delivery-repo\n(RHOAI only)"]
+        S3RHOAI["create-rhoai-delivery-repo\n(RHOAI only — prerequisite of krd)"]
+        S4["onboard-component-to-konflux-release-data\n(krd — RHOAI: after delivery-repo merges)"]
+        S5ODH["add-component-to-odh-konflux-central\n(ODH)"]
+        S5RHOAI["add-component-to-rhoai-konflux-central\n(RHOAI push pipelines)"]
+        S5b["create-pull-pipelines-in-rhoai-konflux-central\n(RHOAI pull pipelines)"]
+        S6["run-odh-konflux-onboarder-workflow\n(once krd+okc merged — ODH only)"]
+        S7["integrate-component-with-odh-operator\n(if is_operator=true)"]
+        S8["integrate-component-with-bundle"]
         S9["update-rhoai-product-listing\n(RHOAI only, after delivery-repo merges)"]
         S10["setup-auto-merge\n(RHOAI only)"]
         S11["enable-renovate-on-rhoai-component-repo\n+ deferred renovate sync\n(RHOAI only)"]
 
         Fetch -->|"one child pipeline per issue"| ChildPipeline
         ChildPipeline --> Wrapper
-        Wrapper --> S1 --> S2 --> S3
-        S3 --> S4ODH --> S5 --> S6 --> S7
-        S3 --> S4RHOAI --> S4b --> S6 --> S7 --> S8 --> S9 --> S10 --> S11
+        Wrapper --> S1 --> S2
+        S2 --> S4
+        S2 --> S3RHOAI --> S4
+        S4 --> S5ODH --> S6 --> S7 --> S8
+        S4 --> S5RHOAI --> S5b --> S7 --> S8 --> S9 --> S10 --> S11
         Wrapper <-->|"Read / Write"| State
     end
 
@@ -68,14 +70,14 @@ flowchart TD
     Wrapper -->|"Fetch YAML"| JiraTicket
     Wrapper -->|"Update labels + comment + status"| JiraTicket
     S2 --> AppInterface
-    S3 --> KonfluxRD
-    S4ODH --> ODHKonflux
-    S4RHOAI --> RHOAIKonflux
-    S4b --> RHOAIKonflux
-    S5 --> ODHKonflux
-    S6 --> ODHOperator
-    S7 --> ODHBC
-    S8 --> PyxisRepo
+    S3RHOAI --> PyxisRepo
+    S4 --> KonfluxRD
+    S5ODH --> ODHKonflux
+    S5RHOAI --> RHOAIKonflux
+    S5b --> RHOAIKonflux
+    S6 --> ODHKonflux
+    S7 --> ODHOperator
+    S8 --> ODHBC
     S9 --> PyxisRepo
     S10 --> RHODSInfra
     S11 --> RHOAIKonflux
@@ -89,15 +91,45 @@ flowchart TD
 
 This skill is **independent** and intended for component teams, not DevOps. It:
 
-1. Interactively collects onboarding parameters (product context, component name, repo URL, branch, Dockerfile path, whether it is an operator, etc.).
-2. Generates a validated `component_onboarding_details.yaml` against a JSON Schema.
-3. Attaches the YAML to the Jira ticket (or clones a template Jira and creates a new one for ODH).
+1. Interactively collects onboarding parameters via a guided Q&A (product context, component name, repo URL, branch, Dockerfile path, CPU architectures, release category, descriptions, whether it is an operator, etc.).
+2. For RHOAI, auto-fetches the repo README to suggest `long_description` and `short_description`.
+3. For RHOAI, validates that the Dockerfile pins all `FROM` images with `@sha256` digests.
+4. Generates a validated `component_onboarding_details.yaml` against a JSON Schema.
+5. When no Jira URL is provided, automatically clones the product-specific onboarding template (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) and creates a new ticket.
+6. Attaches the YAML to the Jira ticket, sets the `yaml-attached` label, and links the parent feature.
 
 ```
 /create-component-onboarding-jira [<jira-url>]
 ```
 
+| Invocation | ODH | RHOAI |
+|---|---|---|
+| No URL | Clones `RHOAIENG-35683`, creates ticket, attaches YAML | Clones `RHOAIENG-17225`, creates ticket, attaches YAML |
+| With URL | Attaches YAML to existing ticket | Attaches YAML to existing ticket |
+
 The YAML attachment is the **contract** between the component team and the automation. Once attached and the Jira label `yaml-attached` is set, the ticket is picked up automatically on the next CI run.
+
+#### YAML Schema (`component_onboarding_details.yaml`)
+
+All fields live under an `inputs:` top-level key. Required fields:
+
+| Field | Type | ODH | RHOAI | Notes |
+|-------|------|-----|-------|-------|
+| `product_context` | string | ✓ | ✓ | `ODH` or `RHOAI` |
+| `component_name` | string | ✓ | ✓ | Must match `^odh-[a-z0-9]+(-[a-z0-9]+)*$` |
+| `repo_url` | string | ✓ | ✓ | `https://github.com/...` |
+| `repo_branch` | string | ✓ | ✓ | RHOAI: auto-derived from `target_rhoai_version` |
+| `context_path` | string | ✓ | ✓ | Docker build context (use `./` for root) |
+| `dockerfile_path` | string | ✓ | ✓ | RHOAI: filename must contain `Dockerfile.konflux` |
+| `is_operator` | boolean | ✓ | ✓ | Controls operator-specific steps |
+| `build_type` | string | ✓ | — | `CI` or `Release` |
+| `target_rhoai_version` | string | — | ✓ | Canonical form: `x.y` or `x.y-ea-N` |
+| `architectures` | string[] | — | ✓ | `x86_64`, `arm64`, `ppc64le`, `s390x`; default `[x86_64, arm64]` |
+| `release_category` | string | — | ✓ | `Generally Available`, `Tech Preview`, or `Beta` |
+| `short_description` | string | — | ✓ | A short noun phrase summarising the component |
+| `long_description` | string | — | ✓ | One–two sentences describing what the component does |
+| `operator_manifest_src_path` | string | if operator | if operator | Relative path to manifests in git repo |
+| `operator_manifest_dest_path` | string | if operator | if operator | Destination path in odh-operator image |
 
 ### 2. `onboard-konflux-components-for-odh-and-rhoai` — Run by GitLab CI
 
@@ -172,14 +204,14 @@ If no issues match, a no-op child pipeline is emitted and the run exits cleanly.
 | 0 | *(wrapper)* | Parse inputs, check prerequisites, derive product context, init/resume `pipeline_state.json`, sync state from Jira labels | — | Both | — |
 | 1 | `validate-component-onboarding-jira` | Fetch YAML from Jira; validate against schema; set Jira → "In Progress" | — | Both | Blocks on schema failure |
 | 2 | `create-quay-repo` | Raise GitLab MR to `app-interface` to create Quay repository | `gitlab.cee.redhat.com` | Both | MR review + merge |
-| 3 | `onboard-component-to-konflux-release-data` | Render Konflux Component YAML; raise GitLab MR to `konflux-release-data`; run `build-single.sh` | `gitlab.cee.redhat.com` | Both | MR review + merge |
-| 4 | `add-component-to-odh-konflux-central` / `add-component-to-rhoai-konflux-central` | Add push-pipeline Tekton PipelineRun YAMLs; raise GitHub PR to the product-specific konflux-central repo | `odh-konflux-central` / `rhoai-konflux-central` | Both (product-specific skill) | PR review + merge |
-| 4b | `create-pull-pipelines-in-rhoai-konflux-central` | Add pull-request Tekton PipelineRun YAMLs; raise GitHub PR to `rhoai-konflux-central` | `rhoai-konflux-central` | RHOAI only | PR review + merge |
-| 5 | `run-odh-konflux-onboarder-workflow` | *(Deferred, ODH only)* Once Steps 3 and 4 are both merged, triggers `odh-konflux-onboarder.yml` and monitors the resulting Tekton PR | `odh-konflux-central` | ODH only | Tekton PR review + merge |
-| 6 | `integrate-component-with-odh-operator` | Skipped if `is_operator=false`. Raise GitHub PR to add manifest config to `opendatahub-operator` | `opendatahub-operator` | Both | PR review + merge |
-| 7 | `integrate-component-with-bundle` | Fetch latest image digest from Quay; add `relatedImages` entry to `bundle-patch.yaml`; raise GitHub PR | `ODH-Build-Config` | Both | PR review + merge |
-| 8 | `create-rhoai-delivery-repo` | Raise GitLab MR to `pyxis-repo-configs` to provision the RHOAI delivery repository | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
-| 9 | `update-rhoai-product-listing` | Raise GitLab MR to `pyxis-repo-configs` to add the component to the RHOAI product listing; runs after Step 8 merges | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
+| 3 | `create-rhoai-delivery-repo` | Raise GitLab MR to `pyxis-repo-configs` to provision the RHOAI delivery repository; **must merge before Step 4 is unblocked for RHOAI** | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
+| 4 | `onboard-component-to-konflux-release-data` | Render Konflux Component YAML; raise GitLab MR to `konflux-release-data`; run `build-single.sh`. For RHOAI: `depends_on delivery_repo` | `gitlab.cee.redhat.com` | Both | MR review + merge |
+| 5 | `add-component-to-odh-konflux-central` / `add-component-to-rhoai-konflux-central` | Add push-pipeline Tekton PipelineRun YAMLs; raise GitHub PR to the product-specific konflux-central repo | `odh-konflux-central` / `rhoai-konflux-central` | Both (product-specific skill) | PR review + merge |
+| 5b | `create-pull-pipelines-in-rhoai-konflux-central` | Add pull-request Tekton PipelineRun YAMLs; raise GitHub PR to `rhoai-konflux-central` | `rhoai-konflux-central` | RHOAI only | PR review + merge |
+| 6 | `run-odh-konflux-onboarder-workflow` | *(Deferred, ODH only)* Once **both** Steps 4 and 5 are merged, triggers `odh-konflux-onboarder.yml` and monitors the resulting Tekton PR | `odh-konflux-central` | ODH only | Tekton PR review + merge |
+| 7 | `integrate-component-with-odh-operator` | Skipped if `is_operator=false`. Raise GitHub PR to add manifest config to `opendatahub-operator` | `opendatahub-operator` | Both | PR review + merge |
+| 8 | `integrate-component-with-bundle` | Fetch latest image digest from Quay; add `relatedImages` entry to `bundle-patch.yaml`; raise GitHub PR | `ODH-Build-Config` | Both | PR review + merge |
+| 9 | `update-rhoai-product-listing` | Raise GitLab MR to `pyxis-repo-configs` to add the component to the RHOAI product listing; runs after Step 3 (`delivery_repo`) merges | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
 | 10 | `setup-auto-merge` | Raise GitHub PR to `rhods-devops-infra` to configure auto-merge for the component repo | `rhods-devops-infra` | RHOAI only | PR review + merge |
 | 11 | `enable-renovate-on-rhoai-component-repo` | Raise GitHub PR to `rhoai-konflux-central` to enable Renovate; on merge, trigger deferred `sync-rhoai-renovate-configs` workflow | `rhoai-konflux-central` | RHOAI only | PR review + merge |
 
@@ -216,7 +248,8 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 | 2 | **Vertex AI / Claude Code** | Claude Code CLI runs in CI using Vertex AI (`CLAUDE_CODE_USE_VERTEX=1`). GCP service account must have Vertex AI access. |
 | 3 | **Skills installed in CI** | `setup-skills.sh` clones `aiops-infra` and installs the skill suite into the CI container before invoking Claude. |
 | 4 | **Jira ticket with YAML attached** | Component team must have run `create-component-onboarding-jira` first; the ticket must have the `yaml-attached` label. |
-| 5 | **VPN / network access** | The CI runner must be able to reach `gitlab.cee.redhat.com` (Steps 2, 3, 8, 9). |
+| 5 | **VPN / network access** | The CI runner must be able to reach `gitlab.cee.redhat.com` (Steps 2, 3, 4, 9). |
+| 6 | **OpenShift tokens** | `EXT_OC_TOKEN` for the external cluster (stone-prd-rh01, ODH builds); `INT_OC_TOKEN` for the internal cluster (stone-prod-p02, RHOAI builds). Each is only required if no matching kubeconfig context is found for that cluster. |
 
 ---
 
@@ -228,12 +261,13 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 | CI picks up ticket, YAML validated | In Progress | — |
 | All PRs/MRs raised | Review | `onboarding-in-review` added |
 | Quay MR merged | Review | `quay-mr-raised` removed |
-| KRD MR merged | Review | `konflux-mr-raised` removed |
+| Delivery repo MR raised *(RHOAI)* | Review | `delivery-repo-mr-raised` added |
+| Delivery repo MR merged *(RHOAI)* | Review | `delivery-repo-mr-raised` removed, `delivery-repo-mr-merged` added |
+| KRD MR merged | Review | `krd-mr-raised` removed |
 | OKC/RKC PR merged | Review | `okc-pr-raised` / `rkc-pr-raised` removed |
 | Pull pipelines PR raised *(RHOAI)* | Review | `rkc-pull-pr-raised` added |
 | Pull pipelines PR merged *(RHOAI)* | Review | `rkc-pull-pr-raised` removed |
 | ODH onboarder workflow triggered *(ODH)* | Review | `onboarder-workflow-triggered` added |
-| Delivery repo MR merged *(RHOAI)* | Review | `delivery-repo-mr-raised` removed |
 | Product listing MR merged *(RHOAI)* | Review | `product-listing-mr-raised` removed |
 | Auto-merge PR merged *(RHOAI)* | Review | `auto-merge-pr-raised` removed |
 | Renovate PR merged + sync triggered *(RHOAI)* | Review | `renovate-sync-triggered` added |
@@ -252,6 +286,7 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 | State file absent (fresh CI checkout) | `sync_state_from_jira.py` restores state from Jira labels and comments automatically. |
 | Onboarder workflow 422 *(ODH)* | krd or okc not yet merged — next CI run retries after both merge. |
 | Renovate sync workflow fails *(RHOAI)* | Re-run `/sync-rhoai-renovate-configs` manually after renovate PR merges. |
+| Delivery repo already exists *(RHOAI)* | Child exits 0; step marked `done` with label `delivery-repo-exists`; krd unblocked immediately. |
 
 ---
 
@@ -266,7 +301,9 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 - **Resumable from Jira** — state is always restorable from Jira labels; a fresh CI checkout with no local files never loses progress.
 - **Jira as source of truth** — all progress, PR/MR links, and status transitions are recorded in Jira automatically.
 - **ODH and RHOAI from one invocation** — product context is derived automatically; a single wrapper handles both pipelines.
+- **Self-service Jira creation** — component teams can run `create-component-onboarding-jira` with no arguments and a ticket is created automatically from the product template.
 
 **Cons**
 - **2-hour lag** — progress only advances on the CI schedule; a just-merged PR won't unblock the next step until the next run.
 - **CI runner network dependency** — the runner must reach `gitlab.cee.redhat.com`; network issues stall all active tickets until the next run.
+- **RHOAI delivery repo is a hard gate** — for RHOAI, `krd` (Step 4) is blocked until the `delivery_repo` MR (Step 3) merges, adding one extra review cycle before Konflux onboarding begins.
