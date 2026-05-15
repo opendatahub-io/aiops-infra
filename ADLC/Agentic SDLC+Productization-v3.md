@@ -14,7 +14,7 @@ flowchart LR
     C[3. Epic Decomposer --> Onboarding Epic]:::planning
     D[4. Onboarding Info Generator + Validator]:::infra
     I[5. Onboarding Readiness Score <br /> rubric]:::assessment
-    E[6. Code Implementation <br /> Packages + Dependencies Exploration <br /> Dockerfile Creator]:::dev
+    E[6. Code Implementation <br />+<br /> Packages + Dependencies Exploration  <br />+<br />  Dockerfile Creation]:::dev
     F[7. ODH Repo Creator <br />+<br /> Midstream Sync Enabler]:::infra
     G[8. Onboarding Readiness Evaluator]:::assessment
     H[9. Onboarding Trigger through Gitops]:::trigger
