@@ -1,0 +1,40 @@
+{
+  "metadata": {
+    "description": "Skills for ODH/RHOAI component onboarding and DevOps automation, developed by the opendatahub-io aiops-infra team.\n"
+  },
+  "name": "aiops-infra-skills",
+  "owner": {
+    "name": "opendatahub-io"
+  },
+  "plugins": [
+    {
+      "author": {
+        "name": "opendatahub-io"
+      },
+      "category": "devops",
+      "description": "Interactively collects ODH/RHOAI component onboarding parameters, generates a validated component_onboarding_details.yaml, and creates or updates a Jira ticket with the YAML attached. When no Jira URL is provided, automatically creates a new ticket by cloning the product-specific onboarding template.\n",
+      "homepage": "https://github.com/opendatahub-io/aiops-infra",
+      "keywords": [
+        "onboarding",
+        "jira",
+        "konflux",
+        "odh",
+        "rhoai",
+        "component"
+      ],
+      "license": "Apache-2.0",
+      "name": "aiops-onboarding",
+      "repository": "https://github.com/opendatahub-io/aiops-infra",
+      "skills": [
+        "./skills"
+      ],
+      "source": {
+        "ref": "review",
+        "repo": "opendatahub-io/aiops-infra",
+        "source": "github"
+      },
+      "strict": false,
+      "version": "0.1.0"
+    }
+  ]
+}

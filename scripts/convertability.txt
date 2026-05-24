@@ -1,0 +1,272 @@
+  ---                                                                                                                                                                                                       
+  Where AI is genuinely needed (and why)                    
+                                                                                                                                                                                                            
+  1. Tekton PipelineRun YAML generation — onboard-component-to-konflux-release-data, add-component-to-rhoai-konflux-central, add-component-to-odh-konflux-central, create-pull-pipelines
+                                                                                                                                                                                                            
+  The YAML must substitute component-specific values (name, repo, branch, platform) while leaving PAC template variables like {{revision}}, {{target_branch}}, {{source_branch}} verbatim and untouched. A  
+  naive sed/template approach will accidentally replace or corrupt them. AI understands the distinction contextually. This is the hardest part to script safely.                                            
+                                                                                                                                                                                                            
+  2. Prefetch-input detection — add-component-to-rhoai-konflux-central, create-pull-pipelines, integrate-component-with-bundle                                                                              
+  
+  The detect_prefetch_input.sh script probes the repo for package.json, requirements.txt, go.mod, etc. to set the correct prefetch-input value in the pipeline. When it returns ambiguous or empty results  
+  (repo not yet created, unusual build system), a judgment call is required. AI can read the repo structure and make a reasonable inference; a script would either fail or silently set a wrong value.
+                                                                                                                                                                                                            
+  3. Failure diagnosis and adaptive retry — run-odh-konflux-onboarder-workflow                                                                                                                              
+  
+  When the GitHub Actions workflow fails, the skill fetches the log and decides whether to retry (transient infra failure) or stop and surface the error. This requires reading unstructured log text and   
+  classifying the failure — not scriptable without building a rule engine for every known failure mode.
+                                                                                                                                                                                                            
+  4. Dockerfile digest validation — validate-component-onboarding-jira                                                                                                                                      
+  
+  Detecting that FROM instructions are missing @sha256: digests is scriptable with regex. What's not easily scriptable is the recovery guidance — understanding which registry the base image comes from and
+   suggesting the correct digest lookup command per image type.
+                                                                                                                                                                                                            
+  5. Interactive Q&A in create-component-onboarding-jira (the upstream entry point, not a child of the orchestrator but worth noting)                                                                       
+  
+  Collecting onboarding parameters interactively, fetching README to suggest descriptions, asking follow-up questions — this is inherently a conversational AI task.                                        
+                                                            
+  ---                                                                                                                                                                                                       
+  What's already been extracted and is fully scriptable     
+                                                                                                                                                                                                            
+  The common/scripts/ directory already has ~40 scripts that cover ~90% of the actual work:
+                                                                                                                                                                                                            
+  ┌─────────────────────────────────────────────────────┬──────────────────────────────┐
+  │                  Already a script                   │            Covers            │                                                                                                                    
+  ├─────────────────────────────────────────────────────┼──────────────────────────────┤                                                                                                                    
+  │ setup_gitlab_playpen.sh / setup_github_playpen.sh   │ Clone, branch, push          │
+  ├─────────────────────────────────────────────────────┼──────────────────────────────┤                                                                                                                    
+  │ raise_gitlab_mr.py / raise_github_pr.py             │ MR/PR creation with retry    │                                                                                                                    
+  ├─────────────────────────────────────────────────────┼──────────────────────────────┤                                                                                                                    
+  │ edit_yaml.py / append_delivery_repo_entry.py        │ All YAML file edits          │                                                                                                                    
+  ├─────────────────────────────────────────────────────┼──────────────────────────────┤                                                                                                                    
+  │ parse_rhoai_version.sh / parse_component_details.sh │ All version/input parsing    │
+  ├─────────────────────────────────────────────────────┼──────────────────────────────┤                                                                                                                    
+  │ pipeline_state.sh / sync_state_from_jira.py         │ State management             │
+  ├─────────────────────────────────────────────────────┼──────────────────────────────┤                                                                                                                    
+  │ check_pr_mr_status.sh                               │ PR/MR status polling         │
+  ├─────────────────────────────────────────────────────┼──────────────────────────────┤                                                                                                                    
+  │ run_github_workflow.py                              │ Workflow trigger + monitor   │
+  ├─────────────────────────────────────────────────────┼──────────────────────────────┤                                                                                                                    
+  │ update_jira_issue.py / build_progress_summary.py    │ All Jira updates             │
+  ├─────────────────────────────────────────────────────┼──────────────────────────────┤                                                                                                                    
+  │ detect_prefetch_input.sh / resolve_bundle_image.sh  │ Repo introspection (partial) │
+  └─────────────────────────────────────────────────────┴──────────────────────────────┘                                                                                                                    
+                                                            
+  ---                                                                                                                                                                                                       
+  Conversion recommendation                                 
+                           
+  If you wanted to convert this to a pure CI pipeline with no AI:
+                                                                                                                                                                                                            
+  - Drop AI entirely for: create-quay-repo, create-rhoai-delivery-repo, update-rhoai-product-listing, setup-auto-merge, enable-renovate, sync-renovate — these are already effectively scripts with an AI   
+  wrapper that adds no value.                                                                                                                                                                               
+  - Keep AI only for: The Tekton YAML generation steps (steps 4/7/8 across the *-konflux-central skills) and the run-odh-konflux-onboarder-workflow failure handling. These are where AI earns its place —  
+  the PAC template variable problem in particular is subtle enough that a script would require significant engineering effort to handle safely.                                                             
+  - The orchestrator itself (onboard-konflux-components-for-odh-and-rhoai) is pure state-machine logic — dependency graph traversal, condition checks, Jira updates — and is fully scriptable. The
+  pipeline_state.sh + check_pr_mr_status.sh + sync_state_from_jira.py scripts already implement most of it.     
+
+=========================================================================================
+
+  ❯ are we able to automate more parts using scripts if we use python rather than bash?                                                                                                                       
+
+⏺ Yes, significantly. The key constraint isn't bash vs Python in terms of logic — it's that Python has libraries that make the hard problems tractable. Let me go through the specific AI-required areas
+  from the previous analysis:                                       
+                                                            
+  ---
+  Where Python changes the picture                                                                                                                                                                          
+                                  
+  1. Tekton PipelineRun YAML generation — the biggest win                                                                                                                                                   
+                                                                                                                                                                                                            
+  Current AI need: Must substitute component values while leaving {{revision}}, {{target_branch}}, {{source_branch}} verbatim. Sed/bash can't distinguish between "our" placeholders and Tekton PAC         
+  variables reliably.                                                                                                                                                                                       
+                                                                                                                                                                                                            
+  With Python: Solvable with ruamel.yaml + a custom delimiter convention:                                                                                                                                   
+  
+  # Store templates using ${COMPONENT_NAME} for our substitutions                                                                                                                                           
+  # {{revision}} PAC vars are left untouched in the template file                                                                                                                                           
+  from ruamel.yaml import YAML                                                                                                                                                                              
+  import string                                                                                                                                                                                             
+                                                                                                                                                                                                            
+  template = string.Template(open("pipelinerun.yaml.tmpl").read())                                                                                                                                          
+  rendered = template.substitute(                           
+      COMPONENT_NAME=component_name,                                                                                                                                                                        
+      REPO_URL=repo_url,                                    
+      BRANCH=branch,                                                                                                                                                                                        
+  )
+  # PAC vars like {{revision}} survive because string.Template only touches ${...}                                                                                                                          
+  yaml = YAML(); yaml.preserve_quotes = True                                                                                                                                                                
+  doc = yaml.load(rendered)  # validate it's valid YAML                                                                                                                                                     
+  yaml.dump(doc, output_file)                                                                                                                                                                               
+                                                                                                                                                                                                            
+  ruamel.yaml round-trips YAML without corrupting structure, comments, or unrecognised {{...}} strings. This eliminates the AI requirement entirely for YAML generation.                                    
+                                                                                                                                                                                                            
+  ---                                                                                                                                                                                                       
+  2. Prefetch-input detection — mostly solvable             
+                                                                                                                                                                                                            
+  Current AI need: When detect_prefetch_input.sh returns ambiguous/empty results, judgment is needed.
+                                                                                                                                                                                                            
+  With Python: A proper detection hierarchy with confidence scoring is straightforward:                                                                                                                     
+                                                                                                                                                                                                            
+  DETECTORS = [                                                                                                                                                                                             
+      ("gomod",  lambda root: (root / "go.mod").exists()),                                                                                                                                                  
+      ("pip",    lambda root: any(root.glob("requirements*.txt"))),                                                                                                                                         
+      ("npm",    lambda root: (root / "package-lock.json").exists()),                                                                                                                                       
+      ("yarn",   lambda root: (root / "yarn.lock").exists()),                                                                                                                                               
+  ]                                                         
+                                                                                                                                                                                                            
+  def detect_prefetch(repo_path):                                                                                                                                                                           
+      hits = [name for name, check in DETECTORS if check(repo_path)]                                                                                                                                        
+      if len(hits) == 1:                                                                                                                                                                                    
+          return hits[0]   # unambiguous — no AI needed                                                                                                                                                     
+      if len(hits) == 0:                                                                                                                                                                                    
+          return "none"     # no deps — safe default                                                                                                                                                        
+      # Multiple hits — still needs a judgment call, but now rare                                                                                                                                           
+      return None  # signal: escalate to AI or user                                                                                                                                                         
+                                                                                                                                                                                                            
+  This reduces the AI escalation rate from "any ambiguity" to "genuinely mixed build systems" — probably <5% of real repos.                                                                                 
+                                                                                                                                                                                                            
+  ---                                                                                                                                                                                                       
+  3. GitHub Actions failure log parsing — partially solvable
+                                                                                                                                                                                                            
+  Current AI need: Reading unstructured failure logs and classifying them (transient vs fatal).
+                                                                                                                                                                                                            
+  With Python: GitHub Actions logs are structured JSON via the API. Known failure patterns can be catalogued:                                                                                               
+                                                                                                                                                                                                            
+  TRANSIENT_PATTERNS = [                                                                                                                                                                                    
+      r"rate limit exceeded",                               
+      r"connection timed out",                                                                                                                                                                              
+      r"temporary failure in name resolution",
+      r"context deadline exceeded",                                                                                                                                                                         
+  ]                                                                                                                                                                                                         
+  FATAL_PATTERNS = [
+      r"no such file or directory",                                                                                                                                                                         
+      r"permission denied",                                 
+      r"image not found",
+  ]                                                                                                                                                                                                         
+  
+  def classify_failure(log_text):                                                                                                                                                                           
+      if any(re.search(p, log_text, re.I) for p in TRANSIENT_PATTERNS):
+          return "retry"                                                                                                                                                                                    
+      if any(re.search(p, log_text, re.I) for p in FATAL_PATTERNS):                                                                                                                                         
+          return "fatal"                                                                                                                                                                                    
+      return "unknown"  # still needs AI                                                                                                                                                                    
+                                                                                                                                                                                                            
+  Handles the common cases automatically. Novel failures still escalate to AI, but those are rare.                                                                                                          
+  
+  ---                                                                                                                                                                                                       
+  4. API interactions — already partially done, Python makes it cleaner
+                                                                                                                                                                                                            
+  Current state: Most API calls use curl + string manipulation. Python's requests (already used in the .py scripts) with proper retry/backoff handles rate limits, 5xx errors, and pagination without shell
+  quoting complexity.                                                                                                                                                                                       
+                                                            
+  # vs 30 lines of bash curl + jq + retry loops                                                                                                                                                             
+  import requests                                                                                                                                                                                           
+  from tenacity import retry, stop_after_attempt, wait_exponential
+                                                                                                                                                                                                            
+  @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))                                                                                                                                  
+  def get_mr_status(project_id, mr_iid, token):                                                                                                                                                             
+      r = requests.get(                                                                                                                                                                                     
+          f"https://gitlab.cee.redhat.com/api/v4/projects/{project_id}/merge_requests/{mr_iid}",
+          headers={"Authorization": f"Bearer {token}"},                                                                                                                                                     
+          timeout=30,                                                                                                                                                                                       
+      )                                                                                                                                                                                                     
+      r.raise_for_status()                                                                                                                                                                                  
+      return r.json()["state"]                              
+                                                                                                                                                                                                            
+  ---
+  5. YAML editing without structural corruption                                                                                                                                                             
+                                                            
+  Current state: edit_yaml.py already exists and handles most edits. The gap is edge cases where the YAML has unusual formatting (anchors, multi-line strings, comments).
+                                                                                                                                                                                                            
+  With Python + ruamel.yaml: Anchors, aliases, comments, and block scalars all survive a round-trip. This makes the integrate-component-with-odh-operator and integrate-component-with-bundle YAML edits    
+  fully reliable.                                                                                                                                                                                           
+                                                                                                                                                                                                            
+  ---                                                       
+  Revised verdict with Python
+                                                                                                                                                                                                            
+  ┌────────────────────────────────────────────────┬───────────────────┬──────────────────┬─────────────────────────────────────────────────┐
+  │                     Skill                      │   Bash verdict    │  Python verdict  │                  What changes                   │                                                               
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤
+  │ create-quay-repo                               │ Fully scriptable  │ Fully scriptable  │ No change                                                    │                                                 
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤
+  │ create-rhoai-delivery-repo                     │ Fully scriptable  │ Fully scriptable  │ No change                                                    │                                                 
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤
+  │ update-rhoai-product-listing                   │ Fully scriptable  │ Fully scriptable  │ No change                                                    │                                                 
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ setup-auto-merge                               │ Fully scriptable  │ Fully scriptable  │ No change                                                    │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ enable-renovate                                │ Fully scriptable  │ Fully scriptable  │ No change                                                    │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ sync-rhoai-renovate-configs                    │ Fully scriptable  │ Fully scriptable  │ No change                                                    │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ validate-component-onboarding-jira             │ Mostly scriptable │ Fully scriptable  │ Dockerfile regex + registry lookup via requests              │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ onboard-component-to-konflux-release-data      │ Mostly scriptable │ Fully scriptable  │ ruamel.yaml + string.Template for Tekton YAML                │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ add-component-to-odh-konflux-central           │ Mostly scriptable │ Fully scriptable  │ Same — template delimiter fix                                │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ add-component-to-rhoai-konflux-central         │ Mostly scriptable │ Fully scriptable  │ Same + better prefetch detection                             │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ create-pull-pipelines-in-rhoai-konflux-central │ Mostly scriptable │ Fully scriptable  │ Same                                                         │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ integrate-component-with-odh-operator          │ Mostly scriptable │ Fully scriptable  │ ruamel.yaml round-trip                                       │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ integrate-component-with-bundle                │ Mostly scriptable │ Fully scriptable  │ Prefetch detection + ruamel.yaml                             │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ run-odh-konflux-onboarder-workflow             │ Mostly scriptable │ Mostly scriptable │ Log classification improves but novel failures still need AI │
+  ├────────────────────────────────────────────────┼───────────────────┼───────────────────┼──────────────────────────────────────────────────────────────┤                                                 
+  │ Orchestrator                                   │ Mostly scriptable │ Fully scriptable  │ State machine is pure logic                                  │
+  └────────────────────────────────────────────────┴───────────────────┴───────────────────┴──────────────────────────────────────────────────────────────┘                                                 
+                                                            
+  ---                                                                                                                                                                                                       
+  What still genuinely needs AI even with Python            
+                                                
+  Only two things survive the Python treatment:
+                                                                                                                                                                                                            
+  1. run-odh-konflux-onboarder-workflow — novel failure diagnosis. If the GitHub Actions workflow fails with an error you haven't seen before, a script can only surface the log and stop. AI can read it   
+  and reason about the fix. This is a narrow escape hatch, not a core dependency.                                                                                                                           
+  2. create-component-onboarding-jira — the upstream entry point. The interactive collection of onboarding parameters (Q&A, README scraping for descriptions, confirmation flow) is genuinely               
+  conversational. You could replace it with a CLI form (click + inquirer), but that's a different UX rather than "more automation" — a human is still making all the decisions.                             
+  
+  ---                                                                                                                                                                                                       
+  Bottom line                                               
+                                                                                                                                                                                                            
+  With Python, you get from ~90% scriptable to ~98% scriptable. The two unlocking capabilities are:
+  - ruamel.yaml — safe YAML round-trips that make Tekton YAML generation deterministic                                                                                                                      
+  - string.Template with ${...} delimiters — clean separation between "our" substitution markers and Tekton PAC's {{...}} variables                                                                         
+                                                                                                                                                                                                            
+  The orchestrator and all 6 fully-scriptable skills stay the same. The 7 "mostly scriptable" skills all become fully scriptable except for the workflow failure edge case. The common scripts directory    
+  already uses Python for the hard parts (raise_gitlab_mr.py, sync_state_from_jira.py, etc.) — this would just extend that pattern to cover the YAML generation and detection pieces that are currently left
+   to the AI.                                
+
+================================================================================
+How can we use claude as orchestrator but stop it from analyzing the logs and retrying various ways to make things success from a skill?        
+
+  3. The skill instruction removes Claude's agency on failures entirely
+                                                                                                                                                                                                            
+  The SKILL.md step that invokes a script is written to give Claude no decision surface on failure:
+                                                                                                                                                                                                            
+  ## Step 8c: onboard-component-to-konflux-release-data                                                                                                                                                     
+                                                                                                                                                                                                            
+  Run:                                                                                                                                                                                                      
+  ```bash                                                                                                                                                                                                   
+  RESULT=$(bash "$COMMON_SCRIPTS_DIR/run_step.sh" krd \     
+    --component "$COMPONENT_NAME" \                                                                                                                                                                         
+    --state     "$PIPELINE_STATE")
+  echo "$RESULT"                                                                                                                                                                                            
+                                                                                                                                                                                                            
+  Read the STATUS= token from the output. Take exactly one of these actions                                                                                                                                 
+  and no other:                                                                                                                                                                                             
+                                                                                                                                                                                                            
+  ┌──────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │  STATUS  │                                                       Action                                                       │                                                                         
+  ├──────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ done     │ Continue to Step 8d.                                                                                               │
+  ├──────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ retry    │ Print "Step krd will retry on next run." and stop.                                                                 │                                                                         
+  ├──────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤                                                                         
+  │ escalate │ Post the log path to Jira with update_jira_issue.py --comment "Step krd needs manual review. Log: <LOG>" and stop. │                                                                         
+  └──────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘                                                                         
+                                                            
+  Do NOT read the log file. Do NOT attempt to diagnose the failure.                                                                                                                                         
+  Do NOT try alternative approaches. Do NOT retry the script.
+  The script has already classified the failure and updated pipeline_state.json.     
