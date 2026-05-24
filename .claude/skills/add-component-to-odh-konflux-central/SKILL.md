@@ -1,13 +1,13 @@
 ---
 name: update-component-using-odh-konflux-central
-description: Onboards a new ODH/RHOAI component onto the Konflux CI platform by adding PipelineRun YAMLs and updating the onboarder workflow in the odh-konflux-central GitHub repository and raising a pull request. Automates Step 4 of the ODH component onboarding pipeline.
+description: Onboards a new ODH component onto the Konflux CI platform by adding PipelineRun YAMLs and updating the onboarder workflow in the odh-konflux-central GitHub repository and raising a pull request. Automates Step 4 of the ODH component onboarding pipeline.
 allowed-tools: Bash
 user-invocable: true
 ---
 
 # Update Component Using ODH-Konflux-Central
 
-Creates Tekton `PipelineRun` resources for a new ODH/RHOAI component by:
+Creates Tekton `PipelineRun` resources for a new ODH component by:
 1. Generating push and pull-request PipelineRun YAMLs from the OKC templates.
 2. Adding the component's GitHub repo to the onboarder workflow's component list.
 3. Raising a pull request to `odh-konflux-central`. When merged, Konflux CI will
@@ -165,6 +165,13 @@ eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
   --scripts-dir "$COMMON_SCRIPTS_DIR")"
 # Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT, QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
 
+# Assert ODH — this skill is ODH-only
+if [[ "${PRODUCT_CONTEXT}" != "ODH" ]]; then
+  echo "ERROR in Step 3c: This skill is for ODH components only (got PRODUCT_CONTEXT='${PRODUCT_CONTEXT}')."
+  echo "  For RHOAI, use /add-component-to-rhoai-konflux-central instead."
+  exit 1
+fi
+
 YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
 CONTEXT_PATH=$(grep -m1    'context_path:'    "$YAML_FILE" | awk '{print $2}')
 DOCKERFILE_PATH=$(grep -m1 'dockerfile_path:' "$YAML_FILE" | awk '{print $2}')
@@ -178,7 +185,7 @@ BUILD_TYPE=$(grep -m1      'build_type:'      "$YAML_FILE" | awk '{print $2}')
 | `REPO_BRANCH` | `inputs.repo_branch` | `main` |
 | `CONTEXT_PATH` | `inputs.context_path` | `maas-controller` |
 | `DOCKERFILE_PATH` | `inputs.dockerfile_path` | `Dockerfile` |
-| `BUILD_TYPE` | `inputs.build_type` | `CI` or `RELEASE` |
+| `BUILD_TYPE` | `inputs.build_type` | `CI` or `Release` |
 
 Compute derived variables:
 
@@ -205,58 +212,23 @@ PR_YAML_FILE="${COMPONENT_NAME}-pull-request.yaml"
 # Service account name (uses Konflux component name, not base component name)
 SERVICE_ACCOUNT_NAME="build-pipeline-${KONFLUX_COMPONENT_NAME}"
 
-# Output image tags (push and pull-request use different tags for CI)
-if [[ "${BUILD_TYPE^^}" == "CI" ]]; then
-  PUSH_OUTPUT_IMAGE_TAG="odh-stable"
-  PR_OUTPUT_IMAGE_TAG="odh-pr"
-elif [[ "${BUILD_TYPE^^}" == "RELEASE" ]]; then
-  # Use output_image_tag field if present; otherwise ask the user
-  OUTPUT_IMAGE_TAG="${inputs_output_image_tag:-}"
-  if [[ -z "$OUTPUT_IMAGE_TAG" ]]; then
-    echo "ERROR in Step 3c: BUILD_TYPE is RELEASE but 'inputs.output_image_tag' is not set in component_onboarding_details.yaml."
-    echo "  Please add 'output_image_tag: <tag>' under inputs: in the YAML and re-run."
-    exit 1
-  fi
-  PUSH_OUTPUT_IMAGE_TAG="$OUTPUT_IMAGE_TAG"
-  PR_OUTPUT_IMAGE_TAG="$OUTPUT_IMAGE_TAG"
-else
-  echo "ERROR in Step 3c: Unknown BUILD_TYPE '${BUILD_TYPE}'. Expected 'CI' or 'RELEASE'."
-  exit 1
-fi
+# ODH-only hardcoded values
+NAMESPACE="open-data-hub-tenant"
+APPLICATION="opendatahub-builds"
 ```
 
 If any required field (COMPONENT_NAME, REPO_URL, REPO_BRANCH, CONTEXT_PATH,
-DOCKERFILE_PATH, BUILD_TYPE) is missing, stop with:
+DOCKERFILE_PATH) is missing, stop with:
 ```
 ERROR in Step 3c: Missing required field '<field>' in component_onboarding_details.yaml. Aborting.
 ```
 
 ---
 
-## Step 4: Determine Product Context
+## Step 4: (Removed — product context determination merged into Step 3c)
 
-Set `PRODUCT_CONTEXT` to `ODH` or `RHOAI` using the following rules in order:
-
-1. **From `component_onboarding_details.yaml`** (already read in Step 3c): check `inputs.product_context`.
-   If present and its value (case-insensitive) is `rhoai` → `RHOAI`; `odh` → `ODH`. Use this value directly.
-
-2. **From Jira title** (in `component_onboarding_details.json` at `fields.summary`): if the title
-   contains "RHOAI" (case-insensitive) → `RHOAI`; if it contains "ODH" → `ODH`.
-
-3. **Fallback**: Ask the user:
-   > I could not determine the product context (ODH or RHOAI) from the YAML or the Jira title.
-   > Is this onboarding for ODH or RHOAI?
-
-Based on `PRODUCT_CONTEXT`, set these variables:
-
-| Variable | ODH | RHOAI |
-|----------|-----|-------|
-| `NAMESPACE` | `open-data-hub-tenant` | `rhoai-tenant` |
-| `APPLICATION` | `opendatahub-builds` | `rhoai-builds` |
-| `QUAY_ORG` | `opendatahub` | `rhoai` |
-
-> **Note on RHOAI:** If the RHOAI namespace or application name above differs from your
-> environment, pause and ask the user to confirm before proceeding.
+Product context is read from the YAML by `parse_component_details.sh` in Step 3c and
+asserted to be `ODH`. NAMESPACE and APPLICATION are hardcoded to ODH values in Step 3c.
 
 ---
 
@@ -371,11 +343,9 @@ Apply all substitutions to the push PipelineRun using `sed`:
 PUSH_FILE="$CLONE_DIR/pipelineruns/$REPO_NAME/$PUSH_YAML_FILE"
 sed -i '' \
   -e "s|component-git-url|${REPO_URL}|g" \
-  -e "s|\$\$TARGET_BRANCH\$\$|${REPO_BRANCH}|g" \
   -e "s|odh-component-name-ci|${KONFLUX_COMPONENT_NAME}|g" \
   -e "s|odh-file-name-on-push|${PUSH_RUN_NAME}|g" \
   -e "s|quay.io/opendatahub/quayurl|quay.io/${QUAY_ORG}/${COMPONENT_NAME}|g" \
-  -e "s|\$\$OUTPUT_IMAGE_TAG\$\$|${PUSH_OUTPUT_IMAGE_TAG}|g" \
   -e "s|dockerfilepath|${DOCKERFILE_PATH}|g" \
   -e "s|    value: \\.  |    value: ${CONTEXT_PATH}|g" \
   -e "s|build-pipeline-sa-namw|${SERVICE_ACCOUNT_NAME}|g" \
@@ -391,7 +361,7 @@ grep -q "name: $PUSH_RUN_NAME" "$PUSH_FILE" \
   || { echo "ERROR: PUSH_RUN_NAME not found after substitution."; exit 1; }
 grep -q "serviceAccountName: $SERVICE_ACCOUNT_NAME" "$PUSH_FILE" \
   || { echo "ERROR: SERVICE_ACCOUNT_NAME not found after substitution."; exit 1; }
-grep -q '\$\$TARGET_BRANCH\$\$\|quayurl' "$PUSH_FILE" \
+grep -q 'quayurl' "$PUSH_FILE" \
   && { echo "ERROR: Unreplaced placeholders found in push YAML."; exit 1; } || true
 ```
 
@@ -410,11 +380,9 @@ comments (`#`) as placeholders — the sed commands remove them as part of subst
 PR_FILE="$CLONE_DIR/pipelineruns/$REPO_NAME/$PR_YAML_FILE"
 sed -i '' \
   -e "s|build.appstudio.openshift.io/repo: #component-git-url?rev={{revision}}|build.appstudio.openshift.io/repo: ${REPO_URL}?rev={{revision}}|g" \
-  -e "s|\$\$TARGET_BRANCH\$\$|${REPO_BRANCH}|g" \
   -e "s|odh-component-name-ci|${KONFLUX_COMPONENT_NAME}|g" \
   -e "s|  name: #odh-file-name-on-pull-request|  name: ${PR_RUN_NAME}|g" \
   -e "s|quay.io/opendatahub/quayurl|quay.io/${QUAY_ORG}/${COMPONENT_NAME}|g" \
-  -e "s|\$\$OUTPUT_IMAGE_TAG\$\$|${PR_OUTPUT_IMAGE_TAG}|g" \
   -e "s|dockerfilepath|${DOCKERFILE_PATH}|g" \
   -e "s|    value: \.  |    value: ${CONTEXT_PATH}|g" \
   -e "s|    serviceAccountName: #build-pipeline-sa-name|    serviceAccountName: ${SERVICE_ACCOUNT_NAME}|g" \
@@ -431,7 +399,7 @@ grep -q "name: $PR_RUN_NAME" "$PR_FILE" \
   || { echo "ERROR: PR_RUN_NAME not found after substitution."; exit 1; }
 grep -q "serviceAccountName: $SERVICE_ACCOUNT_NAME" "$PR_FILE" \
   || { echo "ERROR: SERVICE_ACCOUNT_NAME not found after substitution."; exit 1; }
-grep -q '\$\$TARGET_BRANCH\$\$\|#component-git-url\|#odh-file-name' "$PR_FILE" \
+grep -q '#component-git-url\|#odh-file-name' "$PR_FILE" \
   && { echo "ERROR: Unreplaced placeholders found in PR YAML."; exit 1; } || true
 ```
 
@@ -495,7 +463,8 @@ PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
 
 Product: $PRODUCT_CONTEXT
 Application: $APPLICATION
-Output image: quay.io/$QUAY_ORG/$COMPONENT_NAME:$OUTPUT_IMAGE_TAG
+Output image: quay.io/$QUAY_ORG/$COMPONENT_NAME
+Build type: $BUILD_TYPE
 Source repo: $REPO_URL @ $REPO_BRANCH
 Jira: <jira-url>
 
@@ -546,13 +515,12 @@ their resolved values:
 |---------------------|---------------|-------|
 | `component-git-url` | `$REPO_URL` | push template repo annotation |
 | `#component-git-url` | `$REPO_URL` | PR template — remove `#` too |
-| `$$TARGET_BRANCH$$` | `$REPO_BRANCH` | Both templates (replace_all) |
+| `$$TARGET_BRANCH$$` | _(preserved)_ | Onboarder workflow substitutes at runtime |
 | `odh-component-name-ci` | `$KONFLUX_COMPONENT_NAME` | Both templates |
 | `odh-file-name-on-push` | `$PUSH_RUN_NAME` | Push template `name:` field (`$COMPONENT_NAME-on-push`) |
 | `#odh-file-name-on-pull-request` | `$PR_RUN_NAME` | PR template — remove `#` too (`$COMPONENT_NAME-on-pull-request`) |
 | `quay.io/opendatahub/quayurl` | `quay.io/$QUAY_ORG/$COMPONENT_NAME` | Both templates |
-| `$$OUTPUT_IMAGE_TAG$$` | `$PUSH_OUTPUT_IMAGE_TAG` (`odh-stable` for CI) | Push template only |
-| `$$OUTPUT_IMAGE_TAG$$` | `$PR_OUTPUT_IMAGE_TAG` (`odh-pr` for CI) | PR template only |
+| `$$OUTPUT_IMAGE_TAG$$` | _(preserved)_ | Onboarder workflow substitutes at runtime |
 | `dockerfilepath` | `$DOCKERFILE_PATH` | Both templates |
 | `    value: .` | `    value: $CONTEXT_PATH` | path-context param, both templates |
 | `build-pipeline-sa-namw` | `$SERVICE_ACCOUNT_NAME` | Push template — fix typo, set `build-pipeline-$KONFLUX_COMPONENT_NAME` |
@@ -572,8 +540,7 @@ their resolved values:
 | `JIRA_API_TOKEN` not set | Step 1 | `export JIRA_API_TOKEN=your-token` |
 | `uv` not installed | Step 1 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | `component_onboarding_details.yaml` missing from Jira | Step 3b | Upload the YAML to the Jira issue |
-| Unknown `BUILD_TYPE` | Step 3c | Set `build_type: CI` or `build_type: RELEASE` in component_onboarding_details.yaml |
-| `output_image_tag` missing for RELEASE build | Step 3c | Add `output_image_tag: <tag>` under `inputs:` in component_onboarding_details.yaml |
+| `PRODUCT_CONTEXT` is not ODH | Step 3c | Use /add-component-to-rhoai-konflux-central for RHOAI components |
 | GitHub API unreachable | Step 5 | Check network connectivity and GITHUB_TOKEN |
 | Clone fails | Step 7 | Check GITHUB_TOKEN repo scope |
 | Shallow push rejected | Steps 7, 8g | `git fetch --unshallow origin` then retry |

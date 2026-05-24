@@ -150,6 +150,16 @@ _If `product_context == ODH`:_
 
 → Store in `build_type`. Must be `CI` or `Release`.
 
+**Q2.5 — ODH Release tag (ODH + Release only)**
+
+_Execute only when `product_context == ODH` and `build_type == Release`. Skip entirely otherwise._
+
+> What is the version tag for this release build?
+> (e.g. 2.21.0)
+
+→ Store in `odh_release_tag`. Must be non-empty.
+  Re-ask if empty.
+
 _If `product_context == RHOAI`:_
 
 **Q2a — Target RHOAI version**
@@ -337,6 +347,7 @@ Component onboarding details collected:
 
   product_context              : <value>
   build_type / architectures   : <value>
+  odh_release_tag              : <value or N/A>   # only shown for ODH Release
   target_rhoai_version         : <value or N/A>   # only shown for RHOAI
   component_name               : <value>
   release_category             : <value or N/A>   # only shown for RHOAI
@@ -375,7 +386,12 @@ YAML_ARGS=(
 )
 
 # ODH-only
-[[ "$product_context" == "ODH" ]] && YAML_ARGS+=(--build-type "$build_type")
+if [[ "$product_context" == "ODH" ]]; then
+  YAML_ARGS+=(--build-type "$build_type")
+  if [[ "$build_type" == "Release" ]]; then
+    YAML_ARGS+=(--odh-release-tag "$odh_release_tag")
+  fi
+fi
 
 # RHOAI-only
 if [[ "$product_context" == "RHOAI" ]]; then

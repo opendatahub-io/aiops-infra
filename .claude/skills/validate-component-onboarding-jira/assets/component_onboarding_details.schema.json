@@ -56,6 +56,11 @@
           "description": "Onboarding target: CI pipeline or Release pipeline (required when product_context is ODH)",
           "enum": ["CI", "Release"]
         },
+        "odh_release_tag": {
+          "type": "string",
+          "description": "Version tag for ODH Release builds (e.g. 2.21.0). Required when product_context is ODH and build_type is Release.",
+          "minLength": 1
+        },
         "architectures": {
           "type": "array",
           "description": "Target CPU architectures to build for (required when product_context is RHOAI)",
@@ -110,6 +115,18 @@
           },
           "then": {
             "required": ["build_type"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "product_context": { "const": "ODH" },
+              "build_type": { "const": "Release" }
+            },
+            "required": ["product_context", "build_type"]
+          },
+          "then": {
+            "required": ["odh_release_tag"]
           }
         },
         {

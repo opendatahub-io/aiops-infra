@@ -12,7 +12,7 @@ Pre-flight validation for ODH component onboarding. Given a Jira issue URL, this
 2. Downloads the `component_onboarding_details.yaml` attachment from the issue
 3. Validates the YAML against the `component_onboarding_details.schema.json` schema in the skill assets
 
-RHOAI tickets must include `architectures`, `target_rhoai_version` (canonical form, e.g. `3.4` or `3.4-ea-2`), and `release_category` (`Generally Available`, `Tech Preview`, or `Beta`) in addition to the common required fields. ODH tickets must include `build_type`.
+RHOAI tickets must include `architectures`, `target_rhoai_version` (canonical form, e.g. `3.4` or `3.4-ea-2`), and `release_category` (`Generally Available`, `Tech Preview`, or `Beta`) in addition to the common required fields. ODH tickets must include `build_type`. When `build_type` is `Release`, ODH tickets must also include `odh_release_tag` (the version tag for the release, e.g. `2.21.0`).
 
 Any failure is a hard blocker. The skill exits with a clear error message.
 

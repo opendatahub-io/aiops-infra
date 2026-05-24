@@ -150,7 +150,7 @@ PRODUCT_CONTEXT=$(grep -m1 'product_context:' "$YAML_PATH" | awk '{print $2}')
 REPO_URL=$(grep -m1 'repo_url:' "$YAML_PATH" | awk '{print $2}')
 PR_TARGET_BRANCH=$(grep -m1 'repo_branch:' "$YAML_PATH" | awk '{print $2}')
 BUILD_TYPE=$(grep -m1 'build_type:' "$YAML_PATH" | awk '{print $2}' 2>/dev/null || echo "")
-VERSION=$(grep -m1 'output_image_tag:' "$YAML_PATH" | awk '{print $2}' 2>/dev/null || echo "")
+VERSION=$(grep -m1 'odh_release_tag:' "$YAML_PATH" | awk '{print $2}' 2>/dev/null || echo "")
 ```
 
 The extracted values correspond to the following inputs:
@@ -161,7 +161,7 @@ The extracted values correspond to the following inputs:
 | `REPO_URL` | `inputs.repo_url` | Full HTTPS URL |
 | `PR_TARGET_BRANCH` | `inputs.repo_branch` | Branch to build against |
 | `BUILD_TYPE` | `inputs.build_type` | `CI` or `Release` |
-| `VERSION` | `inputs.output_image_tag` | Only for Release builds |
+| `VERSION` | `inputs.odh_release_tag` | Only for Release builds |
 
 If a `component_onboarding_details.yaml` already exists in `$WORKDIR` (JIRA_URL is
 empty), use it and announce:
@@ -193,8 +193,8 @@ fi
 
 If `BUILD_TYPE == Release` and `VERSION` is empty, stop with:
 ```
-ERROR in Step 3: build_type is Release but 'inputs.output_image_tag' is missing from
-  component_onboarding_details.yaml. Add 'output_image_tag: <version>' under inputs: and re-run.
+ERROR in Step 3: build_type is Release but 'inputs.odh_release_tag' is missing from
+  component_onboarding_details.yaml. Add 'odh_release_tag: <version>' under inputs: and re-run.
 ```
 
 If any required field (`PRODUCT_CONTEXT`, `REPO_URL`, `PR_TARGET_BRANCH`, `BUILD_TYPE`)
@@ -234,8 +234,8 @@ invalid input with an explanation.
 
 → Store in `BUILD_TYPE`. Must be exactly `CI` or `Release`.
 
-**B5 — Version (Release only)**
-> What is the version string for this release build? (e.g. 2.21.0)
+**B5 — Version / release tag (Release only)**
+> What is the release tag for this build? (e.g. 2.21.0)
 
 → Only asked when `BUILD_TYPE == Release`. Store in `VERSION`. Must be non-empty.
 
@@ -573,7 +573,7 @@ Tekton PR raised. Re-run the parent orchestrator after the PR merges to advance 
 | Invalid Jira URL format | 0 | Check URL contains `/browse/` |
 | YAML attachment missing from Jira | 3A | Attach `component_onboarding_details.yaml` to the issue |
 | Unknown `build_type` in YAML | 3A | Set to `CI` or `Release` in the YAML |
-| `output_image_tag` missing for Release | 3A | Add `output_image_tag: <version>` under `inputs:` in YAML |
+| `odh_release_tag` missing for Release | 3A | Add `odh_release_tag: <version>` under `inputs:` in YAML |
 | `PRODUCT_CONTEXT == RHOAI` | 3 | Wrong skill — RHOAI uses a different onboarding process |
 | Dispatch 422 (inputs rejected) | 6 | Step 4 PR not merged yet — component not in workflow options list |
 | Dispatch 403 (permission denied) | 6 | Regenerate GITHUB_TOKEN with `actions:write` scope |

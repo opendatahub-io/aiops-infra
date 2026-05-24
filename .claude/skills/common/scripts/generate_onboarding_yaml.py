@@ -19,6 +19,7 @@ def main():
     p.add_argument("--context-path", required=True)
     p.add_argument("--dockerfile-path", required=True)
     p.add_argument("--build-type", choices=["CI", "Release"], help="ODH only")
+    p.add_argument("--odh-release-tag", help="ODH Release builds only: version tag (e.g. 2.21.0)")
     p.add_argument("--architectures", help="RHOAI only; comma-separated (default: x86_64,arm64)")
     p.add_argument("--target-rhoai-version", help="RHOAI only")
     p.add_argument("--long-description", help="RHOAI only")
@@ -52,6 +53,11 @@ def main():
             print("ERROR: --build-type is required for ODH", file=sys.stderr)
             sys.exit(1)
         lines.append(f"  build_type: {args.build_type}")
+        if args.build_type == "Release":
+            if not args.odh_release_tag:
+                print("ERROR: --odh-release-tag is required for ODH Release builds", file=sys.stderr)
+                sys.exit(1)
+            lines.append(f"  odh_release_tag: {args.odh_release_tag}")
     else:
         if not args.target_rhoai_version:
             print("ERROR: --target-rhoai-version is required for RHOAI", file=sys.stderr)
