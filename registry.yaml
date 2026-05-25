@@ -1,0 +1,47 @@
+# aiops-infra Skills Registry
+# Source of truth for all skills and plugins in this repo.
+# marketplace.json is generated from this file — do not edit it directly.
+
+name: aiops-infra-skills
+description: >
+  DevOps and TestOps automation skills for ODH/RHOAI,
+  developed by the opendatahub-io aiops-infra team.
+owner:
+  name: opendatahub-io
+
+categories:
+  devops:
+    name: DevOps & CI/CD
+    description: Skills for component onboarding, deployment, CI/CD, and infrastructure
+
+plugins:
+
+  - name: aiops-skills
+    description: >
+      DevOps and TestOps automation skills for ODH/RHOAI — component onboarding,
+      Konflux CI/CD, release management, delivery pipelines, and operational tooling.
+    version: "0.1.0"
+    category: devops
+    tags: [devops, testops, odh, rhoai, konflux, onboarding, ci-cd, release, automation]
+    author:
+      name: opendatahub-io
+    license: Apache-2.0
+    source:
+      type: github
+      repo: opendatahub-io/aiops-infra
+      ref: review
+    strict: false
+    skills_dir: skills
+    homepage: https://github.com/opendatahub-io/aiops-infra
+    repository: https://github.com/opendatahub-io/aiops-infra
+    skills:
+      - name: create-component-onboarding-jira
+        description: Interactively collect component onboarding parameters and create/update a Jira ticket
+        user-invocable: true
+      - name: validate-component-onboarding-jira
+        description: Pre-flight validation for ODH component onboarding — fetches Jira, downloads YAML, validates against schema
+        user-invocable: true
+    harnesses:
+      claude-code:
+        install: "/plugin install aiops-skills@aiops-infra-skills"
+    depends_on: []
