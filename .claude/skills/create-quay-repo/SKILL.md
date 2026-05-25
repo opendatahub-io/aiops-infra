@@ -48,9 +48,6 @@ Examples:
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 ---
 
 ## Idempotency: --existing-mr-url fast-path
@@ -111,14 +108,14 @@ Parse the arguments provided by the user:
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITLAB_USER GITLAB_TOKEN" \
   --tools "uv skopeo"
 ```
 
 If `--jira-url` was provided, also check:
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
+bash "scripts/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 ```
 
 ---
@@ -127,7 +124,7 @@ bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_AP
 
 ```bash
 if [[ -n "${JIRA_URL:-}" ]]; then
-  eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
+  eval "$(bash "scripts/init_workdir.sh" --jira-url "$JIRA_URL")"
 else
   WORKDIR="$(pwd)/quay-<org>-<repo>"
   mkdir -p "$WORKDIR"
@@ -140,12 +137,12 @@ echo "Working directory: $WORKDIR"
 ## Step 3: Check If Quay Repo Already Exists
 
 ```bash
-bash <COMMON_SCRIPTS_DIR>/check_quay_repo.sh quay.io/<org>/<repo>
+bash scripts/check_quay_repo.sh quay.io/<org>/<repo>
 ```
 
 - **Exit 0** (repo exists): If `--jira-url` was provided, run:
   ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+  uv run --script scripts/update_jira_issue.py <jira-url> \
     --add-label "quay-repo-created" \
     --comment "Quay repo quay.io/<org>/<repo> already exists. No action needed."
   ```
@@ -164,7 +161,7 @@ bash <COMMON_SCRIPTS_DIR>/check_quay_repo.sh quay.io/<org>/<repo>
 ## Step 5: Fork app-interface
 
 ```bash
-FORK_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/setup_gitlab_fork.py \
+FORK_URL=$(uv run --script scripts/setup_gitlab_fork.py \
   --gitlab-repo-url "$APP_INTERFACE_URL")
 ```
 
@@ -211,13 +208,13 @@ because `app-interface` is a large repository that can take a long time to fetch
 cd "$WORKDIR"
 
 if [[ -n "$DEST_BRANCH" ]]; then
-  PLAYPEN_OUTPUT=$(timeout 2700 bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
+  PLAYPEN_OUTPUT=$(timeout 2700 bash scripts/setup_gitlab_playpen.sh \
     --src-url "$APP_INTERFACE_URL" \
     --dest-url "$FORK_URL" \
     --src-branch master \
     --dest-branch "$DEST_BRANCH")
 else
-  PLAYPEN_OUTPUT=$(timeout 2700 bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
+  PLAYPEN_OUTPUT=$(timeout 2700 bash scripts/setup_gitlab_playpen.sh \
     --src-url "$APP_INTERFACE_URL" \
     --dest-url "$FORK_URL" \
     --src-branch master)
@@ -258,7 +255,7 @@ else
   else
     VIS_FLAG="--no-public"
   fi
-  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-items-array \
+  uv run --script "scripts/edit_yaml.py" append-items-array \
     "$CLONE_DIR/$YAML_FILE" \
     --name "<repo>" \
     --description "'<short_description if product_context==RHOAI, else '<org> <repo> container image'>'" \
@@ -281,7 +278,7 @@ Commit and push the change:
 DEST_REMOTE="dest"
 [[ "$FORK_URL" == "$APP_INTERFACE_URL" ]] && DEST_REMOTE="origin"
 
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "$YAML_FILE" \
   --message   "Add <repo> to quay <org> config" \
@@ -298,7 +295,7 @@ Now raise the MR. Attempt up to **3 times**:
 
 **Attempt 1:**
 ```bash
-MR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_gitlab_mr.py \
+MR_URL=$(uv run --script scripts/raise_gitlab_mr.py \
   --src-url "$FORK_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$APP_INTERFACE_URL" \
@@ -324,7 +321,7 @@ ERROR in Step 9 (Raise MR): Could not create merge request after 3 attempts. See
 
 After a successful MR creation, if `--jira-url` was provided:
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+uv run --script scripts/update_jira_issue.py <jira-url> \
   --add-label "quay-mr-raised" \
   --comment "GitLab MR raised to create quay.io/<org>/<repo>.
 

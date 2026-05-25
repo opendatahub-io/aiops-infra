@@ -49,9 +49,6 @@ onboarding pipeline (which places the YAML in the working directory automaticall
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 ### Early-exit: `--existing-mr-url`
 
 If the skill is invoked with `--existing-mr-url <url>`:
@@ -108,12 +105,12 @@ Exit 0 immediately. The orchestrator passes this flag when the MR URL is already
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITLAB_USER GITLAB_TOKEN" \
   --tools "uv git curl"
 
 if [[ -n "$JIRA_URL" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  bash "scripts/check_prerequisites.sh" \
     --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
@@ -123,7 +120,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -142,7 +139,7 @@ fi
 **3b. Download from Jira** (only when file does not exist and `JIRA_URL` is non-empty):
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   "$JIRA_URL" component_onboarding_details.yaml
 ```
 
@@ -166,7 +163,7 @@ ERROR in Step 3: No component_onboarding_details.yaml found and no Jira URL prov
 ```bash
 if [[ -n "$JIRA_URL" && ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
   cd "$WORKDIR"
-  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+  uv run --script scripts/fetch_jira_details.py "$JIRA_URL"
 fi
 ```
 
@@ -234,7 +231,7 @@ rm -f "$RHOAI_YAML_TMPFILE"
 If `ENTRY_EXISTS=true`:
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+  uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
     --add-label "product-listing-exists" \
     --comment "Product listing entry '${PRODUCT_LISTING_ENTRY}' already exists in pyxis-repo-configs.
 
@@ -259,7 +256,7 @@ Run from inside `$WORKDIR`:
 ```bash
 cd "$WORKDIR"
 
-PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
+PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash scripts/setup_gitlab_playpen.sh \
   --src-url "$PYXIS_URL" \
   --dest-url "$PYXIS_URL" \
   --src-branch main \
@@ -299,7 +296,7 @@ RHOAI_YAML="$CLONE_DIR/product-listings/rhoai/rhoai.yaml"
 if grep -qF "$PRODUCT_LISTING_ENTRY" "$RHOAI_YAML"; then
   echo "'$PRODUCT_LISTING_ENTRY' already present in product-listings/rhoai/rhoai.yaml — skipping edit."
 else
-  python3 "$COMMON_SCRIPTS_DIR/append_yaml_list_entry.py" "$RHOAI_YAML" \
+  python3 "scripts/append_yaml_list_entry.py" "$RHOAI_YAML" \
     --list-key "repositories" \
     --value "$PRODUCT_LISTING_ENTRY" || {
     echo "ERROR in Step 8: Could not append entry to product-listings/rhoai/rhoai.yaml. See details above. Aborting."
@@ -319,7 +316,7 @@ fi
 ## Step 9: Commit and Push
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "product-listings/rhoai/rhoai.yaml" \
   --message   "Add ${COMPONENT_NAME} to RHOAI product listing
@@ -341,7 +338,7 @@ ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH'. See details above.
 ## Step 10: Raise MR (up to 3 attempts)
 
 ```bash
-MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/raise_gitlab_mr.py \
+MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script scripts/raise_gitlab_mr.py \
   --src-url "$PYXIS_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$PYXIS_URL" \
@@ -372,7 +369,7 @@ ERROR in Step 10 (Raise MR): Could not create MR after 3 attempts. See errors ab
 
 On success, update Jira (only when `JIRA_URL` is non-empty):
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "product-listing-mr-raised" \
   --comment "[step:product_listing] GitLab MR raised to add '${COMPONENT_NAME}' to the RHOAI product listing.
 

@@ -63,9 +63,6 @@ New entry format (2-space indent, matching all existing entries):
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 **Idempotency fast-path:** If invoked with `--existing-pr-url <url>`, print
 `PR already raised: <url>` and exit 0. The orchestrator passes this when the URL is already
 recorded in `pipeline_state.json`.
@@ -110,12 +107,12 @@ recorded in `pipeline_state.json`.
 ## Step 1: Check Prerequisites
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITHUB_USER GITHUB_TOKEN" \
   --tools "uv git curl"
 
 if [[ -n "$JIRA_URL" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  bash "scripts/check_prerequisites.sh" \
     --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
@@ -125,7 +122,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -148,7 +145,7 @@ fi
 Only when file does not exist and `JIRA_URL` is non-empty:
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   "$JIRA_URL" component_onboarding_details.yaml
 ```
 On exit 1, display stderr and stop:
@@ -171,7 +168,7 @@ Only when `JIRA_URL` is non-empty:
 ```bash
 if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
   cd "$WORKDIR"
-  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+  uv run --script scripts/fetch_jira_details.py "$JIRA_URL"
 fi
 ```
 On exit 1, display stderr and stop:
@@ -220,7 +217,7 @@ CONFIG_CONTENT=$(curl -sf \
 if [[ -n "$CONFIG_CONTENT" ]] && echo "$CONFIG_CONTENT" | grep -qF "${RENOVATE_ENTRY}"; then
   echo "Entry '${RENOVATE_ENTRY}' already exists in renovate config. Nothing to do."
   if [[ -n "$JIRA_URL" ]]; then
-    uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+    uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
       --add-label "renovate-changes-done" \
       --comment "Renovate config entry '${RENOVATE_ENTRY}' already exists in ${RKC_PATH} (config.yaml). No action needed."
   fi
@@ -243,7 +240,7 @@ WARN: Could not fetch config.yaml from GitHub API. Proceeding to check via local
 ```bash
 cd "$WORKDIR"
 
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
+PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$RKC_URL" \
   --src-branch "main" \
   --sparse-files "config.yaml")
@@ -270,7 +267,7 @@ git push origin "$DEST_BRANCH"
 ## Step 6: Edit config.yaml
 
 ```bash
-uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-renovate-repo \
+uv run --script "scripts/edit_yaml.py" append-renovate-repo \
   "$CLONE_DIR/config.yaml" \
   --renovate-config "renovate/default-renovate-distribution.json" \
   --name "$RENOVATE_ENTRY"
@@ -286,7 +283,7 @@ echo "$RENOVATE_ENTRY added to sync-repositories in config.yaml."
 ## Step 7: Commit and Push
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "config.yaml" \
   --message   "Enable Renovate for ${REPO_NAME}
@@ -311,7 +308,7 @@ ERROR in Step 7 (Push): Could not push branch '$DEST_BRANCH' to $RKC_URL. See de
 > must be `"$RKC_URL"`.
 
 ```bash
-PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
+PR_URL=$(uv run --script scripts/raise_github_pr.py \
   --src-url "$RKC_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$RKC_URL" \
@@ -343,7 +340,7 @@ ERROR in Step 8 (Raise PR): Could not create PR after 3 attempts. Aborting.
 
 On success, update Jira (only when `JIRA_URL` non-empty):
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "renovate-pr-raised" \
   --comment "[step:renovate] GitHub PR raised to enable Renovate for '${REPO_NAME}' in ${RKC_PATH}.
 

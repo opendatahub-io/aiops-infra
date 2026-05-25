@@ -56,15 +56,12 @@ Examples:
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 ---
 
 ## Step 0: Parse Inputs
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+eval "$(bash "scripts/parse_jira_url.sh" "${1:-}")"
 echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
 echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
 ```
@@ -76,7 +73,7 @@ echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITHUB_USER GITHUB_TOKEN" \
   --tools "uv git curl"
 ```
@@ -84,7 +81,7 @@ bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
 Required only when `JIRA_URL` is non-empty:
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  bash "scripts/check_prerequisites.sh" \
     --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
@@ -94,7 +91,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -113,7 +110,7 @@ fi
 **3b. Download from Jira** (only when file does not exist and `JIRA_URL` is non-empty):
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   "$JIRA_URL" component_onboarding_details.yaml
 ```
 
@@ -136,7 +133,7 @@ ERROR in Step 3: No component_onboarding_details.yaml found and no Jira URL prov
 exists; only when `JIRA_URL` is non-empty):
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+uv run --script scripts/fetch_jira_details.py "$JIRA_URL"
 ```
 
 On exit 1: display stderr and stop:
@@ -151,10 +148,10 @@ ERROR in Step 3d (Fetch Jira): Could not fetch issue details. Aborting.
 Extract from `$WORKDIR/component_onboarding_details.yaml` (all under the `inputs:` key):
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+eval "$(bash "scripts/parse_component_details.sh" \
   --workdir     "$WORKDIR" \
   --jira-id     "$JIRA_ID" \
-  --scripts-dir "$COMMON_SCRIPTS_DIR")"
+  --scripts-dir "scripts")"
 # Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT, QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
 
 YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
@@ -239,7 +236,7 @@ Check all 7 mandatory labels. Accumulate `MISSING_LABELS` (those absent or with 
 **If `MISSING_LABELS` is empty** (all labels correct):
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "dockerfile-labels-present" \
   --comment "All mandatory RHOAI Dockerfile labels are already present in ${DOCKERFILE_REPO_PATH}.
 
@@ -280,7 +277,7 @@ Run from inside `$WORKDIR`:
 ```bash
 cd "$WORKDIR"
 
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
+PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$REPO_URL" \
   --dest-url "$REPO_URL" \
   --src-branch main \
@@ -321,7 +318,7 @@ Verify the file exists:
 Apply and verify all 7 mandatory labels using the shared helper script:
 
 ```bash
-uv run --script "$COMMON_SCRIPTS_DIR/update_dockerfile_labels.py" \
+uv run --script "scripts/update_dockerfile_labels.py" \
   "$CLONE_DIR/$DOCKERFILE_REPO_PATH" \
   --name      "$LABEL_NAME" \
   --component "$LABEL_COMPONENT" \
@@ -345,7 +342,7 @@ echo "All mandatory RHOAI labels confirmed present in $DOCKERFILE_REPO_PATH."
 ## Step 8: Commit and Push
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "$DOCKERFILE_REPO_PATH" \
   --message   "Add mandatory RHOAI Dockerfile labels for $COMPONENT_NAME
@@ -363,7 +360,7 @@ Related: ${JIRA_ID:-no-jira}" \
 ## Step 9: Raise PR (up to 3 attempts)
 
 ```bash
-PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
+PR_URL=$(uv run --script scripts/raise_github_pr.py \
   --src-url "$REPO_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$REPO_URL" \
@@ -400,7 +397,7 @@ ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. See errors abo
 
 On success: update Jira (only when `JIRA_URL` is non-empty):
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "dockerfile-labels-pr-raised" \
   --comment "GitHub PR raised to add mandatory RHOAI Dockerfile labels for '$COMPONENT_NAME'.
 

@@ -49,9 +49,6 @@ listed in the workflow's `components:` options before dispatch.
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 ---
 
 ## Step 0: Parse Inputs and Resolve URLs
@@ -59,7 +56,7 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 Extract the optional `<jira-url>` argument from the invocation.
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+eval "$(bash "scripts/parse_jira_url.sh" "${1:-}")"
 echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
 echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
 ```
@@ -91,13 +88,13 @@ WORKFLOW_FILE=".github/workflows/odh-konflux-onboarder.yml"
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITHUB_USER GITHUB_TOKEN" \
   --tools "uv"
 
 # Jira credentials are only required when a Jira URL is given
 if [[ -n "$JIRA_URL" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
+  bash "scripts/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
 
@@ -106,7 +103,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 YAML_PATH="${WORKDIR}/component_onboarding_details.yaml"
 echo "Working directory: $WORKDIR"
 ```
@@ -121,7 +118,7 @@ echo "Working directory: $WORKDIR"
 
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+uv run --script scripts/fetch_jira_details.py "$JIRA_URL"
 ```
 
 On exit 1: display stderr and stop:
@@ -133,7 +130,7 @@ ERROR in Step 3 (Fetch Jira): Could not fetch Jira issue. See above. Aborting.
 
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   "$JIRA_URL" component_onboarding_details.yaml
 ```
 
@@ -297,7 +294,7 @@ https://github\.com/[^/\s]+/[^/\s]+/pull/\d+
 
 For each URL found, run:
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/monitor_github_pr.py \
+uv run --script scripts/monitor_github_pr.py \
   --pr-url <found-url> --check-only
 ```
 
@@ -333,7 +330,7 @@ if [[ "$BUILD_TYPE" == "Release" ]]; then
   TRIGGER_INPUTS+=("--input" "version=${VERSION}")
 fi
 
-RUN_ID=$(uv run --script <COMMON_SCRIPTS_DIR>/run_github_workflow.py trigger \
+RUN_ID=$(uv run --script scripts/run_github_workflow.py trigger \
   --repo-url "$OKC_URL" \
   --workflow "$WORKFLOW_FILE" \
   --ref "$OKC_REF" \
@@ -367,7 +364,7 @@ Workflow run triggered.
 
 Post an interim Jira comment if `JIRA_URL` is non-empty:
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --comment "odh-konflux-onboarder workflow triggered (Run #${RUN_ID}).
 
 Component       : $COMPONENT
@@ -383,7 +380,7 @@ Workflow run: https://github.com/${OKC_PATH}/actions/runs/${RUN_ID}"
 ## Step 7: Monitor Workflow (30 minutes max)
 
 ```bash
-MONITOR_OUTPUT=$(uv run --script <COMMON_SCRIPTS_DIR>/run_github_workflow.py monitor \
+MONITOR_OUTPUT=$(uv run --script scripts/run_github_workflow.py monitor \
   --repo-url "$OKC_URL" \
   --run-id "$RUN_ID" \
   --timeout 30 \
@@ -402,7 +399,7 @@ Continue to Step 8.
 
 Attempt automated diagnosis — fetch the failure logs:
 ```bash
-FAILURE_LOGS=$(uv run --script <COMMON_SCRIPTS_DIR>/run_github_workflow.py get-step-logs \
+FAILURE_LOGS=$(uv run --script scripts/run_github_workflow.py get-step-logs \
   --repo-url "$OKC_URL" \
   --run-id "$RUN_ID" \
   --step "Run onboarder" 2>/dev/null) || true
@@ -432,7 +429,7 @@ Would you like to re-trigger the workflow with the same inputs? (yes / no)
 
 If `JIRA_URL` non-empty, update Jira on failure (before stopping):
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --comment "odh-konflux-onboarder workflow run #${RUN_ID} FAILED.
 
 Run URL: https://github.com/${OKC_PATH}/actions/runs/${RUN_ID}
@@ -456,7 +453,7 @@ the option to skip triggering and jump directly to PR monitoring.
 ```
 If `JIRA_URL` non-empty, post a Jira comment before stopping:
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --comment "odh-konflux-onboarder workflow run #${RUN_ID} monitoring timed out after 30 minutes.
 
 The run may still be completing. Run URL: https://github.com/${OKC_PATH}/actions/runs/${RUN_ID}
@@ -471,7 +468,7 @@ Re-run /run-odh-konflux-onboarder-workflow — it will detect the existing PR an
 Fetch the logs of the "Create pull request" step:
 
 ```bash
-STEP_LOGS=$(uv run --script <COMMON_SCRIPTS_DIR>/run_github_workflow.py get-step-logs \
+STEP_LOGS=$(uv run --script scripts/run_github_workflow.py get-step-logs \
   --repo-url "$OKC_URL" \
   --run-id "$RUN_ID" \
   --step "Create pull request" 2>/dev/null)
@@ -523,7 +520,7 @@ Tekton PR URL: $TEKTON_PR_URL
 **Skip this step if `JIRA_URL` is empty.**
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "tekton-pr-raised" \
   --comment "odh-konflux-onboarder workflow completed successfully.
 

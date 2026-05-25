@@ -48,9 +48,6 @@ context path, etc.).
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 ---
 
 ## Idempotency: --existing-mr-url fast-path
@@ -67,7 +64,7 @@ recorded in `pipeline_state.json`, meaning this step was completed in a prior ru
 ## Step 0: Parse Inputs
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+eval "$(bash "scripts/parse_jira_url.sh" "${1:-}")"
 [[ -z "$JIRA_URL" ]] && {
   echo "ERROR: Jira URL is required."
   echo "  Usage: /onboard-component-to-konflux-release-data <jira-url>"
@@ -100,7 +97,7 @@ echo "JIRA_ID  : $JIRA_ID"
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITLAB_USER GITLAB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
   --tools "uv oc yamllint kustomize"
 
@@ -117,7 +114,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -133,7 +130,7 @@ This step ensures both `component_onboarding_details.json` (full Jira issue) and
 ```bash
 if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
   cd "$WORKDIR"
-  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+  uv run --script scripts/fetch_jira_details.py <jira-url>
 fi
 ```
 
@@ -148,7 +145,7 @@ On success: `$WORKDIR/component_onboarding_details.json` is written.
 
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   <jira-url> component_onboarding_details.yaml
 ```
 
@@ -161,10 +158,10 @@ ERROR in Step 3b (Download YAML): Could not download 'component_onboarding_detai
 **3c. Parse the YAML** by extracting values with `grep` and `awk`:
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+eval "$(bash "scripts/parse_component_details.sh" \
   --workdir     "$WORKDIR" \
   --jira-id     "$JIRA_ID" \
-  --scripts-dir "$COMMON_SCRIPTS_DIR")"
+  --scripts-dir "scripts")"
 # Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT, QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
 
 YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
@@ -244,13 +241,13 @@ echo "KONFLUX_COMPONENT_NAME : $KONFLUX_COMPONENT_NAME"
 ## Step 5: Check If Konflux Component Already Exists
 
 ```bash
-bash <COMMON_SCRIPTS_DIR>/check_konflux_component.sh \
+bash scripts/check_konflux_component.sh \
   "$KONFLUX_COMPONENT_NAME" "$KONFLUX_NAMESPACE" "$CLUSTER_INSTANCE"
 ```
 
 - **Exit 0** (component exists): Update Jira and stop:
   ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+  uv run --script scripts/update_jira_issue.py <jira-url> \
     --add-label "konflux-component-created" \
     --comment "Konflux Component '$KONFLUX_COMPONENT_NAME' already exists in namespace '$KONFLUX_NAMESPACE'. No action needed."
   ```
@@ -277,7 +274,7 @@ if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   SPARSE_PATHS="$SPARSE_PATHS config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai"
 fi
 
-PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
+PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash scripts/setup_gitlab_playpen.sh \
   --src-url "$KRD_URL" \
   --src-branch main \
   --dest-branch "<jira-id>" \
@@ -333,7 +330,7 @@ spec:
       url: ${REPO_URL}
 EOF
 )
-  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-yaml-doc \
+  uv run --script "scripts/edit_yaml.py" append-yaml-doc \
     "$CLONE_DIR/$TARGET_YAML" \
     --yaml-string "$COMPONENT_YAML"
 fi
@@ -507,7 +504,7 @@ $CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoa
   if grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_FILE" 2>/dev/null; then
     echo "Entry '${COMPONENT_NAME}-${RPA_VAR}' already present in $RPA_FILE — skipping."
   else
-    uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-rpa-component \
+    uv run --script "scripts/edit_yaml.py" append-rpa-component \
       "$RPA_FILE" \
       --array-key "spec.data.mapping.components" \
       --name "${COMPONENT_NAME}-${RPA_VAR}" \
@@ -561,7 +558,7 @@ $CLONE_DIR/tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/automation
   EOF
   )
 
-  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-yaml-doc \
+  uv run --script "scripts/edit_yaml.py" append-yaml-doc \
     "$AUTOMATION_FILE" \
     --yaml-string "$AUTOMATION_YAML"
   ```
@@ -653,7 +650,7 @@ Step 8 already committed and pushed all changes. Proceed directly to raising the
 **Raise MR** — attempt up to 3 times:
 
 ```bash
-MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/raise_gitlab_mr.py \
+MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script scripts/raise_gitlab_mr.py \
   --src-url "$KRD_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$KRD_URL" \
@@ -682,7 +679,7 @@ ERROR in Step 9 (Raise MR): Could not create MR after 3 attempts. See errors abo
 
 After a successful MR creation, update Jira:
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+uv run --script scripts/update_jira_issue.py <jira-url> \
   --add-label "krd-mr-raised" \
   --comment "GitLab MR raised to create Konflux Component '$KONFLUX_COMPONENT_NAME'.
 

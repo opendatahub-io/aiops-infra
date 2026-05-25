@@ -50,16 +50,12 @@ Optional overrides: `APP_INTERFACE_REPO_URL`, `KONFLUX_RELEASE_DATA_REPO_URL`,
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-VALIDATE_SKILL_DIR is `<SKILL_DIR>/../validate-component-onboarding-jira`.
-
 ---
 
 ## Step 0: Parse Inputs
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+eval "$(bash "scripts/parse_jira_url.sh" "${1:-}")"
 [[ -z "$JIRA_URL" ]] && {
   echo "ERROR: Jira URL is required."
   echo "  Usage: /onboard-konflux-components-for-odh-and-rhoai <jira-url>"
@@ -74,7 +70,7 @@ echo "Jira URL : $JIRA_URL"
 ## Step 1: Check Prerequisites
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "JIRA_USER_EMAIL JIRA_API_TOKEN GITLAB_USER GITLAB_TOKEN GITHUB_USER GITHUB_TOKEN" \
   --tools "uv git oc skopeo yamllint jq kustomize"
 
@@ -86,7 +82,7 @@ bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
 ## Step 2: Set Up Working Directory and Initialize State
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_pipeline.sh" --jira-url "$JIRA_URL")"
+eval "$(bash "scripts/init_pipeline.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
 echo "Pipeline state: $PIPELINE_STATE"
 ```
@@ -107,7 +103,7 @@ On success:
 - Jira is in "In Progress" status
 - Update pipeline state:
   ```bash
-  bash "$COMMON_SCRIPTS_DIR/pipeline_state.sh" set \
+  bash "scripts/pipeline_state.sh" set \
     --state "$PIPELINE_STATE" --step validate --field status --value "done"
   ```
 
@@ -120,10 +116,10 @@ On failure: **hard blocker**. Display the child skill's error and stop.
 **Skip computation if** `component_name` is already non-empty in `pipeline_state.json`, but still read variables from the YAML into shell for use in later steps.
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+eval "$(bash "scripts/parse_component_details.sh" \
   --workdir        "$WORKDIR" \
   --jira-id        "$JIRA_ID" \
-  --scripts-dir    "$COMMON_SCRIPTS_DIR" \
+  --scripts-dir    "scripts" \
   --pipeline-state "$PIPELINE_STATE")"
 # Sets: COMPONENT_NAME IS_OPERATOR REPO_URL REPO_BRANCH
 #       PRODUCT_CONTEXT QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI
@@ -133,7 +129,7 @@ After parsing, update the state schema for any steps not yet in the file
 (handles old state files missing new steps):
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/init_pipeline.sh" \
+bash "scripts/init_pipeline.sh" \
   --jira-url         "$JIRA_URL" \
   --workdir-override "$WORKDIR" \
   --product-context  "$PRODUCT_CONTEXT" \
@@ -155,7 +151,7 @@ Reconstruct `pipeline_state.json` from Jira labels (durable even after a fresh c
 and extract any PR/MR URLs from Jira comments that aren't already in state:
 
 ```bash
-uv run --script "$COMMON_SCRIPTS_DIR/sync_state_from_jira.py" \
+uv run --script "scripts/sync_state_from_jira.py" \
   --jira-details   "$WORKDIR/component_onboarding_details.json" \
   --pipeline-state "$PIPELINE_STATE"
 ```
@@ -170,9 +166,9 @@ For all steps in `pr_raised` or `mr_raised` state, query the GitHub/GitLab API
 (one call per step, `--check-only` mode) and update `pipeline_state.json`:
 
 ```bash
-NEWLY_MERGED=$(bash "$COMMON_SCRIPTS_DIR/check_pr_mr_status.sh" \
+NEWLY_MERGED=$(bash "scripts/check_pr_mr_status.sh" \
   --state      "$PIPELINE_STATE" \
-  --scripts-dir "$COMMON_SCRIPTS_DIR")
+  --scripts-dir "scripts")
 ```
 
 `NEWLY_MERGED` is a newline-separated list of step keys that transitioned to `"merged"`
@@ -188,7 +184,7 @@ for MERGED_KEY in $NEWLY_MERGED; do
   [[ -n "$DONE_LABEL" ]]   && LABEL_ARGS="$LABEL_ARGS --add-label $DONE_LABEL"
   [[ -n "$RAISED_LABEL" ]] && LABEL_ARGS="$LABEL_ARGS --remove-label $RAISED_LABEL"
   if [[ -n "$LABEL_ARGS" ]]; then
-    uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+    uv run --script "scripts/update_jira_issue.py" "$JIRA_URL" \
       $LABEL_ARGS || true
   fi
 done
@@ -245,7 +241,7 @@ jq --arg k "$STEP_KEY" --arg u "$PR_URL" --arg s "pr_raised" --arg ts "$NOW" \
 
 # 4. Add label_raised to Jira
 LABEL_RAISED=$(jq -r ".steps.${STEP_KEY}.label_raised // \"\"" "$PIPELINE_STATE")
-[[ -n "$LABEL_RAISED" ]] && uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" \
+[[ -n "$LABEL_RAISED" ]] && uv run --script "scripts/update_jira_issue.py" \
   "$JIRA_URL" --add-label "$LABEL_RAISED" || true
 ```
 
@@ -388,7 +384,7 @@ jq --arg u "$TEKTON_PR_URL" --arg s "pr_raised" --arg ts "$NOW" \
   '.steps.onboarder_workflow.pr_url = $u | .steps.onboarder_workflow.status = $s | .last_status_change_at = $ts' \
   "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
 NEW_PRS_RAISED="true"
-uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "scripts/update_jira_issue.py" "$JIRA_URL" \
   --add-label "tekton-pr-raised" || true
 ```
 
@@ -414,7 +410,7 @@ TMP=$(mktemp); NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 jq --arg ts "$NOW" --arg url "$RUN_URL" \
   '.steps.renovate_sync.status = "done" | .steps.renovate_sync.run_url = $url | .last_status_change_at = $ts' \
   "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
-uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "scripts/update_jira_issue.py" "$JIRA_URL" \
   --add-label "renovate-sync-triggered" || true
 ```
 
@@ -464,7 +460,7 @@ SOMETHING_CHANGED="false"
 [[ "${NEW_PRS_RAISED:-false}" == "true" ]] && SOMETHING_CHANGED="true"
 
 if [[ "$SOMETHING_CHANGED" == "true" ]]; then
-  PENDING_COMMENT=$(uv run --script "$COMMON_SCRIPTS_DIR/build_progress_summary.py" \
+  PENDING_COMMENT=$(uv run --script "scripts/build_progress_summary.py" \
     --state           "$PIPELINE_STATE" \
     --component-name  "$COMPONENT_NAME" \
     --product-context "$PRODUCT_CONTEXT" \
@@ -472,7 +468,7 @@ if [[ "$SOMETHING_CHANGED" == "true" ]]; then
     ${ASSIGNEE:+--assignee "$ASSIGNEE"})
 
   if [[ -n "$PENDING_COMMENT" ]]; then
-    uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+    uv run --script "scripts/update_jira_issue.py" "$JIRA_URL" \
       --comment "$PENDING_COMMENT" || true
   fi
 fi
@@ -499,13 +495,13 @@ ALL_DONE=$(jq -r '
 Post the full table summary as the final comment, then resolve:
 
 ```bash
-FULL_COMMENT=$(uv run --script "$COMMON_SCRIPTS_DIR/build_progress_summary.py" \
+FULL_COMMENT=$(uv run --script "scripts/build_progress_summary.py" \
   --state           "$PIPELINE_STATE" \
   --component-name  "$COMPONENT_NAME" \
   --product-context "$PRODUCT_CONTEXT" \
   --mode            "full")
 
-uv run --script "$COMMON_SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "scripts/update_jira_issue.py" "$JIRA_URL" \
   --comment   "$FULL_COMMENT" \
   --add-label "component-onboarding-completed" \
   --status    "Resolved"
@@ -520,10 +516,10 @@ Do not tag the assignee on the resolution comment.
 Transition Jira to "Review" (idempotent — safe to call if already in Review):
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/raise_jira_review.sh" \
+bash "scripts/raise_jira_review.sh" \
   --workdir         "$WORKDIR" \
   --jira-url        "$JIRA_URL" \
-  --scripts-dir     "$COMMON_SCRIPTS_DIR" \
+  --scripts-dir     "scripts" \
   --component-name  "$COMPONENT_NAME" \
   --product-context "$PRODUCT_CONTEXT" \
   ${ASSIGNEE:+--assignee "$ASSIGNEE"}

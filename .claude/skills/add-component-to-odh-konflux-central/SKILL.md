@@ -46,9 +46,6 @@ This YAML is the source of truth for all component parameters.
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 ---
 
 ## Idempotency: --existing-pr-url fast-path
@@ -65,7 +62,7 @@ recorded in `pipeline_state.json`, meaning this step was completed in a prior ru
 ## Step 0: Parse Inputs
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+eval "$(bash "scripts/parse_jira_url.sh" "${1:-}")"
 [[ -z "$JIRA_URL" ]] && {
   echo "ERROR: Jira URL is required."
   echo "  Usage: /update-component-using-odh-konflux-central <jira-url>"
@@ -107,7 +104,7 @@ echo "JIRA_ID  : $JIRA_ID"
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
   --tools "uv git"
 ```
@@ -117,7 +114,7 @@ bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -133,7 +130,7 @@ This step ensures both `component_onboarding_details.json` (full Jira issue) and
 ```bash
 if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
   cd "$WORKDIR"
-  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+  uv run --script scripts/fetch_jira_details.py <jira-url>
 fi
 ```
 
@@ -146,7 +143,7 @@ ERROR in Step 3a (Fetch Jira details): Could not fetch Jira issue. See details a
 
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   <jira-url> component_onboarding_details.yaml
 ```
 
@@ -159,10 +156,10 @@ ERROR in Step 3b (Download YAML): Could not download 'component_onboarding_detai
 **3c. Parse the YAML:**
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+eval "$(bash "scripts/parse_component_details.sh" \
   --workdir     "$WORKDIR" \
   --jira-id     "$JIRA_ID" \
-  --scripts-dir "$COMMON_SCRIPTS_DIR")"
+  --scripts-dir "scripts")"
 # Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT, QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
 
 # Assert ODH — this skill is ODH-only
@@ -257,7 +254,7 @@ PR_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
 
 - **Both return 200** (files exist): Update Jira and stop:
   ```bash
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+  uv run --script scripts/update_jira_issue.py <jira-url> \
     --add-label "okc-changes-done" \
     --comment "PipelineRun files for '$COMPONENT_NAME' already exist in OKC repo at 'pipelineruns/$REPO_NAME/'. No action needed."
   ```
@@ -286,7 +283,7 @@ Run from inside `$WORKDIR`. Sparse checkout only the paths needed:
 ```bash
 cd "$WORKDIR"
 
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
+PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$OKC_URL" \
   --src-branch main \
   --dest-branch "<jira-id>" \
@@ -412,7 +409,7 @@ WORKFLOW_FILE="$CLONE_DIR/.github/workflows/odh-konflux-onboarder.yml"
 if grep -q "          - ${REPO_NAME}$" "$WORKFLOW_FILE" 2>/dev/null; then
   echo "$REPO_NAME already in onboarder workflow component list — skipping."
 else
-  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" insert-list-item \
+  uv run --script "scripts/edit_yaml.py" insert-list-item \
     "$WORKFLOW_FILE" \
     --list-key "on.workflow_dispatch.inputs.components.options" \
     --value "$REPO_NAME"
@@ -429,7 +426,7 @@ ERROR in Step 8e: Could not insert $REPO_NAME into workflow options. See details
 > **Reminder:** `origin` was set to `$OKC_URL` by `setup_github_playpen.sh` in Step 7.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "." \
   --message   "Add $KONFLUX_COMPONENT_NAME PipelineRuns for $REPO_NAME" \
@@ -453,7 +450,7 @@ Step 8 committed and pushed all changes. Proceed directly to raising the PR.
 **Raise PR** — attempt up to 3 times:
 
 ```bash
-PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
+PR_URL=$(uv run --script scripts/raise_github_pr.py \
   --src-url "$OKC_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$OKC_URL" \
@@ -488,7 +485,7 @@ ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. See errors abo
 
 After a successful PR creation, update Jira:
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+uv run --script scripts/update_jira_issue.py <jira-url> \
   --add-label "okc-pr-raised" \
   --comment "[step:okc] GitHub PR raised to add Konflux PipelineRuns for '$COMPONENT_NAME' to odh-konflux-central.
 

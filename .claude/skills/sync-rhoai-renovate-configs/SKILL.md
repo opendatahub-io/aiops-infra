@@ -57,9 +57,6 @@ The workflow commits `"sync config with renovate-central"` to each registered re
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 ---
 
 ## Step 0: Parse Inputs and Resolve URLs
@@ -109,12 +106,12 @@ COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
 ## Step 1: Check Prerequisites
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITHUB_USER GITHUB_TOKEN" \
   --tools "uv"
 
 if [[ -n "$JIRA_URL" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  bash "scripts/check_prerequisites.sh" \
     --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
@@ -138,7 +135,7 @@ Triggering workflow: $WORKFLOW_FILE
 Trigger (up to 3 attempts):
 
 ```bash
-RUN_ID=$(uv run --script <COMMON_SCRIPTS_DIR>/run_github_workflow.py trigger \
+RUN_ID=$(uv run --script scripts/run_github_workflow.py trigger \
   --repo-url "$RKC_URL" \
   --workflow "$WORKFLOW_FILE" \
   --ref "$WORKFLOW_REF" \
@@ -175,7 +172,7 @@ Workflow run triggered.
 
 Update Jira (only when `JIRA_URL` non-empty):
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "renovate-sync-triggered" \
   --comment "sync-renovate-configs workflow triggered (Run #${RUN_ID}).
 
@@ -193,7 +190,7 @@ Monitoring in progress (max 30 minutes)..."
 ## Step 3: Monitor the Workflow (30 minutes max)
 
 ```bash
-MONITOR_OUTPUT=$(uv run --script <COMMON_SCRIPTS_DIR>/run_github_workflow.py monitor \
+MONITOR_OUTPUT=$(uv run --script scripts/run_github_workflow.py monitor \
   --repo-url "$RKC_URL" \
   --run-id "$RUN_ID" \
   --timeout 30 \
@@ -212,7 +209,7 @@ Run URL: https://github.com/${RKC_PATH}/actions/runs/${RUN_ID}
 **`failure`:** Attempt automated diagnosis by fetching step logs, then retry once:
 
 ```bash
-FAILURE_LOGS=$(uv run --script <COMMON_SCRIPTS_DIR>/run_github_workflow.py get-step-logs \
+FAILURE_LOGS=$(uv run --script scripts/run_github_workflow.py get-step-logs \
   --repo-url "$RKC_URL" \
   --run-id "$RUN_ID" \
   --step "Sync" 2>/dev/null) || true
@@ -233,7 +230,7 @@ Retrying automatically...
 also fails, update Jira and stop:
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+  uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
     --add-label "renovate-sync-failed" \
     --remove-label "renovate-sync-triggered" \
     --comment "sync-renovate-configs workflow failed on second attempt.
@@ -252,7 +249,7 @@ Run URL: https://github.com/${RKC_PATH}/actions/runs/${RUN_ID}
 **`cancelled`:**
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+  uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
     --remove-label "renovate-sync-triggered" \
     --comment "sync-renovate-configs workflow run #${RUN_ID} was cancelled.
 Run URL: https://github.com/${RKC_PATH}/actions/runs/${RUN_ID}
@@ -268,7 +265,7 @@ Run URL: https://github.com/${RKC_PATH}/actions/runs/${RUN_ID}
 **`timeout`:** Workflow still running after 30 minutes.
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+  uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
     --comment "sync-renovate-configs workflow run #${RUN_ID} monitoring timed out after 30 minutes.
 The run may still be completing.
 Run URL: https://github.com/${RKC_PATH}/actions/runs/${RUN_ID}
@@ -288,7 +285,7 @@ The run may still be in progress. Re-run /sync-rhoai-renovate-configs to re-trig
 
 Only when `JIRA_URL` is non-empty:
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "renovate-sync-done" \
   --remove-label "renovate-sync-triggered" \
   --comment "[step:renovate_sync] sync-renovate-configs workflow completed successfully.

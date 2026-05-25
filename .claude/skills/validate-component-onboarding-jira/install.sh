@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # install.sh — Install the validate-component-onboarding-jira Claude Code skill
 #
+# DEPRECATED: Marketplace installation is the primary distribution method.
+# This script references the old common/scripts and assets/ layout which has
+# been restructured. Use the marketplace plugin instead.
+#
 # Usage:
 #   ./install.sh              # installs to ~/.claude/skills/ (global, default)
 #   ./install.sh --project    # installs to .claude/skills/ in the current working directory

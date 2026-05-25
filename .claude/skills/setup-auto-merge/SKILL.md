@@ -76,9 +76,6 @@ be placed in the working directory. Otherwise it will be downloaded from Jira.
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 **Idempotency fast-path:** If invoked with `--existing-pr-url <url>`, print
 `PR already raised: <url>` and exit 0. The orchestrator passes this when the URL is already
 recorded in `pipeline_state.json`.
@@ -126,12 +123,12 @@ recorded in `pipeline_state.json`.
 ## Step 1: Check Prerequisites
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITHUB_USER GITHUB_TOKEN" \
   --tools "uv git curl"
 
 if [[ -n "$JIRA_URL" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  bash "scripts/check_prerequisites.sh" \
     --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
@@ -141,7 +138,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -164,7 +161,7 @@ fi
 Only when file does not exist and `JIRA_URL` is non-empty:
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   "$JIRA_URL" component_onboarding_details.yaml
 ```
 On exit 1, display stderr and stop:
@@ -187,7 +184,7 @@ Only when `JIRA_URL` is non-empty:
 ```bash
 if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
   cd "$WORKDIR"
-  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+  uv run --script scripts/fetch_jira_details.py "$JIRA_URL"
 fi
 ```
 On exit 1, display stderr and stop:
@@ -212,7 +209,7 @@ REPO_URL=$(grep -m1 'repo_url:' "$WORKDIR/component_onboarding_details.yaml" | a
 REPO_NAME="${REPO_URL##*/}"
 REPO_NAME="${REPO_NAME%.git}"
 
-eval "$(bash "$COMMON_SCRIPTS_DIR/detect_repo_upstream.sh" --repo-url "$REPO_URL")"
+eval "$(bash "scripts/detect_repo_upstream.sh" --repo-url "$REPO_URL")"
 
 echo "REPO_NAME        : $REPO_NAME"
 echo "REPO_URL         : $REPO_URL"
@@ -252,7 +249,7 @@ If both `USM_HAS_ENTRY=true` AND `MRSM_HAS_ENTRY=true`:
 ```bash
 echo "Entry '${REPO_NAME}' already exists in both config files. Nothing to do."
 if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+  uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
     --add-label "auto-merge-setup-done" \
     --comment "Auto-merge config for '${REPO_NAME}' already exists in ${RDI_PATH} (both source maps). No action needed."
 fi
@@ -282,7 +279,7 @@ PLAYPEN_ARGS=(
 )
 [[ -n "$JIRA_ID" ]] && PLAYPEN_ARGS+=(--dest-branch "$JIRA_ID")
 
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh "${PLAYPEN_ARGS[@]}")
+PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh "${PLAYPEN_ARGS[@]}")
 
 CLONE_DIR=$(echo "$PLAYPEN_OUTPUT" | head -1)
 DEST_BRANCH=$(echo "$PLAYPEN_OUTPUT" | tail -1)
@@ -434,7 +431,7 @@ fi
 > Pushing to `origin` is correct — do NOT change the remote URL here.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "src/config/upstream-source-map.yaml src/config/main-release-source-map.yaml .github/workflows/upstream-auto-merge.yaml .github/workflows/main-release-auto-merge.yaml" \
   --message   "Configure auto-merge for ${REPO_NAME}
@@ -460,7 +457,7 @@ ERROR in Step 7 (Push): Could not push branch '$DEST_BRANCH' to origin. See deta
 > either with a hardcoded URL. The PR target branch is `main`.
 
 ```bash
-PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
+PR_URL=$(uv run --script scripts/raise_github_pr.py \
   --src-url "$RDI_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$RDI_URL" \
@@ -498,7 +495,7 @@ ERROR in Step 8 (Raise PR): Could not create PR after 3 attempts. Aborting.
 
 On success, update Jira (only when `JIRA_URL` non-empty):
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "auto-merge-pr-raised" \
   --comment "GitHub PR raised to configure auto-merge for '${REPO_NAME}' in ${RDI_PATH}.
 

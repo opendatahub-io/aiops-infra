@@ -45,9 +45,6 @@ be placed in the working directory. Otherwise the Jira attachment will be downlo
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 ### Early-exit: `--existing-pr-url`
 
 If the skill is invoked with `--existing-pr-url <url>`:
@@ -143,12 +140,12 @@ on the `main` branch of `red-hat-data-services/konflux-central`.
 ## Step 1: Check Prerequisites
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITHUB_USER GITHUB_TOKEN" \
   --tools "uv git curl"
 
 if [[ -n "$JIRA_URL" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  bash "scripts/check_prerequisites.sh" \
     --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
@@ -158,7 +155,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -180,7 +177,7 @@ fi
 Only when file does not exist and `JIRA_URL` is non-empty:
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   "$JIRA_URL" component_onboarding_details.yaml
 ```
 
@@ -204,7 +201,7 @@ Only when `JIRA_URL` is non-empty and `$WORKDIR/component_onboarding_details.jso
 ```bash
 if [[ -n "$JIRA_URL" && ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
   cd "$WORKDIR"
-  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+  uv run --script scripts/fetch_jira_details.py "$JIRA_URL"
 fi
 ```
 
@@ -303,7 +300,7 @@ HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
 **`HTTP_STATUS == 200`** (file exists): update Jira and stop:
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+  uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
     --add-label "rkc-pull-changes-done" \
     --comment "Pull-request PipelineRun '${PIPELINERUN_FILE}' already exists in rhoai-konflux-central on 'main'. No action needed."
 fi
@@ -329,7 +326,7 @@ Run from inside `$WORKDIR`:
 ```bash
 cd "$WORKDIR"
 
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
+PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$RKC_URL" \
   --src-branch "main" \
   ${JIRA_ID:+--dest-branch "$JIRA_ID"} \
@@ -383,7 +380,7 @@ PIPELINERUN_PATH="$TEKTON_DIR/$PIPELINERUN_FILE"
 ### 8a. Determine prefetch-input
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/detect_prefetch_input.sh" \
+eval "$(bash "scripts/detect_prefetch_input.sh" \
   --repo-url "$REPO_URL" \
   --context-path "$CONTEXT_PATH_NORMALIZED")"
 # Sets PREFETCH_INPUT (JSON array string, defaults to [] on error)
@@ -521,7 +518,7 @@ echo "Verification passed for $PIPELINERUN_PATH"
 ## Step 9: Commit and Push
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "pipelineruns/$REPO_NAME/.tekton/$PIPELINERUN_FILE" \
   --message   "Add ${COMPONENT_NAME} pull-request PipelineRun for ${REPO_NAME}
@@ -547,7 +544,7 @@ ERROR in Step 9 (Push): Could not push branch '$DEST_BRANCH' to $RKC_URL. See de
 > Both `--src-url` and `--dest-url` must be `"$RKC_URL"`.
 
 ```bash
-PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
+PR_URL=$(uv run --script scripts/raise_github_pr.py \
   --src-url "$RKC_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$RKC_URL" \
@@ -581,7 +578,7 @@ ERROR in Step 10 (Raise PR): Could not create PR after 3 attempts. Aborting.
 
 On success, update Jira (only when `JIRA_URL` non-empty):
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "rkc-pull-pr-raised" \
   --comment "[step:pull_pipelines] GitHub PR raised to add pull-request PipelineRun for '${COMPONENT_NAME}' to rhoai-konflux-central.
 

@@ -50,9 +50,6 @@ onboarding pipeline (which places the YAML in the working directory automaticall
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 **Idempotency fast-path:** If invoked with `--existing-mr-url <url>`, print
 `MR already raised: <url>` and exit 0. The orchestrator passes this when the URL is already
 recorded in `pipeline_state.json`.
@@ -104,12 +101,12 @@ recorded in `pipeline_state.json`.
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITLAB_USER GITLAB_TOKEN" \
   --tools "uv git curl"
 
 if [[ -n "$JIRA_URL" ]]; then
-  bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+  bash "scripts/check_prerequisites.sh" \
     --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 fi
 ```
@@ -119,7 +116,7 @@ fi
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -138,7 +135,7 @@ fi
 **3b. Download from Jira** (only when file does not exist and `JIRA_URL` is non-empty):
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   "$JIRA_URL" component_onboarding_details.yaml
 ```
 
@@ -161,7 +158,7 @@ ERROR in Step 3: No component_onboarding_details.yaml found and no Jira URL prov
 ```bash
 if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
   cd "$WORKDIR"
-  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL"
+  uv run --script scripts/fetch_jira_details.py "$JIRA_URL"
 fi
 ```
 
@@ -187,7 +184,7 @@ for _field in COMPONENT_NAME TARGET_RHOAI_VERSION; do
   }
 done
 
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_rhoai_version.sh" \
+eval "$(bash "scripts/parse_rhoai_version.sh" \
   --version "$TARGET_RHOAI_VERSION" \
   --component "$COMPONENT_NAME")"
 # Sets: CONTENT_STREAM_TAG, REPOSITORY_NAME, and other version vars
@@ -257,7 +254,7 @@ rm -f "$RHOAI_YAML_TMPFILE"
 If `REPO_EXISTS=true`:
 ```bash
 if [[ -n "$JIRA_URL" ]]; then
-  uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+  uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
     --add-label "delivery-repo-exists" \
     --comment "Delivery repository '${REPOSITORY_NAME}' already exists in pyxis-repo-configs.
 
@@ -282,7 +279,7 @@ Run from inside `$WORKDIR`:
 ```bash
 cd "$WORKDIR"
 
-PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash <COMMON_SCRIPTS_DIR>/setup_gitlab_playpen.sh \
+PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash scripts/setup_gitlab_playpen.sh \
   --src-url "$PYXIS_URL" \
   --dest-url "$PYXIS_URL" \
   --src-branch main \
@@ -319,7 +316,7 @@ RHOAI_YAML="$CLONE_DIR/products/rhoai/rhoai.yaml"
   exit 1
 }
 
-RESULT=$(uv run --script "$COMMON_SCRIPTS_DIR/append_delivery_repo_entry.py" \
+RESULT=$(uv run --script "scripts/append_delivery_repo_entry.py" \
   --yaml-file           "$RHOAI_YAML" \
   --repository-name     "$REPOSITORY_NAME" \
   --content-stream-tag  "$CONTENT_STREAM_TAG" \
@@ -339,7 +336,7 @@ fi
 ## Step 8: Commit and Push
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "products/rhoai/rhoai.yaml" \
   --message   "Add ${REPOSITORY_NAME} delivery repository for ${COMPONENT_NAME}
@@ -362,7 +359,7 @@ ERROR in Step 8 (Push): Could not push branch '$DEST_BRANCH'. See details above.
 ## Step 9: Raise MR (up to 3 attempts)
 
 ```bash
-MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script <COMMON_SCRIPTS_DIR>/raise_gitlab_mr.py \
+MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script scripts/raise_gitlab_mr.py \
   --src-url "$PYXIS_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$PYXIS_URL" \
@@ -395,7 +392,7 @@ ERROR in Step 9 (Raise MR): Could not create MR after 3 attempts. See errors abo
 
 On success, update Jira (only when `JIRA_URL` is non-empty):
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --add-label "delivery-repo-mr-raised" \
   --comment "[step:delivery_repo] GitLab MR raised to create RHOAI delivery repository '${REPOSITORY_NAME}'.
 

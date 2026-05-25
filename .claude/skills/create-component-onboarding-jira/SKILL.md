@@ -50,11 +50,6 @@ Examples:
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-VALIDATE_SKILL_DIR is `<SKILL_DIR>/../validate-component-onboarding-jira`.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-SCHEMA_PATH is `<VALIDATE_SKILL_DIR>/assets/component_onboarding_details.schema.json`.
-
 ---
 
 ## Step 0: Parse inputs and check prerequisites
@@ -68,12 +63,12 @@ Set `JIRA_ID` to the last path segment of `JIRA_URL` (e.g. `RHOAIENG-1234`), or 
 
 **Tool check:**
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --tools "uv jq"
+bash "scripts/check_prerequisites.sh" --tools "uv jq"
 ```
 
 **Jira credentials check (always required):**
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
+bash "scripts/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 ```
 
 ---
@@ -81,7 +76,7 @@ bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_AP
 ## Step 1: Set up working directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "${JIRA_URL:-}")"
 YAML_PATH="${WORKDIR}/component_onboarding_details.yaml"
 echo "Working directory: $WORKDIR"
 ```
@@ -93,7 +88,7 @@ echo "Working directory: $WORKDIR"
 **Skip this entire step if JIRA_URL is empty.**
 
 ```bash
-(cd "$WORKDIR" && uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py "$JIRA_URL")
+(cd "$WORKDIR" && uv run --script scripts/fetch_jira_details.py "$JIRA_URL")
 ```
 
 On exit 1: display stderr and stop with:
@@ -411,7 +406,7 @@ fi
   --operator-manifest-dest-path "$operator_manifest_dest_path"
 )
 
-uv run --script <COMMON_SCRIPTS_DIR>/generate_onboarding_yaml.py "${YAML_ARGS[@]}"
+uv run --script scripts/generate_onboarding_yaml.py "${YAML_ARGS[@]}"
 ```
 
 On exit 1: display stderr and stop with:
@@ -424,9 +419,9 @@ ERROR in Step 5 (Generate YAML): Could not write YAML file. See above. Aborting.
 ## Step 6: Validate YAML against schema
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/validate_yaml_schema.py \
+uv run --script scripts/validate_yaml_schema.py \
   "$YAML_PATH" \
-  <SCHEMA_PATH>
+  schemas/component_onboarding_details.schema.json
 ```
 
 On success (exit 0): print `Schema validation passed.`
@@ -463,7 +458,7 @@ else
   DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${CLEAN_CTX}/${dockerfile_path}"
 fi
 
-uv run --script <COMMON_SCRIPTS_DIR>/check_dockerfile_digests.py \
+uv run --script scripts/check_dockerfile_digests.py \
   --dockerfile-url "$DOCKERFILE_RAW_URL" 2>&1
 DIGEST_EXIT=$?
 ```
@@ -505,7 +500,7 @@ Two paths depending on whether a Jira URL was provided.
 > filename before uploading, so no explicit pre-delete step is needed.
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --attach "$YAML_PATH" \
   --add-label "yaml-attached" \
   --link-related "$PARENT_FEATURE_ID" \
@@ -543,7 +538,7 @@ else
   TEMPLATE_ID="RHOAIENG-17225"
 fi
 
-NEW_JIRA_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "new" \
+NEW_JIRA_URL=$(uv run --script scripts/update_jira_issue.py "new" \
   --clone-from "$TEMPLATE_ID" \
   --remove-label "template" \
   --link-related "$PARENT_FEATURE_ID" \
@@ -566,7 +561,7 @@ echo "New Jira created: $NEW_JIRA_URL"
 #### Step 7b-2: Attach YAML to the new Jira
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --attach "$YAML_PATH" \
   --add-label "yaml-attached" \
   --comment "component_onboarding_details.yaml has been generated and attached to this ticket.
@@ -614,7 +609,7 @@ if [[ "$product_context" == "RHOAI" ]]; then
   )
 fi
 
-uv run --script <COMMON_SCRIPTS_DIR>/update_onboarding_jira.py "$JIRA_URL" "${UPDATE_JIRA_ARGS[@]}"
+uv run --script scripts/update_onboarding_jira.py "$JIRA_URL" "${UPDATE_JIRA_ARGS[@]}"
 ```
 
 On exit 1: print a warning and continue — metadata updates are non-critical:

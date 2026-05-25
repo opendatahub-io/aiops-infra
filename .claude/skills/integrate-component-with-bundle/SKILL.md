@@ -52,9 +52,6 @@ Examples:
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and exit 0. The orchestrator passes this when the URL is already recorded in pipeline_state.json.
 
 ---
@@ -64,7 +61,7 @@ If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and 
 1. Parse and validate the Jira URL:
 
    ```bash
-   eval "$(bash "$COMMON_SCRIPTS_DIR/parse_jira_url.sh" "${1:-}")"
+   eval "$(bash "scripts/parse_jira_url.sh" "${1:-}")"
    echo "JIRA_URL : ${JIRA_URL:-(not provided)}"
    echo "JIRA_ID  : ${JIRA_ID:-(not provided)}"
    ```
@@ -85,7 +82,7 @@ If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and 
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
   --tools "uv git"
 ```
@@ -95,7 +92,7 @@ bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -108,7 +105,7 @@ echo "Working directory: $WORKDIR"
 ```bash
 if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
   cd "$WORKDIR"
-  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+  uv run --script scripts/fetch_jira_details.py <jira-url>
 fi
 ```
 
@@ -121,7 +118,7 @@ ERROR in Step 3a (Fetch Jira details): Could not fetch Jira issue. See details a
 
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   <jira-url> component_onboarding_details.yaml
 ```
 
@@ -134,10 +131,10 @@ ERROR in Step 3b (Download YAML): Could not download 'component_onboarding_detai
 **3c. Parse the YAML** from `$WORKDIR/component_onboarding_details.yaml`:
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/parse_component_details.sh" \
+eval "$(bash "scripts/parse_component_details.sh" \
   --workdir    "$WORKDIR" \
   --jira-id    "$JIRA_ID" \
-  --scripts-dir "$COMMON_SCRIPTS_DIR")"
+  --scripts-dir "scripts")"
 # Sets: COMPONENT_NAME, REPO_URL, REPO_BRANCH, PRODUCT_CONTEXT,
 #       QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, IS_OPERATOR
 
@@ -163,7 +160,7 @@ ERROR in Step 3c: Missing required field 'target_rhoai_version' in component_onb
 
 ```bash
 # 3d-1: Resolve BC_URL and BC_PATH from product_context (with optional override)
-eval "$(bash "$COMMON_SCRIPTS_DIR/resolve_bc_url.sh" \
+eval "$(bash "scripts/resolve_bc_url.sh" \
   --product-context "$PRODUCT_CONTEXT" \
   ${BUILD_CONFIG_REPO_URL:+--override "$BUILD_CONFIG_REPO_URL"})"
 # Sets: BC_URL, BC_PATH
@@ -172,7 +169,7 @@ echo "BC_PATH: $BC_PATH"
 
 # 3d-2: Parse target_rhoai_version into version/branch variables (RHOAI only)
 if [[ "${PRODUCT_CONTEXT^^}" == "RHOAI" ]]; then
-  eval "$(bash "$COMMON_SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION")"
+  eval "$(bash "scripts/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION")"
   # Sets: VERSION_VAR, BRANCH_VAR, BRANCH_NAME, RHOAI_MINOR_VERSION, CONTENT_STREAM_TAG
 fi
 
@@ -183,7 +180,7 @@ else
   QUAY_REPO_NAME="$COMPONENT_NAME"
 fi
 
-eval "$(bash "$COMMON_SCRIPTS_DIR/resolve_bundle_image.sh" \
+eval "$(bash "scripts/resolve_bundle_image.sh" \
   --component-name "$COMPONENT_NAME" \
   --quay-org       "$QUAY_ORG" \
   --quay-repo      "$QUAY_REPO_NAME")"
@@ -211,7 +208,7 @@ Before cloning, check whether `$RELATED_IMAGE_NAME` already has an entry in
 
 ```bash
 check_result=0
-bash "$COMMON_SCRIPTS_DIR/check_github_file.sh" \
+bash "scripts/check_github_file.sh" \
   --repo-path "$BC_PATH" \
   --file-path "bundle/bundle-patch.yaml" \
   --ref       "$SRC_BRANCH" \
@@ -239,7 +236,7 @@ fi
 If `check_result=0` (entry already present):
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+uv run --script scripts/update_jira_issue.py <jira-url> \
   --add-label "bundle-changes-done" \
   --comment "'$COMPONENT_NAME' ($RELATED_IMAGE_NAME) is already present in bundle/bundle-patch.yaml on the main branch of ${BC_PATH}.
 
@@ -279,7 +276,7 @@ fi
 
 cd "$WORKDIR"
 
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
+PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$BC_URL" \
   --src-branch "$SRC_BRANCH" \
   --dest-branch "<jira-id>" \
@@ -320,7 +317,7 @@ else
   COMPONENT_ARG=""
   [[ "${PRODUCT_CONTEXT^^}" == "ODH" ]] && COMPONENT_ARG="--component $COMPONENT_NAME"
 
-  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" append-array-entry \
+  uv run --script "scripts/edit_yaml.py" append-array-entry \
     "$CLONE_DIR/bundle/bundle-patch.yaml" \
     --array-key "patch.relatedImages" \
     --name      "$RELATED_IMAGE_NAME" \
@@ -364,7 +361,7 @@ Check if `rhoai/${COMPONENT_NAME}-rhel9:` already appears under
 if grep -q "rhoai/${COMPONENT_NAME}-rhel9:" "$CLONE_DIR/config/build-config.yaml" 2>/dev/null; then
   echo "rhoai/${COMPONENT_NAME}-rhel9 already in config.replacements[0].repo_mappings — skipping."
 else
-  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" insert-simple-map-entry \
+  uv run --script "scripts/edit_yaml.py" insert-simple-map-entry \
     "$CLONE_DIR/config/build-config.yaml" \
     --map-key "config.replacements.0.repo_mappings" \
     --key     "rhoai/${COMPONENT_NAME}-rhel9" \
@@ -394,7 +391,7 @@ DOCKERFILE="$CLONE_DIR/bundle/Dockerfile"
   exit 1
 }
 
-eval "$(uv run --script "$COMMON_SCRIPTS_DIR/update_bundle_dockerfile_git_labels.py" \
+eval "$(uv run --script "scripts/update_bundle_dockerfile_git_labels.py" \
   "$DOCKERFILE" --component-name "$COMPONENT_NAME")" || {
   echo "ERROR in Step 8e: Could not update bundle/Dockerfile. See details above. Aborting."
   exit 1
@@ -420,7 +417,7 @@ else
   COMMIT_MSG="Add $COMPONENT_NAME to bundle-patch.yaml, build-config.yaml, and bundle/Dockerfile"
 fi
 
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "$COMMIT_FILES" \
   --message   "$COMMIT_MSG" \
@@ -462,7 +459,7 @@ else
 - \`bundle/Dockerfile\` — added ARG \`${GIT_URL_LABEL}\`, ARG \`${GIT_COMMIT_LABEL}\`, and git label entries for \`${COMPONENT_NAME}\` (RHOAI only)"
 fi
 
-PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
+PR_URL=$(uv run --script scripts/raise_github_pr.py \
   --src-url "$BC_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$BC_URL" \
@@ -495,7 +492,7 @@ ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. See errors abo
 
 After a successful PR creation, update Jira:
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+uv run --script scripts/update_jira_issue.py <jira-url> \
   --add-label "bundle-pr-raised" \
   --comment "GitHub PR raised to add '$COMPONENT_NAME' to ${BC_PATH}.
 

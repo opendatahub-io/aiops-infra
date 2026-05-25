@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # install.sh — Install RHOAI/ODH component onboarding skills into ~/.claude/skills/
 #
-# Creates symlinks in ~/.claude/skills/ for each skill directory and the shared
-# common/ directory, making all skills available to Claude Code globally.
+# DEPRECATED: Marketplace installation is the primary distribution method.
+# This script is retained for local development within the aiops-infra repo only.
+# Shared scripts now live at the repo root (scripts/) and are accessible via
+# marketplace caching or when running skills from the repo root directly.
+#
+# Creates symlinks in ~/.claude/skills/ for each skill directory,
+# making all skills available to Claude Code globally.
 #
 # Usage:
 #   bash .claude/skills/install.sh [--force] [--uninstall] [--list] [--user USER]
@@ -56,14 +61,9 @@ fi
 TARGETS=()
 for entry in "$SKILLS_SRC"/*/; do
   name="$(basename "$entry")"
-  # Skip the common dir from the skill loop — added explicitly below
-  [[ "$name" == "common" ]] && continue
   # Only include directories that contain a SKILL.md
   [[ -f "$entry/SKILL.md" ]] && TARGETS+=("$name")
 done
-# common/ must also be reachable as ~/.claude/skills/common so that
-# ../common/scripts relative paths work from any installed skill dir
-TARGETS+=("common")
 
 # ── List mode ───────────────────────────────────────────────────────────────────
 if [[ "$LIST" == true ]]; then

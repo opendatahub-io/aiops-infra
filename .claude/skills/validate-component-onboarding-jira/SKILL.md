@@ -38,9 +38,6 @@ The user may also say "validate RHOAIENG-1234" or paste the URL. If only a key i
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts` (i.e., the `common/scripts` directory next to this skill).
-
 ## Step 0: Check prerequisites
 
 Check if `JIRA_USER_EMAIL`, `JIRA_SERVER`, and `JIRA_API_TOKEN` environment variables are set.
@@ -65,7 +62,7 @@ Extract the issue ID from the URL — the last non-empty path segment.
 For `https://redhat.atlassian.net/browse/RHOAIENG-1234`, the issue ID is `RHOAIENG-1234`.
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -74,14 +71,14 @@ echo "Working directory: $WORKDIR"
 Run from inside the working directory so the output file lands there:
 
 ```bash
-(cd <absolute_path>/<issue_id> && uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira_url>)
+(cd <absolute_path>/<issue_id> && uv run --script scripts/fetch_jira_details.py <jira_url>)
 ```
 
 On success: `<issue_id>/component_onboarding_details.json` is created.
 On failure (exit code 1): display the script's stderr, then attempt a best-effort Jira update (it may also fail if credentials are the root cause — suppress any error from the update call), then stop:
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+uv run --script scripts/update_jira_issue.py <jira_url> \
   --add-label "validation-failed" \
   --remove-label "validation-successful" \
   --comment "Validation failed at Step 1 (Fetch Jira Details).
@@ -101,14 +98,14 @@ Then stop with: `"ERROR in Step 1 (Fetch Jira Details): <message>. Aborting."`
 Run from inside the working directory:
 
 ```bash
-(cd <absolute_path>/<issue_id> && uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py <jira_url> component_onboarding_details.yaml)
+(cd <absolute_path>/<issue_id> && uv run --script scripts/download_jira_attachment.py <jira_url> component_onboarding_details.yaml)
 ```
 
 On success: `<issue_id>/component_onboarding_details.yaml` is created.
 On failure (exit code 1): display stderr, update the Jira issue, then stop:
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+uv run --script scripts/update_jira_issue.py <jira_url> \
   --add-label "validation-failed" \
   --remove-label "validation-successful" \
   --comment "Validation failed at Step 2 (Download Attachment).
@@ -123,16 +120,16 @@ Then stop with: `"ERROR in Step 2 (Download Attachment): <message>. Aborting."`
 ### Step 5: Validate YAML against schema
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/validate_yaml_schema.py \
+uv run --script scripts/validate_yaml_schema.py \
   <absolute_path>/<issue_id>/component_onboarding_details.yaml \
-  <SKILL_DIR>/assets/component_onboarding_details.schema.json
+  schemas/component_onboarding_details.schema.json
 ```
 
 On success (exit code 0): print "Validation passed." and continue to the branch check below.
 On failure (exit code 1): capture all stderr output as `<validation_errors>`, display them, update the Jira issue with the specific errors, then stop:
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+uv run --script scripts/update_jira_issue.py <jira_url> \
   --add-label "validation-failed" \
   --remove-label "validation-successful" \
   --comment "Validation failed at Step 3 (Schema Validation).
@@ -159,7 +156,7 @@ If `product_context == "RHOAI"`:
 - If `repo_branch != expected_branch`, update Jira and stop:
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+uv run --script scripts/update_jira_issue.py <jira_url> \
   --add-label "validation-failed" \
   --remove-label "validation-successful" \
   --comment "Validation failed at Step 3b (Branch Cross-Validation).
@@ -197,7 +194,7 @@ else
   DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${CLEAN_CTX}/${dockerfile_path}"
 fi
 
-uv run --script <COMMON_SCRIPTS_DIR>/check_dockerfile_digests.py \
+uv run --script scripts/check_dockerfile_digests.py \
   --dockerfile-url "$DOCKERFILE_RAW_URL"
 ```
 
@@ -206,7 +203,7 @@ On **exit 0**: print `Dockerfile digest check passed.` and continue.
 On **exit 2** (Dockerfile not reachable): update Jira and stop:
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+uv run --script scripts/update_jira_issue.py <jira_url> \
   --add-label "validation-failed" \
   --remove-label "validation-successful" \
   --comment "Validation failed at Step 5c (Dockerfile Digest Check).
@@ -223,7 +220,7 @@ Then stop with: `ERROR in Step 5c (Dockerfile Digest Check): Could not fetch Doc
 On **exit 1** (digest violations found): capture stderr as `<digest_errors>`, update Jira and stop:
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+uv run --script scripts/update_jira_issue.py <jira_url> \
   --add-label "validation-failed" \
   --remove-label "validation-successful" \
   --comment "Validation failed at Step 5c (Dockerfile Digest Check).
@@ -256,7 +253,7 @@ ALREADY_VALIDATED=$(jq -r '[.fields.labels[] | select(. == "validation-successfu
 If `ALREADY_VALIDATED == "true"`, skip the comment — just update labels and status silently:
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+uv run --script scripts/update_jira_issue.py <jira_url> \
   --add-label "validation-successful" \
   --remove-label "validation-failed" \
   --status "In Progress"
@@ -265,7 +262,7 @@ uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
 If `ALREADY_VALIDATED != "true"`, post the full success comment:
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira_url> \
+uv run --script scripts/update_jira_issue.py <jira_url> \
   --add-label "validation-successful" \
   --remove-label "validation-failed" \
   --comment "Validation passed for <issue_id>.

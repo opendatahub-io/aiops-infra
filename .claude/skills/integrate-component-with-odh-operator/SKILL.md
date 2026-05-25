@@ -56,9 +56,6 @@ Examples:
 
 ## Implementation
 
-SKILL_DIR is the absolute path of the directory containing this SKILL.md.
-COMMON_SCRIPTS_DIR is `<SKILL_DIR>/../common/scripts`.
-
 If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and exit 0. The orchestrator passes this when the URL is already recorded in pipeline_state.json.
 
 ---
@@ -83,7 +80,7 @@ If invoked with `--existing-pr-url <url>`: print 'PR already raised: <url>' and 
 Check in order. Stop with a remediation message if any check fails.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
+bash "scripts/check_prerequisites.sh" \
   --env "GITHUB_USER GITHUB_TOKEN JIRA_USER_EMAIL JIRA_API_TOKEN" \
   --tools "uv git"
 ```
@@ -93,7 +90,7 @@ bash "$COMMON_SCRIPTS_DIR/check_prerequisites.sh" \
 ## Step 2: Set Up Working Directory
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/init_workdir.sh" --jira-url "$JIRA_URL")"
+eval "$(bash "scripts/init_workdir.sh" --jira-url "$JIRA_URL")"
 echo "Working directory: $WORKDIR"
 ```
 
@@ -109,7 +106,7 @@ This step ensures both `component_onboarding_details.json` (full Jira issue) and
 ```bash
 if [[ ! -f "$WORKDIR/component_onboarding_details.json" ]]; then
   cd "$WORKDIR"
-  uv run --script <COMMON_SCRIPTS_DIR>/fetch_jira_details.py <jira-url>
+  uv run --script scripts/fetch_jira_details.py <jira-url>
 fi
 ```
 
@@ -122,7 +119,7 @@ ERROR in Step 3a (Fetch Jira details): Could not fetch Jira issue. See details a
 
 ```bash
 cd "$WORKDIR"
-uv run --script <COMMON_SCRIPTS_DIR>/download_jira_attachment.py \
+uv run --script scripts/download_jira_attachment.py \
   <jira-url> component_onboarding_details.yaml
 ```
 
@@ -159,7 +156,7 @@ env var first (override), then falls back to the product-context default. You **
 `eval` so the exported variables are available in subsequent steps.
 
 ```bash
-eval "$(bash "$COMMON_SCRIPTS_DIR/resolve_operator_url.sh" \
+eval "$(bash "scripts/resolve_operator_url.sh" \
   --product-context "$PRODUCT_CONTEXT")"
 echo "ODH_OPERATOR_URL:  $ODH_OPERATOR_URL"
 echo "ODH_OPERATOR_PATH: $ODH_OPERATOR_PATH"
@@ -180,7 +177,7 @@ Never hardcode a URL — always use `$ODH_OPERATOR_URL` and `$ODH_OPERATOR_PATH`
 **4a. If `IS_OPERATOR` is `false`:**
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+uv run --script scripts/update_jira_issue.py <jira-url> \
   --add-label "operator-changes-not-needed" \
   --comment "Skipping odh-operator integration for '$COMPONENT_NAME'.
 
@@ -263,7 +260,7 @@ rm -f "$MANIFESTS_TMPFILE"
 If `ENTRY_EXISTS=true`:
 
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+uv run --script scripts/update_jira_issue.py <jira-url> \
   --add-label "odh-operator-pr-raised" \
   --comment "'$COMPONENT_NAME' is already present in build/manifests-config.yaml on the main branch of ${ODH_OPERATOR_PATH}.
 
@@ -296,7 +293,7 @@ Run from inside `$WORKDIR`:
 ```bash
 cd "$WORKDIR"
 
-PLAYPEN_OUTPUT=$(bash <COMMON_SCRIPTS_DIR>/setup_github_playpen.sh \
+PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$ODH_OPERATOR_URL" \
   --src-branch main \
   --dest-branch "<jira-id>" \
@@ -341,7 +338,7 @@ if grep -q "^  ${COMPONENT_NAME}:" "$CLONE_DIR/build/manifests-config.yaml" 2>/d
   echo "$COMPONENT_NAME already in manifests-config.yaml — skipping edit."
   # Continue to Step 9 (commit and push are still needed for the PR branch)
 else
-  uv run --script "$COMMON_SCRIPTS_DIR/edit_yaml.py" insert-map-key \
+  uv run --script "scripts/edit_yaml.py" insert-map-key \
     "$CLONE_DIR/build/manifests-config.yaml" \
     --map-key "map" \
     --name "$COMPONENT_NAME" \
@@ -369,7 +366,7 @@ grep -q "^  ${COMPONENT_NAME}:" "$CLONE_DIR/build/manifests-config.yaml" \
 > **Reminder:** `origin` was set to `$ODH_OPERATOR_URL` by `setup_github_playpen.sh` in Step 7.
 
 ```bash
-bash "$COMMON_SCRIPTS_DIR/git_commit_push.sh" \
+bash "scripts/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "build/manifests-config.yaml" \
   --message   "Add $COMPONENT_NAME to manifests-config.yaml" \
@@ -390,7 +387,7 @@ ERROR in Step 9 (Commit/Push): Could not commit or push changes. See details abo
 > a personal fork.
 
 ```bash
-PR_URL=$(uv run --script <COMMON_SCRIPTS_DIR>/raise_github_pr.py \
+PR_URL=$(uv run --script scripts/raise_github_pr.py \
   --src-url "$ODH_OPERATOR_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$ODH_OPERATOR_URL" \
@@ -422,7 +419,7 @@ ERROR in Step 9 (Raise PR): Could not create PR after 3 attempts. See errors abo
 
 After a successful PR creation, update Jira:
 ```bash
-uv run --script <COMMON_SCRIPTS_DIR>/update_jira_issue.py <jira-url> \
+uv run --script scripts/update_jira_issue.py <jira-url> \
   --add-label "operator-pr-raised" \
   --comment "GitHub PR raised to add '$COMPONENT_NAME' to ${ODH_OPERATOR_PATH} manifests config.
 
