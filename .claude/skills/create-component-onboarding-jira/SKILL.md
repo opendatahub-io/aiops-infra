@@ -463,11 +463,10 @@ uv run --script scripts/check_dockerfile_digests.py \
 DIGEST_EXIT=$?
 ```
 
-**If exit 2** (Dockerfile not reachable — branch or file may not exist yet): print a notice
-and continue. Do not block — the Dockerfile may be created after the Jira is raised:
+**If exit 2** (Dockerfile not reachable — branch or file may not exist yet): stop with:
 ```
-NOTICE: Could not fetch Dockerfile at $DOCKERFILE_RAW_URL — skipping digest check.
-         Ensure all FROM images use @sha256 digests before running /validate-component-onboarding-jira.
+ERROR in Step 6b (Dockerfile digest check): Could not fetch Dockerfile at $DOCKERFILE_RAW_URL (HTTP 404 or unreachable).
+Verify that the repo_url, repo_branch, context_path, and dockerfile_path are correct and that the Dockerfile exists at that location.
 ```
 
 **If exit 1** (violations found): display the stderr output, then stop with:
