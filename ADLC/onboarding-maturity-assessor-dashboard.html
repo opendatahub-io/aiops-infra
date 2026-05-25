@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ADLC Onboarding — Maturity Assessor &amp; Automated Jira Creation</title>
+<style>
+  :root {
+    --bg: #f5f6fa;
+    --card: #ffffff;
+    --border: #e0e0e0;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --accent: #1A4A8A;
+    --tab-active: #1A4A8A;
+    --tab-inactive: #e8eaf6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+
+  /* Header */
+  header {
+    background: var(--accent);
+    color: #fff;
+    padding: 1.2rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  header h1 { font-size: 1.3rem; font-weight: 600; }
+  header .subtitle { font-size: 0.85rem; opacity: 0.8; }
+
+  /* Tabs */
+  .tab-bar {
+    display: flex;
+    gap: 0;
+    background: var(--card);
+    border-bottom: 2px solid var(--border);
+    padding: 0 2rem;
+  }
+  .tab-btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--muted);
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.15s ease;
+  }
+  .tab-btn:hover { color: var(--accent); }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Content — all tabs visible initially so Mermaid can render, then hidden via JS */
+  .tab-content { padding: 1.5rem 2rem; }
+  .tab-content.hidden { display: none; }
+
+  /* Diagram card */
+  .diagram-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+  }
+  .diagram-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: #f9fafb;
+    border-bottom: 1px solid var(--border);
+  }
+  .diagram-header h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .zoom-controls {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .zoom-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+    transition: background 0.1s;
+  }
+  .zoom-btn:hover { background: #f0f0f0; }
+  .zoom-level {
+    font-size: 0.75rem;
+    color: var(--muted);
+    min-width: 3rem;
+    text-align: center;
+  }
+  .diagram-container {
+    overflow: auto;
+    position: relative;
+    max-height: 80vh;
+    cursor: grab;
+  }
+  .diagram-container:active { cursor: grabbing; }
+  .diagram-inner {
+    transform-origin: 0 0;
+    transition: transform 0.15s ease;
+    padding: 1.5rem;
+    display: inline-block;
+    min-width: 100%;
+  }
+
+  /* Reference tables */
+  .ref-section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .ref-section h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--text);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    background: #f9fafb;
+    border-bottom: 2px solid var(--border);
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid #f0f0f0;
+    color: var(--text);
+  }
+  tr:hover td { background: #fafbfc; }
+  .color-chip {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 0.4rem;
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+  code {
+    font-size: 0.8rem;
+    background: #f3f4f6;
+    padding: 0.15rem 0.35rem;
+    border-radius: 3px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  /* State machine */
+  .state-machine {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .state-machine pre {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    overflow-x: auto;
+    color: var(--text);
+  }
+
+  /* Two-column layout for legend + fields */
+  .ref-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  @media (max-width: 900px) {
+    .ref-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>ADLC Onboarding Flow</h1>
+    <div class="subtitle">Maturity Assessor &amp; Automated Jira Creation — Interactive DAG Diagrams</div>
+  </div>
+</header>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('dag1')">Onboarding-Maturity-Assessor</button>
+  <button class="tab-btn" onclick="switchTab('dag2')">Create Onboarding Jira (Automated)</button>
+  <button class="tab-btn" onclick="switchTab('ref')">Reference</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     DAG 1: Onboarding-Maturity-Assessor
+     ═══════════════════════════════════════════════════════════ -->
+<div id="dag1" class="tab-content active">
+
+  <div class="diagram-card">
+    <div class="diagram-header">
+      <h2>Onboarding-Maturity-Assessor — Full Skill Flow</h2>
+      <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoom('dag1-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="dag1-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('dag1-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('dag1-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('dag1-diagram')" title="Fit width">&#x2194;</button>
+      </div>
+    </div>
+    <div class="diagram-container" id="dag1-diagram-container">
+      <div class="diagram-inner" id="dag1-diagram">
+        <pre class="mermaid">
+flowchart LR
+    classDef extract   fill:#DDEEFF,stroke:#1A4A8A,color:#0d2045
+    classDef validate  fill:#D4EDDA,stroke:#2D7D46,color:#154420
+    classDef score     fill:#fff3e0,stroke:#e65100,color:#4e2a00
+    classDef human     fill:#f3e5f5,stroke:#7b1fa2,color:#4a0072
+    classDef trigger   fill:#fff9c4,stroke:#f9a825,color:#4a3800
+    classDef errPath   fill:#fde8e8,stroke:#ee0000,color:#660000
+    classDef condPath  fill:#F5F5F5,stroke:#AAAAAA,color:#555555,stroke-dasharray:5 3
+    classDef decide    fill:#FFFBE6,stroke:#B8860B,color:#5a4000
+    classDef start     fill:#E8E8E8,stroke:#444444,color:#111111
+    classDef done      fill:#1A4A8A,stroke:#0d2045,color:#FFFFFF
+
+    subgraph SCHED["Schedule"]
+        SCHED_START(["Every few hours — periodic trigger"]):::start
+    end
+
+    subgraph STAGE_A["Stage A · Onboarding Info Generator"]
+        A_ENTRY["Locate onboarding epic<br/>in Jira"]:::extract
+        A_SCAN["Scan sibling epics<br/>under parent feature"]:::extract
+        A_EXTRACT_DESC["Extract info from<br/>descriptions + comments"]:::extract
+        A_EXTRACT_ATTACH["Extract info from<br/>attachments + linked issues"]:::extract
+        A_FIELDS_COMMON["Extract common:<br/>component_name, repo_url,<br/>context_path, dockerfile_path"]:::extract
+        A_FIELDS_ODH["Extract ODH:<br/>build_type (CI),<br/>odh_repo_branch"]:::extract
+        A_FIELDS_RHOAI["Extract RHOAI:<br/>architectures,<br/>target_rhoai_version,<br/>rhoai_repo_branch,<br/>descriptions,<br/>release_category"]:::extract
+        A_DEC_OPERATOR{"is_operator?"}:::decide
+        A_FIELDS_OP["Extract:<br/>manifest_src_path,<br/>manifest_dest_path"]:::condPath
+        A_DEC_FIRST{"Existing<br/>attachment<br/>on epic?"}:::decide
+        A_CREATE["Create new structured<br/>attachment on epic"]:::extract
+        A_UPDATE["Update existing<br/>attachment with<br/>new/changed fields"]:::extract
+        A_PARTIAL["Store partial info —<br/>mark missing fields"]:::extract
+    end
+
+    subgraph STAGE_B["Stage B · Onboarding Info Validator"]
+        B_LOAD["Load info from<br/>Jira attachment"]:::validate
+        B_REQ["Check required fields<br/>for both ODH + RHOAI"]:::validate
+        B_FORMAT["Validate format:<br/>name regex, URL,<br/>branch naming"]:::validate
+        B_ODH_CHECK["Validate ODH fields:<br/>build_type,<br/>odh_repo_branch"]:::validate
+        B_RHOAI_CHECK["Validate RHOAI fields:<br/>architectures, version,<br/>descriptions,<br/>release_category"]:::validate
+        B_BRANCH["Cross-validate:<br/>rhoai_repo_branch vs<br/>target_rhoai_version"]:::validate
+        B_DF_FETCH["Check Dockerfile at<br/>repo_url / branch / path"]:::validate
+        B_DEC_DF{"Dockerfile<br/>found?"}:::decide
+        B_DIGEST["Check FROM instructions<br/>for @sha256 digest<br/>pinning"]:::validate
+        B_DF_MISSING["Record:<br/>Dockerfile not found"]:::errPath
+        B_DIGEST_FAIL["Record:<br/>digest violations"]:::errPath
+        B_STATUS["Record validation<br/>status on Jira"]:::validate
+        B_DEC_VALID{"All validations<br/>passed?"}:::decide
+        B_PASS["Mark:<br/>validation-successful"]:::validate
+        B_FAIL["Mark: validation-failed<br/>— list violations"]:::errPath
+    end
+
+    subgraph STAGE_C["Stage C · Onboarding Readiness Rubric Score"]
+        C_CODE["Code Completeness<br/>(0–2)"]:::score
+        C_REPO["Repository Setup<br/>(0–2)"]:::score
+        C_DF["Dockerfile Readiness<br/>(0–2)"]:::score
+        C_DEPS["Dependency Resolution<br/>(0–2)"]:::score
+        C_INFO["Onboarding Info<br/>Completeness (0–2)<br/>— both ODH + RHOAI"]:::score
+        C_CICD["CI/CD Prerequisites<br/>(0–2)"]:::score
+        C_TOTAL["Compute total score<br/>(out of 12)"]:::score
+        C_JIRA["Update score on Jira<br/>in structured format"]:::score
+    end
+
+    subgraph STAGE_D["Stage D · Onboarding Readiness Evaluator"]
+        D_LOAD["Load total score +<br/>per-dimension scores"]:::score
+        D_DEC{"Total ≥ 9<br/>AND<br/>no dimension = 0?"}:::decide
+        D_READY["Add label:<br/>ready-for-human-review"]:::human
+        D_PR["Raise PR to designated<br/>repo for HITL review"]:::human
+        D_NOT_READY["Add label:<br/>not-ready-for-onboarding"]:::errPath
+        D_LOG["Log failed dimensions<br/>+ remediation hints"]:::errPath
+    end
+
+    subgraph STAGE_E["Stage E · Human Review Monitor"]
+        E_CHECK["Check HITL<br/>PR status"]:::human
+        E_DEC{"PR status?"}:::decide
+        E_APPROVED["Remove: ready-for-human-review<br/>Add: ready-for-onboarding"]:::trigger
+        E_REJECTED["Remove: ready-for-human-review<br/>Add: not-ready-for-onboarding"]:::errPath
+        E_FEEDBACK["Log reviewer feedback<br/>on Jira"]:::errPath
+        E_PENDING["No action —<br/>wait for next cycle"]:::condPath
+    end
+
+    DONE_READY(["Component ready for<br/>onboarding (both products)"]):::done
+    DONE_WAIT(["Awaiting next<br/>assessment cycle"]):::start
+
+    SCHED_START --> A_ENTRY
+    A_ENTRY --> A_SCAN
+    A_SCAN --> A_EXTRACT_DESC
+    A_SCAN --> A_EXTRACT_ATTACH
+    A_EXTRACT_DESC --> A_FIELDS_COMMON
+    A_EXTRACT_ATTACH --> A_FIELDS_COMMON
+
+    A_FIELDS_COMMON --> A_FIELDS_ODH
+    A_FIELDS_ODH --> A_FIELDS_RHOAI
+    A_FIELDS_RHOAI --> A_DEC_OPERATOR
+
+    A_DEC_OPERATOR -->|"Yes"| A_FIELDS_OP
+    A_FIELDS_OP --> A_DEC_FIRST
+    A_DEC_OPERATOR -->|"No"| A_DEC_FIRST
+    A_DEC_FIRST -->|"No (first run)"| A_CREATE
+    A_DEC_FIRST -->|"Yes (subsequent)"| A_UPDATE
+    A_CREATE -->|"Some fields missing"| A_PARTIAL
+    A_UPDATE -->|"Some fields missing"| A_PARTIAL
+    A_CREATE -->|"All fields found"| B_LOAD
+    A_UPDATE -->|"All fields found"| B_LOAD
+    A_PARTIAL -->|"Proceed with partial"| B_LOAD
+
+    B_LOAD --> B_REQ
+    B_REQ --> B_FORMAT
+    B_FORMAT --> B_ODH_CHECK
+    B_ODH_CHECK --> B_RHOAI_CHECK
+    B_RHOAI_CHECK --> B_BRANCH
+    B_BRANCH --> B_DF_FETCH
+    B_DF_FETCH --> B_DEC_DF
+    B_DEC_DF -->|"Yes"| B_DIGEST
+    B_DEC_DF -->|"No"| B_DF_MISSING
+    B_DF_MISSING --> B_STATUS
+    B_DIGEST -->|"Pass"| B_STATUS
+    B_DIGEST -->|"Fail"| B_DIGEST_FAIL
+    B_DIGEST_FAIL --> B_STATUS
+    B_STATUS --> B_DEC_VALID
+    B_DEC_VALID -->|"Yes"| B_PASS
+    B_DEC_VALID -->|"No"| B_FAIL
+    B_PASS --> C_CODE
+    B_FAIL -->|"Proceed with known failures"| C_CODE
+
+    C_CODE --> C_REPO
+    C_REPO --> C_DF
+    C_DF --> C_DEPS
+    C_DEPS --> C_INFO
+    C_INFO --> C_CICD
+    C_CICD --> C_TOTAL
+    C_TOTAL --> C_JIRA
+
+    C_JIRA --> D_LOAD
+    D_LOAD --> D_DEC
+    D_DEC -->|"Yes: score ≥ 9, no zeros"| D_READY
+    D_READY --> D_PR
+    D_PR --> E_CHECK
+    D_DEC -->|"No"| D_NOT_READY
+    D_NOT_READY --> D_LOG
+    D_LOG --> DONE_WAIT
+
+    E_CHECK --> E_DEC
+    E_DEC -->|"Approved"| E_APPROVED
+    E_APPROVED --> DONE_READY
+    E_DEC -->|"Rejected"| E_REJECTED
+    E_REJECTED --> E_FEEDBACK
+    E_FEEDBACK --> DONE_WAIT
+    E_DEC -->|"Pending"| E_PENDING
+    E_PENDING --> DONE_WAIT
+        </pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="ref-grid">
+    <div class="ref-section">
+      <h3>Legend</h3>
+      <table>
+        <tr><th>Color</th><th>Category</th><th>Usage</th></tr>
+        <tr><td><span class="color-chip" style="background:#DDEEFF;border-color:#1A4A8A"></span>Blue</td><td>Information Gathering</td><td>Stage A — extracts all fields for both ODH and RHOAI</td></tr>
+        <tr><td><span class="color-chip" style="background:#D4EDDA;border-color:#2D7D46"></span>Green</td><td>Validation</td><td>Stage B — validates both product field sets, Dockerfile checks</td></tr>
+        <tr><td><span class="color-chip" style="background:#fff3e0;border-color:#e65100"></span>Orange</td><td>Scoring</td><td>Stage C — rubric dimensions (0–2 each)</td></tr>
+        <tr><td><span class="color-chip" style="background:#f3e5f5;border-color:#7b1fa2"></span>Purple</td><td>Human Interaction</td><td>Stage D ready state, Stage E HITL review</td></tr>
+        <tr><td><span class="color-chip" style="background:#fff9c4;border-color:#f9a825"></span>Yellow</td><td>Automation</td><td><code>ready-for-onboarding</code> label handoff</td></tr>
+        <tr><td><span class="color-chip" style="background:#fde8e8;border-color:#ee0000"></span>Red</td><td>Error / Failure</td><td>Validation failures, digest violations, rejection</td></tr>
+        <tr><td><span class="color-chip" style="background:#F5F5F5;border-color:#AAAAAA"></span>Grey dashed</td><td>Conditional</td><td>Operator-specific paths</td></tr>
+        <tr><td><span class="color-chip" style="background:#FFFBE6;border-color:#B8860B"></span>Amber</td><td>Decision</td><td>All diamond nodes</td></tr>
+        <tr><td><span class="color-chip" style="background:#1A4A8A;border-color:#0d2045"></span>Dark Blue</td><td>Terminal</td><td>Final done states</td></tr>
+      </table>
+    </div>
+    <div class="ref-section">
+      <h3>Rubric Scoring Dimensions</h3>
+      <table>
+        <tr><th>Dimension</th><th>0</th><th>1</th><th>2</th></tr>
+        <tr><td><strong>Code Completeness</strong></td><td>No code / repo empty</td><td>Code exists, tests incomplete</td><td>Code implemented, tests passing</td></tr>
+        <tr><td><strong>Repository Setup</strong></td><td>Repo does not exist</td><td>Repo exists, ODH or RHOAI branch missing</td><td>Both ODH + RHOAI branches exist with correct structure</td></tr>
+        <tr><td><strong>Dockerfile Readiness</strong></td><td>No Dockerfile</td><td>Dockerfile exists, not digest-pinned</td><td>Dockerfile complete + digest-pinned</td></tr>
+        <tr><td><strong>Dependency Resolution</strong></td><td>Dependencies unexplored</td><td>Some deps identified, not all resolved</td><td>All upstream deps available</td></tr>
+        <tr><td><strong>Info Completeness</strong></td><td>Critical fields missing for either product</td><td>Some required fields missing</td><td>ALL fields populated for BOTH ODH and RHOAI</td></tr>
+        <tr><td><strong>CI/CD Prerequisites</strong></td><td>No CI infrastructure</td><td>Partial CI setup</td><td>CI pipelines in place</td></tr>
+      </table>
+      <p style="margin-top:0.5rem;font-size:0.8rem;color:var(--muted)">Threshold: total &ge; 9/12 AND no dimension = 0 &rarr; ready for human review (both products)</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     DAG 2: Create Component Onboarding Jira (Automated)
+     ═══════════════════════════════════════════════════════════ -->
+<div id="dag2" class="tab-content">
+
+  <div class="diagram-card">
+    <div class="diagram-header">
+      <h2>Create Component Onboarding Jira (Automated) — Full Skill Flow</h2>
+      <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoom('dag2-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="dag2-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('dag2-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('dag2-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('dag2-diagram')" title="Fit width">&#x2194;</button>
+      </div>
+    </div>
+    <div class="diagram-container" id="dag2-diagram-container">
+      <div class="diagram-inner" id="dag2-diagram">
+        <pre class="mermaid">
+flowchart LR
+    classDef extract   fill:#DDEEFF,stroke:#1A4A8A,color:#0d2045
+    classDef validate  fill:#D4EDDA,stroke:#2D7D46,color:#154420
+    classDef trigger   fill:#fff9c4,stroke:#f9a825,color:#4a3800
+    classDef errPath   fill:#fde8e8,stroke:#ee0000,color:#660000
+    classDef condPath  fill:#F5F5F5,stroke:#AAAAAA,color:#555555,stroke-dasharray:5 3
+    classDef decide    fill:#FFFBE6,stroke:#B8860B,color:#5a4000
+    classDef start     fill:#E8E8E8,stroke:#444444,color:#111111
+    classDef done      fill:#1A4A8A,stroke:#0d2045,color:#FFFFFF
+
+    subgraph SCHED["Schedule"]
+        SCHED_START(["Periodic trigger"]):::start
+    end
+
+    subgraph DISCOVER["Step 1 · Discovery"]
+        J_QUERY["Query Jira:<br/>label = ready-for-onboarding"]:::extract
+        J_DEC_FOUND{"Epics<br/>found?"}:::decide
+        J_NONE(["No eligible epics<br/>— exit"]):::start
+    end
+
+    subgraph LOOP["For Each Epic"]
+
+        J_ITER["Pick next epic<br/>from result set"]:::extract
+
+        subgraph EXTRACT["Step 2 · Extract Combined Info"]
+            J_EXTRACT["Extract structured<br/>attachment from epic"]:::extract
+            J_DEC_ATTACH{"Attachment<br/>found?"}:::decide
+            J_NO_ATTACH["Log error —<br/>skip epic"]:::errPath
+            J_PARSE["Parse combined<br/>onboarding info<br/>(ODH + RHOAI fields)"]:::extract
+        end
+
+        subgraph ODH_PHASE["ODH Onboarding Ticket (first)"]
+            O_BUILD["Build ODH YAML:<br/>common fields +<br/>build_type (CI) +<br/>odh_repo_branch"]:::extract
+            O_DEC_OP{"is_operator?"}:::decide
+            O_OP["Add: manifest_src_path,<br/>manifest_dest_path"]:::condPath
+            O_WRITE["Write ODH<br/>onboarding YAML"]:::extract
+            O_SCHEMA["Validate ODH YAML<br/>against schema"]:::validate
+            O_DEC_SCHEMA{"Valid?"}:::decide
+            O_FAIL["ODH schema errors<br/>— skip epic"]:::errPath
+            O_DEC_EXISTING{"Existing<br/>ODH Jira?"}:::decide
+            O_CLONE["Clone ODH template<br/>RHOAIENG-35683"]:::trigger
+            O_ERR_CLONE["Clone failed<br/>— skip epic"]:::errPath
+            O_ATTACH["Upload ODH YAML<br/>to ticket"]:::trigger
+            O_ERR_ATTACH["Upload failed<br/>— skip epic"]:::errPath
+            O_LABELS["Add labels:<br/>yaml-attached"]:::trigger
+            O_LINK["Link to<br/>parent feature"]:::trigger
+            O_META["Update title,<br/>description, labels"]:::trigger
+            O_DONE["ODH ticket created"]:::trigger
+        end
+
+        subgraph RHOAI_PHASE["RHOAI Onboarding Ticket (second)"]
+            R_BUILD["Build RHOAI YAML:<br/>common fields +<br/>RHOAI fields +<br/>rhoai_repo_branch"]:::extract
+            R_DEC_OP{"is_operator?"}:::decide
+            R_OP["Add: manifest_src_path,<br/>manifest_dest_path"]:::condPath
+            R_WRITE["Write RHOAI<br/>onboarding YAML"]:::extract
+            R_SCHEMA["Validate RHOAI YAML<br/>against schema"]:::validate
+            R_DEC_SCHEMA{"Valid?"}:::decide
+            R_FAIL["RHOAI schema errors<br/>— skip epic"]:::errPath
+            R_DF["Check Dockerfile<br/>@sha256 digest<br/>pinning"]:::validate
+            R_DEC_DF{"Dockerfile<br/>check?"}:::decide
+            R_DF_PASS["Digest check<br/>passed"]:::validate
+            R_DF_404["Not found —<br/>continue with notice"]:::errPath
+            R_DF_FAIL["Digest violations<br/>— skip epic"]:::errPath
+            R_DEC_EXISTING{"Existing<br/>RHOAI Jira?"}:::decide
+            R_CLONE["Clone RHOAI template<br/>RHOAIENG-17225"]:::trigger
+            R_ERR_CLONE["Clone failed<br/>— skip epic"]:::errPath
+            R_ATTACH["Upload RHOAI YAML<br/>to ticket"]:::trigger
+            R_ERR_ATTACH["Upload failed<br/>— skip epic"]:::errPath
+            R_LABELS["Add labels:<br/>yaml-attached"]:::trigger
+            R_LINK["Link to<br/>parent feature"]:::trigger
+            R_META["Update title,<br/>description, labels"]:::trigger
+        end
+
+        subgraph DOWNSTREAM["Downstream"]
+            D_READY["Both tickets ready<br/>for orchestrator"]:::trigger
+            D_LINK(["ODH onboarded first,<br/>then RHOAI"]):::done
+        end
+
+        J_NEXT{"More<br/>epics?"}:::decide
+    end
+
+    DONE_ALL(["All epics processed<br/>— exit"]):::done
+
+    SCHED_START --> J_QUERY
+    J_QUERY --> J_DEC_FOUND
+    J_DEC_FOUND -->|"Yes"| J_ITER
+    J_DEC_FOUND -->|"No"| J_NONE
+
+    J_ITER --> J_EXTRACT
+    J_EXTRACT --> J_DEC_ATTACH
+    J_DEC_ATTACH -->|"Yes"| J_PARSE
+    J_DEC_ATTACH -->|"No"| J_NO_ATTACH
+    J_NO_ATTACH --> J_NEXT
+
+    J_PARSE --> O_BUILD
+    O_BUILD --> O_DEC_OP
+    O_DEC_OP -->|"Yes"| O_OP
+    O_OP --> O_WRITE
+    O_DEC_OP -->|"No"| O_WRITE
+    O_WRITE --> O_SCHEMA
+    O_SCHEMA --> O_DEC_SCHEMA
+    O_DEC_SCHEMA -->|"Pass"| O_DEC_EXISTING
+    O_DEC_SCHEMA -->|"Fail"| O_FAIL
+    O_FAIL --> J_NEXT
+    O_DEC_EXISTING -->|"Yes (existing)"| O_ATTACH
+    O_DEC_EXISTING -->|"No (new)"| O_CLONE
+    O_CLONE --> O_ATTACH
+    O_CLONE -->|"Failed"| O_ERR_CLONE
+    O_ERR_CLONE --> J_NEXT
+    O_ATTACH --> O_LABELS
+    O_ATTACH -->|"Failed"| O_ERR_ATTACH
+    O_ERR_ATTACH --> J_NEXT
+    O_LABELS -->|"label: yaml-attached"| O_LINK
+    O_LINK --> O_META
+    O_META --> O_DONE
+
+    O_DONE -->|"ODH done, start RHOAI"| R_BUILD
+
+    R_BUILD --> R_DEC_OP
+    R_DEC_OP -->|"Yes"| R_OP
+    R_OP --> R_WRITE
+    R_DEC_OP -->|"No"| R_WRITE
+    R_WRITE --> R_SCHEMA
+    R_SCHEMA --> R_DEC_SCHEMA
+    R_DEC_SCHEMA -->|"Pass"| R_DF
+    R_DEC_SCHEMA -->|"Fail"| R_FAIL
+    R_FAIL --> J_NEXT
+    R_DF --> R_DEC_DF
+    R_DEC_DF -->|"Pass"| R_DF_PASS
+    R_DEC_DF -->|"Not found (exit 2)"| R_DF_404
+    R_DEC_DF -->|"Violations (exit 1)"| R_DF_FAIL
+    R_DF_PASS --> R_DEC_EXISTING
+    R_DF_404 -->|"Continue with notice"| R_DEC_EXISTING
+    R_DF_FAIL --> J_NEXT
+    R_DEC_EXISTING -->|"Yes (existing)"| R_ATTACH
+    R_DEC_EXISTING -->|"No (new)"| R_CLONE
+    R_CLONE --> R_ATTACH
+    R_CLONE -->|"Failed"| R_ERR_CLONE
+    R_ERR_CLONE --> J_NEXT
+    R_ATTACH --> R_LABELS
+    R_ATTACH -->|"Failed"| R_ERR_ATTACH
+    R_ERR_ATTACH --> J_NEXT
+    R_LABELS -->|"label: yaml-attached"| R_LINK
+    R_LINK --> R_META
+
+    R_META --> D_READY
+    D_READY --> D_LINK
+    D_LINK --> J_NEXT
+
+    J_NEXT -->|"Yes"| J_ITER
+    J_NEXT -->|"No"| DONE_ALL
+        </pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="ref-section">
+    <h3>Legend</h3>
+    <table>
+      <tr><th>Color</th><th>Category</th><th>Usage</th></tr>
+      <tr><td><span class="color-chip" style="background:#DDEEFF;border-color:#1A4A8A"></span>Blue</td><td>Information Gathering</td><td>Extraction, YAML building</td></tr>
+      <tr><td><span class="color-chip" style="background:#D4EDDA;border-color:#2D7D46"></span>Green</td><td>Validation</td><td>Schema validation, Dockerfile digest check</td></tr>
+      <tr><td><span class="color-chip" style="background:#fff9c4;border-color:#f9a825"></span>Yellow</td><td>Automation / Trigger</td><td>Template cloning, YAML upload, label updates, downstream trigger</td></tr>
+      <tr><td><span class="color-chip" style="background:#fde8e8;border-color:#ee0000"></span>Red</td><td>Error / Failure</td><td>Schema failures, digest violations, clone/upload failures</td></tr>
+      <tr><td><span class="color-chip" style="background:#F5F5F5;border-color:#AAAAAA"></span>Grey dashed</td><td>Conditional</td><td>Operator-specific paths</td></tr>
+      <tr><td><span class="color-chip" style="background:#FFFBE6;border-color:#B8860B"></span>Amber</td><td>Decision</td><td>All diamond nodes</td></tr>
+      <tr><td><span class="color-chip" style="background:#E8E8E8;border-color:#444444"></span>Grey</td><td>Start / No-op</td><td>Schedule trigger, no-epics exit</td></tr>
+      <tr><td><span class="color-chip" style="background:#1A4A8A;border-color:#0d2045"></span>Dark Blue</td><td>Terminal</td><td>Final &ldquo;ready for orchestrator&rdquo; and &ldquo;all done&rdquo; states</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     Reference Tab
+     ═══════════════════════════════════════════════════════════ -->
+<div id="ref" class="tab-content">
+
+  <div class="ref-grid">
+    <div class="ref-section">
+      <h3>Required Fields (Collected for Both Products)</h3>
+      <table>
+        <tr><th>Field</th><th>Common</th><th>ODH Ticket</th><th>RHOAI Ticket</th><th>is_operator</th></tr>
+        <tr><td><code>component_name</code></td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>repo_url</code></td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>context_path</code></td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>dockerfile_path</code></td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>is_operator</code></td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>build_type</code> (CI)</td><td></td><td style="text-align:center">&#10003;</td><td></td><td></td></tr>
+        <tr><td><code>odh_repo_branch</code></td><td></td><td style="text-align:center">&#10003;</td><td></td><td></td></tr>
+        <tr><td><code>architectures</code></td><td></td><td></td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>target_rhoai_version</code></td><td></td><td></td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>rhoai_repo_branch</code></td><td></td><td></td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>long_description</code></td><td></td><td></td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>short_description</code></td><td></td><td></td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>release_category</code></td><td></td><td></td><td style="text-align:center">&#10003;</td><td></td></tr>
+        <tr><td><code>operator_manifest_src_path</code></td><td></td><td></td><td></td><td style="text-align:center">&#10003;</td></tr>
+        <tr><td><code>operator_manifest_dest_path</code></td><td></td><td></td><td></td><td style="text-align:center">&#10003;</td></tr>
+      </table>
+    </div>
+    <div class="ref-section">
+      <h3>Edge Cases Covered</h3>
+      <table>
+        <tr><th>Edge Case</th><th>DAG</th><th>Handling</th></tr>
+        <tr><td>First run, no info</td><td>1</td><td><code>A_DEC_FIRST</code> &rarr; Create new attachment</td></tr>
+        <tr><td>Partial info</td><td>1</td><td><code>A_PARTIAL</code> marks missing; <code>C_INFO</code> scores 0&ndash;1</td></tr>
+        <tr><td>Human rejects</td><td>1</td><td><code>E_REJECTED</code> &rarr; feedback logged, re-assessed next cycle</td></tr>
+        <tr><td>Dockerfile missing</td><td>1</td><td><code>B_DF_MISSING</code> (non-blocking, reduces <code>C_DF</code> rubric score)</td></tr>
+        <tr><td>Dockerfile missing</td><td>2</td><td><code>R_DF_404</code> &rarr; continues RHOAI phase with notice</td></tr>
+        <tr><td>Digest violations</td><td>2</td><td><code>R_DF_FAIL</code> &rarr; skip epic</td></tr>
+        <tr><td><code>is_operator</code> conditional</td><td>Both</td><td>Manifest paths extracted/added for both ODH and RHOAI YAMLs</td></tr>
+        <tr><td>No attachment</td><td>2</td><td><code>J_NO_ATTACH</code> &rarr; skip epic</td></tr>
+        <tr><td>ODH schema fails</td><td>2</td><td><code>O_FAIL</code> &rarr; skip entire epic (neither ticket created)</td></tr>
+        <tr><td>RHOAI schema fails</td><td>2</td><td><code>R_FAIL</code> &rarr; skip epic (ODH ticket already created &mdash; note in Jira)</td></tr>
+        <tr><td>ODH clone fails</td><td>2</td><td><code>O_ERR_CLONE</code> &rarr; skip entire epic</td></tr>
+        <tr><td>RHOAI clone fails</td><td>2</td><td><code>R_ERR_CLONE</code> &rarr; skip epic (ODH ticket already created &mdash; note in Jira)</td></tr>
+        <tr><td>YAML upload fails</td><td>2</td><td><code>O_ERR_ATTACH</code> / <code>R_ERR_ATTACH</code> &rarr; skip epic</td></tr>
+        <tr><td>PR pending</td><td>1</td><td><code>E_PENDING</code> &rarr; re-check next cycle</td></tr>
+        <tr><td>No eligible epics</td><td>2</td><td><code>J_DEC_FOUND</code> &rarr; clean exit</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="state-machine">
+    <h3 style="font-size:0.9rem;font-weight:600;margin-bottom:0.75rem">Jira Label State Machine (Across Both DAGs)</h3>
+    <pre>
+Epic created (no label)
+  |
+  +-- [DAG 1 - Stage D: score &lt; threshold] --&gt; not-ready-for-onboarding
+  |                                               |
+  |                                    (next cycle re-assesses)
+  |
+  +-- [DAG 1 - Stage D: score &ge; threshold] --&gt; ready-for-human-review
+                                                  |
+                    +-----------------------------+------------------+
+                    |                             |                  |
+        [Stage E: PR approved]       [Stage E: PR rejected]   [Stage E: pending]
+                    |                             |                  |
+          ready-for-onboarding       not-ready-for-onboarding   (wait next cycle)
+                    |
+        [DAG 2: picks up epic]
+                    |
+          +-- ODH Jira ticket created -- yaml-attached
+          |
+          +-- RHOAI Jira ticket created -- yaml-attached
+                    |
+        [Orchestrator: ODH onboarded first, then RHOAI]</pre>
+  </div>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
+      fontSize: '13px',
+    },
+    flowchart: {
+      useMaxWidth: false,
+      htmlLabels: true,
+      curve: 'basis',
+      rankSpacing: 60,
+      nodeSpacing: 30,
+      padding: 12,
+    },
+    securityLevel: 'loose',
+  });
+
+  // Render all diagrams while all tabs are visible, then hide inactive tabs
+  await mermaid.run();
+  document.querySelectorAll('.tab-content').forEach(el => {
+    if (el.id !== 'dag1') el.classList.add('hidden');
+  });
+</script>
+
+<script>
+  // ── Tab switching ─────────────────────────────────────────
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById(tabId).classList.remove('hidden');
+    event.target.classList.add('active');
+  }
+  window.switchTab = switchTab;
+
+  // ── Zoom state ────────────────────────────────────────────
+  const zoomState = {};
+
+  function getZoom(id) {
+    if (!zoomState[id]) zoomState[id] = { scale: 1 };
+    return zoomState[id];
+  }
+
+  function applyZoom(id) {
+    const state = getZoom(id);
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.transform = `scale(${state.scale})`;
+    const label = document.getElementById(id + '-level');
+    if (label) label.textContent = Math.round(state.scale * 100) + '%';
+  }
+
+  function zoom(id, direction) {
+    const state = getZoom(id);
+    const factor = direction > 0 ? 1.2 : 1 / 1.2;
+    state.scale = Math.max(0.1, Math.min(5, state.scale * factor));
+    applyZoom(id);
+  }
+  window.zoom = zoom;
+
+  function resetZoom(id) {
+    const state = getZoom(id);
+    state.scale = 1;
+    applyZoom(id);
+    const container = document.getElementById(id + '-container');
+    if (container) { container.scrollLeft = 0; container.scrollTop = 0; }
+  }
+  window.resetZoom = resetZoom;
+
+  function fitToWidth(id) {
+    const container = document.getElementById(id + '-container');
+    const inner = document.getElementById(id);
+    if (!container || !inner) return;
+    const state = getZoom(id);
+    state.scale = 1;
+    inner.style.transform = `scale(1)`;
+    const contentW = inner.scrollWidth;
+    const viewW = container.clientWidth - 32;
+    if (contentW > 0) {
+      state.scale = Math.max(0.1, Math.min(2, viewW / contentW));
+    }
+    applyZoom(id);
+    container.scrollLeft = 0;
+    container.scrollTop = 0;
+  }
+  window.fitToWidth = fitToWidth;
+
+  // ── Mouse-wheel zoom ─────────────────────────────────────
+  document.querySelectorAll('.diagram-container').forEach(container => {
+    container.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const inner = container.querySelector('.diagram-inner');
+      if (!inner) return;
+      const id = inner.id;
+      const direction = e.deltaY < 0 ? 1 : -1;
+      zoom(id, direction);
+    }, { passive: false });
+  });
+
+  // ── Click-drag panning ────────────────────────────────────
+  document.querySelectorAll('.diagram-container').forEach(container => {
+    let isDragging = false, startX, startY, scrollL, scrollT;
+
+    container.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      isDragging = true;
+      startX = e.pageX - container.offsetLeft;
+      startY = e.pageY - container.offsetTop;
+      scrollL = container.scrollLeft;
+      scrollT = container.scrollTop;
+      container.style.cursor = 'grabbing';
+    });
+
+    container.addEventListener('mouseleave', () => { isDragging = false; container.style.cursor = 'grab'; });
+    container.addEventListener('mouseup', () => { isDragging = false; container.style.cursor = 'grab'; });
+
+    container.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const x = e.pageX - container.offsetLeft;
+      const y = e.pageY - container.offsetTop;
+      container.scrollLeft = scrollL - (x - startX);
+      container.scrollTop = scrollT - (y - startY);
+    });
+  });
+</script>
+
+</body>
+</html>

@@ -3,8 +3,8 @@
 Detailed DAG (Directed Acyclic Graph) flow diagrams for the two skills that sit upstream
 of the existing component onboarding orchestrator (`onboard-konflux-components-for-odh-and-rhoai`).
 
-**DAG 1** assesses whether a component is ready for onboarding.
-**DAG 2** picks up ready components and creates the onboarding Jira ticket automatically.
+**DAG 1** assesses whether a component is ready for onboarding to **both ODH and RHOAI**.
+**DAG 2** picks up ready components and creates **two onboarding Jira tickets** (ODH first, then RHOAI).
 
 ---
 
@@ -34,12 +34,9 @@ flowchart LR
         A_SCAN["Scan sibling epics<br/>under parent feature"]:::extract
         A_EXTRACT_DESC["Extract info from<br/>descriptions + comments"]:::extract
         A_EXTRACT_ATTACH["Extract info from<br/>attachments + linked issues"]:::extract
-        A_DEC_PRODUCT{"ODH or RHOAI?"}:::decide
-        A_FIELDS_COMMON["Extract common fields:<br/>component_name, repo_url,<br/>repo_branch, context_path,<br/>dockerfile_path"]:::extract
-        A_FIELDS_ODH["Extract ODH:<br/>build_type"]:::condPath
-        A_DEC_BUILD{"build_type =<br/>Release?"}:::decide
-        A_FIELDS_RELEASE["Extract:<br/>odh_release_tag"]:::condPath
-        A_FIELDS_RHOAI["Extract RHOAI:<br/>architectures,<br/>target_rhoai_version,<br/>descriptions,<br/>release_category"]:::condPath
+        A_FIELDS_COMMON["Extract common:<br/>component_name, repo_url,<br/>context_path, dockerfile_path"]:::extract
+        A_FIELDS_ODH["Extract ODH:<br/>build_type (CI),<br/>odh_repo_branch"]:::extract
+        A_FIELDS_RHOAI["Extract RHOAI:<br/>architectures,<br/>target_rhoai_version,<br/>rhoai_repo_branch,<br/>descriptions,<br/>release_category"]:::extract
         A_DEC_OPERATOR{"is_operator?"}:::decide
         A_FIELDS_OP["Extract:<br/>manifest_src_path,<br/>manifest_dest_path"]:::condPath
         A_DEC_FIRST{"Existing<br/>attachment<br/>on epic?"}:::decide
@@ -51,10 +48,11 @@ flowchart LR
     %% ── Stage B: Onboarding Info Validator ────────────────────
     subgraph STAGE_B["Stage B · Onboarding Info Validator"]
         B_LOAD["Load info from<br/>Jira attachment"]:::validate
-        B_REQ["Check required<br/>fields present"]:::validate
+        B_REQ["Check required fields<br/>for both ODH + RHOAI"]:::validate
         B_FORMAT["Validate format:<br/>name regex, URL,<br/>branch naming"]:::validate
-        B_DEC_PRODUCT{"ODH or RHOAI?"}:::decide
-        B_BRANCH["Cross-validate:<br/>repo_branch vs<br/>target_rhoai_version"]:::validate
+        B_ODH_CHECK["Validate ODH fields:<br/>build_type,<br/>odh_repo_branch"]:::validate
+        B_RHOAI_CHECK["Validate RHOAI fields:<br/>architectures, version,<br/>descriptions,<br/>release_category"]:::validate
+        B_BRANCH["Cross-validate:<br/>rhoai_repo_branch vs<br/>target_rhoai_version"]:::validate
         B_DF_FETCH["Check Dockerfile at<br/>repo_url / branch / path"]:::validate
         B_DEC_DF{"Dockerfile<br/>found?"}:::decide
         B_DIGEST["Check FROM instructions<br/>for @sha256 digest<br/>pinning"]:::validate
@@ -72,7 +70,7 @@ flowchart LR
         C_REPO["Repository Setup<br/>(0–2)"]:::score
         C_DF["Dockerfile Readiness<br/>(0–2)"]:::score
         C_DEPS["Dependency Resolution<br/>(0–2)"]:::score
-        C_INFO["Onboarding Info<br/>Completeness (0–2)"]:::score
+        C_INFO["Onboarding Info<br/>Completeness (0–2)<br/>— both ODH + RHOAI"]:::score
         C_CICD["CI/CD Prerequisites<br/>(0–2)"]:::score
         C_TOTAL["Compute total score<br/>(out of 12)"]:::score
         C_JIRA["Update score on Jira<br/>in structured format"]:::score
@@ -99,7 +97,7 @@ flowchart LR
     end
 
     %% ── Terminal ──────────────────────────────────────────────
-    DONE_READY(["Component ready<br/>for onboarding"]):::done
+    DONE_READY(["Component ready for<br/>onboarding (both products)"]):::done
     DONE_WAIT(["Awaiting next<br/>assessment cycle"]):::start
 
     %% ── Edges: Schedule → Stage A ─────────────────────────────
@@ -107,18 +105,12 @@ flowchart LR
     A_ENTRY --> A_SCAN
     A_SCAN --> A_EXTRACT_DESC
     A_SCAN --> A_EXTRACT_ATTACH
-    A_EXTRACT_DESC --> A_DEC_PRODUCT
-    A_EXTRACT_ATTACH --> A_DEC_PRODUCT
+    A_EXTRACT_DESC --> A_FIELDS_COMMON
+    A_EXTRACT_ATTACH --> A_FIELDS_COMMON
 
-    %% ── Edges: Stage A product branching ──────────────────────
-    A_DEC_PRODUCT -->|"Always"| A_FIELDS_COMMON
-    A_FIELDS_COMMON --> A_DEC_OPERATOR
-    A_DEC_PRODUCT -->|"ODH"| A_FIELDS_ODH
-    A_FIELDS_ODH --> A_DEC_BUILD
-    A_DEC_BUILD -->|"Yes (Release)"| A_FIELDS_RELEASE
-    A_FIELDS_RELEASE --> A_DEC_OPERATOR
-    A_DEC_BUILD -->|"No (CI)"| A_DEC_OPERATOR
-    A_DEC_PRODUCT -->|"RHOAI"| A_FIELDS_RHOAI
+    %% ── Edges: Stage A sequential collection ─────────────────
+    A_FIELDS_COMMON --> A_FIELDS_ODH
+    A_FIELDS_ODH --> A_FIELDS_RHOAI
     A_FIELDS_RHOAI --> A_DEC_OPERATOR
 
     %% ── Edges: Stage A operator + persistence ─────────────────
@@ -133,12 +125,12 @@ flowchart LR
     A_UPDATE -->|"All fields found"| B_LOAD
     A_PARTIAL -->|"Proceed with partial"| B_LOAD
 
-    %% ── Edges: Stage B validation ─────────────────────────────
+    %% ── Edges: Stage B validation (both products) ─────────────
     B_LOAD --> B_REQ
     B_REQ --> B_FORMAT
-    B_FORMAT --> B_DEC_PRODUCT
-    B_DEC_PRODUCT -->|"ODH"| B_STATUS
-    B_DEC_PRODUCT -->|"RHOAI"| B_BRANCH
+    B_FORMAT --> B_ODH_CHECK
+    B_ODH_CHECK --> B_RHOAI_CHECK
+    B_RHOAI_CHECK --> B_BRANCH
     B_BRANCH --> B_DF_FETCH
     B_DF_FETCH --> B_DEC_DF
     B_DEC_DF -->|"Yes"| B_DIGEST
@@ -187,31 +179,30 @@ flowchart LR
 
 | Color | Category | Usage |
 |-------|----------|-------|
-| 🔵 Blue | Information Gathering | Stage A — extraction from Jira epics |
-| 🟢 Green | Validation | Stage B — schema, format, Dockerfile checks |
+| 🔵 Blue | Information Gathering | Stage A — extracts all fields for both ODH and RHOAI |
+| 🟢 Green | Validation | Stage B — validates both product field sets, Dockerfile checks |
 | 🟠 Orange | Scoring / Assessment | Stage C — rubric dimensions (0–2 each) |
 | 🟣 Purple | Human Interaction | Stage D ready state, Stage E HITL review |
 | 🟡 Yellow | Automation / Trigger | `ready-for-onboarding` label handoff |
 | 🔴 Red/Pink | Error / Failure | Validation failures, digest violations, rejection |
-| ⬜ Grey dashed | Conditional | Product-specific (ODH/RHOAI), operator-specific paths |
+| ⬜ Grey dashed | Conditional | Operator-specific paths |
 | 🟤 Amber | Decision | All diamond-shaped decision nodes |
 | 🔷 Dark Blue | Terminal | Final done states |
 
-### Required Fields by Product Context
+### Required Fields (Collected for Both Products)
 
-| Field | Always Required | ODH | RHOAI | is_operator = true |
+| Field | Common | ODH Ticket | RHOAI Ticket | is_operator = true |
 |-------|:---:|:---:|:---:|:---:|
-| `product_context` | ✓ | | | |
-| `component_name` | ✓ | | | |
-| `repo_url` | ✓ | | | |
-| `repo_branch` | ✓ | | | |
-| `context_path` | ✓ | | | |
-| `dockerfile_path` | ✓ | | | |
-| `is_operator` | ✓ | | | |
-| `build_type` | | ✓ | | |
-| `odh_release_tag` | | Release only | | |
+| `component_name` | ✓ | ✓ | ✓ | |
+| `repo_url` | ✓ | ✓ | ✓ | |
+| `context_path` | ✓ | ✓ | ✓ | |
+| `dockerfile_path` | ✓ | ✓ | ✓ | |
+| `is_operator` | ✓ | ✓ | ✓ | |
+| `build_type` (CI) | | ✓ | | |
+| `odh_repo_branch` | | ✓ | | |
 | `architectures` | | | ✓ | |
 | `target_rhoai_version` | | | ✓ | |
+| `rhoai_repo_branch` | | | ✓ | |
 | `long_description` | | | ✓ | |
 | `short_description` | | | ✓ | |
 | `release_category` | | | ✓ | |
@@ -223,17 +214,19 @@ flowchart LR
 | Dimension | Score | 0 | 1 | 2 |
 |-----------|:---:|---|---|---|
 | **Code Completeness** | 0–2 | No code / repo empty | Code exists, tests incomplete | Code implemented, tests passing |
-| **Repository Setup** | 0–2 | Repo does not exist | Repo exists, branch missing or structure wrong | Repo + branch + correct structure |
-| **Dockerfile Readiness** | 0–2 | No Dockerfile | Dockerfile exists, deps incomplete or not digest-pinned (RHOAI) | Dockerfile complete + digest-pinned |
+| **Repository Setup** | 0–2 | Repo does not exist | Repo exists, ODH or RHOAI branch missing | Both ODH + RHOAI branches exist with correct structure |
+| **Dockerfile Readiness** | 0–2 | No Dockerfile | Dockerfile exists, not digest-pinned | Dockerfile complete + digest-pinned |
 | **Dependency Resolution** | 0–2 | Dependencies unexplored | Some deps identified, not all resolved | All upstream deps available |
-| **Onboarding Info Completeness** | 0–2 | Missing critical fields | Some required fields missing | All required YAML fields populated + valid |
+| **Onboarding Info Completeness** | 0–2 | Critical fields missing for either product | Some required fields missing | ALL fields populated for BOTH ODH and RHOAI |
 | **CI/CD Prerequisites** | 0–2 | No CI infrastructure | Partial CI setup | CI pipelines in place |
 
-**Threshold**: total ≥ 9/12 **AND** no dimension scores 0 → **ready for human review**
+**Threshold**: total ≥ 9/12 **AND** no dimension scores 0 → **ready for human review** (both products)
 
 ---
 
 ## 2. Create Component Onboarding Jira (Automated) — Skill Flow
+
+Creates **two Jira tickets** per component: ODH first, then RHOAI.
 
 ```mermaid
 flowchart LR
@@ -264,58 +257,61 @@ flowchart LR
         J_ITER["Pick next epic<br/>from result set"]:::extract
 
         %% ── Step 2: Extract Info ──────────────────────────────
-        subgraph EXTRACT["Step 2 · Extract Info"]
+        subgraph EXTRACT["Step 2 · Extract Combined Info"]
             J_EXTRACT["Extract structured<br/>attachment from epic"]:::extract
             J_DEC_ATTACH{"Attachment<br/>found?"}:::decide
             J_NO_ATTACH["Log error —<br/>skip epic"]:::errPath
-            J_PARSE["Parse onboarding<br/>info from attachment"]:::extract
+            J_PARSE["Parse combined<br/>onboarding info<br/>(ODH + RHOAI fields)"]:::extract
         end
 
-        %% ── Step 3: Generate YAML ─────────────────────────────
-        subgraph GENERATE["Step 3 · Generate YAML"]
-            J_DEC_PRODUCT{"ODH or<br/>RHOAI?"}:::decide
-            Y_COMMON["Build YAML:<br/>common fields"]:::extract
-            Y_ODH["Add ODH:<br/>build_type"]:::condPath
-            Y_DEC_BUILD{"build_type =<br/>Release?"}:::decide
-            Y_RELEASE["Add:<br/>odh_release_tag"]:::condPath
-            Y_RHOAI["Add RHOAI:<br/>architectures, version,<br/>descriptions,<br/>release_category"]:::condPath
-            Y_DEC_OP{"is_operator?"}:::decide
-            Y_OP["Add: manifest_src_path,<br/>manifest_dest_path"]:::condPath
-            Y_WRITE["Write component_<br/>onboarding_details.yaml"]:::extract
+        %% ── ODH Phase ─────────────────────────────────────────
+        subgraph ODH_PHASE["ODH Onboarding Ticket (first)"]
+            O_BUILD["Build ODH YAML:<br/>common fields +<br/>build_type (CI) +<br/>odh_repo_branch"]:::extract
+            O_DEC_OP{"is_operator?"}:::decide
+            O_OP["Add: manifest_src_path,<br/>manifest_dest_path"]:::condPath
+            O_WRITE["Write ODH<br/>onboarding YAML"]:::extract
+            O_SCHEMA["Validate ODH YAML<br/>against schema"]:::validate
+            O_DEC_SCHEMA{"Valid?"}:::decide
+            O_FAIL["ODH schema errors<br/>— skip epic"]:::errPath
+            O_DEC_EXISTING{"Existing<br/>ODH Jira?"}:::decide
+            O_CLONE["Clone ODH template<br/>RHOAIENG-35683"]:::trigger
+            O_ERR_CLONE["Clone failed<br/>— skip epic"]:::errPath
+            O_ATTACH["Upload ODH YAML<br/>to ticket"]:::trigger
+            O_ERR_ATTACH["Upload failed<br/>— skip epic"]:::errPath
+            O_LABELS["Add labels:<br/>yaml-attached"]:::trigger
+            O_LINK["Link to<br/>parent feature"]:::trigger
+            O_META["Update title,<br/>description, labels"]:::trigger
+            O_DONE["ODH ticket created"]:::trigger
         end
 
-        %% ── Steps 4–5: Validate ──────────────────────────────
-        subgraph VALIDATE["Steps 4–5 · Validate"]
-            V_SCHEMA["Validate YAML<br/>against JSON schema"]:::validate
-            V_DEC_SCHEMA{"Schema<br/>valid?"}:::decide
-            V_FAIL["Log schema errors<br/>— skip epic"]:::errPath
-            V_DEC_DF{"RHOAI?"}:::decide
-            V_DF["Check Dockerfile<br/>@sha256 digest<br/>pinning"]:::validate
-            V_DEC_DF_RESULT{"Dockerfile<br/>check result?"}:::decide
-            V_DF_PASS["Digest check<br/>passed"]:::validate
-            V_DF_404["Not found —<br/>continue with notice"]:::errPath
-            V_DF_FAIL["Digest violations<br/>— skip epic"]:::errPath
-            V_ODH_SKIP["Dockerfile check<br/>skipped (ODH)"]:::condPath
+        %% ── RHOAI Phase ───────────────────────────────────────
+        subgraph RHOAI_PHASE["RHOAI Onboarding Ticket (second)"]
+            R_BUILD["Build RHOAI YAML:<br/>common fields +<br/>RHOAI fields +<br/>rhoai_repo_branch"]:::extract
+            R_DEC_OP{"is_operator?"}:::decide
+            R_OP["Add: manifest_src_path,<br/>manifest_dest_path"]:::condPath
+            R_WRITE["Write RHOAI<br/>onboarding YAML"]:::extract
+            R_SCHEMA["Validate RHOAI YAML<br/>against schema"]:::validate
+            R_DEC_SCHEMA{"Valid?"}:::decide
+            R_FAIL["RHOAI schema errors<br/>— skip epic"]:::errPath
+            R_DF["Check Dockerfile<br/>@sha256 digest<br/>pinning"]:::validate
+            R_DEC_DF{"Dockerfile<br/>check?"}:::decide
+            R_DF_PASS["Digest check<br/>passed"]:::validate
+            R_DF_404["Not found —<br/>continue with notice"]:::errPath
+            R_DF_FAIL["Digest violations<br/>— skip epic"]:::errPath
+            R_DEC_EXISTING{"Existing<br/>RHOAI Jira?"}:::decide
+            R_CLONE["Clone RHOAI template<br/>RHOAIENG-17225"]:::trigger
+            R_ERR_CLONE["Clone failed<br/>— skip epic"]:::errPath
+            R_ATTACH["Upload RHOAI YAML<br/>to ticket"]:::trigger
+            R_ERR_ATTACH["Upload failed<br/>— skip epic"]:::errPath
+            R_LABELS["Add labels:<br/>yaml-attached"]:::trigger
+            R_LINK["Link to<br/>parent feature"]:::trigger
+            R_META["Update title,<br/>description, labels"]:::trigger
         end
 
-        %% ── Steps 6–8: Jira Operations ───────────────────────
-        subgraph JIRA_OPS["Steps 6–8 · Jira Operations"]
-            T_DEC_EXISTING{"Existing<br/>onboarding<br/>Jira linked?"}:::decide
-            T_DEC_PRODUCT{"ODH or<br/>RHOAI?"}:::decide
-            T_CLONE_ODH["Clone template<br/>RHOAIENG-35683"]:::trigger
-            T_CLONE_RHOAI["Clone template<br/>RHOAIENG-17225"]:::trigger
-            T_ERR_CLONE["Clone failed<br/>— skip epic"]:::errPath
-            T_ATTACH["Upload YAML<br/>to ticket"]:::trigger
-            T_ERR_ATTACH["Upload failed<br/>— skip epic"]:::errPath
-            T_LABELS["Add labels:<br/>yaml-attached"]:::trigger
-            T_LINK["Link to<br/>parent feature"]:::trigger
-            T_META["Update title,<br/>description table,<br/>labels"]:::trigger
-        end
-
-        %% ── Step 9: Downstream ────────────────────────────────
-        subgraph DOWNSTREAM["Step 9 · Downstream Trigger"]
-            D_READY["Onboarding Jira ready<br/>for orchestrator"]:::trigger
-            D_LINK(["Picked up by<br/>onboard-konflux-<br/>components skill"]):::done
+        %% ── Downstream ───────────────────────────────────────
+        subgraph DOWNSTREAM["Downstream"]
+            D_READY["Both tickets ready<br/>for orchestrator"]:::trigger
+            D_LINK(["ODH onboarded first,<br/>then RHOAI"]):::done
         end
 
         J_NEXT{"More<br/>epics?"}:::decide
@@ -336,56 +332,62 @@ flowchart LR
     J_DEC_ATTACH -->|"No"| J_NO_ATTACH
     J_NO_ATTACH --> J_NEXT
 
-    %% ── Edges: Generate YAML ──────────────────────────────────
-    J_PARSE --> J_DEC_PRODUCT
-    J_DEC_PRODUCT -->|"Always"| Y_COMMON
-    Y_COMMON --> Y_DEC_OP
-    J_DEC_PRODUCT -->|"ODH"| Y_ODH
-    Y_ODH --> Y_DEC_BUILD
-    Y_DEC_BUILD -->|"Yes (Release)"| Y_RELEASE
-    Y_RELEASE --> Y_DEC_OP
-    Y_DEC_BUILD -->|"No (CI)"| Y_DEC_OP
-    J_DEC_PRODUCT -->|"RHOAI"| Y_RHOAI
-    Y_RHOAI --> Y_DEC_OP
-    Y_DEC_OP -->|"Yes"| Y_OP
-    Y_OP --> Y_WRITE
-    Y_DEC_OP -->|"No"| Y_WRITE
+    %% ── Edges: ODH Phase ──────────────────────────────────────
+    J_PARSE --> O_BUILD
+    O_BUILD --> O_DEC_OP
+    O_DEC_OP -->|"Yes"| O_OP
+    O_OP --> O_WRITE
+    O_DEC_OP -->|"No"| O_WRITE
+    O_WRITE --> O_SCHEMA
+    O_SCHEMA --> O_DEC_SCHEMA
+    O_DEC_SCHEMA -->|"Pass"| O_DEC_EXISTING
+    O_DEC_SCHEMA -->|"Fail"| O_FAIL
+    O_FAIL --> J_NEXT
+    O_DEC_EXISTING -->|"Yes (existing)"| O_ATTACH
+    O_DEC_EXISTING -->|"No (new)"| O_CLONE
+    O_CLONE --> O_ATTACH
+    O_CLONE -->|"Failed"| O_ERR_CLONE
+    O_ERR_CLONE --> J_NEXT
+    O_ATTACH --> O_LABELS
+    O_ATTACH -->|"Failed"| O_ERR_ATTACH
+    O_ERR_ATTACH --> J_NEXT
+    O_LABELS -->|"label: yaml-attached"| O_LINK
+    O_LINK --> O_META
+    O_META --> O_DONE
 
-    %% ── Edges: Validate ───────────────────────────────────────
-    Y_WRITE --> V_SCHEMA
-    V_SCHEMA --> V_DEC_SCHEMA
-    V_DEC_SCHEMA -->|"Pass"| V_DEC_DF
-    V_DEC_SCHEMA -->|"Fail"| V_FAIL
-    V_FAIL --> J_NEXT
-    V_DEC_DF -->|"RHOAI"| V_DF
-    V_DEC_DF -->|"ODH"| V_ODH_SKIP
-    V_DF --> V_DEC_DF_RESULT
-    V_DEC_DF_RESULT -->|"Pass"| V_DF_PASS
-    V_DEC_DF_RESULT -->|"Not found (exit 2)"| V_DF_404
-    V_DEC_DF_RESULT -->|"Violations (exit 1)"| V_DF_FAIL
-    V_DF_PASS --> T_DEC_EXISTING
-    V_DF_404 -->|"Continue with notice"| T_DEC_EXISTING
-    V_DF_FAIL --> J_NEXT
-    V_ODH_SKIP --> T_DEC_EXISTING
+    %% ── Edges: ODH → RHOAI handoff ───────────────────────────
+    O_DONE -->|"ODH done, start RHOAI"| R_BUILD
 
-    %% ── Edges: Jira Operations ────────────────────────────────
-    T_DEC_EXISTING -->|"Yes (existing ticket)"| T_ATTACH
-    T_DEC_EXISTING -->|"No (new ticket needed)"| T_DEC_PRODUCT
-    T_DEC_PRODUCT -->|"ODH"| T_CLONE_ODH
-    T_DEC_PRODUCT -->|"RHOAI"| T_CLONE_RHOAI
-    T_CLONE_ODH --> T_ATTACH
-    T_CLONE_RHOAI --> T_ATTACH
-    T_CLONE_ODH -->|"Failed"| T_ERR_CLONE
-    T_CLONE_RHOAI -->|"Failed"| T_ERR_CLONE
-    T_ERR_CLONE --> J_NEXT
-    T_ATTACH --> T_LABELS
-    T_ATTACH -->|"Failed"| T_ERR_ATTACH
-    T_ERR_ATTACH --> J_NEXT
-    T_LABELS -->|"label: yaml-attached"| T_LINK
-    T_LINK --> T_META
+    %% ── Edges: RHOAI Phase ───────────────────────────────────
+    R_BUILD --> R_DEC_OP
+    R_DEC_OP -->|"Yes"| R_OP
+    R_OP --> R_WRITE
+    R_DEC_OP -->|"No"| R_WRITE
+    R_WRITE --> R_SCHEMA
+    R_SCHEMA --> R_DEC_SCHEMA
+    R_DEC_SCHEMA -->|"Pass"| R_DF
+    R_DEC_SCHEMA -->|"Fail"| R_FAIL
+    R_FAIL --> J_NEXT
+    R_DF --> R_DEC_DF
+    R_DEC_DF -->|"Pass"| R_DF_PASS
+    R_DEC_DF -->|"Not found (exit 2)"| R_DF_404
+    R_DEC_DF -->|"Violations (exit 1)"| R_DF_FAIL
+    R_DF_PASS --> R_DEC_EXISTING
+    R_DF_404 -->|"Continue with notice"| R_DEC_EXISTING
+    R_DF_FAIL --> J_NEXT
+    R_DEC_EXISTING -->|"Yes (existing)"| R_ATTACH
+    R_DEC_EXISTING -->|"No (new)"| R_CLONE
+    R_CLONE --> R_ATTACH
+    R_CLONE -->|"Failed"| R_ERR_CLONE
+    R_ERR_CLONE --> J_NEXT
+    R_ATTACH --> R_LABELS
+    R_ATTACH -->|"Failed"| R_ERR_ATTACH
+    R_ERR_ATTACH --> J_NEXT
+    R_LABELS -->|"label: yaml-attached"| R_LINK
+    R_LINK --> R_META
 
     %% ── Edges: Downstream ─────────────────────────────────────
-    T_META --> D_READY
+    R_META --> D_READY
     D_READY --> D_LINK
     D_LINK --> J_NEXT
 
@@ -398,11 +400,11 @@ flowchart LR
 
 | Color | Category | Usage |
 |-------|----------|-------|
-| 🔵 Blue | Information Gathering | Jira query, attachment parsing, YAML building |
+| 🔵 Blue | Information Gathering | Extraction, YAML building |
 | 🟢 Green | Validation | Schema validation, Dockerfile digest check |
 | 🟡 Yellow | Automation / Trigger | Template cloning, YAML upload, label updates, downstream trigger |
-| 🔴 Red/Pink | Error / Failure | Missing attachment, schema failures, digest violations, clone/upload failures |
-| ⬜ Grey dashed | Conditional | Product-specific (ODH/RHOAI), operator-specific, ODH skip paths |
+| 🔴 Red/Pink | Error / Failure | Schema failures, digest violations, clone/upload failures |
+| ⬜ Grey dashed | Conditional | Operator-specific paths |
 | 🟤 Amber | Decision | All diamond-shaped decision nodes |
 | 🔷 Dark Blue | Terminal | Final "ready for orchestrator" and "all done" states |
 | ⬛ Grey | Start / No-op | Schedule trigger, no-epics exit |
@@ -428,11 +430,11 @@ Epic created (no label)
                     │
         [DAG 2: picks up epic]
                     │
-          yaml-attached (on onboarding Jira ticket)
+          ┌── ODH Jira ticket created ── yaml-attached
+          │
+          └── RHOAI Jira ticket created ── yaml-attached
                     │
-        [Orchestrator: onboard-konflux-components-for-odh-and-rhoai]
-                    │
-          component-onboarding (downstream processing)
+        [Orchestrator: ODH onboarded first, then RHOAI]
 ```
 
 ---
@@ -443,16 +445,16 @@ Epic created (no label)
 |-----------|:---:|-----------------|
 | First run — no info exists yet | 1 | `A_DEC_FIRST` → "No (first run)" → `A_CREATE` creates initial attachment |
 | Partial info available | 1 | `A_PARTIAL` marks missing fields; `C_INFO` scores 0–1, reducing total |
-| Human rejects HITL review | 1 | `E_DEC` → "Rejected" → removes `ready-for-human-review`, adds `not-ready-for-onboarding`, logs feedback |
+| Human rejects HITL review | 1 | `E_DEC` → "Rejected" → removes `ready-for-human-review`, logs feedback, re-assessed next cycle |
 | Dockerfile doesn't exist yet | 1 | `B_DEC_DF` → "No" → `B_DF_MISSING` (non-blocking, reduces `C_DF` rubric score) |
-| Dockerfile doesn't exist | 2 | `V_DEC_DF_RESULT` → "Not found (exit 2)" → `V_DF_404` continues with notice |
-| ODH vs RHOAI branching | Both | Multiple `DEC_PRODUCT` diamonds with labeled "ODH" / "RHOAI" edges |
-| `is_operator` conditional | Both | `DEC_OPERATOR` diamond — "Yes" adds manifest path extraction/generation |
-| ODH Release vs CI build type | Both | `DEC_BUILD` diamond — "Release" adds `odh_release_tag` |
+| Dockerfile doesn't exist | 2 | `R_DEC_DF` → "Not found" → `R_DF_404` continues RHOAI phase with notice |
+| Digest pinning violations | 2 | `R_DEC_DF` → "Violations" → `R_DF_FAIL` → skip epic |
+| `is_operator` conditional | Both | Manifest paths extracted/added for both ODH and RHOAI YAMLs |
 | No structured attachment on epic | 2 | `J_DEC_ATTACH` → "No" → `J_NO_ATTACH` → skip to next epic |
-| Clone template fails | 2 | `T_ERR_CLONE` → skip epic, move to `J_NEXT` |
-| YAML upload fails | 2 | `T_ERR_ATTACH` → skip epic, move to `J_NEXT` |
+| ODH schema validation fails | 2 | `O_FAIL` → skip entire epic (neither ticket created) |
+| RHOAI schema validation fails | 2 | `R_FAIL` → skip epic (ODH ticket already created — note in Jira) |
+| ODH clone template fails | 2 | `O_ERR_CLONE` → skip entire epic |
+| RHOAI clone template fails | 2 | `R_ERR_CLONE` → skip epic (ODH ticket already created — note in Jira) |
+| YAML upload fails | 2 | `O_ERR_ATTACH` / `R_ERR_ATTACH` → skip epic |
 | HITL PR still pending | 1 | `E_DEC` → "Pending" → `E_PENDING` → `DONE_WAIT` (re-checked next cycle) |
 | No eligible epics found | 2 | `J_DEC_FOUND` → "No" → `J_NONE` (clean exit) |
-| Schema validation fails | 2 | `V_DEC_SCHEMA` → "Fail" → `V_FAIL` → skip epic |
-| Digest pinning violations | 2 | `V_DEC_DF_RESULT` → "Violations (exit 1)" → `V_DF_FAIL` → skip epic |
