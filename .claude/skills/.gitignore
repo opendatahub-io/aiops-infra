@@ -1,0 +1,7 @@
+# Temporary clone directories
+RHOAI-Build-Config/
+konflux-release-data/
+
+# Runtime state files
+*-state.json
+*-jira.json
