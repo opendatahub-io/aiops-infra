@@ -5,3 +5,4 @@ konflux-release-data/
 # Runtime state files
 *-state.json
 *-jira.json
+__pycache__/
