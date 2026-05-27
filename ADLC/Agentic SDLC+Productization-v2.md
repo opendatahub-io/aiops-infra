@@ -18,7 +18,8 @@ flowchart LR
     D3[8. dockerfile-creation]:::execution
     D4[9. odh-repo-reator]:::infra
     D5[10. midstream-sync-enabler]:::infra
-    subgraph OMA["onboarding-maturity-assessor"]
+    subgraph OMA["⬥ onboarding-maturity-assessor"]
+    style OMA fill:#f0f0ff,stroke:#3949ab,stroke-width:2px,color:#1a237e,font-weight:bold
         E1[11. onboarding-info-generator]:::assessment
         E2[12. onboarding-info-validator]:::assessment
         E3[13. onboarding-readiness-rubric-score]:::assessment
