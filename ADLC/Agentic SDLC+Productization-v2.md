@@ -9,21 +9,24 @@ flowchart LR
     classDef approval   fill:#f3e5f5,stroke:#7b1fa2,color:#4a0072
 
     A[1. rfe-creator]:::planning
-    A1[1. rfe-refine]:::planning
-    B[2. strat-creator]:::planning
-    B1[2. strat-refine]:::planning
-    C1[3. epic-creator]:::planning
-    D1[5. code-implementation]:::execution
-    D2[6. packages-dependencies-configuration]:::execution
-    D3[7. dockerfile-creation]:::execution
-    D4[8. odh-repo-reator]:::infra
-    D5[9. midstream-sync-enabler]:::infra
-    E1[4. onboarding-info-generator]:::assessment
-    E2[4. onboarding-info-validator]:::assessment
-    E3[4. onboarding-maturity-assessor]:::assessment
-    F[11. devops-HITL-sign-off]:::approval
-    G[12. create-component-onboarding-jira]:::planning
-    H[13. component-onboarding]:::execution
+    A1[2. rfe-refine]:::planning
+    B[3. strat-creator]:::planning
+    B1[4. strat-refine]:::planning
+    C1[5. epic-creator]:::planning
+    D1[6. code-implementation]:::execution
+    D2[7. packages-dependencies-configuration]:::execution
+    D3[8. dockerfile-creation]:::execution
+    D4[9. odh-repo-reator]:::infra
+    D5[10. midstream-sync-enabler]:::infra
+    subgraph OMA["onboarding-maturity-assessor"]
+        E1[11. onboarding-info-generator]:::assessment
+        E2[12. onboarding-info-validator]:::assessment
+        E3[13. onboarding-readiness-rubric-score]:::assessment
+        E4[14. onboarding-readiness-evaluator]:::assessment
+    end
+    F[15. devops-HITL-sign-off]:::approval
+    G[16. create-component-onboarding-jira]:::planning
+    H[17. component-onboarding]:::execution
 
     A --> A1 --> B --> B1 --> C1
     C1 --> D1
@@ -36,7 +39,7 @@ flowchart LR
     D3 --> E1
     D4 --> E1
     D5 --> E1
-    E1 --> E2 --> E3 --> F --> G --> H 
+    E1 --> E2 --> E3 --> E4 --> F --> G --> H 
 ```
 
 
@@ -44,41 +47,36 @@ flowchart LR
 ### Legend
 
 
-| Color     | Category                      | Stages               |
-| --------- | ----------------------------- | -------------------- |
-| 🔵 Blue   | **Planning & Strategy**       | 1, 2, 3              |
-| 🔷 Indigo | **Assessment**                | 4 *(new)*            |
-| 🔴 Red    | **Development & Engineering** | 5, 6, 7, 13, 18      |
-| 🟠 Orange | **DevOps & Infrastructure**   | 8, 9, 10, 12, 15, 17 |
-| 🟣 Purple | **Human Approval (HITL)**     | 11, 16               |
-| 🔷 Teal   | **Quality & Validation**      | 14, 19               |
-| 🟢 Green  | **Release**                   | 20                   |
+| Color     | Category                      | Stages         |
+| --------- | ----------------------------- | -------------- |
+| 🔵 Blue   | **Planning & Strategy**       | 1–5, 16        |
+| 🔷 Indigo | **Assessment**                | 11, 12, 13, 14 |
+| 🔴 Red    | **Development & Engineering** | 6, 7, 8, 17    |
+| 🟠 Orange | **DevOps & Infrastructure**   | 9, 10          |
+| 🟣 Purple | **Human Approval (HITL)**     | 15             |
 
 
 ## Stages
 
 
-| #   | Stage                                         | Category        | Description                                                            | Change             |
-| --- | --------------------------------------------- | --------------- | ---------------------------------------------------------------------- | ------------------ |
-| 1   | **RFE Creator**                               | 🔵 Planning     | Requirement/Feature creation                                           | —                  |
-| 2   | **Strat Creator**                             | 🔵 Planning     | Strategy creation                                                      | —                  |
-| 3   | **Epic Decomposer**                           | 🔵 Planning     | Epic decomposition into tasks                                          | —                  |
-| 4   | **rhoai-maturity-assessor**                   | 🔷 Assessment   | Assess component maturity and readiness before engineering work begins | **New**            |
-| 5   | **Code Implementation in upstream repos**     | 🔴 Development  | Implementation/development in upstream                                 | Parallel *(was 4)* |
-| 6   | **Packages+Dependencies Generator**           | 🔴 Development  | Identify packages and dependencies                                     | Parallel *(was 5)* |
-| 7   | **Dockerfile Creator**                        | 🔴 Development  | Create/update Dockerfiles                                              | Parallel *(was 6)* |
-| 8   | **ODH Repo Creator**                          | 🟠 DevOps/Infra | Create ODH repository                                                  | Parallel *(was 7)* |
-| 9   | **Upstream to Midstream Sync Enabler**        | 🟠 DevOps/Infra | Enable sync from upstream to midstream                                 | Parallel *(was 8)* |
-| 10  | **ODH Component Onboarding Info Generator**   | 🟠 DevOps/Infra | Generate onboarding details for ODH                                    | *(was 9)*          |
-| 11  | **DevOps HITL Sign off**                      | 🟣 Approval     | Human-in-the-loop approval (ODH)                                       | *(was 10)*         |
-| 12  | **ODH Component Onboarding**                  | 🟠 DevOps/Infra | Onboard component to ODH platform                                      | *(was 11)*         |
-| 13  | **ODH Build**                                 | 🔴 Development  | Build ODH component                                                    | *(was 12)*         |
-| 14  | **Q&E / Validation**                          | 🔷 Quality      | Quality Engineering validation (ODH)                                   | *(was 13)*         |
-| 15  | **RHOAI Component Onboarding Info Generator** | 🟠 DevOps/Infra | Generate onboarding details for RHOAI                                  | *(was 14)*         |
-| 16  | **DevOps HITL Sign off**                      | 🟣 Approval     | Human-in-the-loop approval (RHOAI)                                     | *(was 15)*         |
-| 17  | **RHOAI Component Onboarding**                | 🟠 DevOps/Infra | Onboard component to RHOAI platform                                    | *(was 16)*         |
-| 18  | **RHOAI Build**                               | 🔴 Development  | Build RHOAI component                                                  | *(was 17)*         |
-| 19  | **Q&E / Validation**                          | 🔷 Quality      | Quality Engineering validation (RHOAI)                                 | *(was 18)*         |
-| 20  | **Release**                                   | 🟢 Release      | Final release                                                          | *(was 19)*         |
+| #   | Stage                                     | Category        | Description                                               | Flow        |
+| --- | ----------------------------------------- | --------------- | --------------------------------------------------------- | ----------- |
+| 1   | **rfe-creator**                           | 🔵 Planning     | RFE (Requirement/Feature) creation                        | Sequential  |
+| 2   | **rfe-refine**                            | 🔵 Planning     | RFE refinement                                            | Sequential  |
+| 3   | **strat-creator**                         | 🔵 Planning     | Strategy creation                                         | Sequential  |
+| 4   | **strat-refine**                          | 🔵 Planning     | Strategy refinement                                       | Sequential  |
+| 5   | **epic-creator**                          | 🔵 Planning     | Epic decomposition into tasks                             | Sequential  |
+| 6   | **code-implementation**                   | 🔴 Development  | Code implementation in upstream repos                     | Parallel    |
+| 7   | **packages-dependencies-configuration**   | 🔴 Development  | Packages and dependencies configuration                   | Parallel    |
+| 8   | **dockerfile-creation**                   | 🔴 Development  | Dockerfile creation                                       | Parallel    |
+| 9   | **odh-repo-creator**                      | 🟠 DevOps/Infra | ODH repository creation                                   | Parallel    |
+| 10  | **midstream-sync-enabler**                | 🟠 DevOps/Infra | Upstream to midstream sync enablement                     | Parallel    |
+| 11  | **onboarding-info-generator**             | 🔷 Assessment   | Extract onboarding info from epics                        | Sequential  |
+| 12  | **onboarding-info-validator**             | 🔷 Assessment   | Validate extracted onboarding info                        | Sequential  |
+| 13  | **onboarding-readiness-rubric-score**     | 🔷 Assessment   | Score component readiness across rubric dimensions        | Sequential  |
+| 14  | **onboarding-readiness-evaluator**        | 🔷 Assessment   | Evaluate readiness threshold and determine next action    | Sequential  |
+| 15  | **devops-HITL-sign-off**                  | 🟣 Approval     | Human-in-the-loop review and approval                     | Sequential  |
+| 16  | **create-component-onboarding-jira**      | 🔵 Planning     | Create onboarding Jira tickets (ODH + RHOAI)              | Sequential  |
+| 17  | **component-onboarding**                  | 🔴 Development  | Execute component onboarding pipeline                     | Sequential  |
 
 
