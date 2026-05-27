@@ -216,19 +216,21 @@
 </header>
 
 <div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('dag1')">Onboarding-Maturity-Assessor</button>
-  <button class="tab-btn" onclick="switchTab('dag2')">Create Onboarding Jira (Automated)</button>
+  <button class="tab-btn active" onclick="switchTab('dag1s')">Onboarding Maturity Assessor - Summary</button>
+  <button class="tab-btn" onclick="switchTab('dag1')">Onboarding Maturity Assessor - Detailed</button>
+  <button class="tab-btn" onclick="switchTab('dag2s')">Create Onboarding Jira (Automated) - Summary</button>
+  <button class="tab-btn" onclick="switchTab('dag2')">Create Onboarding Jira (Automated) - Detailed</button>
   <button class="tab-btn" onclick="switchTab('ref')">Reference</button>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
      DAG 1: Onboarding-Maturity-Assessor
      ═══════════════════════════════════════════════════════════ -->
-<div id="dag1" class="tab-content active">
+<div id="dag1" class="tab-content">
 
   <div class="diagram-card">
     <div class="diagram-header">
-      <h2>Onboarding-Maturity-Assessor — Full Skill Flow</h2>
+      <h2>Onboarding Maturity Assessor — Detailed</h2>
       <div class="zoom-controls">
         <button class="zoom-btn" onclick="zoom('dag1-diagram', -1)" title="Zoom out">&minus;</button>
         <span class="zoom-level" id="dag1-diagram-level">100%</span>
@@ -426,13 +428,146 @@ flowchart LR
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
+     DAG 1s: Onboarding-Maturity-Assessor — Summary View
+     ═══════════════════════════════════════════════════════════ -->
+<div id="dag1s" class="tab-content active">
+
+  <div class="diagram-card">
+    <div class="diagram-header">
+      <h2>Onboarding Maturity Assessor — Summary</h2>
+      <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoom('dag1s-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="dag1s-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('dag1s-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('dag1s-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('dag1s-diagram')" title="Fit width">&#x2194;</button>
+      </div>
+    </div>
+    <div class="diagram-container" id="dag1s-diagram-container">
+      <div class="diagram-inner" id="dag1s-diagram">
+        <pre class="mermaid">
+flowchart LR
+    classDef extract   fill:#DDEEFF,stroke:#1A4A8A,color:#0d2045
+    classDef validate  fill:#D4EDDA,stroke:#2D7D46,color:#154420
+    classDef score     fill:#fff3e0,stroke:#e65100,color:#4e2a00
+    classDef human     fill:#f3e5f5,stroke:#7b1fa2,color:#4a0072
+    classDef trigger   fill:#fff9c4,stroke:#f9a825,color:#4a3800
+    classDef errPath   fill:#fde8e8,stroke:#ee0000,color:#660000
+    classDef condPath  fill:#F5F5F5,stroke:#AAAAAA,color:#555555,stroke-dasharray:5 3
+    classDef decide    fill:#FFFBE6,stroke:#B8860B,color:#5a4000
+    classDef start     fill:#E8E8E8,stroke:#444444,color:#111111
+    classDef done      fill:#1A4A8A,stroke:#0d2045,color:#FFFFFF
+
+    subgraph SCHED["Schedule"]
+        S_START(["Every few hours — periodic trigger"]):::start
+    end
+
+    subgraph STAGE_A["Stage A · Onboarding Info Generator"]
+        S_DISCOVER["Locate epic &<br/>scan sibling epics"]:::extract
+        S_EXTRACT["Extract info from<br/>descriptions, comments,<br/>attachments & linked issues"]:::extract
+        S_FIELDS["Collect all fields:<br/>common + ODH + RHOAI<br/>+ operator (if applicable)"]:::extract
+        S_DEC_FIRST{"Existing<br/>attachment?"}:::decide
+        S_SAVE["Save to Jira attachment<br/>(create or update)"]:::extract
+    end
+
+    subgraph STAGE_B["Stage B · Onboarding Info Validator"]
+        S_VALIDATE["Validate all fields:<br/>required, format, ODH,<br/>RHOAI, cross-checks"]:::validate
+        S_DOCKERFILE["Check Dockerfile<br/>exists & digest pinning"]:::validate
+        S_DF_ISSUES["Record Dockerfile<br/>issues"]:::errPath
+        S_RECORD["Record validation<br/>status on Jira"]:::validate
+        S_DEC_VALID{"All<br/>passed?"}:::decide
+    end
+
+    subgraph STAGE_C["Stage C · Onboarding Readiness Rubric Score"]
+        S_RUBRIC["Score 6 dimensions<br/>(0–2 each, max 12)"]:::score
+        S_TOTAL["Compute total score"]:::score
+        S_SCORE_JIRA["Update score on Jira"]:::score
+    end
+
+    subgraph STAGE_D["Stage D · Onboarding Readiness Evaluator"]
+        S_DEC_READY{"Total ≥ 9<br/>AND<br/>no dimension = 0?"}:::decide
+        S_READY["Add label:<br/>ready-for-human-review"]:::human
+        S_PR["Raise PR for<br/>HITL review"]:::human
+        S_NOT_READY["Add label:<br/>not-ready-for-onboarding"]:::errPath
+        S_LOG["Log failed dimensions<br/>+ remediation hints"]:::errPath
+    end
+
+    subgraph STAGE_E["Stage E · Human Review Monitor"]
+        S_CHECK["Check HITL<br/>PR status"]:::human
+        S_DEC_PR{"PR status?"}:::decide
+        S_APPROVED["Remove: ready-for-human-review<br/>Add: ready-for-onboarding"]:::trigger
+        S_REJECTED["Remove: ready-for-human-review<br/>Add: not-ready-for-onboarding"]:::errPath
+        S_FEEDBACK["Log reviewer feedback<br/>on Jira"]:::errPath
+        S_PENDING["No action —<br/>wait for next cycle"]:::condPath
+    end
+
+    DONE_READY(["Component ready for<br/>onboarding (both products)"]):::done
+    DONE_WAIT(["Awaiting next<br/>assessment cycle"]):::start
+
+    S_START --> S_DISCOVER
+    S_DISCOVER --> S_EXTRACT
+    S_EXTRACT --> S_FIELDS
+    S_FIELDS --> S_DEC_FIRST
+    S_DEC_FIRST -->|"No (first run)"| S_SAVE
+    S_DEC_FIRST -->|"Yes (update)"| S_SAVE
+
+    S_SAVE --> S_VALIDATE
+    S_VALIDATE --> S_DOCKERFILE
+    S_DOCKERFILE -->|"OK"| S_RECORD
+    S_DOCKERFILE -->|"Issues"| S_DF_ISSUES
+    S_DF_ISSUES --> S_RECORD
+    S_RECORD --> S_DEC_VALID
+    S_DEC_VALID -->|"Yes"| S_RUBRIC
+    S_DEC_VALID -->|"No (proceed anyway)"| S_RUBRIC
+
+    S_RUBRIC --> S_TOTAL
+    S_TOTAL --> S_SCORE_JIRA
+    S_SCORE_JIRA --> S_DEC_READY
+    S_DEC_READY -->|"Yes: score ≥ 9, no zeros"| S_READY
+    S_READY --> S_PR
+    S_PR --> S_CHECK
+    S_DEC_READY -->|"No"| S_NOT_READY
+    S_NOT_READY --> S_LOG
+    S_LOG --> DONE_WAIT
+
+    S_CHECK --> S_DEC_PR
+    S_DEC_PR -->|"Approved"| S_APPROVED
+    S_APPROVED --> DONE_READY
+    S_DEC_PR -->|"Rejected"| S_REJECTED
+    S_REJECTED --> S_FEEDBACK
+    S_FEEDBACK --> DONE_WAIT
+    S_DEC_PR -->|"Pending"| S_PENDING
+    S_PENDING --> DONE_WAIT
+        </pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="ref-section">
+    <h3>Legend</h3>
+    <table>
+      <tr><th>Color</th><th>Category</th><th>Stages</th></tr>
+      <tr><td><span class="color-chip" style="background:#DDEEFF;border-color:#1A4A8A"></span>Blue</td><td>Information Gathering</td><td>Stage A</td></tr>
+      <tr><td><span class="color-chip" style="background:#D4EDDA;border-color:#2D7D46"></span>Green</td><td>Validation</td><td>Stage B</td></tr>
+      <tr><td><span class="color-chip" style="background:#fff3e0;border-color:#e65100"></span>Orange</td><td>Scoring</td><td>Stage C</td></tr>
+      <tr><td><span class="color-chip" style="background:#f3e5f5;border-color:#7b1fa2"></span>Purple</td><td>Human Interaction</td><td>Stages D &amp; E</td></tr>
+      <tr><td><span class="color-chip" style="background:#fff9c4;border-color:#f9a825"></span>Yellow</td><td>Automation</td><td><code>ready-for-onboarding</code> label handoff</td></tr>
+      <tr><td><span class="color-chip" style="background:#fde8e8;border-color:#ee0000"></span>Red</td><td>Error / Failure</td><td>Validation failures, rejection</td></tr>
+      <tr><td><span class="color-chip" style="background:#FFFBE6;border-color:#B8860B"></span>Amber</td><td>Decision</td><td>All diamond nodes</td></tr>
+      <tr><td><span class="color-chip" style="background:#1A4A8A;border-color:#0d2045"></span>Dark Blue</td><td>Terminal</td><td>Final done states</td></tr>
+    </table>
+    <p style="margin-top:0.75rem;font-size:0.82rem;color:var(--muted)">See the <strong>Onboarding Maturity Assessor - Detailed</strong> tab for full field-level detail and rubric breakdown.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
      DAG 2: Create Component Onboarding Jira (Automated)
      ═══════════════════════════════════════════════════════════ -->
 <div id="dag2" class="tab-content">
 
   <div class="diagram-card">
     <div class="diagram-header">
-      <h2>Create Component Onboarding Jira (Automated) — Full Skill Flow</h2>
+      <h2>Create Onboarding Jira (Automated) — Detailed</h2>
       <div class="zoom-controls">
         <button class="zoom-btn" onclick="zoom('dag2-diagram', -1)" title="Zoom out">&minus;</button>
         <span class="zoom-level" id="dag2-diagram-level">100%</span>
@@ -617,6 +752,132 @@ flowchart LR
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
+     DAG 2s: Create Onboarding Jira — Summary
+     ═══════════════════════════════════════════════════════════ -->
+<div id="dag2s" class="tab-content">
+
+  <div class="diagram-card">
+    <div class="diagram-header">
+      <h2>Create Onboarding Jira (Automated) — Summary</h2>
+      <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoom('dag2s-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="dag2s-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('dag2s-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('dag2s-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('dag2s-diagram')" title="Fit width">&#x2194;</button>
+      </div>
+    </div>
+    <div class="diagram-container" id="dag2s-diagram-container">
+      <div class="diagram-inner" id="dag2s-diagram">
+        <pre class="mermaid">
+flowchart LR
+    classDef extract   fill:#DDEEFF,stroke:#1A4A8A,color:#0d2045
+    classDef validate  fill:#D4EDDA,stroke:#2D7D46,color:#154420
+    classDef trigger   fill:#fff9c4,stroke:#f9a825,color:#4a3800
+    classDef errPath   fill:#fde8e8,stroke:#ee0000,color:#660000
+    classDef decide    fill:#FFFBE6,stroke:#B8860B,color:#5a4000
+    classDef start     fill:#E8E8E8,stroke:#444444,color:#111111
+    classDef done      fill:#1A4A8A,stroke:#0d2045,color:#FFFFFF
+
+    subgraph SCHED["Schedule"]
+        T_START(["Periodic trigger"]):::start
+    end
+
+    subgraph DISCOVER["Step 1 · Discovery"]
+        T_QUERY["Query Jira:<br/>label = ready-for-onboarding"]:::extract
+        T_DEC_FOUND{"Epics<br/>found?"}:::decide
+        T_NONE(["No eligible epics<br/>— exit"]):::start
+    end
+
+    subgraph LOOP["For Each Epic"]
+
+        subgraph EXTRACT["Step 2 · Extract Info"]
+            T_EXTRACT["Extract & parse<br/>onboarding info<br/>from attachment"]:::extract
+            T_DEC_ATTACH{"Attachment<br/>found?"}:::decide
+            T_NO_ATTACH["Skip epic"]:::errPath
+        end
+
+        subgraph ODH_PHASE["ODH Onboarding Ticket (first)"]
+            TO_BUILD["Build & validate<br/>ODH YAML"]:::extract
+            TO_DEC{"Valid?"}:::decide
+            TO_FAIL["ODH errors —<br/>skip epic"]:::errPath
+            TO_JIRA["Create/update ODH Jira<br/>(clone template, upload YAML,<br/>add labels & links)"]:::trigger
+        end
+
+        subgraph RHOAI_PHASE["RHOAI Onboarding Ticket (second)"]
+            TR_BUILD["Build & validate<br/>RHOAI YAML"]:::extract
+            TR_DEC{"Valid?"}:::decide
+            TR_FAIL["RHOAI errors —<br/>skip epic"]:::errPath
+            TR_DOCKERFILE["Check Dockerfile<br/>digest pinning"]:::validate
+            TR_DEC_DF{"Dockerfile<br/>OK?"}:::decide
+            TR_DF_FAIL["Digest violations —<br/>skip epic"]:::errPath
+            TR_JIRA["Create/update RHOAI Jira<br/>(clone template, upload YAML,<br/>add labels & links)"]:::trigger
+        end
+
+        subgraph DOWNSTREAM["Downstream"]
+            T_READY["Both tickets ready<br/>for orchestrator"]:::trigger
+            T_LINK(["ODH onboarded first,<br/>then RHOAI"]):::done
+        end
+
+        T_NEXT{"More<br/>epics?"}:::decide
+    end
+
+    DONE_ALL(["All epics processed<br/>— exit"]):::done
+
+    T_START --> T_QUERY
+    T_QUERY --> T_DEC_FOUND
+    T_DEC_FOUND -->|"Yes"| T_EXTRACT
+    T_DEC_FOUND -->|"No"| T_NONE
+
+    T_EXTRACT --> T_DEC_ATTACH
+    T_DEC_ATTACH -->|"Yes"| TO_BUILD
+    T_DEC_ATTACH -->|"No"| T_NO_ATTACH
+    T_NO_ATTACH --> T_NEXT
+
+    TO_BUILD --> TO_DEC
+    TO_DEC -->|"Pass"| TO_JIRA
+    TO_DEC -->|"Fail"| TO_FAIL
+    TO_FAIL --> T_NEXT
+
+    TO_JIRA -->|"ODH done, start RHOAI"| TR_BUILD
+
+    TR_BUILD --> TR_DEC
+    TR_DEC -->|"Pass"| TR_DOCKERFILE
+    TR_DEC -->|"Fail"| TR_FAIL
+    TR_FAIL --> T_NEXT
+    TR_DOCKERFILE --> TR_DEC_DF
+    TR_DEC_DF -->|"OK"| TR_JIRA
+    TR_DEC_DF -->|"Not found (continue)"| TR_JIRA
+    TR_DEC_DF -->|"Violations"| TR_DF_FAIL
+    TR_DF_FAIL --> T_NEXT
+
+    TR_JIRA --> T_READY
+    T_READY --> T_LINK
+    T_LINK --> T_NEXT
+
+    T_NEXT -->|"Yes"| T_EXTRACT
+    T_NEXT -->|"No"| DONE_ALL
+        </pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="ref-section">
+    <h3>Legend</h3>
+    <table>
+      <tr><th>Color</th><th>Category</th><th>Usage</th></tr>
+      <tr><td><span class="color-chip" style="background:#DDEEFF;border-color:#1A4A8A"></span>Blue</td><td>Information Gathering</td><td>Extraction, YAML building</td></tr>
+      <tr><td><span class="color-chip" style="background:#D4EDDA;border-color:#2D7D46"></span>Green</td><td>Validation</td><td>Dockerfile digest check</td></tr>
+      <tr><td><span class="color-chip" style="background:#fff9c4;border-color:#f9a825"></span>Yellow</td><td>Automation / Trigger</td><td>Template cloning, YAML upload, label updates</td></tr>
+      <tr><td><span class="color-chip" style="background:#fde8e8;border-color:#ee0000"></span>Red</td><td>Error / Failure</td><td>Schema failures, digest violations</td></tr>
+      <tr><td><span class="color-chip" style="background:#FFFBE6;border-color:#B8860B"></span>Amber</td><td>Decision</td><td>All diamond nodes</td></tr>
+      <tr><td><span class="color-chip" style="background:#1A4A8A;border-color:#0d2045"></span>Dark Blue</td><td>Terminal</td><td>Final done states</td></tr>
+    </table>
+    <p style="margin-top:0.75rem;font-size:0.82rem;color:var(--muted)">See the <strong>Create Onboarding Jira (Automated) - Detailed</strong> tab for full step-level detail.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
      Reference Tab
      ═══════════════════════════════════════════════════════════ -->
 <div id="ref" class="tab-content">
@@ -716,7 +977,7 @@ Epic created (no label)
   // Render all diagrams while all tabs are visible, then hide inactive tabs
   await mermaid.run();
   document.querySelectorAll('.tab-content').forEach(el => {
-    if (el.id !== 'dag1') el.classList.add('hidden');
+    if (el.id !== 'dag1s') el.classList.add('hidden');
   });
 </script>
 
