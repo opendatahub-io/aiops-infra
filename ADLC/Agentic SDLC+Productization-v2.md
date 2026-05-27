@@ -4,37 +4,39 @@
 flowchart LR
     classDef planning   fill:#e7f1fa,stroke:#0066cc,color:#003366
     classDef assessment fill:#e8eaf6,stroke:#3949ab,color:#1a237e
-    classDef dev        fill:#fde8e8,stroke:#ee0000,color:#660000
+    classDef execution        fill:#fde8e8,stroke:#ee0000,color:#660000
     classDef infra      fill:#fff3e0,stroke:#e65100,color:#4e2a00
     classDef approval   fill:#f3e5f5,stroke:#7b1fa2,color:#4a0072
-    classDef qe         fill:#e0f7fa,stroke:#00838f,color:#003d44
-    classDef release    fill:#e8f5e3,stroke:#3e8c35,color:#1a4d1a
 
-    A[1. RFE Creator]:::planning
-    B[2. Strat Creator]:::planning
-    C[3. Epic Decomposer]:::planning
-    D[4. rhoai-maturity-assessor]:::assessment
-    P1[5. Code Implementation]:::dev
-    P2[6. Packages + Dependencies]:::dev
-    P3[7. Dockerfile Creator]:::dev
-    P4[8. ODH Repo Creator]:::infra
-    P5[9. Midstream Sync Enabler]:::infra
-    Q[10. ODH Onboarding Info Generator]:::infra
-    R[11. DevOps HITL Sign off]:::approval
-    S[12. ODH Component Onboarding]:::infra
+    A[1. rfe-creator]:::planning
+    A1[1. rfe-refine]:::planning
+    B[2. strat-creator]:::planning
+    B1[2. strat-refine]:::planning
+    C1[3. epic-creator]:::planning
+    D1[5. code-implementation]:::execution
+    D2[6. packages-dependencies-configuration]:::execution
+    D3[7. dockerfile-creation]:::execution
+    D4[8. odh-repo-reator]:::infra
+    D5[9. midstream-sync-enabler]:::infra
+    E1[4. onboarding-info-generator]:::assessment
+    E2[4. onboarding-info-validator]:::assessment
+    E3[4. onboarding-maturity-assessor]:::assessment
+    F[11. devops-HITL-sign-off]:::approval
+    G[12. create-component-onboarding-jira]:::planning
+    H[13. component-onboarding]:::execution
 
-    A --> B --> C --> D
-    D --> P1
-    D --> P2
-    D --> P3
-    D --> P4
-    D --> P5
-    P1 --> Q
-    P2 --> Q
-    P3 --> Q
-    P4 --> Q
-    P5 --> Q
-    Q --> R --> S 
+    A --> A1 --> B --> B1 --> C1
+    C1 --> D1
+    C1 --> D2
+    C1 --> D3
+    C1 --> D4
+    C1 --> D5
+    D1 --> E1
+    D2 --> E1
+    D3 --> E1
+    D4 --> E1
+    D5 --> E1
+    E1 --> E2 --> E3 --> F --> G --> H 
 ```
 
 
