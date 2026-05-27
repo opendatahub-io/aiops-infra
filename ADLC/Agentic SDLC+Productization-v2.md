@@ -29,7 +29,7 @@ flowchart LR
     style OMA_WRAP fill:none,stroke:none,color:#1a237e
     style OMA fill:#f5f5f5,stroke:#3949ab,stroke-width:1px
     F[devops-HITL-sign-off]:::approval
-    G[create-component-onboarding-jira]:::planning
+    G["create-component-onboarding-jira (automated)"]:::planning
     H[component-onboarding]:::execution
 
     A --> A1 --> B --> B1 --> C1
@@ -80,7 +80,7 @@ flowchart LR
 | 13  | **onboarding-readiness-rubric-score**     | 🔷 Assessment   | Score component readiness across rubric dimensions        | Sequential  |
 | 14  | **onboarding-readiness-evaluator**        | 🔷 Assessment   | Evaluate readiness threshold and determine next action    | Sequential  |
 | 15  | **devops-HITL-sign-off**                  | 🟣 Approval     | Human-in-the-loop review and approval                     | Sequential  |
-| 16  | **create-component-onboarding-jira**      | 🔵 Planning     | Create onboarding Jira tickets (ODH + RHOAI)              | Sequential  |
+| 16  | **create-component-onboarding-jira (automated)**      | 🔵 Planning     | Create onboarding Jira tickets (ODH + RHOAI)              | Sequential  |
 | 17  | **component-onboarding**                  | 🔴 Development  | Execute component onboarding pipeline                     | Sequential  |
 
 

@@ -225,32 +225,32 @@
 </header>
 
 <div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('e2e')">E2E ADLC + Component Onboarding</button>
-  <button class="tab-btn" onclick="switchTab('dag1s')">Onboarding Maturity Assessor - Summary</button>
-  <button class="tab-btn" onclick="switchTab('dag1')">Onboarding Maturity Assessor - Detailed</button>
-  <button class="tab-btn" onclick="switchTab('dag2s')">Create Onboarding Jira (Automated) - Summary</button>
-  <button class="tab-btn" onclick="switchTab('dag2')">Create Onboarding Jira (Automated) - Detailed</button>
-  <button class="tab-btn" onclick="switchTab('ref')">Reference</button>
+  <button class="tab-btn" onclick="switchTab('e2e-adlc-component-onboarding')">E2E ADLC + Component Onboarding</button>
+  <button class="tab-btn" onclick="switchTab('maturity-assessor-summary')">Onboarding Maturity Assessor - Summary</button>
+  <button class="tab-btn" onclick="switchTab('maturity-assessor-detailed')">Onboarding Maturity Assessor - Detailed</button>
+  <button class="tab-btn" onclick="switchTab('create-onboarding-jira-summary')">Create Onboarding Jira (Automated) - Summary</button>
+  <button class="tab-btn" onclick="switchTab('create-onboarding-jira-detailed')">Create Onboarding Jira (Automated) - Detailed</button>
+  <button class="tab-btn" onclick="switchTab('reference')">Reference</button>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
      DAG 1: Onboarding-Maturity-Assessor
      ═══════════════════════════════════════════════════════════ -->
-<div id="dag1" class="tab-content">
+<div id="maturity-assessor-detailed" class="tab-content">
 
   <div class="diagram-card">
     <div class="diagram-header">
       <h2>Onboarding Maturity Assessor — Detailed</h2>
       <div class="zoom-controls">
-        <button class="zoom-btn" onclick="zoom('dag1-diagram', -1)" title="Zoom out">&minus;</button>
-        <span class="zoom-level" id="dag1-diagram-level">100%</span>
-        <button class="zoom-btn" onclick="zoom('dag1-diagram', 1)" title="Zoom in">+</button>
-        <button class="zoom-btn" onclick="resetZoom('dag1-diagram')" title="Reset">&#8634;</button>
-        <button class="zoom-btn" onclick="fitToWidth('dag1-diagram')" title="Fit width">&#x2194;</button>
+        <button class="zoom-btn" onclick="zoom('maturity-assessor-detailed-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="maturity-assessor-detailed-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('maturity-assessor-detailed-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('maturity-assessor-detailed-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('maturity-assessor-detailed-diagram')" title="Fit width">&#x2194;</button>
       </div>
     </div>
-    <div class="diagram-container" id="dag1-diagram-container">
-      <div class="diagram-inner" id="dag1-diagram">
+    <div class="diagram-container" id="maturity-assessor-detailed-diagram-container">
+      <div class="diagram-inner" id="maturity-assessor-detailed-diagram">
         <pre class="mermaid">
 flowchart LR
     classDef extract   fill:#DDEEFF,stroke:#1A4A8A,color:#0d2045
@@ -440,21 +440,21 @@ flowchart LR
 <!-- ═══════════════════════════════════════════════════════════
      DAG 1s: Onboarding-Maturity-Assessor — Summary View
      ═══════════════════════════════════════════════════════════ -->
-<div id="dag1s" class="tab-content">
+<div id="maturity-assessor-summary" class="tab-content">
 
   <div class="diagram-card">
     <div class="diagram-header">
       <h2>Onboarding Maturity Assessor — Summary</h2>
       <div class="zoom-controls">
-        <button class="zoom-btn" onclick="zoom('dag1s-diagram', -1)" title="Zoom out">&minus;</button>
-        <span class="zoom-level" id="dag1s-diagram-level">100%</span>
-        <button class="zoom-btn" onclick="zoom('dag1s-diagram', 1)" title="Zoom in">+</button>
-        <button class="zoom-btn" onclick="resetZoom('dag1s-diagram')" title="Reset">&#8634;</button>
-        <button class="zoom-btn" onclick="fitToWidth('dag1s-diagram')" title="Fit width">&#x2194;</button>
+        <button class="zoom-btn" onclick="zoom('maturity-assessor-summary-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="maturity-assessor-summary-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('maturity-assessor-summary-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('maturity-assessor-summary-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('maturity-assessor-summary-diagram')" title="Fit width">&#x2194;</button>
       </div>
     </div>
-    <div class="diagram-container" id="dag1s-diagram-container">
-      <div class="diagram-inner" id="dag1s-diagram">
+    <div class="diagram-container" id="maturity-assessor-summary-diagram-container">
+      <div class="diagram-inner" id="maturity-assessor-summary-diagram">
         <pre class="mermaid">
 flowchart LR
     classDef extract   fill:#DDEEFF,stroke:#1A4A8A,color:#0d2045
@@ -573,21 +573,21 @@ flowchart LR
 <!-- ═══════════════════════════════════════════════════════════
      DAG 2: Create Component Onboarding Jira (Automated)
      ═══════════════════════════════════════════════════════════ -->
-<div id="dag2" class="tab-content">
+<div id="create-onboarding-jira-detailed" class="tab-content">
 
   <div class="diagram-card">
     <div class="diagram-header">
       <h2>Create Onboarding Jira (Automated) — Detailed</h2>
       <div class="zoom-controls">
-        <button class="zoom-btn" onclick="zoom('dag2-diagram', -1)" title="Zoom out">&minus;</button>
-        <span class="zoom-level" id="dag2-diagram-level">100%</span>
-        <button class="zoom-btn" onclick="zoom('dag2-diagram', 1)" title="Zoom in">+</button>
-        <button class="zoom-btn" onclick="resetZoom('dag2-diagram')" title="Reset">&#8634;</button>
-        <button class="zoom-btn" onclick="fitToWidth('dag2-diagram')" title="Fit width">&#x2194;</button>
+        <button class="zoom-btn" onclick="zoom('create-onboarding-jira-detailed-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="create-onboarding-jira-detailed-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('create-onboarding-jira-detailed-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('create-onboarding-jira-detailed-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('create-onboarding-jira-detailed-diagram')" title="Fit width">&#x2194;</button>
       </div>
     </div>
-    <div class="diagram-container" id="dag2-diagram-container">
-      <div class="diagram-inner" id="dag2-diagram">
+    <div class="diagram-container" id="create-onboarding-jira-detailed-diagram-container">
+      <div class="diagram-inner" id="create-onboarding-jira-detailed-diagram">
         <pre class="mermaid">
 flowchart LR
     classDef extract   fill:#DDEEFF,stroke:#1A4A8A,color:#0d2045
@@ -764,21 +764,21 @@ flowchart LR
 <!-- ═══════════════════════════════════════════════════════════
      DAG 2s: Create Onboarding Jira — Summary
      ═══════════════════════════════════════════════════════════ -->
-<div id="dag2s" class="tab-content">
+<div id="create-onboarding-jira-summary" class="tab-content">
 
   <div class="diagram-card">
     <div class="diagram-header">
       <h2>Create Onboarding Jira (Automated) — Summary</h2>
       <div class="zoom-controls">
-        <button class="zoom-btn" onclick="zoom('dag2s-diagram', -1)" title="Zoom out">&minus;</button>
-        <span class="zoom-level" id="dag2s-diagram-level">100%</span>
-        <button class="zoom-btn" onclick="zoom('dag2s-diagram', 1)" title="Zoom in">+</button>
-        <button class="zoom-btn" onclick="resetZoom('dag2s-diagram')" title="Reset">&#8634;</button>
-        <button class="zoom-btn" onclick="fitToWidth('dag2s-diagram')" title="Fit width">&#x2194;</button>
+        <button class="zoom-btn" onclick="zoom('create-onboarding-jira-summary-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="create-onboarding-jira-summary-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('create-onboarding-jira-summary-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('create-onboarding-jira-summary-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('create-onboarding-jira-summary-diagram')" title="Fit width">&#x2194;</button>
       </div>
     </div>
-    <div class="diagram-container" id="dag2s-diagram-container">
-      <div class="diagram-inner" id="dag2s-diagram">
+    <div class="diagram-container" id="create-onboarding-jira-summary-diagram-container">
+      <div class="diagram-inner" id="create-onboarding-jira-summary-diagram">
         <pre class="mermaid">
 flowchart LR
     classDef extract   fill:#DDEEFF,stroke:#1A4A8A,color:#0d2045
@@ -890,21 +890,21 @@ flowchart LR
 <!-- ═══════════════════════════════════════════════════════════
      E2E ADLC + Component Onboarding
      ═══════════════════════════════════════════════════════════ -->
-<div id="e2e" class="tab-content active">
+<div id="e2e-adlc-component-onboarding" class="tab-content">
 
   <div class="diagram-card">
     <div class="diagram-header">
       <h2>E2E ADLC + Component Onboarding</h2>
       <div class="zoom-controls">
-        <button class="zoom-btn" onclick="zoom('e2e-diagram', -1)" title="Zoom out">&minus;</button>
-        <span class="zoom-level" id="e2e-diagram-level">100%</span>
-        <button class="zoom-btn" onclick="zoom('e2e-diagram', 1)" title="Zoom in">+</button>
-        <button class="zoom-btn" onclick="resetZoom('e2e-diagram')" title="Reset">&#8634;</button>
-        <button class="zoom-btn" onclick="fitToWidth('e2e-diagram')" title="Fit width">&#x2194;</button>
+        <button class="zoom-btn" onclick="zoom('e2e-adlc-component-onboarding-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="e2e-adlc-component-onboarding-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('e2e-adlc-component-onboarding-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('e2e-adlc-component-onboarding-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('e2e-adlc-component-onboarding-diagram')" title="Fit width">&#x2194;</button>
       </div>
     </div>
-    <div class="diagram-container" id="e2e-diagram-container">
-      <div class="diagram-inner" id="e2e-diagram">
+    <div class="diagram-container" id="e2e-adlc-component-onboarding-diagram-container">
+      <div class="diagram-inner" id="e2e-adlc-component-onboarding-diagram">
         <pre class="mermaid">
 flowchart LR
     classDef planning   fill:#e7f1fa,stroke:#0066cc,color:#003366
@@ -931,7 +931,7 @@ flowchart LR
     end
     style OMA fill:#f0f0ff,stroke:#3949ab,stroke-width:2px,color:#1a237e,font-weight:bold
     F[devops-HITL-sign-off]:::approval
-    G[create-component-onboarding-jira]:::planning
+    G["create-component-onboarding-jira (automated)"]:::planning
     H[component-onboarding]:::execution
 
     A --> A1 --> B --> B1 --> C1
@@ -982,7 +982,7 @@ flowchart LR
         <tr><td>13</td><td><code>onboarding-readiness-rubric-score</code></td><td>Assessment</td><td>Sequential</td></tr>
         <tr><td>14</td><td><code>onboarding-readiness-evaluator</code></td><td>Assessment</td><td>Sequential</td></tr>
         <tr><td>15</td><td><code>devops-HITL-sign-off</code></td><td>Approval</td><td>Sequential</td></tr>
-        <tr><td>16</td><td><code>create-component-onboarding-jira</code></td><td>Planning</td><td>Sequential</td></tr>
+        <tr><td>16</td><td><code>create-component-onboarding-jira (automated)</code></td><td>Planning</td><td>Sequential</td></tr>
         <tr><td>17</td><td><code>component-onboarding</code></td><td>Development</td><td>Sequential</td></tr>
       </table>
     </div>
@@ -992,7 +992,7 @@ flowchart LR
 <!-- ═══════════════════════════════════════════════════════════
      Reference Tab
      ═══════════════════════════════════════════════════════════ -->
-<div id="ref" class="tab-content">
+<div id="reference" class="tab-content">
 
   <div class="ref-grid">
     <div class="ref-section">
@@ -1088,8 +1088,16 @@ Epic created (no label)
 
   // Render all diagrams while all tabs are visible, then hide inactive tabs
   await mermaid.run();
+
+  // ── Activate tab from URL hash or default to first tab ────────
+  const defined = ['e2e-adlc-component-onboarding','maturity-assessor-summary','maturity-assessor-detailed','create-onboarding-jira-summary','create-onboarding-jira-detailed','reference'];
+  const hashTab = location.hash.replace('#','');
+  const initial = defined.includes(hashTab) ? hashTab : 'e2e-adlc-component-onboarding';
   document.querySelectorAll('.tab-content').forEach(el => {
-    if (el.id !== 'e2e') el.classList.add('hidden');
+    if (el.id !== initial) el.classList.add('hidden');
+  });
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('onclick').includes("'" + initial + "'"));
   });
 </script>
 
@@ -1100,8 +1108,20 @@ Epic created (no label)
     document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
     document.getElementById(tabId).classList.remove('hidden');
     event.target.classList.add('active');
+    history.replaceState(null, '', '#' + tabId);
   }
   window.switchTab = switchTab;
+
+  window.addEventListener('hashchange', () => {
+    const tab = location.hash.replace('#','');
+    if (document.getElementById(tab)) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('onclick').includes("'" + tab + "'"));
+      });
+      document.getElementById(tab).classList.remove('hidden');
+    }
+  });
 
   // ── Zoom state ────────────────────────────────────────────
   const zoomState = {};
