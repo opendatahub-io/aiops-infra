@@ -204,6 +204,15 @@
   @media (max-width: 900px) {
     .ref-grid { grid-template-columns: 1fr; }
   }
+
+  /* Prevent Mermaid subgraph labels from being clipped */
+  .cluster-label foreignObject {
+    overflow: visible !important;
+  }
+  .cluster-label foreignObject div {
+    overflow: visible !important;
+    white-space: nowrap !important;
+  }
 </style>
 </head>
 <body>
@@ -216,7 +225,8 @@
 </header>
 
 <div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('dag1s')">Onboarding Maturity Assessor - Summary</button>
+  <button class="tab-btn active" onclick="switchTab('e2e')">E2E ADLC + Component Onboarding</button>
+  <button class="tab-btn" onclick="switchTab('dag1s')">Onboarding Maturity Assessor - Summary</button>
   <button class="tab-btn" onclick="switchTab('dag1')">Onboarding Maturity Assessor - Detailed</button>
   <button class="tab-btn" onclick="switchTab('dag2s')">Create Onboarding Jira (Automated) - Summary</button>
   <button class="tab-btn" onclick="switchTab('dag2')">Create Onboarding Jira (Automated) - Detailed</button>
@@ -430,7 +440,7 @@ flowchart LR
 <!-- ═══════════════════════════════════════════════════════════
      DAG 1s: Onboarding-Maturity-Assessor — Summary View
      ═══════════════════════════════════════════════════════════ -->
-<div id="dag1s" class="tab-content active">
+<div id="dag1s" class="tab-content">
 
   <div class="diagram-card">
     <div class="diagram-header">
@@ -878,6 +888,108 @@ flowchart LR
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
+     E2E ADLC + Component Onboarding
+     ═══════════════════════════════════════════════════════════ -->
+<div id="e2e" class="tab-content active">
+
+  <div class="diagram-card">
+    <div class="diagram-header">
+      <h2>E2E ADLC + Component Onboarding</h2>
+      <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoom('e2e-diagram', -1)" title="Zoom out">&minus;</button>
+        <span class="zoom-level" id="e2e-diagram-level">100%</span>
+        <button class="zoom-btn" onclick="zoom('e2e-diagram', 1)" title="Zoom in">+</button>
+        <button class="zoom-btn" onclick="resetZoom('e2e-diagram')" title="Reset">&#8634;</button>
+        <button class="zoom-btn" onclick="fitToWidth('e2e-diagram')" title="Fit width">&#x2194;</button>
+      </div>
+    </div>
+    <div class="diagram-container" id="e2e-diagram-container">
+      <div class="diagram-inner" id="e2e-diagram">
+        <pre class="mermaid">
+flowchart LR
+    classDef planning   fill:#e7f1fa,stroke:#0066cc,color:#003366
+    classDef assessment fill:#e8eaf6,stroke:#3949ab,color:#1a237e
+    classDef execution  fill:#fde8e8,stroke:#ee0000,color:#660000
+    classDef infra      fill:#fff3e0,stroke:#e65100,color:#4e2a00
+    classDef approval   fill:#f3e5f5,stroke:#7b1fa2,color:#4a0072
+
+    A[rfe-creator]:::planning
+    A1[rfe-refine]:::planning
+    B[strat-creator]:::planning
+    B1[strat-refine]:::planning
+    C1[epic-creator]:::planning
+    D1[code-implementation]:::execution
+    D2[packages-dependencies-configuration]:::execution
+    D3[dockerfile-creation]:::execution
+    D4[odh-repo-creator]:::infra
+    D5[midstream-sync-enabler]:::infra
+    subgraph OMA["<span style='font-size:15px'>onboarding-maturity-assessor</span>"]
+        E1[onboarding-info-generator]:::assessment
+        E2[onboarding-info-validator]:::assessment
+        E3[onboarding-readiness-rubric-score]:::assessment
+        E4[onboarding-readiness-evaluator]:::assessment
+    end
+    style OMA fill:#f0f0ff,stroke:#3949ab,stroke-width:2px,color:#1a237e,font-weight:bold
+    F[devops-HITL-sign-off]:::approval
+    G[create-component-onboarding-jira]:::planning
+    H[component-onboarding]:::execution
+
+    A --> A1 --> B --> B1 --> C1
+    C1 --> D1
+    C1 --> D2
+    C1 --> D3
+    C1 --> D4
+    C1 --> D5
+    D1 --> E1
+    D2 --> E1
+    D3 --> E1
+    D4 --> E1
+    D5 --> E1
+    E1 --> E2 --> E3 --> E4 --> F --> G --> H
+        </pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="ref-grid">
+    <div class="ref-section">
+      <h3>Legend</h3>
+      <table>
+        <tr><th>Color</th><th>Category</th><th>Stages</th></tr>
+        <tr><td><span class="color-chip" style="background:#e7f1fa;border-color:#0066cc"></span>Blue</td><td>Planning &amp; Strategy</td><td>1&ndash;5, 16</td></tr>
+        <tr><td><span class="color-chip" style="background:#e8eaf6;border-color:#3949ab"></span>Indigo</td><td>Assessment</td><td>11, 12, 13, 14</td></tr>
+        <tr><td><span class="color-chip" style="background:#fde8e8;border-color:#ee0000"></span>Red</td><td>Development &amp; Engineering</td><td>6, 7, 8, 17</td></tr>
+        <tr><td><span class="color-chip" style="background:#fff3e0;border-color:#e65100"></span>Orange</td><td>DevOps &amp; Infrastructure</td><td>9, 10</td></tr>
+        <tr><td><span class="color-chip" style="background:#f3e5f5;border-color:#7b1fa2"></span>Purple</td><td>Human Approval (HITL)</td><td>15</td></tr>
+      </table>
+    </div>
+    <div class="ref-section">
+      <h3>Stages</h3>
+      <table>
+        <tr><th>#</th><th>Stage</th><th>Category</th><th>Flow</th></tr>
+        <tr><td>1</td><td><code>rfe-creator</code></td><td>Planning</td><td>Sequential</td></tr>
+        <tr><td>2</td><td><code>rfe-refine</code></td><td>Planning</td><td>Sequential</td></tr>
+        <tr><td>3</td><td><code>strat-creator</code></td><td>Planning</td><td>Sequential</td></tr>
+        <tr><td>4</td><td><code>strat-refine</code></td><td>Planning</td><td>Sequential</td></tr>
+        <tr><td>5</td><td><code>epic-creator</code></td><td>Planning</td><td>Sequential</td></tr>
+        <tr><td>6</td><td><code>code-implementation</code></td><td>Development</td><td>Parallel</td></tr>
+        <tr><td>7</td><td><code>packages-dependencies-configuration</code></td><td>Development</td><td>Parallel</td></tr>
+        <tr><td>8</td><td><code>dockerfile-creation</code></td><td>Development</td><td>Parallel</td></tr>
+        <tr><td>9</td><td><code>odh-repo-creator</code></td><td>DevOps/Infra</td><td>Parallel</td></tr>
+        <tr><td>10</td><td><code>midstream-sync-enabler</code></td><td>DevOps/Infra</td><td>Parallel</td></tr>
+        <tr><td>11</td><td><code>onboarding-info-generator</code></td><td>Assessment</td><td>Sequential</td></tr>
+        <tr><td>12</td><td><code>onboarding-info-validator</code></td><td>Assessment</td><td>Sequential</td></tr>
+        <tr><td>13</td><td><code>onboarding-readiness-rubric-score</code></td><td>Assessment</td><td>Sequential</td></tr>
+        <tr><td>14</td><td><code>onboarding-readiness-evaluator</code></td><td>Assessment</td><td>Sequential</td></tr>
+        <tr><td>15</td><td><code>devops-HITL-sign-off</code></td><td>Approval</td><td>Sequential</td></tr>
+        <tr><td>16</td><td><code>create-component-onboarding-jira</code></td><td>Planning</td><td>Sequential</td></tr>
+        <tr><td>17</td><td><code>component-onboarding</code></td><td>Development</td><td>Sequential</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
      Reference Tab
      ═══════════════════════════════════════════════════════════ -->
 <div id="ref" class="tab-content">
@@ -977,7 +1089,7 @@ Epic created (no label)
   // Render all diagrams while all tabs are visible, then hide inactive tabs
   await mermaid.run();
   document.querySelectorAll('.tab-content').forEach(el => {
-    if (el.id !== 'dag1s') el.classList.add('hidden');
+    if (el.id !== 'e2e') el.classList.add('hidden');
   });
 </script>
 

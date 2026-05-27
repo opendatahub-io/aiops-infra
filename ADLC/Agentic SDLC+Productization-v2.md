@@ -8,26 +8,29 @@ flowchart LR
     classDef infra      fill:#fff3e0,stroke:#e65100,color:#4e2a00
     classDef approval   fill:#f3e5f5,stroke:#7b1fa2,color:#4a0072
 
-    A[1. rfe-creator]:::planning
-    A1[2. rfe-refine]:::planning
-    B[3. strat-creator]:::planning
-    B1[4. strat-refine]:::planning
-    C1[5. epic-creator]:::planning
-    D1[6. code-implementation]:::execution
-    D2[7. packages-dependencies-configuration]:::execution
-    D3[8. dockerfile-creation]:::execution
-    D4[9. odh-repo-reator]:::infra
-    D5[10. midstream-sync-enabler]:::infra
-    subgraph OMA["⬥ onboarding-maturity-assessor"]
-    style OMA fill:#f0f0ff,stroke:#3949ab,stroke-width:2px,color:#1a237e,font-weight:bold
-        E1[11. onboarding-info-generator]:::assessment
-        E2[12. onboarding-info-validator]:::assessment
-        E3[13. onboarding-readiness-rubric-score]:::assessment
-        E4[14. onboarding-readiness-evaluator]:::assessment
+    A[rfe-creator]:::planning
+    A1[rfe-refine]:::planning
+    B[strat-creator]:::planning
+    B1[strat-refine]:::planning
+    C1[epic-creator]:::planning
+    D1[code-implementation]:::execution
+    D2[packages-dependencies-configuration]:::execution
+    D3[dockerfile-creation]:::execution
+    D4[odh-repo-creator]:::infra
+    D5[midstream-sync-enabler]:::infra
+    subgraph OMA_WRAP["onboarding-maturity-assessor"]
+        subgraph OMA[" "]
+            E1[onboarding-info-generator]:::assessment
+            E2[onboarding-info-validator]:::assessment
+            E3[onboarding-readiness-rubric-score]:::assessment
+            E4[onboarding-readiness-evaluator]:::assessment
+        end
     end
-    F[15. devops-HITL-sign-off]:::approval
-    G[16. create-component-onboarding-jira]:::planning
-    H[17. component-onboarding]:::execution
+    style OMA_WRAP fill:none,stroke:none,color:#1a237e
+    style OMA fill:#f5f5f5,stroke:#3949ab,stroke-width:1px
+    F[devops-HITL-sign-off]:::approval
+    G[create-component-onboarding-jira]:::planning
+    H[component-onboarding]:::execution
 
     A --> A1 --> B --> B1 --> C1
     C1 --> D1
