@@ -89,17 +89,20 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     SKIP_ODH_ONLY="skipped"
   fi
 
-  # Write operator step as skipped if is_operator=false
-  OP_STATUS="pending"
-  if [[ "$IS_OPERATOR" != "true" ]]; then
+  # Operator step: only skip if explicitly false; defer if unknown
+  if [[ "$IS_OPERATOR" == "true" ]]; then
+    OP_STATUS="pending"
+  elif [[ "$IS_OPERATOR" == "false" ]]; then
     OP_STATUS="skipped"
+  else
+    OP_STATUS="deferred"
   fi
 
   cat > "$PIPELINE_STATE" <<EOF
 {
   "component_name": "${COMPONENT_NAME}",
   "product_context": "${PRODUCT_CONTEXT}",
-  "is_operator": ${IS_OPERATOR},
+  "is_operator": ${IS_OPERATOR:-false},
   "last_status_change_at": "",
   "steps": {
     "validate": {
@@ -206,21 +209,27 @@ else
     jq --arg v "$PRODUCT_CONTEXT" '.product_context = $v' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
   fi
 
-  # Fix operator step: the initial init (Step 2) runs before IS_OPERATOR is
-  # known, so it defaults to "skipped". Once Step 4 re-invokes with the real
-  # value, correct the status if needed.
+  # Resolve operator step once IS_OPERATOR is definitively known.
+  # Initial init (Step 2) may set "deferred" or legacy "skipped" when the
+  # value wasn't yet available. Step 4 re-invokes with the real value.
   if [[ "$IS_OPERATOR" == "true" ]]; then
     CURRENT_OP=$(jq -r '.steps.operator.status // "pending"' "$PIPELINE_STATE")
-    if [[ "$CURRENT_OP" == "skipped" ]]; then
+    if [[ "$CURRENT_OP" == "skipped" || "$CURRENT_OP" == "deferred" ]]; then
       TMP=$(mktemp)
       jq '.steps.operator.status = "pending"' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
-      echo "  operator step: skipped → pending (is_operator=true)" >&2
+      echo "  operator step: $CURRENT_OP → pending (is_operator=true)" >&2
     fi
-    # Also ensure is_operator is set correctly in state
     CURRENT_IS_OP=$(jq -r '.is_operator // false' "$PIPELINE_STATE")
     if [[ "$CURRENT_IS_OP" != "true" ]]; then
       TMP=$(mktemp)
       jq '.is_operator = true' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+    fi
+  elif [[ "$IS_OPERATOR" == "false" ]]; then
+    CURRENT_OP=$(jq -r '.steps.operator.status // "pending"' "$PIPELINE_STATE")
+    if [[ "$CURRENT_OP" == "deferred" || "$CURRENT_OP" == "pending" ]]; then
+      TMP=$(mktemp)
+      jq '.steps.operator.status = "skipped"' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  operator step: $CURRENT_OP → skipped (is_operator=false)" >&2
     fi
   fi
 
