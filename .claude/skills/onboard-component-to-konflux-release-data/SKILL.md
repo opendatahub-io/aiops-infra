@@ -277,7 +277,7 @@ fi
 PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash scripts/setup_gitlab_playpen.sh \
   --src-url "$KRD_URL" \
   --src-branch main \
-  --dest-branch "<jira-id>" \
+  --dest-branch "component-onboarding-<jira-id>" \
   --sparse-files "$SPARSE_PATHS")
 ```
 

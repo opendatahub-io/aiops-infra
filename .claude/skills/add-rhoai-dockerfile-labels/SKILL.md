@@ -281,7 +281,7 @@ PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$REPO_URL" \
   --dest-url "$REPO_URL" \
   --src-branch main \
-  ${JIRA_ID:+--dest-branch "$JIRA_ID"} \
+  ${JIRA_ID:+--dest-branch "component-onboarding-$JIRA_ID"} \
   --sparse-files "$DOCKERFILE_REPO_PATH")
 ```
 
