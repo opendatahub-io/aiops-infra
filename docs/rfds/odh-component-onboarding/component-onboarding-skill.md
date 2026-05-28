@@ -61,9 +61,16 @@ flowchart TD
         ODHKonflux["odh-konflux-central (GitHub)"]
         RHOAIKonflux["rhoai-konflux-central (GitHub)"]
         ODHOperator["opendatahub-operator (GitHub)"]
+        RHODSOperator["rhods-operator (GitHub)"]
         ODHBC["ODH-Build-Config (GitHub)"]
+        RHOAIBC["RHOAI-Build-Config (GitHub)"]
         PyxisRepo["pyxis-repo-configs (GitLab)"]
         RHODSInfra["rhods-devops-infra (GitHub)"]
+        ComponentRepo["Component repo (GitHub)"]
+    end
+
+    subgraph independentSkills [Independent Skills]
+        DockerLabels["add-rhoai-dockerfile-labels\n(RHOAI only — standalone)"]
     end
 
     JiraTicket -->|"open issues query"| Fetch
@@ -76,16 +83,20 @@ flowchart TD
     S5RHOAI --> RHOAIKonflux
     S5b --> RHOAIKonflux
     S6 --> ODHKonflux
-    S7 --> ODHOperator
-    S8 --> ODHBC
+    S7 -->|"ODH"| ODHOperator
+    S7 -->|"RHOAI"| RHODSOperator
+    S8 -->|"ODH"| ODHBC
+    S8 -->|"RHOAI"| RHOAIBC
     S9 --> PyxisRepo
     S10 --> RHODSInfra
     S11 --> RHOAIKonflux
+    DockerLabels --> ComponentRepo
+    DockerLabels -->|"Updates Jira"| JiraTicket
 ```
 
 ---
 
-## Two Entry Points
+## Entry Points and Independent Skills
 
 ### 1. `create-component-onboarding-jira` — Run by Component Teams
 
@@ -131,7 +142,24 @@ All fields live under an `inputs:` top-level key. Required fields:
 | `operator_manifest_src_path` | string | if operator | if operator | Relative path to manifests in git repo |
 | `operator_manifest_dest_path` | string | if operator | if operator | Destination path in odh-operator image |
 
-### 2. `onboard-konflux-components-for-odh-and-rhoai` — Run by GitLab CI
+### 2. `add-rhoai-dockerfile-labels` — Independent Skill (RHOAI only)
+
+This skill is **independent** of the main onboarding pipeline. It checks a component's Dockerfile for the 7 mandatory RHOAI OCI labels and raises a PR to add any that are missing or incorrect. It can be run standalone or from the master orchestrator.
+
+```
+/add-rhoai-dockerfile-labels [<jira-url>]
+```
+
+**Mandatory labels:** `name`, `com.redhat.component`, `summary`, `description`, `maintainer`, `io.k8s.display-name`, `io.k8s.description`.
+
+Workflow:
+1. Reads `component_onboarding_details.yaml` from Jira (or from pipeline state).
+2. Fetches the Dockerfile via the GitHub API and checks all 7 labels.
+3. If all labels are correct, exits cleanly with a `dockerfile-labels-present` Jira label.
+4. If any are missing or wrong, clones the repo, adds them via `update_dockerfile_labels.py`, and raises a PR.
+5. Updates Jira with `dockerfile-labels-pr-raised` label and a comment with the PR URL.
+
+### 3. `onboard-konflux-components-for-odh-and-rhoai` — Run by GitLab CI
 
 This is the **wrapper / parent skill** that drives the full onboarding pipeline. It runs automatically in CI every two hours (or can be triggered manually via the GitLab UI). For each eligible Jira issue the CI pipeline:
 
@@ -206,11 +234,11 @@ If no issues match, a no-op child pipeline is emitted and the run exits cleanly.
 | 2 | `create-quay-repo` | Raise GitLab MR to `app-interface` to create Quay repository | `gitlab.cee.redhat.com` | Both | MR review + merge |
 | 3 | `create-rhoai-delivery-repo` | Raise GitLab MR to `pyxis-repo-configs` to provision the RHOAI delivery repository; **must merge before Step 4 is unblocked for RHOAI** | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
 | 4 | `onboard-component-to-konflux-release-data` | Render Konflux Component YAML; raise GitLab MR to `konflux-release-data`; run `build-single.sh`. For RHOAI: `depends_on delivery_repo` | `gitlab.cee.redhat.com` | Both | MR review + merge |
-| 5 | `add-component-to-odh-konflux-central` / `add-component-to-rhoai-konflux-central` | Add push-pipeline Tekton PipelineRun YAMLs; raise GitHub PR to the product-specific konflux-central repo | `odh-konflux-central` / `rhoai-konflux-central` | Both (product-specific skill) | PR review + merge |
-| 5b | `create-pull-pipelines-in-rhoai-konflux-central` | Add pull-request Tekton PipelineRun YAMLs; raise GitHub PR to `rhoai-konflux-central` | `rhoai-konflux-central` | RHOAI only | PR review + merge |
+| 5 | `add-component-to-odh-konflux-central` / `add-component-to-rhoai-konflux-central` | Add push-pipeline Tekton PipelineRun YAMLs; raise GitHub PR to the product-specific konflux-central repo. ODH targets `main`; RHOAI targets a version-specific branch (e.g., `rhoai-3.4`) | `odh-konflux-central` / `rhoai-konflux-central` | Both (product-specific skill) | PR review + merge |
+| 5b | `create-pull-pipelines-in-rhoai-konflux-central` | Add pull-request Tekton PipelineRun YAMLs; raise GitHub PR to `rhoai-konflux-central` (targets `main`, not version branch) | `rhoai-konflux-central` | RHOAI only | PR review + merge |
 | 6 | `run-odh-konflux-onboarder-workflow` | *(Deferred, ODH only)* Once **both** Steps 4 and 5 are merged, triggers `odh-konflux-onboarder.yml` and monitors the resulting Tekton PR | `odh-konflux-central` | ODH only | Tekton PR review + merge |
-| 7 | `integrate-component-with-odh-operator` | Skipped if `is_operator=false`. Raise GitHub PR to add manifest config to `opendatahub-operator` | `opendatahub-operator` | Both | PR review + merge |
-| 8 | `integrate-component-with-bundle` | Fetch latest image digest from Quay; add `relatedImages` entry to `bundle-patch.yaml`; raise GitHub PR | `ODH-Build-Config` | Both | PR review + merge |
+| 7 | `integrate-component-with-odh-operator` | Skipped if `is_operator=false`. Raise GitHub PR to add manifest config to the product-specific operator repo | `opendatahub-operator` (ODH) / `rhods-operator` (RHOAI) | Both | PR review + merge |
+| 8 | `integrate-component-with-bundle` | Add `relatedImages` entry to `bundle-patch.yaml`; (RHOAI only) also update `config/build-config.yaml` and `bundle/Dockerfile` with git label ARGs; raise GitHub PR. ODH targets `main`; RHOAI targets version-specific branch (e.g., `rhoai-2.16`) | `ODH-Build-Config` (ODH) / `RHOAI-Build-Config` (RHOAI) | Both | PR review + merge |
 | 9 | `update-rhoai-product-listing` | Raise GitLab MR to `pyxis-repo-configs` to add the component to the RHOAI product listing; runs after Step 3 (`delivery_repo`) merges | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
 | 10 | `setup-auto-merge` | Raise GitHub PR to `rhods-devops-infra` to configure auto-merge for the component repo | `rhods-devops-infra` | RHOAI only | PR review + merge |
 | 11 | `enable-renovate-on-rhoai-component-repo` | Raise GitHub PR to `rhoai-konflux-central` to enable Renovate; on merge, trigger deferred `sync-rhoai-renovate-configs` workflow | `rhoai-konflux-central` | RHOAI only | PR review + merge |
@@ -271,6 +299,8 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 | Product listing MR merged *(RHOAI)* | Review | `product-listing-mr-raised` removed |
 | Auto-merge PR merged *(RHOAI)* | Review | `auto-merge-pr-raised` removed |
 | Renovate PR merged + sync triggered *(RHOAI)* | Review | `renovate-sync-triggered` added |
+| Dockerfile labels correct *(RHOAI, independent)* | *(unchanged)* | `dockerfile-labels-present` added |
+| Dockerfile labels PR raised *(RHOAI, independent)* | *(unchanged)* | `dockerfile-labels-pr-raised` added |
 | All steps done | Resolved | `component-onboarding-completed` added, `onboarding-in-review` removed |
 
 ---
@@ -287,6 +317,8 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 | Onboarder workflow 422 *(ODH)* | krd or okc not yet merged — next CI run retries after both merge. |
 | Renovate sync workflow fails *(RHOAI)* | Re-run `/sync-rhoai-renovate-configs` manually after renovate PR merges. |
 | Delivery repo already exists *(RHOAI)* | Child exits 0; step marked `done` with label `delivery-repo-exists`; krd unblocked immediately. |
+| Dockerfile labels already correct *(RHOAI)* | `add-rhoai-dockerfile-labels` exits 0 with `dockerfile-labels-present` label; no PR needed. |
+| Dockerfile labels PR fails 3× *(RHOAI)* | Check `GITHUB_TOKEN` push access to the component repo. Re-run skill manually. |
 
 ---
 
