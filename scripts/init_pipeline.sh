@@ -36,7 +36,7 @@ fi
 if [[ -n "$WORKDIR_OVERRIDE" ]]; then
   WORKDIR="$WORKDIR_OVERRIDE"
 else
-  WORKDIR="$(pwd)/${JIRA_ID}"
+  WORKDIR="$(pwd)/.work/${JIRA_ID}"
 fi
 
 mkdir -p "$WORKDIR"
