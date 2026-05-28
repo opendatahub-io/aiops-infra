@@ -35,8 +35,15 @@ No background nohup processes are used.
 ## Prerequisites
 
 **Jira:** `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
-**GitLab (VPN required):** `GITLAB_USER`, `GITLAB_TOKEN` (api + write_repository scope)
-**GitHub:** `GITHUB_USER`, `GITHUB_TOKEN` (repo + actions:write scope)
+  - Go to https://id.atlassian.com/manage-profile/security/api-tokens → Create API token.
+
+**GitLab (VPN required):** `GITLAB_USER`, `GITLAB_TOKEN`
+  - Go to https://gitlab.cee.redhat.com/-/user_settings/personal_access_tokens → Add new token.
+  - Required scopes: `api`, `write_repository`.
+
+**GitHub:** `GITHUB_USER`, `GITHUB_TOKEN`
+  - Go to https://github.com/settings/tokens → Generate new token (classic).
+  - Required scopes: `repo`, `workflow`.
 **OpenShift:** `EXT_OC_TOKEN` (external cluster — stone-prd-rh01, ODH builds), `INT_OC_TOKEN` (internal cluster — stone-prod-p02, RHOAI builds) — each required only if no matching kubeconfig context is found for that cluster
 **Tools:** `uv`, `git`, `oc`, `skopeo`, `yamllint`, `jq`, `kustomize` (or `kubectl`)
 
