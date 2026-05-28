@@ -230,6 +230,120 @@ is_operator=true. Proceeding with odh-operator integration.
 
 ---
 
+## Step 4c: Analyze and Suggest Operator Manifest Paths
+
+Before proceeding, verify that `operator_manifest_src_path` actually exists in the
+component repo and that `operator_manifest_dest_path` follows existing naming conventions.
+This step **suggests** corrections — it does NOT automatically override user-provided values.
+
+**1. Check if the provided `operator_manifest_src_path` exists in the component repo:**
+
+```bash
+REPO_PATH=$(echo "$REPO_URL" | sed 's|https://github.com/||')
+CLEAN_CTX="${CONTEXT_PATH%/}"; CLEAN_CTX="${CLEAN_CTX#./}"
+[[ "$CLEAN_CTX" == "." ]] && CLEAN_CTX=""
+
+SRC_PATH_CHECK="$OPERATOR_MANIFEST_SRC_PATH"
+SRC_HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  "https://api.github.com/repos/${REPO_PATH}/contents/${SRC_PATH_CHECK}?ref=${REPO_BRANCH}")
+
+echo "[analysis] Checking operator_manifest_src_path='${OPERATOR_MANIFEST_SRC_PATH}' in ${REPO_PATH} @ ${REPO_BRANCH}..."
+```
+
+**If `SRC_HTTP == 200`**: the path exists. Print confirmation and continue:
+```
+[analysis] Confirmed: '${OPERATOR_MANIFEST_SRC_PATH}' exists in the component repo. OK.
+```
+
+**If `SRC_HTTP != 200`**: scan for common operator manifest directory candidates:
+
+```bash
+CANDIDATES=()
+[[ -n "$CLEAN_CTX" ]] && CANDIDATES+=("${CLEAN_CTX}/config")
+CANDIDATES+=("config" "config/manifests" "manifests")
+[[ -n "$CLEAN_CTX" ]] && CANDIDATES+=("${CLEAN_CTX}/config/manifests")
+
+FOUND_CANDIDATES=()
+for CAND in "${CANDIDATES[@]}"; do
+  C=$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    "https://api.github.com/repos/${REPO_PATH}/contents/${CAND}?ref=${REPO_BRANCH}")
+  if [[ "$C" == "200" ]]; then
+    FOUND_CANDIDATES+=("$CAND")
+  fi
+done
+```
+
+If candidates are found, list the directory contents of each to identify typical operator
+layout markers (`manager/`, `crd/`, `rbac/`, `default/`):
+
+```bash
+for CAND in "${FOUND_CANDIDATES[@]}"; do
+  CONTENTS=$(curl -s \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    "https://api.github.com/repos/${REPO_PATH}/contents/${CAND}?ref=${REPO_BRANCH}" \
+    | jq -r '.[].name' 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+  echo "[analysis] Found directory: ${CAND} (contains: ${CONTENTS})"
+done
+```
+
+Print warning and suggestion:
+```
+[analysis] WARNING: '${OPERATOR_MANIFEST_SRC_PATH}' was NOT found in the component repo.
+[analysis] Candidate directories found: ${FOUND_CANDIDATES[*]}
+```
+
+**2. Cross-check `operator_manifest_dest_path` against existing conventions:**
+
+Fetch `manifests-config.yaml` from the operator repo and extract existing `dest` values:
+
+```bash
+MANIFESTS_TMPFILE=$(mktemp)
+curl -s \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github.v3.raw" \
+  "https://api.github.com/repos/${ODH_OPERATOR_PATH}/contents/build/manifests-config.yaml?ref=${OPERATOR_TARGET_BRANCH}" \
+  -o "$MANIFESTS_TMPFILE"
+
+EXISTING_DESTS=$(grep "^    dest:" "$MANIFESTS_TMPFILE" | awk '{print $2}' | sort -u | tr '\n' ', ' | sed 's/,$//')
+rm -f "$MANIFESTS_TMPFILE"
+
+echo "[analysis] Checking operator_manifest_dest_path='${OPERATOR_MANIFEST_DEST_PATH}' against existing conventions..."
+echo "[analysis] Existing dest patterns: ${EXISTING_DESTS}"
+```
+
+Check if the dest_path follows conventions (lowercase, no hyphens):
+```bash
+if echo "$OPERATOR_MANIFEST_DEST_PATH" | grep -q '[A-Z-]'; then
+  echo "[analysis] WARNING: '${OPERATOR_MANIFEST_DEST_PATH}' contains uppercase or hyphens."
+  echo "[analysis] Convention is lowercase without hyphens (e.g. kserve, datasciencepipelines, modelcontroller)."
+  SUGGESTED_DEST=$(echo "$OPERATOR_MANIFEST_DEST_PATH" | tr '[:upper:]' '[:lower:]' | tr -d '-')
+  echo "[analysis] Suggested: '${SUGGESTED_DEST}'"
+else
+  echo "[analysis] '${OPERATOR_MANIFEST_DEST_PATH}' follows the naming convention. OK."
+fi
+```
+
+**3. Present findings and ask the user for confirmation:**
+
+```
+Suggested values based on analysis:
+  operator_manifest_src_path : <best_candidate or original if confirmed>
+  operator_manifest_dest_path: <corrected or original if OK>
+
+Do these look correct? (yes / no)
+```
+
+- If the user confirms **yes**: update `OPERATOR_MANIFEST_SRC_PATH` and
+  `OPERATOR_MANIFEST_DEST_PATH` with the accepted values (may be unchanged) and continue.
+- If the user says **no**: ask for corrected values, update the variables, and continue.
+
+> **Note:** If ALL API calls fail (e.g. network issues), print a warning and skip this
+> analysis step — do not block the pipeline on a non-critical validation.
+
+---
+
 ## Step 5: Check If Component Already Exists in manifests-config.yaml
 
 Before cloning the repo, check whether `$COMPONENT_NAME` already has an entry in the
