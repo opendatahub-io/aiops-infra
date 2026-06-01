@@ -1,11 +1,11 @@
 ---
-name: rhoai-release-onboard
-description: Master orchestrator for the full RHOAI release onboarding pipeline (RBC Release → RBC Main → Konflux). Idempotent - run any number of times for the same release.
+name: rhoai-y-stream-onboarding
+description: Master orchestrator for the full RHOAI Y-stream onboarding pipeline (RBC Release → RBC Main → Konflux). Idempotent - run any number of times for the same release.
 allowed-tools: Bash
 user-invocable: true
 ---
 
-# RHOAI Release Onboard
+# RHOAI Y-Stream Onboarding
 
 Orchestrates the complete RHOAI release onboarding pipeline with state tracking and idempotent re-run capability:
 
@@ -28,9 +28,9 @@ Orchestrates the complete RHOAI release onboarding pipeline with state tracking 
 ## Usage
 
 ```
-/rhoai-release-onboard
-/rhoai-release-onboard --resume
-/rhoai-release-onboard --dry-run
+/rhoai-y-stream-onboarding
+/rhoai-y-stream-onboarding --resume
+/rhoai-y-stream-onboarding --dry-run
 ```
 
 ## Implementation
@@ -88,6 +88,23 @@ On exit 1: display error and stop.
 ---
 
 ## Step 0.5: Create or retrieve Jira tracking issue
+
+**IMPORTANT: Skip this step entirely if DRY_RUN is "yes".**
+
+If dry-run mode, set placeholder values and skip to Step 1:
+```bash
+if [[ "$DRY_RUN" == "yes" ]]; then
+  echo "⚠ Dry-run mode: Skipping Jira creation"
+  PARENT_KEY="DRY-RUN"
+  PARENT_URL="N/A"
+  RBC_RELEASE_TASK="DRY-RUN"
+  RBC_MAIN_TASK="DRY-RUN"
+  KONFLUX_TASK="DRY-RUN"
+  # Skip to Step 1
+fi
+```
+
+**Otherwise (production run):**
 
 Ask the user using AskUserQuestion:
 
@@ -461,12 +478,25 @@ Next: Review and merge the PRs/MRs, monitor CI/CD pipelines, test builds."
   echo ""
   echo "State file: $STATE_FILE"
   echo "═══════════════════════════════════════════════════════════════"
+  
+  # Clean up cloned repository
+  echo ""
+  echo "Cleaning up cloned repositories..."
+  if [[ -d "RHOAI-Build-Config" ]]; then
+    rm -rf RHOAI-Build-Config
+    echo "✓ Removed RHOAI-Build-Config/"
+  fi
+  if [[ -d "$REPO_DIR" ]]; then
+    rm -rf "$REPO_DIR"
+    echo "✓ Removed $REPO_DIR/"
+  fi
+  echo "Cleanup complete."
 else
   echo ""
   echo "Pipeline paused. Some steps remain:"
   jq -r '.steps | to_entries[] | select(.value.status != "done") | "  • \(.key): \(.value.status)"' "$STATE_FILE"
   echo ""
-  echo "To resume: /rhoai-release-onboard --resume"
+  echo "To resume: /rhoai-y-stream-onboarding --resume"
   echo "State file: $STATE_FILE"
 fi
 ```
