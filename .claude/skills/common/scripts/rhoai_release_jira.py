@@ -66,10 +66,11 @@ def create_parent_and_children(prev_version: str, new_version: str):
 Previous Version: {prev_version}
 New Version: {new_version}
 
-This issue tracks the 3-step onboarding pipeline:
+This issue tracks the 4-step onboarding pipeline:
 1. RBC Release - Create release branch on RHOAI-Build-Config
 2. RBC Main - Onboard catalog and Tekton to main branch
 3. Konflux - Update konflux-release-data
+4. PipelineRun Replicator - Replicate PipelineRuns in konflux-central
 
 Child tasks will be updated with PR/MR URLs as automation completes.
 """,
@@ -141,6 +142,26 @@ Automation: /rhoai-konflux-onboard
     child_tasks["konflux"] = task3.key
     print(f"✓ Created: {task3.key}")
 
+    # Task 4: PipelineRun Replicator
+    print("Creating child task 4: PipelineRun Replicator...")
+    task4 = jira.create_issue(
+        project=JIRA_PROJECT,
+        summary=f"PipelineRun Replicator: {prev_version} → {new_version}",
+        description=f"""Replicate PipelineRuns in konflux-central from previous to new version.
+
+- Trigger GitHub Actions workflow
+- Replicate pull-request PipelineRuns
+- Replicate push PipelineRuns
+- Monitor workflow completion
+
+Automation: /trigger-pipelinerun-replicator
+""",
+        issuetype={"name": "Sub-task"},
+        parent={"key": parent_key},
+    )
+    child_tasks["pipelinerun_replicator"] = task4.key
+    print(f"✓ Created: {task4.key}")
+
     # Build state
     state = {
         "release_info": {
@@ -178,8 +199,10 @@ Automation: /rhoai-konflux-onboard
     print(f"     {child_tasks['rbc_main']}: RBC Main")
     print(f"\n  3. {state['child_tasks']['konflux']['url']}")
     print(f"     {child_tasks['konflux']}: Konflux")
+    print(f"\n  4. {state['child_tasks']['pipelinerun_replicator']['url']}")
+    print(f"     {child_tasks['pipelinerun_replicator']}: PipelineRun Replicator")
     print(f"\nState saved to: {state_file}")
-    print("\nNext: /rhoai-release-onboard (will auto-update Jira with PR/MR URLs)")
+    print("\nNext: /rhoai-y-stream-onboarding (will auto-update Jira with PR/MR URLs)")
     print("="*60)
 
     return state
