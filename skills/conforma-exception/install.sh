@@ -2,10 +2,10 @@
 # install.sh — Install the conforma-exception skill for Claude Code or Cursor.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --target cursor
-#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --target claude
-#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --project /path/to/project
+#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --target cursor
+#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --target claude
+#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --project /path/to/project
 #
 # Options:
 #   --target claude|cursor|both   Where to install (default: both)
@@ -20,7 +20,7 @@ REPO="opendatahub-io/aiops-infra"
 REPO_URL="https://github.com/${REPO}.git"
 SKILL_PATH="skills/conforma-exception"
 SKILL_NAME="conforma-exception"
-BRANCH="conforma-exception-ai-skill"
+BRANCH="skill/conforma-exception"
 
 CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
 CURSOR_SKILLS_DIR="${HOME}/.cursor/skills-cursor"

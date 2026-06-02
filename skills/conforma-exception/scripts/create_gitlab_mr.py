@@ -23,7 +23,7 @@ from pathlib import Path
 GITLAB_HOST = "gitlab.cee.redhat.com"
 GITLAB_PROJECT = "releng/konflux-release-data"
 DEFAULT_BRANCH = "main"
-PROVENANCE_REPO = "opendatahub-io/ai-helpers"
+PROVENANCE_REPO = "opendatahub-io/aiops-infra"
 PROVENANCE_SKILL = "conforma-exception-ai-skill"
 
 _SKILL_DIR = Path(__file__).resolve().parent.parent
