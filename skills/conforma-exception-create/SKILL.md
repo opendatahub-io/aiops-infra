@@ -65,20 +65,47 @@ Container mode requires API token authentication since `--web` OAuth cannot open
 Exception MRs bypass policy enforcement. Engineer approval is **MANDATORY** before creation.
 For versions >= rhoai-3.5-ea.1, senior manager approval on the RHOAIENG ticket is also required.
 
-### No Guessing Policy
+### No Agent Decisions Policy
 
-**NEVER assume, infer, or hallucinate details.** Every piece of information used in tickets or MRs MUST be either:
-- Explicitly stated by the user, OR
-- Read directly from an authoritative source (Jira ticket, ReleasePlanAdmission file, policy file)
+**The agent MUST NOT make decisions about parameter values.** All parameters are resolved by deterministic scripts. The agent's ONLY role is:
+1. Run `preflight_check.py` to resolve all values from authoritative sources
+2. Present the script's output to the user as a structured questionnaire for confirmation
+3. Execute the creation scripts with the confirmed values
+4. Report results
 
-When uncertain about ANY detail (signing key ID, component names, versions, dates, relationships):
-1. **Stop and ask the user** -- present what you found and ask them to confirm or correct.
-2. **Persist confirmed details in Jira/skill** -- do not rely on agent conversation context alone. All confirmed details must be recorded in the Jira ticket (comment or description) and/or the skill files so they survive session boundaries.
-3. **Show your work** -- before executing, show the user the exact values that will be used (rule, components, dates, links) and wait for explicit approval.
+The agent MUST NEVER:
+- Decide link types (enforced by `link_artifacts.py`)
+- Decide MR split strategy (enforced by `preflight_check.py` → `hard_rules.mr_strategy`)
+- Decide ticket handling (enforced by duplicate detection in `preflight_check.py`)
+- Infer rules, components, dates, or any other values (resolved by `preflight_check.py`)
+- Create links without the script's idempotency checks
+- Override any value from `hard_rules` in the preflight output
 
-Gaps or ambiguities discovered during execution MUST be:
-- Surfaced to the user immediately (not papered over with assumptions)
-- Added to this skill's pre-flight checklist so future runs catch them earlier
+### Mandatory Pre-Flight Script
+
+**ALWAYS run `preflight_check.py` FIRST** before any other action:
+
+```bash
+python3 scripts/preflight_check.py \
+  --rhoaieng-url <url> \
+  --versions rhoai-2.25,rhoai-3.3 \
+  --image-bases odh-vllm-cpu,odh-vllm-gaudi \
+  --clone-dir /tmp/conforma-check
+```
+
+The script outputs JSON containing:
+- `hard_rules`: non-configurable behavior (link types, MR strategy, dedup logic)
+- `rhoaieng`: ticket metadata and type warnings
+- `rule`: extracted or overridden rule value
+- `versions`: resolved RHOAI versions
+- `components`: per-version component names from RPA files
+- `effective_until`: per-version dates from end-of-support defaults
+- `related_psx`: auto-discovered related PSX tickets
+- `existing_exceptions`: current state in konflux-release-data
+- `duplicate_check`: existing tickets created by this skill
+- `user_confirmation_required`: items that need user approval
+
+The agent presents `user_confirmation_required` items to the user and waits for confirmation. It does NOT modify any resolved values.
 
 ## Three Exception Paths
 
@@ -176,7 +203,7 @@ python3 scripts/create_exception.py \
 
 All created tickets receive the `conforma-exception-create-ai-skill` and `conforma-violation` Jira labels and a provenance footer in the description.
 
-**Linking rules**: Only create Jira links between tickets that the script explicitly creates or that the user explicitly provides via `--link-to`, `--rhoaieng-url`, or `--psx-url`. Do NOT auto-infer or auto-create links to other tickets found in descriptions, comments, or conversation context. If a potential relationship is noticed, suggest it to the user and wait for confirmation before linking.
+**Linking rules**: Enforced deterministically by `link_artifacts.py`. The agent does not choose link types — the script applies them based on the relationship between tickets. Run `preflight_check.py` to see the `hard_rules` that govern linking behavior. Only create links between tickets that the script explicitly creates or that the user explicitly provides via `--link-to`, `--rhoaieng-url`, or `--psx-url`. Do NOT auto-infer links from descriptions/comments/conversation context.
 
 **Before running**, gather the following from the user using structured questionnaires. Present questions as **multiple-choice** selections (using AskQuestion tool in Cursor, or structured options in Claude Code) wherever possible. Do NOT present questions as plain text expecting free-form answers unless the answer genuinely requires free text input. Batch related questions together to minimize back-and-forth. Do NOT proceed until all items are confirmed.
 
@@ -208,7 +235,7 @@ All created tickets receive the `conforma-exception-create-ai-skill` and `confor
    - "One PSX + RHOAIENG ticket per version (default, recommended)"
    - "Single consolidated PSX + RHOAIENG ticket covering all versions (once-off deviation)"
 
-   **Hard rule regardless of ticket strategy: always create 1 GitLab MR per RHOAI version.** Each MR contains the exception for only one RHOAI version (that version's components + that version's effectiveUntil date). This is NOT configurable and NOT driven by the user. Whether there is 1 PSX ticket or N PSX tickets, the MR split is always per-version.
+   MR split strategy is enforced by `preflight_check.py` → `hard_rules.mr_strategy`. The agent reads this value and follows it without modification.
 
 5. **Justification**:
    - "1 — Violation not fixed in time before code-freeze, planned for next release"
@@ -252,20 +279,7 @@ All created tickets receive the `conforma-exception-create-ai-skill` and `confor
 11. **Authorized Party**: Free text prompt:
     - "Who is the senior manager accepting risk? (e.g., Lindani Phiri, Jay Koehler)"
 
-12. **Effective-until date**: When multiple versions are involved, present per-version dates based on end-of-support/EUS deadlines. Always confirm with the user before using.
-
-    Default end-of-support dates (use as starting point, confirm with user):
-
-    | RHOAI Version | End of Support / EUS | Default effectiveUntil |
-    |---|---|---|
-    | rhoai-2.25 | 2027-04-19 | 2027-04-26 (+7 days) |
-    | rhoai-3.3 | 2026-09-28 | 2026-10-05 (+7 days) |
-    | rhoai-3.4 | 2026-08-05 | 2026-08-12 (+7 days) |
-    | rhoai-3.5-ea.1 | 2026-06-12 | 2026-06-19 (+7 days) |
-
-    The skill should ask/query: "What are the end-of-support / end-of-EUS dates for each release?" and present the known defaults for confirmation. Script adds +7 days buffer automatically, so the dates above already include that buffer.
-
-    Present as: "Confirm per-version effectiveUntil dates (end-of-support + 7 days buffer):" with each version as a confirmation item.
+12. **Effective-until date**: Resolved by `preflight_check.py` from its `DEFAULT_EOS_DATES` table. The script outputs per-version dates in `effective_until` and flags any versions without defaults in `user_confirmation_required`. Present the script's output for user confirmation.
 
 13. **PSX template details** (needed to fill the PSRD Exception form after ticket creation). Present as individual prompts:
     - **Scope**: "What specific components/images are affected? How many instances?"
@@ -341,19 +355,7 @@ This handles cases where a previous run partially succeeded (ticket created but 
 
 ## Existing Exception Deduplication
 
-When creating an MR, the script checks the target policy file for existing exceptions matching the same rule (`- value: <rule>`). The behavior depends on whether the existing exception uses `componentNames`:
-
-| Existing exception style | Behavior |
-|---|---|
-| No existing exception for this rule | Append new block (standard behavior) |
-| Uses `componentNames` and components match | **Extend**: update `effectiveUntil` date in-place (no new block created) |
-| Uses `componentNames` but different components | Append new block alongside existing |
-| Old-style (no `componentNames`) | Leave intact, append a **new** block using `componentNames` |
-
-This ensures:
-- Version-scoped exceptions (using `componentNames`) are extended rather than duplicated when only the expiry date changes
-- Legacy exceptions without `componentNames` are never modified (they may apply broadly); a new version-scoped block is added instead
-- The commit message reflects whether the exception was "extended" vs. "added"
+Handled deterministically by `create_gitlab_mr.py` → `apply_exception_to_policy_file()`. The behavior is governed by `preflight_check.py` → `hard_rules.old_style_exception_handling` and `hard_rules.matching_componentNames_exception_handling`. The agent does not make deduplication decisions — the script detects existing exceptions and applies the correct action automatically.
 
 ## Commit Message Structure
 
