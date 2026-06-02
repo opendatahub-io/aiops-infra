@@ -13,26 +13,26 @@ See [SKILL.md](SKILL.md) for full usage documentation.
 Install for both Claude Code and Cursor in one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash
 ```
 
 ### Target a specific environment
 
 ```bash
 # Claude Code only
-curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --target claude
+curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --target claude
 
 # Cursor only
-curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --target cursor
+curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --target cursor
 
 # Also install into a specific project
-curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --project /path/to/my-project
+curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --project /path/to/my-project
 ```
 
 ### Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --uninstall
 ```
 
 ## Install from Within Claude Code
@@ -46,7 +46,7 @@ Or run the installer directly in the session:
 
 ```
 Run this command:
-curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --target claude
+curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --target claude
 ```
 
 Once installed, invoke the skill with:
@@ -63,7 +63,7 @@ Open the Cursor chat and paste:
 Or ask it to run the installer:
 
 > Run this in a terminal:
-> `curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --target cursor`
+> `curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --target cursor`
 
 Once installed, the skill appears in your available skills list. Invoke with:
 
@@ -104,11 +104,11 @@ glab auth login --hostname gitlab.cee.redhat.com --token "$TOKEN"
 Re-run the install command to update to the latest version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash
 ```
 
 Or from a specific branch:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --branch feature-branch
+curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/skill/conforma-exception/skills/conforma-exception/install.sh | bash -s -- --branch feature-branch
 ```
