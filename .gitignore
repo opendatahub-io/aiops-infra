@@ -1,3 +1,8 @@
-.DS_STORE
+.DS_Store
+
+# workdir for skills
+.work/
+
 __pycache__/
 tmp/
+

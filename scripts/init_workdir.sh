@@ -32,8 +32,10 @@ else
 
   if [[ -n "$WORKDIR_OVERRIDE" ]]; then
     WORKDIR="$WORKDIR_OVERRIDE"
-  else
+  elif [[ -d "$(pwd)/${JIRA_ID}" ]]; then
     WORKDIR="$(pwd)/${JIRA_ID}"
+  else
+    WORKDIR="$(pwd)/.work/${JIRA_ID}"
   fi
 fi
 
