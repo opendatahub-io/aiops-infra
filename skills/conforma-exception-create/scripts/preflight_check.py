@@ -145,7 +145,12 @@ def search_related_psx(rule: str) -> list[dict]:
 
 
 def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
-    """Check if exception for this rule already exists in konflux-release-data."""
+    """Check if exception for this rule already exists in konflux-release-data.
+
+    Searches two locations:
+    1. The `exclude:` section — simple list items (permanent global exclusions)
+    2. The `volatileCriteria:` section — structured blocks with componentNames/effectiveUntil
+    """
     if clone_dir:
         search_dir = Path(clone_dir)
     else:
@@ -159,14 +164,23 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
         return {"checked": False, "reason": f"Policy dir not found: {policy_dir}"}
 
     found_in = []
+    permanent_exclusions = []
+
     for yaml_file in policy_dir.glob("*rhoai*.yaml"):
         content = yaml_file.read_text(encoding="utf-8")
+        rel_path = str(yaml_file.relative_to(search_dir))
+
+        if rule in content:
+            _check_permanent_exclusions(
+                content, rule, rel_path, permanent_exclusions
+            )
+
         if f"value: {rule}" in content:
             from create_gitlab_mr import _find_existing_exceptions
             exceptions = _find_existing_exceptions(content, rule)
             for exc in exceptions:
                 found_in.append({
-                    "file": str(yaml_file.relative_to(search_dir)),
+                    "file": rel_path,
                     "has_componentNames": exc["has_component_names"],
                     "componentNames": exc["component_names"],
                     "effectiveUntil": exc["effective_until_value"],
@@ -176,8 +190,44 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
         "checked": True,
         "rule": rule,
         "existing_exceptions": found_in,
+        "permanent_exclusions": permanent_exclusions,
         "count": len(found_in),
+        "permanent_count": len(permanent_exclusions),
     }
+
+
+def _check_permanent_exclusions(
+    content: str, rule: str, file_path: str, results: list[dict]
+) -> None:
+    """Check if the rule appears in the `exclude:` section as a permanent global exclusion.
+
+    These are simple list items under `exclude:` with no componentNames or effectiveUntil,
+    meaning the rule is permanently excluded for ALL components.
+    """
+    lines = content.split("\n")
+    in_exclude_section = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "exclude:":
+            in_exclude_section = True
+            continue
+        if in_exclude_section:
+            if not stripped or (not stripped.startswith("-") and not stripped.startswith("#")):
+                in_exclude_section = False
+                continue
+            if stripped.startswith("#"):
+                continue
+            if stripped == f"- {rule}":
+                results.append({
+                    "file": file_path,
+                    "line": i + 1,
+                    "type": "permanent_global_exclusion",
+                    "detail": (
+                        f"Rule '{rule}' is permanently excluded globally "
+                        f"(no componentNames, no effectiveUntil). "
+                        f"All components are covered forever."
+                    ),
+                })
 
 
 def check_duplicate_psx_tickets(rule: str, rhoai_versions: list[str]) -> list[dict]:
@@ -237,6 +287,132 @@ def resolve_effective_until_dates(rhoai_versions: list[str]) -> dict[str, dict]:
     return results
 
 
+def evaluate_decision(
+    existing_exceptions: dict,
+    components_per_version: dict[str, list[str]],
+    environment: str = "prod",
+) -> dict:
+    """Deterministic go/no-go decision based on existing state.
+
+    Decision rules (hardcoded, not configurable):
+    1. If rule has a permanent global exclusion in the TARGET environment file
+       (in `exclude:` section, no componentNames, no effectiveUntil) → ABORT.
+       The rule is already permanently approved for all components in that env.
+    2. If rule has a volatile exception with matching componentNames and no effectiveUntil
+       (permanent scoped) → ABORT for those components (already permanently covered).
+    3. If rule has a volatile exception with matching componentNames and effectiveUntil
+       → PROCEED with action "extend" (update the date).
+    4. If rule has a volatile exception without componentNames (old-style, time-bounded)
+       → PROCEED with action "append_new_style" (leave old intact, add new block).
+    5. If no existing exception found → PROCEED with action "create_new".
+
+    The `environment` parameter determines which file(s) are relevant. A permanent
+    exclusion in stage does NOT block creation in prod, and vice versa.
+
+    Returns:
+        {
+            "proceed": bool,
+            "action": str,  # "abort" | "create_new" | "extend" | "append_new_style"
+            "reason": str,  # human-readable explanation
+            "details": dict # additional context
+        }
+    """
+    if not existing_exceptions.get("checked"):
+        return {
+            "proceed": True,
+            "action": "create_new",
+            "reason": (
+                "Could not check existing exceptions "
+                f"({existing_exceptions.get('reason', 'unknown')}). "
+                "Proceeding with creation — dedup will be handled at MR time."
+            ),
+            "details": {},
+        }
+
+    permanent = existing_exceptions.get("permanent_exclusions", [])
+    relevant_permanent = [
+        p for p in permanent
+        if f"-{environment}." in Path(p["file"]).name
+    ]
+    if relevant_permanent:
+        return {
+            "proceed": False,
+            "action": "abort",
+            "reason": (
+                f"Rule is already permanently excluded globally in "
+                f"{relevant_permanent[0]['file']} (line {relevant_permanent[0]['line']}). "
+                f"No componentNames-scoped exception needed — all components "
+                f"are covered forever in {environment}. "
+                f"Creating a new exception would be redundant."
+            ),
+            "details": {"permanent_exclusions": relevant_permanent},
+        }
+
+    volatile = existing_exceptions.get("existing_exceptions", [])
+    if not volatile:
+        return {
+            "proceed": True,
+            "action": "create_new",
+            "reason": "No existing exception found for this rule. Will create new.",
+            "details": {},
+        }
+
+    all_requested_components = set()
+    for comps in components_per_version.values():
+        all_requested_components.update(comps)
+
+    for exc in volatile:
+        if exc["has_componentNames"]:
+            if not exc["effectiveUntil"]:
+                exc_comps = set(exc["componentNames"])
+                if all_requested_components.issubset(exc_comps):
+                    return {
+                        "proceed": False,
+                        "action": "abort",
+                        "reason": (
+                            f"Rule already has a permanent scoped exception in "
+                            f"{exc['file']} covering all requested components. "
+                            f"No new exception needed."
+                        ),
+                        "details": {"matching_exception": exc},
+                    }
+            else:
+                exc_comps = set(exc["componentNames"])
+                if all_requested_components == exc_comps or all_requested_components.issubset(exc_comps):
+                    return {
+                        "proceed": True,
+                        "action": "extend",
+                        "reason": (
+                            f"Existing exception with matching componentNames found in "
+                            f"{exc['file']} (effectiveUntil: {exc['effectiveUntil']}). "
+                            f"Will extend the effectiveUntil date."
+                        ),
+                        "details": {"matching_exception": exc},
+                    }
+
+    has_old_style = any(not exc["has_componentNames"] for exc in volatile)
+    if has_old_style:
+        return {
+            "proceed": True,
+            "action": "append_new_style",
+            "reason": (
+                "Old-style exception (no componentNames) found. "
+                "Will leave it intact and append a new componentNames-based block."
+            ),
+            "details": {"old_style_exceptions": [e for e in volatile if not e["has_componentNames"]]},
+        }
+
+    return {
+        "proceed": True,
+        "action": "create_new",
+        "reason": (
+            "Existing exceptions found but with different componentNames. "
+            "Will create a new block for the requested components."
+        ),
+        "details": {"existing_exceptions": volatile},
+    }
+
+
 def run_preflight(
     rhoaieng_url: str,
     rule_override: str | None = None,
@@ -244,10 +420,12 @@ def run_preflight(
     image_bases: list[str] | None = None,
     rpa_dir: str | None = None,
     clone_dir: str | None = None,
+    environment: str = "prod",
 ) -> dict:
     """Run all pre-flight checks and return structured result."""
     output: dict = {
         "hard_rules": HARD_RULES,
+        "decision": {},
         "rhoaieng": {},
         "rule": {},
         "versions": {},
@@ -337,7 +515,23 @@ def run_preflight(
         existing = search_existing_exceptions(resolved_rule, clone_dir)
         output["existing_exceptions"] = existing
 
-    # 8. Check for duplicate PSX tickets
+    # 8. Evaluate decision (deterministic go/no-go)
+    components_per_version = output["components"].get("per_version", {})
+    decision = evaluate_decision(
+        existing_exceptions=output["existing_exceptions"] if output["existing_exceptions"] else {},
+        components_per_version=components_per_version,
+        environment=environment,
+    )
+    output["decision"] = decision
+
+    if not decision["proceed"]:
+        output["user_confirmation_required"] = [
+            f"DECISION: ABORT — {decision['reason']}",
+            "No further action required. The agent MUST NOT proceed with exception creation.",
+        ]
+        return output
+
+    # 9. Check for duplicate PSX tickets
     if resolved_rule and versions:
         dupes = check_duplicate_psx_tickets(resolved_rule, versions)
         output["duplicate_check"] = {
@@ -351,7 +545,7 @@ def run_preflight(
                 f"Confirm whether to reuse or create new."
             )
 
-    # 9. RHOAIENG type warning
+    # 10. RHOAIENG type warning
     if rhoaieng.get("type_warning"):
         output["user_confirmation_required"].append(rhoaieng["type_warning"])
 
@@ -374,6 +568,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--rpa-dir", default=None, help="Path to RPA directory")
     parser.add_argument("--clone-dir", default=None, help="Path to konflux-release-data clone")
+    parser.add_argument(
+        "--environment", default="prod", choices=["prod", "stage"],
+        help="Target environment (filters decision to relevant policy files)"
+    )
     return parser.parse_args()
 
 
@@ -390,6 +588,7 @@ def main() -> int:
         image_bases=image_bases,
         rpa_dir=args.rpa_dir,
         clone_dir=args.clone_dir,
+        environment=args.environment,
     )
     print(json.dumps(result, indent=2))
     return 0
