@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate inputs for the conforma-exception-create skill.
+"""Validate inputs for the conforma-exception skill.
 
 Handles:
 - RHOAI version parsing and comparison
@@ -31,6 +31,13 @@ JUSTIFICATIONS = {
         " subreleases/z-stream releases"
     ),
 }
+
+# Relative paths within a konflux-release-data clone for component name lookups.
+# RPA = ReleasePlanAdmission (primary source, version-specific files)
+# PDS = ProjectDevelopmentStream source files (fallback, uses {{.versionName}} placeholders)
+#       These are the authoritative source; the auto-generated/ folder is derived from them.
+KRD_RPA_SUBPATH = "config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai"
+KRD_PDS_SUBPATH = "tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant"
 
 SELF_SERVICE_RULES = frozenset(
     [
@@ -172,16 +179,17 @@ def determine_path(rule: str, is_fips: bool, is_self_service: bool) -> str:
 def lookup_component_names(
     image_base: str, rhoai_versions: list[str], rpa_dir: str | None = None
 ) -> dict[str, list[str]]:
-    """Look up Konflux component names from ReleasePlanAdmission files.
+    """Look up Konflux component names from ReleasePlanAdmission and PDS files.
 
     Given a container image base name (e.g. 'odh-openvino-model-server') and
-    a list of RHOAI versions, search the ReleasePlanAdmission YAML files for
-    matching component names.
+    a list of RHOAI versions, search:
+      1. ReleasePlanAdmission YAML files (primary)
+      2. ProjectDevelopmentStream template files (fallback if RPA returns empty)
 
     Args:
         image_base: Base image name without -rhel9 suffix or version.
         rhoai_versions: List of version strings (e.g. ['rhoai-2.25', 'rhoai-3.3']).
-        rpa_dir: Path to the ReleasePlanAdmission/rhoai/ directory. If None, uses
+        rpa_dir: Path to the konflux-release-data clone root. If None, uses
                  the standard local checkout path.
 
     Returns:
@@ -190,12 +198,20 @@ def lookup_component_names(
     from pathlib import Path
 
     if rpa_dir is None:
-        rpa_dir_path = Path.home() / (
-            "dev/gitlab/releng/konflux-release-data/config/"
-            "stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai"
-        )
+        clone_root = Path.home() / "dev/gitlab/releng/konflux-release-data"
     else:
         rpa_dir_path = Path(rpa_dir)
+        if rpa_dir_path.name == "rhoai" or KRD_RPA_SUBPATH.endswith(str(rpa_dir_path.relative_to(rpa_dir_path.anchor))):
+            clone_root = rpa_dir_path
+            while clone_root.name != "konflux-release-data" and clone_root != clone_root.parent:
+                clone_root = clone_root.parent
+            if clone_root.name != "konflux-release-data":
+                clone_root = rpa_dir_path
+        else:
+            clone_root = rpa_dir_path
+
+    rpa_path = clone_root / KRD_RPA_SUBPATH
+    pds_path = clone_root / KRD_PDS_SUBPATH
 
     results: dict[str, list[str]] = {}
     for ver_str in rhoai_versions:
@@ -210,22 +226,72 @@ def lookup_component_names(
         if version.qualifier:
             ver_slug = f"{ver_slug}-{version.qualifier}-{version.patch}"
 
-        rpa_file = rpa_dir_path / f"rhoai-onprem-{ver_slug}-components-prod.yaml"
-        if not rpa_file.exists():
-            results[ver_str] = []
-            continue
+        matches = _search_rpa_file(rpa_path, ver_slug, image_base, suffix)
 
-        content = rpa_file.read_text(encoding="utf-8")
-        matches = []
-        for line in content.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("- name:"):
-                comp_name = stripped.removeprefix("- name:").strip()
-                if image_base in comp_name and suffix in comp_name:
-                    matches.append(comp_name)
+        if not matches:
+            matches = _search_pds_template(pds_path, ver_slug, image_base, suffix)
+
         results[ver_str] = matches
 
     return results
+
+
+def _search_rpa_file(
+    rpa_path: "Path", ver_slug: str, image_base: str, suffix: str
+) -> list[str]:
+    """Search ReleasePlanAdmission file for component names."""
+    rpa_file = rpa_path / f"rhoai-onprem-{ver_slug}-components-prod.yaml"
+    if not rpa_file.exists():
+        return []
+
+    content = rpa_file.read_text(encoding="utf-8")
+    matches = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- name:"):
+            comp_name = stripped.removeprefix("- name:").strip()
+            if image_base in comp_name and suffix in comp_name:
+                matches.append(comp_name)
+    return matches
+
+
+def _search_pds_template(
+    pds_path: "Path", ver_slug: str, image_base: str, suffix: str
+) -> list[str]:
+    """Search ProjectDevelopmentStream source file for component names.
+
+    Source PDS files live at:
+      tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/v<X>.<Y>/
+        ProjectDevelopmentStream-v<X>.<Y>.yaml
+    They use {{.versionName}} as a placeholder which resolves to the
+    hyphenated version suffix (e.g. 'v3-3'). We substitute it to derive
+    real component names.
+    """
+    # Convert hyphenated slug (v3-3, v3-4-ea-1) to dotted dir name (v3.3, v3.4-ea.1)
+    # Pattern: numeric hyphens become dots, the '-ea' separator stays as hyphen.
+    # e.g. v3-3 → v3.3, v3-4-ea-1 → v3.4-ea.1, v3-5-ea-2 → v3.5-ea.2
+    if "-ea-" in ver_slug:
+        base, ea_num = ver_slug.rsplit("-ea-", 1)
+        base_dotted = base.replace("-", ".", 1)
+        dotted_ver = f"{base_dotted}-ea.{ea_num}"
+    else:
+        dotted_ver = ver_slug.replace("-", ".", 1)
+
+    pds_file = pds_path / dotted_ver / f"ProjectDevelopmentStream-{dotted_ver}.yaml"
+    if not pds_file.exists():
+        return []
+
+    content = pds_file.read_text(encoding="utf-8")
+    matches = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("name:") or stripped.startswith("componentName:"):
+            value = stripped.split(":", 1)[1].strip()
+            resolved = value.replace("{{.versionName}}", suffix)
+            if image_base in resolved and suffix in resolved:
+                if resolved not in matches:
+                    matches.append(resolved)
+    return matches
 
 
 def check_rhoaieng_ticket_type(rhoaieng_url: str | None) -> dict | None:
@@ -355,6 +421,40 @@ def validate_all(args: argparse.Namespace) -> dict:
             "Use --self-service to force Path C."
         )
 
+    # Validate template arguments if provided
+    template_info = None
+    if getattr(args, "template", None):
+        if not getattr(args, "template_variant", None):
+            errors.append("--template-variant is required when --template is set")
+        else:
+            try:
+                from create_jira_ticket import _load_templates
+                data = _load_templates()
+                categories = data.get("categories", {})
+                if args.template not in categories:
+                    available = list(categories.keys())
+                    errors.append(
+                        f"Unknown template category '{args.template}'. "
+                        f"Available: {available}"
+                    )
+                else:
+                    cat = categories[args.template]
+                    variants = cat.get("variants", {})
+                    if args.template_variant not in variants:
+                        available = list(variants.keys())
+                        errors.append(
+                            f"Unknown variant '{args.template_variant}' in category "
+                            f"'{args.template}'. Available: {available}"
+                        )
+                    else:
+                        template_info = {
+                            "category": args.template,
+                            "variant": args.template_variant,
+                            "display_name": variants[args.template_variant]["display_name"],
+                        }
+            except (ImportError, FileNotFoundError) as exc:
+                warnings.append(f"Template validation skipped: {exc}")
+
     rhoaieng_info = check_rhoaieng_ticket_type(args.rhoaieng_url)
     if rhoaieng_info and rhoaieng_info.get("warning"):
         warnings.append(rhoaieng_info["warning"])
@@ -395,13 +495,14 @@ def validate_all(args: argparse.Namespace) -> dict:
         "rhoaieng_url": args.rhoaieng_url,
         "psx_url": args.psx_url,
         "rhoaieng_info": rhoaieng_info,
+        "template_info": template_info,
         "dry_run": args.dry_run,
     }
     return result
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate inputs for conforma-exception-create")
+    parser = argparse.ArgumentParser(description="Validate inputs for conforma-exception")
     parser.add_argument("--rhoai-version", required=True, help="e.g., rhoai-3.3")
     parser.add_argument("--rule", required=True, help="Policy rule to exempt")
     parser.add_argument(
@@ -420,6 +521,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fips", action="store_true", help="FIPS exception (routes to OCPEXCEPT)")
     parser.add_argument("--self-service", action="store_true", help="Force self-service Path C")
     parser.add_argument("--dry-run", action="store_true", help="Preview without creating anything")
+    parser.add_argument(
+        "--template",
+        default=None,
+        help="Template category ID from exception_templates.yaml",
+    )
+    parser.add_argument(
+        "--template-variant",
+        default=None,
+        help="Template variant ID (required with --template)",
+    )
     parser.add_argument(
         "--lookup-components",
         default=None,

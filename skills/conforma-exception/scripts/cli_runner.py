@@ -44,7 +44,8 @@ _GLAB_CONFIG_CANDIDATES = [
 _ACLI_ENV_VARS: tuple[str, ...] = ()
 _GLAB_ENV_VARS = ("GITLAB_TOKEN", "GITLAB_HOST", "GL_HOST")
 
-_CONFORMA_CONFIG_DIR = Path.home() / ".config" / "conforma-exception-create"
+_CONFORMA_CONFIG_DIR = Path.home() / ".config" / "conforma-exception"
+_OLD_CONFORMA_CONFIG_DIR = Path.home() / ".config" / "conforma-exception-create"
 
 _TOKEN_FILES: dict[str, Path] = {
     "GITLAB_TOKEN": Path.home() / ".config" / "glab-cli" / "token",
@@ -53,11 +54,51 @@ _TOKEN_FILES: dict[str, Path] = {
 }
 
 
-def _resolve_env(var: str) -> str | None:
-    """Return the value of an env var, falling back to a saved token file.
+def _migrate_old_config_dir() -> None:
+    """One-time migration: copy token files from old config dir to new one."""
+    if not _OLD_CONFORMA_CONFIG_DIR.is_dir():
+        return
+    if _CONFORMA_CONFIG_DIR.is_dir() and any(_CONFORMA_CONFIG_DIR.iterdir()):
+        return
+    _CONFORMA_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    for src in _OLD_CONFORMA_CONFIG_DIR.iterdir():
+        if src.is_file():
+            dst = _CONFORMA_CONFIG_DIR / src.name
+            if not dst.exists():
+                dst.write_bytes(src.read_bytes())
+                dst.chmod(src.stat().st_mode)
 
-    For JIRA_EMAIL, also falls back to $USER@redhat.com if not explicitly set.
+
+def _get_email_from_acli_config() -> str | None:
+    """Extract email from acli's stored config (jira_config.yaml)."""
+    try:
+        import yaml
+    except ImportError:
+        return None
+    for config_dir in _ACLI_CONFIG_CANDIDATES:
+        jira_config = config_dir / "jira_config.yaml"
+        if jira_config.is_file():
+            try:
+                with open(jira_config) as f:
+                    config = yaml.safe_load(f)
+                for p in config.get("profiles", []):
+                    if "email" in p:
+                        return p["email"]
+            except Exception:
+                continue
+    return None
+
+
+def _resolve_env(var: str) -> str | None:
+    """Return the value of an env var, falling back to saved token files.
+
+    Resolution order:
+      1. Environment variable
+      2. Token file in ~/.config/conforma-exception/
+      3. For JIRA_EMAIL: acli config -> $USER@redhat.com fallback
     """
+    _migrate_old_config_dir()
+
     val = os.environ.get(var)
     if val:
         return val
@@ -67,8 +108,10 @@ def _resolve_env(var: str) -> str | None:
         if token:
             return token
     if var == "JIRA_EMAIL":
+        acli_email = _get_email_from_acli_config()
+        if acli_email:
+            return acli_email
         import getpass
-
         return f"{getpass.getuser()}@redhat.com"
     return None
 

@@ -1,0 +1,538 @@
+# Deterministic templates for Conforma exception text fields.
+# Each category maps to a rule pattern and provides pre-approved wording
+# for all six text fields used in Jira tickets and MR descriptions.
+#
+# Variables (auto-filled by resolve_template()):
+#   {rule}            — full rule value (e.g., rpm_signature.allowed:8a3872bf3228467c)
+#   {rule_key}        — key portion after colon (e.g., 8a3872bf3228467c)
+#   {components}      — comma-separated Konflux component names
+#   {component_count} — number of components
+#   {versions}        — comma-separated RHOAI versions
+#   {version_count}   — number of versions
+#   {vendor}          — vendor name (e.g., Fedora/EPEL, AMD, Intel)
+#   {rhoaieng_url}    — RHOAIENG ticket URL
+#   {psx_url}         — PSX ticket URL
+#   {effective_until} — expiry date
+
+categories:
+  rpm_signature_thirdparty:
+    display_name: "Third-party RPM signing key"
+    matches_rules:
+      - "rpm_signature.allowed:*"
+    variants:
+      fedora_epel:
+        display_name: "Fedora/EPEL RPM signing key"
+        summary_context: "Fedora/EPEL RPM signing key exception"
+        scope: >-
+          Container component(s) {components} include RPMs signed with Fedora/EPEL
+          GPG key ({rule_key}) rather than a Red Hat key. {component_count}
+          component(s) affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          RPMs signed with Fedora Project key ({rule_key}) instead of Red Hat key.
+          Acceptable because Fedora/EPEL packages are from a trusted upstream
+          community project with well-established package governance. No known
+          security risk from the signing key itself.
+        remediation: >-
+          Component team to either remove dependency on EPEL packages or arrange
+          formal onboarding of the packages into a Red Hat-managed repository.
+          Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Z-stream security fixes and GA releases cannot ship for affected components.
+      amd:
+        display_name: "AMD RPM signing key"
+        summary_context: "AMD RPM signing key exception"
+        scope: >-
+          Container component(s) {components} include RPMs signed with AMD GPG key
+          ({rule_key}) rather than a Red Hat key. {component_count} component(s)
+          affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          RPMs signed with AMD key ({rule_key}) instead of Red Hat key. Acceptable
+          because AMD is a trusted hardware partner providing proprietary GPU/accelerator
+          driver packages required for hardware enablement. These packages are not
+          available from Red Hat repositories.
+        remediation: >-
+          Long-standing exception for AMD hardware enablement packages. Remediation
+          depends on AMD making packages available through a Red Hat-compatible
+          channel or formal agreement. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          RHOAI GPU/accelerator workloads on AMD hardware cannot ship.
+      intel_centos:
+        display_name: "Intel/CentOS RPM signing key"
+        summary_context: "Intel/CentOS RPM signing key exception"
+        scope: >-
+          Container component(s) {components} include RPMs signed with Intel/CentOS
+          GPG key ({rule_key}) rather than a Red Hat key. {component_count}
+          component(s) affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          RPMs signed with Intel/CentOS key ({rule_key}) instead of Red Hat key.
+          Acceptable because these packages are required for Intel hardware
+          enablement (OpenVINO, oneAPI, etc.) and are not available from Red Hat
+          repositories. Legal agreements for use of these packages are being tracked.
+        remediation: >-
+          Legal agreement with Intel is being tracked. Once finalized, packages will
+          be formally onboarded or replaced with Red Hat-managed alternatives.
+          Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Intel hardware-accelerated inference workloads cannot ship.
+      mellanox:
+        display_name: "Mellanox RPM signing key"
+        summary_context: "Mellanox RPM signing key exception"
+        scope: >-
+          Container component(s) {components} include RPMs signed with Mellanox GPG
+          key ({rule_key}) rather than a Red Hat key. {component_count} component(s)
+          affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          RPMs signed with Mellanox/NVIDIA Networking key ({rule_key}) instead of
+          Red Hat key. Acceptable because Mellanox packages provide RDMA and
+          high-performance networking support required for distributed AI workloads.
+          Mellanox (NVIDIA) is a trusted hardware partner.
+        remediation: >-
+          Long-standing exception for Mellanox networking packages. Remediation
+          depends on Mellanox/NVIDIA making packages available through a
+          Red Hat-compatible channel. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          High-performance networking and RDMA support for distributed training
+          workloads cannot ship.
+      habanalabs:
+        display_name: "Habanalabs (Intel) RPM signing key"
+        summary_context: "Habanalabs/Intel RPM signing key exception"
+        scope: >-
+          Container component(s) {components} include RPMs signed with Habanalabs
+          GPG key ({rule_key}) rather than a Red Hat key. {component_count}
+          component(s) affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          RPMs signed with Habanalabs key ({rule_key}) instead of Red Hat key.
+          Acceptable because Habanalabs (part of Intel) is a trusted hardware
+          partner providing Gaudi accelerator driver and firmware packages. Legal
+          agreement for use of these packages is in progress.
+        remediation: >-
+          Legal agreement with Habanalabs/Intel is being tracked. Once signed, RPMs
+          will be properly onboarded or re-signed with an approved key. Tracked in
+          {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Intel Gaudi accelerator support (vLLM inference on Gaudi hardware) cannot ship.
+      centos:
+        display_name: "CentOS RPM signing key"
+        summary_context: "CentOS RPM signing key exception"
+        scope: >-
+          Container component(s) {components} include RPMs signed with CentOS
+          GPG key ({rule_key}) rather than a Red Hat key. {component_count}
+          component(s) affected across {version_count} RHOAI version(s): {versions}.
+          The affected packages are standard CentOS community packages (e.g., boost,
+          gcc, perl, valgrind) used as build/runtime dependencies.
+        risk: >-
+          RPMs signed with CentOS community key ({rule_key}) instead of Red Hat key.
+          Acceptable because CentOS is a trusted open-source community project with
+          well-established package governance, historically the upstream for RHEL.
+          These packages are standard system libraries and tools, not proprietary
+          software. No known security risk from the signing key itself.
+        remediation: >-
+          Component team to either remove dependency on CentOS-signed packages by
+          switching to equivalent RHEL/UBI packages, or arrange formal onboarding
+          of the packages into a Red Hat-managed repository via AIPCC. Tracked in
+          {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Z-stream security fixes and GA releases cannot ship for affected components.
+      other:
+        display_name: "Other third-party RPM signing key"
+        summary_context: "third-party RPM signing key exception"
+        scope: >-
+          Container component(s) {components} include RPMs signed with {vendor} GPG
+          key ({rule_key}) rather than a Red Hat key. {component_count} component(s)
+          affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          RPMs signed with {vendor} key ({rule_key}) instead of Red Hat key.
+          Acceptable because {vendor} is a trusted partner providing packages
+          required for hardware/software enablement that are not available from
+          Red Hat repositories.
+        remediation: >-
+          Exception required while formal agreement or package onboarding with
+          {vendor} is being arranged. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Z-stream security fixes and GA releases cannot ship for affected components.
+
+  hermetic_build:
+    display_name: "Non-hermetic build"
+    matches_rules:
+      - "hermetic_task.hermetic"
+      - "hermetic_task"
+    variants:
+      dev_preview:
+        display_name: "Component in Dev Preview (hermetic not required yet)"
+        summary_context: "hermetic build exception (Dev Preview)"
+        scope: >-
+          Component(s) {components} are in Dev Preview for {versions}. Hermetic
+          builds are only required from GA or EA2+ onwards.
+        risk: >-
+          Non-hermetic build for Dev Preview component(s). Acceptable because
+          hermetic builds are not mandated for Dev Preview features. The build
+          still passes all other Enterprise Contract checks.
+        remediation: >-
+          Component team to achieve hermetic builds before the component graduates
+          from Dev Preview to GA. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Dev Preview features cannot ship.
+      tool_limitation:
+        display_name: "Build tool limitation (Hermeto/Cachi2 bug or missing support)"
+        summary_context: "hermetic build exception (tooling limitation)"
+        scope: >-
+          Component(s) {components} cannot achieve hermetic builds due to a
+          limitation in the build tooling (Hermeto/Cachi2). {component_count}
+          component(s) affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          Non-hermetic build due to build tool limitation, not a component team
+          decision. Acceptable because the root cause is a known Hermeto/Cachi2
+          issue being addressed by the Konflux build team.
+        remediation: >-
+          Blocked on Konflux build tooling fix. Component team will switch to
+          hermetic builds once the tooling issue is resolved. Tracked in
+          {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Z-stream security fixes and GA releases cannot ship for affected components.
+      code_frozen:
+        display_name: "Code-frozen release, hermetic migration deferred"
+        summary_context: "hermetic build exception (code-frozen release)"
+        scope: >-
+          Component(s) {components} have not completed hermetic build migration.
+          {component_count} component(s) affected across {version_count} RHOAI
+          version(s): {versions}.
+        risk: >-
+          Non-hermetic build for code-frozen release. Acceptable because the
+          affected version(s) are already code-frozen/released and major build
+          infrastructure changes are not permitted in z-stream releases.
+        remediation: >-
+          Component team is working on hermetic build migration for the next RHOAI
+          release. Exception needed for the duration of the current release support
+          lifecycle. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Z-stream security fixes cannot ship for affected components.
+      upstream_dependency:
+        display_name: "Upstream dependency prevents hermetic build"
+        summary_context: "hermetic build exception (upstream dependency)"
+        scope: >-
+          Component(s) {components} depend on upstream packages that cannot be
+          prefetched hermetically. {component_count} component(s) affected across
+          {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          Non-hermetic build due to upstream dependency that does not support
+          hermetic prefetching (e.g., binary-only ML model weights, proprietary
+          SDKs). Acceptable because the dependency cannot be built from source.
+        remediation: >-
+          Component team to explore alternative packaging or formal artifact
+          onboarding. If not feasible, exception will be maintained for the
+          release lifecycle. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Z-stream security fixes and GA releases cannot ship for affected components.
+
+  sbom_package_sources:
+    display_name: "External package source in SBOM"
+    matches_rules:
+      - "sbom_spdx.allowed_package_sources:*"
+    variants:
+      ml_model_weights:
+        display_name: "ML model weights (binary artifact, not buildable from source)"
+        summary_context: "SBOM external source exception (ML model weights)"
+        scope: >-
+          Component(s) {components} include ML model weights fetched from an
+          external source (e.g., HuggingFace). {component_count} component(s)
+          affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          External package source for pre-trained ML model weights. Acceptable
+          because ML models are binary artifacts (trained weights) that cannot be
+          built from source. They are not compilable software packages.
+        remediation: >-
+          ML model weights are inherently binary artifacts. If a Red Hat-hosted
+          mirror becomes available, the team will migrate to it. Otherwise,
+          exception is permanent for this artifact type. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          AI/ML inference features requiring the model cannot ship.
+      github_release:
+        display_name: "GitHub release artifact"
+        summary_context: "SBOM external source exception (GitHub release)"
+        scope: >-
+          Component(s) {components} fetch source/binary artifacts from GitHub
+          releases. {component_count} component(s) affected across {version_count}
+          RHOAI version(s): {versions}.
+        risk: >-
+          External source fetched from GitHub releases rather than a Red Hat-managed
+          registry. Acceptable because the upstream project only distributes via
+          GitHub and the artifact is verified by checksum.
+        remediation: >-
+          Component team to explore mirroring the artifact to a Red Hat-managed
+          location or finding an alternative package source. Tracked in
+          {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Z-stream security fixes and GA releases cannot ship for affected components.
+      generic_artifact:
+        display_name: "Generic external artifact (e.g., SQLite, Bazel deps)"
+        summary_context: "SBOM external source exception (generic artifact)"
+        scope: >-
+          Component(s) {components} fetch generic artifacts from external sources.
+          {component_count} component(s) affected across {version_count} RHOAI
+          version(s): {versions}.
+        risk: >-
+          External generic artifact source. Acceptable because the upstream
+          project distributes only from their own infrastructure and no
+          Red Hat-managed alternative exists. Artifact integrity is verified
+          by checksum.
+        remediation: >-
+          Component team to explore caching/mirroring the artifact through a
+          Red Hat-managed proxy or Lookaside cache. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Builds fail and releases cannot ship for affected components.
+      pypi_package:
+        display_name: "PyPI/Python package from non-standard source"
+        summary_context: "SBOM external source exception (PyPI package)"
+        scope: >-
+          Component(s) {components} fetch Python packages from a non-standard
+          source (e.g., Red Hat Pulp, internal PyPI). {component_count} component(s)
+          affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          Python packages fetched from a non-standard but Red Hat-managed source.
+          Acceptable because the packages are hosted on Red Hat infrastructure
+          and are validated internally.
+        remediation: >-
+          The package source will be added to the Conforma allowed list once the
+          formal approval process completes. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Python-based components cannot ship.
+
+  sbom_disallowed_attributes:
+    display_name: "SBOM disallowed package attributes"
+    matches_rules:
+      - "sbom_spdx.disallowed_package_attributes"
+    variants:
+      binary_only_packages:
+        display_name: "Binary-only packages (no source available)"
+        summary_context: "SBOM package attributes exception (binary-only)"
+        scope: >-
+          Component(s) {components} include Python dependencies that do not deliver
+          source packages (only binary wheels). {component_count} component(s)
+          affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          Some Python dependencies are distributed as binary-only wheels without
+          corresponding source packages. Acceptable because this is an upstream
+          packaging decision outside the component team's control, and builds are
+          configured to allow binary-only packages.
+        remediation: >-
+          Component team to work with upstream projects to provide source
+          distributions where feasible. For packages where source is inherently
+          unavailable (e.g., compiled extensions), exception will be maintained.
+          Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Components with binary-only Python dependencies cannot ship.
+
+  prefetch_registry_proxy:
+    display_name: "Registry proxy not enabled"
+    matches_rules:
+      - "prefetch_dependencies.package_registry_proxy_enabled"
+    variants:
+      release_blocker:
+        display_name: "Release blocker (proxy not available in time)"
+        summary_context: "registry proxy exception (release blocker)"
+        scope: >-
+          Component(s) {components} do not have registry proxy enabled for
+          prefetch dependencies. {component_count} component(s) affected across
+          {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          Builds fetching dependencies without going through the Konflux registry
+          proxy. Acceptable as a temporary measure to unblock a time-critical
+          release while proxy infrastructure is being configured.
+        remediation: >-
+          Registry proxy to be enabled for the next release cycle. This is a
+          short-term exception to meet release SLA. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          The release cannot proceed on schedule.
+
+  prefetch_mode_permissive:
+    display_name: "Prefetch mode not permissive"
+    matches_rules:
+      - "prefetch_dependencies.mode_not_permissive"
+    variants:
+      maturin_cargo_bug:
+        display_name: "Maturin/Cargo.lock inconsistency (known tooling bug)"
+        summary_context: "prefetch mode exception (Maturin bug)"
+        scope: >-
+          Component(s) {components} require permissive prefetch mode due to a known
+          bug in Maturin that creates inconsistent Cargo.lock files. {component_count}
+          component(s) affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          Permissive prefetch mode required due to a known Maturin tooling bug
+          affecting all Python packages using Rust via Maturin. Acceptable because
+          the root cause is a well-understood upstream issue, not a security concern.
+        remediation: >-
+          Blocked on upstream Maturin fix (https://github.com/PyO3/maturin/issues/2609).
+          Once resolved, permissive mode will be removed. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Any Python package using Rust (via Maturin) cannot ship.
+      tool_bug:
+        display_name: "Hermeto/Cachi2 prefetch bug"
+        summary_context: "prefetch mode exception (tooling bug)"
+        scope: >-
+          Component(s) {components} require permissive prefetch mode due to a bug
+          in the Hermeto/Cachi2 dependency prefetcher. {component_count} component(s)
+          affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          Permissive prefetch mode required due to a known bug in the build
+          tooling. Acceptable because the root cause is identified and being
+          addressed by the Konflux build team.
+        remediation: >-
+          Blocked on Konflux/Hermeto tooling fix. Will be removed once the bug
+          is resolved. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Affected components cannot ship until the tooling bug is fixed or
+          exception is granted.
+
+  rpm_repos_known:
+    display_name: "RPM from non-standard repository"
+    matches_rules:
+      - "rpm_repos.ids_known:*"
+    variants:
+      epel_dependency:
+        display_name: "EPEL repository dependency"
+        summary_context: "RPM repository exception (EPEL dependency)"
+        scope: >-
+          Component(s) {components} include RPM(s) sourced from the EPEL repository
+          rather than a Red Hat-managed repo. {component_count} component(s) affected
+          across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          RPM package sourced from EPEL (Fedora Extra Packages for Enterprise Linux)
+          rather than a Red Hat repository. Acceptable because the package is not
+          available in RHEL/UBI repositories and EPEL is a trusted Fedora community
+          resource.
+        remediation: >-
+          Component team to find an alternative package in RHEL/UBI repositories
+          or arrange formal onboarding. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Affected components cannot ship.
+
+  tasks_unsupported:
+    display_name: "Unsupported/deprecated Tekton task"
+    matches_rules:
+      - "tasks.unsupported:*"
+    variants:
+      deprecated_task:
+        display_name: "Deprecated task (rebuild required to update)"
+        summary_context: "unsupported task exception (deprecated task)"
+        scope: >-
+          Component(s) {components} use a deprecated Tekton task version.
+          {component_count} component(s) affected across {version_count} RHOAI
+          version(s): {versions}.
+        risk: >-
+          Using a deprecated (but functional) Tekton task version. Acceptable
+          because updating requires rebuilding all affected components, which is
+          not feasible during code-freeze or for a time-critical release.
+        remediation: >-
+          Components will be rebuilt with the updated task in the next release
+          cycle. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Urgent z-stream or GA releases cannot proceed.
+      urgent_zstream:
+        display_name: "Urgent z-stream release (cannot rebuild all components)"
+        summary_context: "unsupported task exception (urgent z-stream)"
+        scope: >-
+          Component(s) {components} need an urgent z-stream release but use a
+          task version that has since been deprecated. {component_count} component(s)
+          affected across {version_count} RHOAI version(s): {versions}.
+        risk: >-
+          Using a recently-deprecated task for an urgent z-stream security fix.
+          Acceptable because the task is still functional and the security fix
+          takes priority over task version compliance.
+        remediation: >-
+          Components will be rebuilt with the updated task in the next scheduled
+          release. This is a one-time exception for the urgent fix. Tracked in
+          {rhoaieng_url}.
+        impact: >-
+          Without exception, urgent security fixes cannot ship for {versions}.
+          Customer-facing vulnerabilities remain unpatched.
+
+  olm_unmapped_references:
+    display_name: "OLM unmapped references"
+    matches_rules:
+      - "olm.unmapped_references:*"
+    variants:
+      fbc_bundle_mismatch:
+        display_name: "FBC bundle reference mismatch"
+        summary_context: "OLM unmapped references exception"
+        scope: >-
+          FBC (File-Based Catalog) bundle for {versions} contains references to
+          images not yet mapped in the release configuration. {component_count}
+          component(s) affected.
+        risk: >-
+          OLM bundle references images that are valid but not yet registered in
+          the release mapping. Acceptable because the images exist and are
+          shipping; the mapping will be updated in the next release cycle.
+        remediation: >-
+          Release engineering to update the FBC bundle mappings. Tracked in
+          {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks the FBC catalog push for {versions}.
+          Operator updates cannot ship via OLM.
+
+  cve_results:
+    display_name: "CVE scan results not found"
+    matches_rules:
+      - "cve.cve_results_found"
+    variants:
+      scan_not_found:
+        display_name: "Clair CVE scan results not available"
+        summary_context: "CVE scan results exception"
+        scope: >-
+          Component(s) {components} do not have Clair CVE scan results available.
+          {component_count} component(s) affected across {version_count} RHOAI
+          version(s): {versions}.
+        risk: >-
+          CVE scan results not found for the component. Acceptable as a temporary
+          measure because the scan infrastructure may have a delay or the image
+          is too new. The component is not known to have unpatched CVEs.
+        remediation: >-
+          Wait for Clair scan results to propagate. If scan infrastructure issue,
+          Konflux team to investigate. Tracked in {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Release cannot proceed without CVE scan clearance.
+
+  fips_check:
+    display_name: "FIPS compliance check"
+    matches_rules:
+      - "fips-check"
+      - "fips_check"
+    variants:
+      fips_blanket:
+        display_name: "Blanket FIPS exception for release"
+        summary_context: "FIPS check exception"
+        scope: >-
+          FIPS compliance check exception for {versions}. {component_count}
+          component(s) affected: {components}.
+        risk: >-
+          FIPS compliance check waived for affected components. Acceptable because
+          FIPS certification is being pursued separately and the current release
+          timeline cannot accommodate the full FIPS validation process.
+        remediation: >-
+          FIPS compliance work is being tracked separately. Components will be
+          updated to pass FIPS checks as certification progresses. Tracked in
+          {rhoaieng_url}.
+        impact: >-
+          Without exception, Conforma blocks release pipeline gates for {versions}.
+          Affected releases cannot ship.

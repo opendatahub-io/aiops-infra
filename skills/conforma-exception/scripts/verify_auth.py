@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pre-flight authentication check for conforma-exception-create.
+"""Pre-flight authentication check for conforma-exception.
 
 Verifies that required CLI tools (acli, glab) are available (natively or via
 container fallback) and authenticated before any Jira or GitLab operations.
@@ -370,7 +370,7 @@ def run_checks(path: str) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Pre-flight auth check for conforma-exception-create"
+        description="Pre-flight auth check for conforma-exception"
     )
     parser.add_argument(
         "--path",

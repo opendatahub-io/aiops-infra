@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic pre-flight check for conforma-exception-create.
+"""Deterministic pre-flight check for conforma-exception.
 
 Resolves ALL parameters from authoritative sources (Jira, GitLab, RPA files).
 The agent MUST run this script FIRST and present its output to the user for
@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # Hard rules — NOT configurable by the agent or user
 HARD_RULES = {
-    "mr_strategy": "always_one_mr_per_rhoai_version",
+    "mr_strategy": "one_mr_per_rule_all_versions",
     "link_type_rhoaieng_to_psx": "Blocks",
     "link_type_related_psx": "Related",
     "link_type_tracking_ticket": "Related",
@@ -236,7 +236,7 @@ def check_duplicate_psx_tickets(rule: str, rhoai_versions: list[str]) -> list[di
     result = _run_acli(
         ["jira", "workitem", "search", "--jql",
          f"project = PSX AND summary ~ '{search_term}' AND "
-         f"labels = 'conforma-exception-create-ai-skill'"],
+         f"labels = 'conforma-exception-ai-skill'"],
         timeout=30,
     )
     if result.returncode != 0:
@@ -413,6 +413,177 @@ def evaluate_decision(
     }
 
 
+def discover_user_groups() -> dict:
+    """Discover the current user's Jira groups and their members dynamically.
+
+    Uses the Jira REST API:
+    1. GET /rest/api/3/myself → current user's accountId and displayName
+    2. GET /rest/api/3/user/groups?accountId=... → groups the user belongs to
+    3. GET /rest/api/3/group/member?groupname=... → members of each group
+
+    Returns a SUGGESTION — the agent MUST present this to the user for
+    confirmation before adding anyone as watchers.
+    """
+    import base64
+    import getpass
+    import urllib.error
+    import urllib.request
+
+    from cli_runner import _resolve_env
+
+    try:
+        current_user = getpass.getuser()
+    except Exception:
+        current_user = "unknown"
+
+    token = _resolve_env("JIRA_API_TOKEN") or ""
+    email = _resolve_env("JIRA_EMAIL") or ""
+    if not token or not email:
+        return {
+            "source": "none",
+            "user": current_user,
+            "user_display_name": None,
+            "groups_found": [],
+            "suggested_members": [],
+            "note": "Jira API unavailable (JIRA_API_TOKEN/JIRA_EMAIL not configured). Cannot discover watchers.",
+        }
+
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+    headers = {
+        "Authorization": f"Basic {auth}",
+        "Accept": "application/json",
+    }
+
+    # Step 1: Get current user's accountId
+    try:
+        req = urllib.request.Request(
+            "https://redhat.atlassian.net/rest/api/3/myself",
+            headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            myself = json.loads(resp.read())
+    except Exception as e:
+        return {
+            "source": "none",
+            "user": current_user,
+            "user_display_name": None,
+            "groups_found": [],
+            "suggested_members": [],
+            "note": f"Jira API unavailable (GET /myself failed: {e}). Cannot discover watchers.",
+        }
+
+    account_id = myself.get("accountId", "")
+    display_name = myself.get("displayName", "")
+
+    # Step 2: Get user's groups
+    try:
+        groups_url = (
+            f"https://redhat.atlassian.net/rest/api/3/user/groups"
+            f"?accountId={urllib.request.quote(account_id)}"
+        )
+        req = urllib.request.Request(groups_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            groups = json.loads(resp.read())
+    except Exception as e:
+        return {
+            "source": "none",
+            "user": current_user,
+            "user_display_name": display_name,
+            "groups_found": [],
+            "suggested_members": [],
+            "note": f"Jira API unavailable (GET /user/groups failed: {e}). Cannot discover watchers.",
+        }
+
+    if not groups:
+        return {
+            "source": "jira_groups",
+            "user": current_user,
+            "user_display_name": display_name,
+            "groups_found": [],
+            "suggested_members": [],
+            "note": "User belongs to no Jira groups. No watchers suggested.",
+        }
+
+    # Step 3: Fetch members for each group
+    group_names = [g.get("name", "") for g in groups if g.get("name")]
+    all_members: list[dict] = []
+    groups_with_members: list[dict] = []
+
+    for gname in group_names:
+        members = _fetch_group_members(gname, headers)
+        if members:
+            groups_with_members.append({
+                "group_name": gname,
+                "member_count": len(members),
+            })
+            for m in members:
+                if m.get("accountId") != account_id:
+                    all_members.append(m)
+
+    # Deduplicate by accountId
+    seen_ids: set[str] = set()
+    unique_members: list[dict] = []
+    for m in all_members:
+        aid = m.get("accountId", "")
+        if aid and aid not in seen_ids:
+            seen_ids.add(aid)
+            unique_members.append({
+                "displayName": m.get("displayName", ""),
+                "accountId": aid,
+            })
+
+    unique_members.sort(key=lambda x: x["displayName"])
+
+    return {
+        "source": "jira_groups",
+        "user": current_user,
+        "user_display_name": display_name,
+        "groups_found": [g["group_name"] for g in groups_with_members],
+        "all_groups": group_names,
+        "groups_with_members": groups_with_members,
+        "suggested_members": unique_members,
+        "note": "SUGGESTION ONLY — present to user for confirmation before adding as watchers",
+    }
+
+
+def _fetch_group_members(group_name: str, headers: dict) -> list[dict]:
+    """Fetch all members of a Jira group. Returns list of {displayName, accountId}."""
+    import urllib.request
+
+    members: list[dict] = []
+    start_at = 0
+    max_results = 50
+
+    while True:
+        url = (
+            f"https://redhat.atlassian.net/rest/api/3/group/member"
+            f"?groupname={urllib.request.quote(group_name)}"
+            f"&startAt={start_at}&maxResults={max_results}"
+        )
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+        except Exception:
+            break
+
+        values = data.get("values", [])
+        if not values:
+            break
+
+        for v in values:
+            members.append({
+                "displayName": v.get("displayName", ""),
+                "accountId": v.get("accountId", ""),
+            })
+
+        if data.get("isLast", True):
+            break
+        start_at += max_results
+
+    return members
+
+
 def run_preflight(
     rhoaieng_url: str,
     rule_override: str | None = None,
@@ -434,6 +605,7 @@ def run_preflight(
         "related_psx": {},
         "existing_exceptions": {},
         "duplicate_check": {},
+        "psx_watchers": {},
         "user_confirmation_required": [],
     }
 
@@ -515,7 +687,21 @@ def run_preflight(
         existing = search_existing_exceptions(resolved_rule, clone_dir)
         output["existing_exceptions"] = existing
 
-    # 8. Evaluate decision (deterministic go/no-go)
+    # 8. Discover user's Jira groups for PSX watcher suggestion
+    watcher_info = discover_user_groups()
+    output["psx_watchers"] = watcher_info
+    suggested = watcher_info.get("suggested_members", [])
+    if suggested:
+        member_names = [m["displayName"] for m in suggested[:5]]
+        suffix = f" (+{len(suggested) - 5} more)" if len(suggested) > 5 else ""
+        output["user_confirmation_required"].append(
+            f"PSX visibility: Found {len(suggested)} potential watchers from "
+            f"group(s) {watcher_info.get('groups_found', [])}. "
+            f"Suggested: {', '.join(member_names)}{suffix}. "
+            f"Add as watchers? (source: {watcher_info['source']})"
+        )
+
+    # 9. Evaluate decision (deterministic go/no-go)
     components_per_version = output["components"].get("per_version", {})
     decision = evaluate_decision(
         existing_exceptions=output["existing_exceptions"] if output["existing_exceptions"] else {},
@@ -531,7 +717,7 @@ def run_preflight(
         ]
         return output
 
-    # 9. Check for duplicate PSX tickets
+    # 10. Check for duplicate PSX tickets
     if resolved_rule and versions:
         dupes = check_duplicate_psx_tickets(resolved_rule, versions)
         output["duplicate_check"] = {
@@ -545,7 +731,7 @@ def run_preflight(
                 f"Confirm whether to reuse or create new."
             )
 
-    # 10. RHOAIENG type warning
+    # 11. RHOAIENG type warning
     if rhoaieng.get("type_warning"):
         output["user_confirmation_required"].append(rhoaieng["type_warning"])
 
@@ -554,7 +740,7 @@ def run_preflight(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Deterministic pre-flight check for conforma-exception-create"
+        description="Deterministic pre-flight check for conforma-exception"
     )
     parser.add_argument("--rhoaieng-url", required=True, help="RHOAIENG Jira ticket URL")
     parser.add_argument("--rule", default=None, help="Override rule (skip extraction)")

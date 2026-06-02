@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# install.sh — Install the conforma-exception-create skill for Claude Code or Cursor.
+# install.sh — Install the conforma-exception skill for Claude Code or Cursor.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-create-ai-skill/skills/conforma-exception-create/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-create-ai-skill/skills/conforma-exception-create/install.sh | bash -s -- --target cursor
-#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-create-ai-skill/skills/conforma-exception-create/install.sh | bash -s -- --target claude
-#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-create-ai-skill/skills/conforma-exception-create/install.sh | bash -s -- --project /path/to/project
+#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --target cursor
+#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --target claude
+#   curl -fsSL https://raw.githubusercontent.com/opendatahub-io/aiops-infra/conforma-exception-ai-skill/skills/conforma-exception/install.sh | bash -s -- --project /path/to/project
 #
 # Options:
 #   --target claude|cursor|both   Where to install (default: both)
@@ -18,9 +18,9 @@ set -euo pipefail
 
 REPO="opendatahub-io/aiops-infra"
 REPO_URL="https://github.com/${REPO}.git"
-SKILL_PATH="skills/conforma-exception-create"
-SKILL_NAME="conforma-exception-create"
-BRANCH="conforma-exception-create-ai-skill"
+SKILL_PATH="skills/conforma-exception"
+SKILL_NAME="conforma-exception"
+BRANCH="conforma-exception-ai-skill"
 
 CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
 CURSOR_SKILLS_DIR="${HOME}/.cursor/skills-cursor"
@@ -109,7 +109,7 @@ _clone_skill() {
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
-echo "  conforma-exception-create skill installer"
+echo "  conforma-exception skill installer"
 echo "════════════════════════════════════════════════════════════"
 echo "  Source: github.com/${REPO} (branch: ${BRANCH})"
 echo "  Target: ${TARGET}"
