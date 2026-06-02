@@ -3,8 +3,9 @@
 Triggers the `odh-konflux-onboarder` GitHub Actions workflow in `odh-konflux-central`,
 waits for it to complete, and extracts the Tekton PR URL it produces.
 
-**Applies to:** ODH only  
+**Applies to:** ODH only
 **Pipeline step:** 4
+**Blocked by:** `onboard-component-to-konflux-release-data` (krd) + `add-component-to-odh-konflux-central` (okc) must both merge.
 
 ## What it does
 
@@ -36,8 +37,9 @@ upstream Tekton config repo. The skill:
 Label added: `tekton-pr-raised`  
 Comment: Tekton PR URL and workflow run URL posted to the onboarding ticket.
 
-## Dependency
+## Dependencies
 
-This skill runs only after the PR from
-[add-component-to-odh-konflux-central](add-component-to-odh-konflux-central.md)
-has merged (the component must appear in the workflow's `component` options list).
+This skill runs only after both of the following PRs have merged:
+
+- [add-component-to-odh-konflux-central](add-component-to-odh-konflux-central.md) — the component must appear in the workflow's `component` options list
+- [onboard-component-to-konflux-release-data](onboard-component-to-konflux-release-data.md) — the Konflux release data must be in place

@@ -4,8 +4,9 @@ Creates the RHOAI delivery repository entry in the Red Hat container registry by
 raising a GitLab MR to `pyxis-repo-configs`. The registry repo is provisioned when
 the MR merges.
 
-**Applies to:** RHOAI only  
+**Applies to:** RHOAI only
 **Pipeline step:** 2
+**Blocked by:** — (no dependencies, runs in the first batch)
 
 ## Repository touched
 

@@ -3,8 +3,9 @@
 Adds the push-event Tekton PipelineRun definition for a new RHOAI component to
 `rhoai-konflux-central`, targeting the version-specific release branch.
 
-**Applies to:** RHOAI only  
-**Pipeline step:** 4 (push pipeline)
+**Applies to:** RHOAI only
+**Pipeline step:** 5a (push pipeline)
+**Blocked by:** `onboard-component-to-konflux-release-data` (krd) must merge.
 
 ## Repository touched
 
@@ -27,7 +28,7 @@ The PipelineRun YAML configures:
 |-------|-------|
 | Target repo | `red-hat-data-services/konflux-central` |
 | Target branch | `rhoai-<VERSION_X>.<VERSION_Y>` (e.g. `rhoai-3.5`) |
-| Title | `onboard <component_name> to RHOAI Konflux (<version>)` |
+| Title | `Add <component_name>-<version> PipelineRun for <repo_name>` |
 
 ## Jira update
 

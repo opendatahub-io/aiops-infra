@@ -3,8 +3,9 @@
 Triggers the `sync-renovate-configs` GitHub Actions workflow in `rhoai-konflux-central`
 to propagate the current Renovate configuration to all registered component repositories.
 
-**Applies to:** RHOAI only  
-**Pipeline step:** 9 (runs after `enable-renovate-on-rhoai-component-repo` PR merges)
+**Applies to:** RHOAI only
+**Pipeline step:** 7
+**Blocked by:** `enable-renovate-on-rhoai-component-repo` PR must merge.
 
 ## What it does
 

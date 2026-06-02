@@ -3,8 +3,9 @@
 Registers the new RHOAI component's repository with the Renovate configuration in
 `rhoai-konflux-central`, enabling automatic dependency-update PRs for the component.
 
-**Applies to:** RHOAI only  
-**Pipeline step:** 9
+**Applies to:** RHOAI only
+**Pipeline step:** 3
+**Blocked by:** — (no dependencies, runs in the first batch)
 
 ## Repository touched
 

@@ -4,8 +4,9 @@ Adds the Tekton PipelineRun definitions for a new ODH component to
 `odh-konflux-central`, and registers the component in the onboarder workflow so it
 can be selected for CI runs.
 
-**Applies to:** ODH only  
-**Pipeline step:** 3
+**Applies to:** ODH only
+**Pipeline step:** 2
+**Blocked by:** — (no dependencies, runs in parallel with quay)
 
 ## Repository touched
 

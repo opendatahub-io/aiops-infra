@@ -2,3 +2,7 @@
 
 # workdir for skills
 .work/
+
+__pycache__/
+tmp/
+

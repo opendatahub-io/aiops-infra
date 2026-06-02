@@ -3,8 +3,9 @@
 Updates the build-config repository with the new component's image reference so it is
 included in the ODH or RHOAI bundle.
 
-**Applies to:** ODH and RHOAI (different repos and file sets)  
-**Pipeline step:** 6 (ODH) / 6 (RHOAI)
+**Applies to:** ODH and RHOAI (different repos and file sets)
+**Pipeline step:** 7 (both products)
+**Blocked by:** ODH — `run-odh-konflux-onboarder-workflow` must merge; RHOAI — `add-component-to-rhoai-konflux-central` must merge.
 
 ## Repositories touched
 
@@ -56,5 +57,11 @@ repo_mappings:
 
 ## Jira update
 
-Label added: `bundle-pr-raised`  
+Label added: `bundle-pr-raised`
 Comment: PR URL posted to the onboarding ticket.
+
+## Related
+
+- [integrate-component-with-odh-operator](integrate-component-with-odh-operator.md) — runs after this step merges (if is_operator=true)
+- [run-odh-konflux-onboarder-workflow](run-odh-konflux-onboarder-workflow.md) — ODH prerequisite
+- [add-component-to-rhoai-konflux-central](add-component-to-rhoai-konflux-central.md) — RHOAI prerequisite
