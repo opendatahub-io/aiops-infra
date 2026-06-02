@@ -1,13 +1,28 @@
 ---
 name: conforma-exception
-description: Manage RHOAI Conforma exceptions end-to-end — create, extend, check, and reconcile policy exceptions. Handles Jira tickets (RHOAIENG, PSX/OCPEXCEPT), GitLab MRs in konflux-release-data, deduplication of existing exceptions, and cross-linking of all artifacts.
+description: Manage RHOAI Conforma exceptions end-to-end — create, extend, check, and reconcile policy exceptions. Handles Jira tickets (RHOAIENG Jira, PSX Jira, OCPEXCEPT Jira), GitLab Merge Requests in konflux-release-data, deduplication of existing exceptions, and cross-linking of all artifacts.
 allowed-tools: Bash(python3:*,acli:*,glab:*,git:*,docker:*,podman:*)
 user-invocable: true
 ---
 
 # Conforma Exception
 
-End-to-end automation for RHOAI Conforma exception management: check existing exceptions, create new ones, extend effectiveUntil dates, validate inputs, create required Jira tickets, generate exception YAML, create GitLab MRs, and cross-link all artifacts.
+End-to-end automation for RHOAI Conforma exception management: check existing exceptions, create new ones, extend effectiveUntil dates, validate inputs, create required Jira tickets, generate exception YAML, create GitLab Merge Requests, and cross-link all artifacts.
+
+An exception is a YAML entry added to a release policy file in the [konflux-release-data](https://gitlab.cee.redhat.com/releng/konflux-release-data) GitLab repository, using the [VolatileCriteria](https://conforma.dev/docs/policy/packages/release_volatile_config.html) schema. It tells the [Conforma](https://conforma.dev/docs/policy/release_policy.html) policy engine to waive a specific rule for listed components until a given date. Example:
+
+```yaml
+# https://redhat.atlassian.net/browse/RHOAIENG-12345
+# impacted versions: rhoai-3.4
+- value: hermetic_task.hermetic
+  componentNames:
+    - odh-model-server-v3-4
+    - odh-modelmesh-serving-v3-4
+  effectiveUntil: "2026-10-05T00:00:00Z"
+  reference: https://redhat.atlassian.net/browse/PSX-1234
+```
+
+Key fields: `value` = the [Conforma rule](https://conforma.dev/docs/policy/release_policy.html) being waived, `componentNames` = Konflux component names (not legacy image names), `effectiveUntil` = expiry date in RFC3339 format, `reference` = the PSX/OCPEXCEPT Jira ticket URL.
 
 ## Prerequisites
 
@@ -16,7 +31,7 @@ The skill requires `acli` (Atlassian CLI) and `glab` (GitLab CLI). **`acli` is a
 **Always run preflight first** before creating any tickets or MRs:
 
 ```bash
-python3 scripts/verify_auth.py --path A
+python3 scripts/verify_auth.py
 ```
 
 ### Install glab
@@ -62,8 +77,8 @@ Container mode requires API token authentication since `--web` OAuth cannot open
 
 ## Important: Human-in-the-Loop
 
-Exception MRs bypass policy enforcement. Engineer approval is **MANDATORY** before creation.
-For versions >= rhoai-3.5-ea.1, senior manager approval on the RHOAIENG ticket is also required.
+Exception GitLab Merge Requests bypass policy enforcement. Engineer approval is **MANDATORY** before creation.
+For versions >= rhoai-3.5-ea.1, Senior Management approval on the RHOAIENG Jira ticket is also required.
 
 ### No Agent Decisions Policy
 
@@ -116,15 +131,101 @@ The preflight output includes a `decision` field evaluated deterministically by 
 
 The agent has NO discretion to override a `proceed: false` decision. Only the user can re-run with `--rule` override or manually modify the policy file.
 
-## Three Exception Paths
+## Workflow Routing
 
-| Path | When | Jira tickets | MR target |
-|------|------|--------------|-----------|
-| A (Standard) | Security exceptions (hermetic, RPM, SBOM) | RHOAIENG + PSX | `config/.../registry-rhoai-{env}.yaml` or `fbc-rhoai-{env}.yaml` |
-| B (FIPS) | FIPS-related exceptions | RHOAIENG + OCPEXCEPT | Same as Path A |
-| C (Self-service) | `schedule.weekday_restriction` or `test.no_failed_tests:fbc-target-index-pruning-check` | RHOAIENG only | `exceptions/fbc-rhoai-prod.yaml` |
+Workflow routing (which Jira projects, how many tickets, assignees, MR target) is defined per-category in `exception_templates.yaml`. The orchestrator reads the `workflow` steps from the matched category and executes them in order.
 
-Path is auto-detected from `--rule` and `--fips`/`--self-service` flags.
+Each workflow step has a `track` field indicating which logical track it belongs to:
+
+- **`track: remediation_plan`** — The resolution plan ticket. Created FIRST to establish the fix commitment (with a future target date). Its URL (`{remediation_plan_url}`) is referenced in the justification text of all downstream artifacts.
+- **`track: exception_approval`** — The exception approval chain. These steps are sequential and block the release until the exception is granted: approval ticket -> ProdSec review -> policy MR.
+
+The `--rule` flag determines which template category matches, and thus which workflow runs. There are no separate path flags -- the rule is the single input that drives routing.
+
+Common workflow patterns:
+
+| Pattern | Steps | Example rules |
+|---------|-------|---------------|
+| Standard | Resolution plan (team) -> Senior Management approval (RHOAIENG Jira) -> PSX Jira -> GitLab Merge Request | `rpm_signature.allowed:*`, `hermetic_task.hermetic`, SBOM rules |
+| FIPS | Resolution plan (team) -> Senior Management approval (RHOAIENG Jira) -> OCPEXCEPT Jira -> GitLab Merge Request | `fips-check`, `fips_check` |
+| Self-service | Senior Management approval (RHOAIENG Jira) -> GitLab Merge Request (to `exceptions/` dir) | `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check` |
+
+To see the full list of supported rules and their workflows, inspect `exception_templates.yaml` directly.
+
+### Handling Non-Templated Violations ("other" category)
+
+Not every Conforma violation has a pre-built template. The `other` catch-all category in `exception_templates.yaml` handles **any** rule from the [Conforma redhat collection](https://conforma.dev/docs/policy/release_policy.html) that doesn't match a specific category.
+
+When `match_template_category()` returns `"other"`, the agent MUST follow an interactive flow to gather all exception details from the user, since there is no pre-written template text. The full catalog of known rules is in `references/conforma-release-policy-rules.yaml`.
+
+**The agent MUST follow these steps for "other" category exceptions:**
+
+1. **Validate the rule code**: Look up the `--rule` value in `references/conforma-release-policy-rules.yaml`. If found, show the user the official rule name and Conforma docs URL. If NOT found, warn the user that this may not be a valid Conforma rule and ask them to confirm.
+
+2. **Check the Jira ticket** (if `--rhoaieng-url` provided): Read the ticket summary, description, and comments to extract context about what the violation is, which components are affected, and what the remediation plan looks like. Present findings to the user for confirmation.
+
+3. **Determine the correct workflow**: The default workflow for `other` is the standard 4-step PSX Jira path (resolution plan -> Senior Management approval -> PSX Jira -> GitLab Merge Request). However, the agent MUST ask the user:
+   - "Is this a FIPS-related violation?" — if yes, switch `psx_exception_jira` project to OCPEXCEPT Jira (task type)
+   - "Is this a non-security, self-service exception?" — if yes, skip PSX/OCPEXCEPT Jira and use the 2-step self-service path (Senior Management approval -> self-service GitLab Merge Request)
+
+   Present these as structured choices. The user's answer overrides the default workflow.
+
+4. **Gather all exception text fields interactively**: Since there is no template text, the agent MUST collect each field from the user. Present them one batch at a time with examples drawn from similar templated categories. For each field, show:
+   - The field name and purpose
+   - An example from a related templated category (e.g., if the rule is `olm.unpinned_references`, show the OLM unmapped references template as a reference)
+   - A text input for the user to provide their wording
+
+   Required fields (all MUST be provided by the user or extracted from the Jira ticket):
+   - **Scope**: What components are affected, how many versions, what the violation is
+   - **Risk**: Why the violation is acceptable in this case
+   - **Remediation**: What the plan is to fix the underlying issue
+   - **Impact**: What happens if the exception is not granted (this can default to the standard Conforma blocking message)
+   - **Summary context**: Brief description for ticket titles (e.g., "OLM unpinned images exception")
+
+5. **Confirm all values**: Present the complete set of resolved values (rule, components, versions, dates, workflow, exception text) for user confirmation before proceeding. The user may edit any field.
+
+6. **Execute**: Pass all user-provided text via `--exception-scope`, `--exception-risk`, `--exception-remediation`, `--exception-impact`, and `--summary-context` flags to override the template defaults (which are `USER_PROVIDED` placeholders).
+
+**Important**: The `other` category still uses the same orchestration scripts (`create_exception.py`, `create_jira_ticket.py`, `create_gitlab_mr.py`). The only difference is that exception text comes from user input rather than from template resolution. All other validation, deduplication, linking, and verification logic applies identically.
+
+## Explaining Conforma Exceptions
+
+When the user asks what a Conforma exception is (e.g. "what is a conforma exception", "explain conforma exceptions"), always include the compact YAML example from the introduction above. This makes the concept concrete. Also link to the [Conforma redhat collection](https://conforma.dev/docs/policy/release_policy.html) and [VolatileCriteria schema](https://conforma.dev/docs/policy/packages/release_volatile_config.html).
+
+## Listing Exception Types
+
+When the user asks about Conforma exception types (e.g. "what are the conforma exception types", "list exception types", "show me conforma violations"), always:
+
+1. Run `python3 scripts/create_exception.py --list-exception-types` (from this skill directory). This returns JSON with:
+   - `common`: the 7 most common RHOAI exception types (full details)
+   - `common_count`, `non_common_count`, `total_catalog_rules`, `conforma_rules_url`: counts and links for the summary
+
+2. Render the `common` array as a table with these columns:
+
+| Column | Source field |
+|--------|-------------|
+| # | sequential number |
+| Category ID | `id` |
+| Display Name | `display_name` |
+| Workflow | `workflow_summary` |
+| Search: Jira | `links.jira` entries as `[label](url)`, comma-separated |
+| Search: GitLab Merge Requests | `links.gitlab_mrs` entries as `[label](url)`, comma-separated |
+
+3. After the table, use `non_common_count`, `total_catalog_rules`, and `conforma_rules_url` from the JSON to state:
+
+   > The skill also supports **{non_common_count} more** templated exception types and can handle **any** of the **{total_catalog_rules}** rules in the [Conforma redhat collection]({conforma_rules_url}) (via the interactive "other" catch-all category).
+
+   Then add a brief note suggesting the user can ask to see more details on the remaining templated types or the full list of all supported types if they're interested. Do NOT use the AskQuestion tool here -- just mention it conversationally in the response text.
+
+4. If the user asks to see remaining types, run `python3 scripts/create_exception.py --list-exception-types --all` and render the `non_common` array plus the `catch_all` entry in the same table format.
+
+5. If the user asks for the rule reference, read `references/conforma-release-policy-rules.yaml` and display the rules grouped by category heading (the `# ---` comment sections) as a compact table with columns: Rule Code, Name, Docs (link).
+
+6. After any table, add a brief legend explaining:
+   - The workflow track abbreviations (remediation_plan vs exception_approval)
+   - The step names used (Resolution plan, Senior Management approval, RHOAIENG Jira, PSX Jira, OCPEXCEPT Jira, GitLab Merge Request, self-service)
+   - That the `other` category is a catch-all for any Conforma rule not covered by a specific template, and requires interactive input for all exception text fields. Reference `references/conforma-release-policy-rules.yaml` for the full list of known rules.
+   - Always include a link to the [Conforma redhat collection](https://conforma.dev/docs/policy/release_policy.html) for the full rule reference.
 
 ## Usage
 
@@ -135,7 +236,6 @@ python3 scripts/create_exception.py \
   --rhoai-version rhoai-3.3 \
   --rule hermetic_task.hermetic \
   --components odh-mlflow-v3-3,odh-another-v3-3 \
-  --justification 2 \
   --effective-until-date 2026-10-03 \
   --environment prod \
   --dry-run
@@ -148,20 +248,18 @@ python3 scripts/create_exception.py \
   --rhoai-version rhoai-3.3 \
   --rule hermetic_task.hermetic \
   --components odh-mlflow-v3-3 \
-  --justification 2 \
   --effective-until-date 2026-10-03 \
   --rhoaieng-url https://redhat.atlassian.net/browse/RHOAIENG-38414 \
   --psx-url https://redhat.atlassian.net/browse/PSX-1089
 ```
 
-### Self-service (Path C)
+### Self-service (auto-detected from rule)
 
 ```bash
 python3 scripts/create_exception.py \
   --rhoai-version rhoai-3.4 \
   --rule schedule.weekday_restriction \
   --components rhoai-fbc-fragment-v3-4 \
-  --self-service \
   --image-ref sha256:abc123...
 ```
 
@@ -170,34 +268,30 @@ python3 scripts/create_exception.py \
 | Detail | Flag | Notes |
 |--------|------|-------|
 | RHOAI version | `--rhoai-version` | e.g., `rhoai-3.3`, `rhoai-3.5-ea.1` |
-| Policy rule | `--rule` | Full rule value (e.g., `hermetic_task.hermetic`) |
+| Policy rule | `--rule` | Full rule value (e.g., `hermetic_task.hermetic`). Determines workflow and justification from templates. |
 | Component names | `--components` | Comma-separated Konflux component names |
-| Justification | `--justification` | `1` or `2` (required for Paths A/B, see below) |
-| Base expiry date | `--effective-until-date` | YYYY-MM-DD (script adds +7 days buffer) |
+| Expiry date | `--effective-until-date` | YYYY-MM-DD (used as-is; +7 day buffer only applies to end-of-support sourced dates) |
 
-### Justification values
+Exception text (scope, risk, remediation, impact) is derived from `exception_templates.yaml`. Scope and impact come from the matched category. Risk and remediation come from a justification template selected via `--justification <id>` (e.g., `--justification dev_preview`). If omitted, the first entry in the category's `applicable_justifications` list is used as default.
 
-- `1`: "violation was not fixed in time before code-freeze of the current rhoai release, it is planned to be fixed in the next release"
-- `2`: "violation can't be fixed in this rhoai release as it's already been code-frozen/released and major code changes are not allowed in subreleases/z-stream releases"
+The `--vendor-tag` flag fills the `{vendor}` placeholder in templates. The `--exception-scope`, `--exception-risk`, `--exception-remediation`, `--exception-impact` flags override template-resolved values when custom wording is needed.
+
+The resolved exception text flows into all workflow artifacts: RHOAIENG Jira resolution plan ticket, RHOAIENG Jira approval ticket, PSX/OCPEXCEPT Jira ticket, and GitLab Merge Request commit message. The `{remediation_plan_url}` placeholder in justification text is auto-filled with the resolution plan ticket URL (created first in the workflow).
 
 ### Optional flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--environment` | `prod` | `prod` or `stage` |
-| `--rhoaieng-url` | *(creates new)* | Existing RHOAIENG ticket URL |
-| `--psx-url` | *(creates new)* | Existing PSX/OCPEXCEPT ticket URL |
-| `--related-psx` | none | Pre-existing PSX ticket to link as "Related" only (a new PSX is still created) |
+| `--rhoaieng-url` | *(creates new)* | Existing RHOAIENG Jira ticket URL |
+| `--psx-url` | *(creates new)* | Existing PSX/OCPEXCEPT Jira ticket URL |
+| `--related-psx` | none | Pre-existing PSX Jira ticket to link as "Related" only (a new PSX Jira is still created) |
 | `--link-to` | none | Tracking ticket key to link all tickets to (e.g. `RHAISTRAT-576`) |
-| `--summary-context` | none | Brief description for ticket titles (auto-filled by `--template` if set) |
-| `--vendor-tag` | none | Vendor/distinguisher tag prepended to titles (e.g. `AMD`, `Intel`, `FIPS`) |
-| `--template` | none | Template category ID from `exception_templates.yaml` (e.g., `rpm_signature_thirdparty`) |
-| `--template-variant` | none | Template variant ID (e.g., `fedora_epel`, `habanalabs`). Required with `--template` |
+| `--summary-context` | none | Brief description for ticket titles (auto-filled from template if matched) |
+| `--vendor-tag` | none | Vendor/distinguisher tag prepended to titles (e.g. `AMD`, `Intel`, `FIPS`). Also fills `{vendor}` in templates. |
 | `--spreadsheet-url` | none | Tracking spreadsheet URL (added as YAML comment in MR and commit message) |
 | `--authorized-party` | none | Senior manager accepting risk (Authorized Party in PSX workflow) |
 | `--watchers` | none | Comma-separated display names (user-approved) to add as PSX watchers |
-| `--fips` | false | Routes to OCPEXCEPT instead of PSX |
-| `--self-service` | false | Forces Path C |
 | `--image-ref` | none | SHA digest (only for `schedule.weekday_restriction`) |
 | `--reconcile` | none | Existing ticket key to reconcile (idempotent re-run) |
 | `--dry-run` | false | Preview without creating anything |
@@ -205,13 +299,14 @@ python3 scripts/create_exception.py \
 
 ## Orchestration Flow
 
-1. **Validate** (`validate_inputs.py`): version parsing, component-version reconciliation (rejects image names like `-rhel9`), date+7 calculation, justification check, path detection
-2. **Auth check** (`verify_auth.py`): auto-install `acli` if needed, verify `acli` and `glab` are available and authenticated — **stop here if any check fails**
-3. **RHOAIENG ticket** (`create_jira_ticket.py --project RHOAIENG`): template-based create from RHOAIENG-62569 (skipped if `--rhoaieng-url` provided)
-4. **Approval reminder**: for rhoai-3.5-ea.1+, reminds user to get senior manager approval
-5. **PSX/OCPEXCEPT ticket** (`create_jira_ticket.py --project PSX|OCPEXCEPT`): Paths A/B only (skipped if `--psx-url` provided or Path C)
-6. **GitLab MR** (`create_gitlab_mr.py --version-specs-json`): Creates a **single consolidated MR** covering all RHOAI versions in one commit. Clones from `main`, creates branch, appends all version-specific exception YAML blocks to the same policy file, commits with a consolidated message listing all versions/components/dates, pushes, and creates one MR. The MR body has per-version sections for reviewability. Use `--update-mr <branch>` to recreate an existing MR branch from current `main` (avoids disconnected-history issues).
-7. **Link artifacts** (`link_artifacts.py`): comment MR URL on both Jira tickets, add provenance label, create Jira links between all tickets (including `--link-to` tracking ticket)
+1. **Validate** (`validate_inputs.py`): version parsing, component-version reconciliation (rejects legacy image names like `-rhel9`), date calculation (user-provided dates used as-is; +7 day buffer only for EOS-sourced dates), workflow determination from `exception_templates.yaml`
+2. **Auth check** (`verify_auth.py`): auto-install `acli` if needed, verify `acli` and `glab` are available and authenticated -- **stop here if any check fails**
+3. **Execute workflow steps** (from `exception_templates.yaml`): the orchestrator iterates through the matched category's `workflow` list and executes each step:
+   - `rhoaieng_resolution_plan_jira` *(track: remediation_plan)*: Creates a Bug in RHOAIENG Jira assigned to the component team documenting the fix commitment. Created FIRST so its URL can be referenced in downstream justification text.
+   - `rhoaieng_approval_jira` *(track: exception_approval)*: Creates a Blocker Bug in RHOAIENG Jira for Senior Management approval (skipped if `--rhoaieng-url` provided). Assigned to `default_assignee` from template if set. References the resolution plan URL in its description.
+   - `psx_exception_jira` *(track: exception_approval)*: Creates a PSX Jira (PSRD Exception) or OCPEXCEPT Jira (Task) ticket (skipped if `--psx-url` provided). Project determined by template. References the resolution plan URL in justification.
+   - `exception_merge_request` *(track: exception_approval)*: Creates the exception GitLab Merge Request. If `self_service: true` in template, targets `exceptions/` dir.
+4. **Link artifacts** (`link_artifacts.py`): comment GitLab Merge Request URL on Jira tickets, add provenance label, create Jira links between all tickets (including `--link-to` tracking ticket)
 
 All created tickets receive the `conforma-exception-ai-skill` and `conforma-violation` Jira labels and a provenance footer in the description.
 
@@ -233,7 +328,7 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
    - "Yes, the rule is `rpm_signature.allowed:8a3872bf3228467c`"
    - "No, the rule is different (let me specify)"
 
-2. **RHOAIENG ticket type check**: If the ticket is not a Blocker Bug, present options:
+2. **RHOAIENG Jira ticket type check**: If the ticket is not a Blocker Bug, present options:
    - "Create a proper Blocker Bug and link to this Epic/Story"
    - "Use this ticket as-is (non-standard)"
 
@@ -242,10 +337,6 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
    - [ ] rhoai-3.3
    - [ ] rhoai-3.4
    - [ ] rhoai-3.5-ea.1
-
-4. **Justification**:
-   - "1 — Violation not fixed in time before code-freeze, planned for next release"
-   - "2 — Can't be fixed in this release (already code-frozen/released)"
 
    **Note**: All selected versions are handled in a **single consolidated MR** (hard rule: `one_mr_per_rule_all_versions`). The agent uses `--version-specs-json` to pass all versions to `create_gitlab_mr.py` in one call.
 
@@ -256,7 +347,7 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
    - "Yes, correct"
    - "No, let me specify different names"
 
-   Never use a container image name (e.g. `-rhel9`) in an MR without the user confirming the translation.
+   Never use a legacy container image name (e.g. `-rhel9`) in a Merge Request without the user confirming the translation.
 
 6. **Vendor tag**: Present common options plus free text:
    - "Fedora/EPEL"
@@ -279,20 +370,23 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
 
    If no results found, silently skip (do not ask the user). This removes a manual lookup step.
 
-9. **Exception template selection**: The script auto-detects the template category from the rule (via `match_template_category()`). Present the detected category and its variants for the user to confirm:
-    - "Detected category: Third-party RPM signing key. Select variant:"
-    - "Fedora/EPEL RPM signing key"
-    - "AMD RPM signing key"
-    - "Habanalabs (Intel) RPM signing key"
-    - "Other (let me specify custom text)"
+9. **Exception template confirmation**: The script auto-detects the template category from the rule (via `match_template_category()`). Present the detected category for the user to confirm:
+    - "Detected category: Third-party RPM signing key"
+    - "Template will use `--vendor-tag` value to fill the `{vendor}` placeholder"
 
-    The template fills all PSX text fields (scope, risk, remediation, impact, summary context) deterministically from `exception_templates.yaml`. The agent passes `--template <category_id> --template-variant <variant_id>` to `create_jira_ticket.py`. Explicit `--psx-scope`, `--psx-risk`, etc. flags override template values if provided.
+    The template fills all exception text fields (scope, risk, remediation, impact, summary context) deterministically from `exception_templates.yaml`. The `--exception-scope`, `--exception-risk`, etc. flags override template values if the user provides custom wording. The `--justification` flag selects a justification template (e.g., `dev_preview`, `code_frozen`) for the risk/remediation text.
 
-    If the user selects "Other / custom", fall back to individual free-text prompts for each field.
+    **If the detected category is `other` (catch-all)**: The agent must inform the user that no specific template exists for this rule and switch to the interactive flow described in "Handling Non-Templated Violations" above. All exception text fields (scope, risk, remediation, impact, summary context) must be gathered from the user or extracted from the Jira ticket. The agent should:
+    - Look up the rule in `references/conforma-release-policy-rules.yaml` and show the official name and docs URL
+    - Search existing Jira tickets (`labels = "conforma-violation" AND summary ~ "<rule>"`) for precedent
+    - Search existing GitLab Merge Requests for the same rule to show the user what similar exceptions look like
+    - Present examples from the closest related templated category as reference
+    - Ask the user to provide or confirm each text field
+    - Ask the user to confirm the workflow (PSX vs OCPEXCEPT vs self-service)
 
 **Batch 3 — Approval and PSX details:**
 
-10. **PSX ticket visibility / watchers**: PSX tickets are restricted by default. The preflight script dynamically discovers the user's Jira groups and their members via `discover_user_groups()`. Present the discovered list as a **suggestion**:
+10. **PSX Jira ticket visibility / watchers**: PSX Jira tickets are restricted by default. The preflight script dynamically discovers the user's Jira groups and their members via `discover_user_groups()`. Present the discovered list as a **suggestion**:
     - "Found you in group(s): [group names]. Suggested watchers: [member list]. Add all as watchers?"
     - "Yes, add all suggested watchers"
     - "Let me pick from the list (remove some)"
@@ -303,15 +397,15 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
 11. **Authorized Party**: Free text prompt:
     - "Who is the senior manager accepting risk? (e.g., Lindani Phiri, Jay Koehler)"
 
-12. **Effective-until date**: Resolved by `preflight_check.py` from its `DEFAULT_EOS_DATES` table. The script outputs per-version dates in `effective_until` and flags any versions without defaults in `user_confirmation_required`. Present the script's output for user confirmation.
+12. **Effective-until date**: Resolved by `preflight_check.py` from its `DEFAULT_EOS_DATES` table (with +7 day buffer pre-calculated for EOS-sourced dates). User-provided or Jira-sourced dates are used as-is without any buffer. The script outputs per-version dates in `effective_until` and flags any versions without defaults in `user_confirmation_required`. Present the script's output for user confirmation.
 
 13. **Template review** (confirm the resolved text): After template resolution, present the filled-in scope/risk/remediation/impact text for user confirmation:
-    - "Here is the pre-filled PSX text from the template. Confirm or edit:"
+    - "Here is the pre-filled PSX text from the template (with `{vendor}` replaced by your `--vendor-tag` value). Confirm or edit:"
     - Show each field with its resolved value
     - "Confirm all"
     - "Edit one or more fields"
 
-    The resolved text is deterministic (from `exception_templates.yaml`) and NOT generated by the LLM. The user may edit individual fields if the template doesn't perfectly match their case, but the default is to use the template as-is.
+    The resolved text is deterministic (from `exception_templates.yaml`) and NOT generated by the LLM. The user may override individual fields via `--exception-scope`, `--exception-risk`, etc. if the template doesn't perfectly match their case.
 
 **After all batches**: Present a final summary of all confirmed values and ask for a single "Proceed" / "Edit something" confirmation before executing.
 
@@ -324,12 +418,12 @@ Component names are validated against `--rhoai-version`:
 
 **IMPORTANT: componentNames vs container image names** -- these are NOT the same thing:
 
-| Type | Pattern | Example | Used in MR? |
+| Type | Pattern | Example | Used in Merge Request? |
 |------|---------|---------|-------------|
 | Konflux component name | `{base}-v{major}-{minor}` | `odh-workbench-jupyter-pytorch-rocm-py312-v2-25` | YES |
-| Container image name | `{base}-rhel9` (no version) | `odh-workbench-jupyter-pytorch-rocm-py312-rhel9` | NO |
+| Container image name (legacy) | `{base}-rhel9` (no version) | `odh-workbench-jupyter-pytorch-rocm-py312-rhel9` | NO |
 
-All Konflux component names include a version suffix (e.g. `-v2-25`, `-v3-3`, `-v3-5-ea-1`). Names ending in `-rhel9` or `-ubi9` without a version suffix are container image names produced by those components -- they must NOT be used in `componentNames` fields in exception MRs. The validation script rejects image names and suggests the correct format.
+All Konflux component names include a version suffix (e.g. `-v2-25`, `-v3-3`, `-v3-5-ea-1`). Names ending in `-rhel9` or `-ubi9` without a version suffix are legacy container image names produced by those components -- they must NOT be used in `componentNames` fields in exception GitLab Merge Requests. The validation script rejects legacy image names and suggests the correct Konflux component name format.
 
 To find correct component names, check the ReleasePlanAdmission files:
 `config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-vX-Y-components-prod.yaml`
@@ -362,9 +456,11 @@ python3 scripts/create_jira_ticket.py --project PSX \
   --reconcile PSX-1098 \
   --rule rpm_signature.allowed:9386b48a1a693c5c \
   --components odh-workbench-jupyter-pytorch-rocm-py312-v2-25 \
-  --justification "..." --rhoai-version rhoai-2.25 \
+  --rhoai-version rhoai-2.25 \
   --effective-until 2027-05-03T00:00:00Z \
   --rhoaieng-url https://redhat.atlassian.net/browse/RHOAIENG-38426 \
+  --template rpm_signature_thirdparty \
+  --vendor-tag AMD \
   --authorized-party "Len DiMaggio"
 ```
 
@@ -418,7 +514,7 @@ Each script validates inputs and exits non-zero on failure. The orchestrator sto
 - Component name / version mismatch
 - `--effective-until-date` not a future date
 - `acli` or `glab` not authenticated
-- GitLab MR creation failure (permissions, branch conflict)
+- GitLab Merge Request creation failure (permissions, branch conflict)
 - Jira ticket creation failure (permissions, invalid project)
 - Verification failure (labels, links, or fields not confirmed after retries)
 
@@ -429,6 +525,8 @@ See `references/exception-process.md` for the full process documentation includi
 - Senior manager approval requirements
 - VolatileCriteria schema
 - Upstream reference links (Konflux docs, PSX Confluence, conforma.dev)
+
+See `references/conforma-release-policy-rules.yaml` for the complete catalog of enforced rules in the Conforma `redhat` collection, sourced from [conforma.dev/docs/policy/release_policy.html](https://conforma.dev/docs/policy/release_policy.html). Each entry includes the rule code, human-readable name, and documentation URL. Use this catalog to validate `--rule` values and provide context when handling non-templated ("other" category) exceptions.
 
 ## Pipeline Mode (Handover)
 

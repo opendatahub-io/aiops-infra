@@ -2,25 +2,28 @@
 """Create a Jira ticket for a Conforma exception request.
 
 Supports three projects via --project flag:
-  RHOAIENG  - blocker bug cloned from template RHOAIENG-62569
+  RHOAIENG  - blocker bug (approval) or bug (remediation)
   PSX       - PSRD Exception for security-related exceptions
   OCPEXCEPT - Task for FIPS-related exceptions
+
+The --purpose flag differentiates RHOAIENG ticket types:
+  approval    - Blocker Bug for exception approval (default)
+  remediation - Bug assigned to devops/component team to fix the violation
 
 All tickets receive:
   - A provenance label: conforma-exception-ai-skill
   - A provenance footer in the description
 
 Usage:
-  python3 create_jira_ticket.py --project RHOAIENG \
+  python3 create_jira_ticket.py --project RHOAIENG --purpose approval \
     --rule hermetic_task.hermetic --components odh-mlflow-v3-3 \
-    --justification "..." --rhoai-version rhoai-3.3 \
-    --effective-until 2026-10-10T00:00:00Z
+    --rhoai-version rhoai-3.3 --effective-until 2026-10-10T00:00:00Z \
+    --template hermetic_build
 
-  python3 create_jira_ticket.py --project PSX \
+  python3 create_jira_ticket.py --project RHOAIENG --purpose remediation \
     --rule hermetic_task.hermetic --components odh-mlflow-v3-3 \
-    --justification "..." --rhoai-version rhoai-3.3 \
-    --effective-until 2026-10-10T00:00:00Z \
-    --rhoaieng-url https://redhat.atlassian.net/browse/RHOAIENG-38426
+    --rhoai-version rhoai-3.3 --effective-until 2026-10-10T00:00:00Z \
+    --template hermetic_build --assignee "Component Team Lead"
 """
 
 from __future__ import annotations
@@ -47,6 +50,8 @@ PSX_MANDATORY_WATCHERS = ["Jay Koehler", "Lindani LD Phiri"]
 MAX_VERIFY_RETRIES = 2
 
 _TEMPLATES_FILE = Path(__file__).parent / "exception_templates.yaml"
+_SKILL_DIR = Path(__file__).resolve().parent.parent
+WORK_DIR = _SKILL_DIR / ".work"
 
 
 # ---------------------------------------------------------------------------
@@ -65,64 +70,133 @@ def _load_templates() -> dict:
 
 
 def list_template_categories() -> list[dict]:
-    """Return a list of available template categories with their variants."""
+    """Return a list of available template categories with applicable justifications."""
     data = _load_templates()
     result = []
     for cat_id, cat in data.get("categories", {}).items():
-        variants = []
-        for var_id, var in cat.get("variants", {}).items():
-            variants.append({"id": var_id, "display_name": var["display_name"]})
         result.append({
             "id": cat_id,
             "display_name": cat["display_name"],
             "matches_rules": cat.get("matches_rules", []),
-            "variants": variants,
+            "applicable_justifications": cat.get("applicable_justifications", []),
+        })
+    return result
+
+
+def list_justifications() -> list[dict]:
+    """Return a list of available justification templates."""
+    data = _load_templates()
+    result = []
+    for j_id, j in data.get("justifications", {}).items():
+        result.append({
+            "id": j_id,
+            "display_name": j.get("display_name", j_id),
         })
     return result
 
 
 def match_template_category(rule: str) -> str | None:
-    """Auto-detect the best template category for a given rule value."""
+    """Auto-detect the best template category for a given rule value.
+
+    Tries specific categories first (via matches_rules globs). If none
+    match, falls back to the 'other' catch-all category (if it exists).
+    """
     import fnmatch
 
     data = _load_templates()
     for cat_id, cat in data.get("categories", {}).items():
+        if cat.get("is_catch_all"):
+            continue
         for pattern in cat.get("matches_rules", []):
             if fnmatch.fnmatch(rule, pattern):
                 return cat_id
+
+    if "other" in data.get("categories", {}):
+        return "other"
+    return None
+
+
+def lookup_rule_in_catalog(rule: str) -> dict | None:
+    """Look up a rule code in the Conforma release policy rules catalog.
+
+    Returns a dict with 'code', 'name', and 'docs' if found, or None.
+    Handles colon-suffixed rules (e.g. 'rpm_signature.allowed:abc123')
+    by matching on the base code.
+    """
+    import yaml
+
+    catalog_path = Path(__file__).resolve().parent.parent / "references" / "conforma-release-policy-rules.yaml"
+    if not catalog_path.is_file():
+        return None
+
+    with open(catalog_path) as f:
+        catalog = yaml.safe_load(f)
+
+    base_rule = rule.split(":")[0] if ":" in rule else rule
+
+    for entry in catalog.get("rules", []):
+        if entry["code"] == base_rule or entry["code"] == rule:
+            return entry
     return None
 
 
 def resolve_template(
     category_id: str,
-    variant_id: str,
     variables: dict[str, str],
+    justification_id: str | None = None,
 ) -> dict[str, str]:
-    """Resolve a template category+variant with the given variables.
+    """Resolve template fields for a category+justification with the given variables.
+
+    Category provides: summary_context, scope, impact, violation_summary.
+    Justification provides: risk, remediation.
+
+    The category's violation_summary is injected as {violation_summary} into the
+    justification text before other variables are resolved.
+
+    If justification_id is None, the first entry in applicable_justifications is used.
 
     Returns a dict with keys: summary_context, scope, risk, remediation, impact.
-    All template placeholders ({rule}, {components}, etc.) are filled in.
     """
     data = _load_templates()
     categories = data.get("categories", {})
     if category_id not in categories:
         raise ValueError(f"Unknown template category: {category_id}")
     cat = categories[category_id]
-    variants = cat.get("variants", {})
-    if variant_id not in variants:
-        raise ValueError(
-            f"Unknown variant '{variant_id}' in category '{category_id}'. "
-            f"Available: {list(variants.keys())}"
-        )
-    variant = variants[variant_id]
+
+    applicable = cat.get("applicable_justifications", [])
+    if justification_id is None and applicable:
+        justification_id = applicable[0]
+
+    justifications = data.get("justifications", {})
 
     result = {}
-    for field in ("summary_context", "scope", "risk", "remediation", "impact"):
-        template_str = variant.get(field, "")
+    for field in ("summary_context", "scope", "impact"):
+        template_str = cat.get(field, "")
         try:
             result[field] = template_str.format_map(variables)
-        except KeyError as e:
+        except KeyError:
             result[field] = template_str
+
+    violation_summary_raw = cat.get("violation_summary", "")
+    try:
+        violation_summary = violation_summary_raw.format_map(variables)
+    except KeyError:
+        violation_summary = violation_summary_raw
+
+    just_vars = {**variables, "violation_summary": violation_summary}
+
+    if justification_id and justification_id in justifications:
+        just = justifications[justification_id]
+        for field in ("risk", "remediation"):
+            template_str = just.get(field, "")
+            try:
+                result[field] = template_str.format_map(just_vars)
+            except KeyError:
+                result[field] = template_str
+    else:
+        result["risk"] = ""
+        result["remediation"] = ""
+
     return result
 
 
@@ -492,22 +566,68 @@ def build_exception_label(rule: str, components: list[str]) -> str:
 def _build_rhoaieng_description(
     rule: str,
     components: list[str],
-    justification: str,
     rhoai_version: str,
     effective_until: str,
     psx_url: str | None,
+    exception_scope: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
 ) -> dict:
-    """Build ADF description for RHOAIENG ticket."""
+    """Build ADF description for RHOAIENG approval ticket."""
     context_text = (
         f"Exception Request Details\n\n"
         f"Rule: {rule}\n"
         f"Components: {', '.join(components)}\n"
         f"RHOAI Version: {rhoai_version}\n"
-        f"Justification: {justification}\n"
         f"Effective Until: {effective_until}\n"
     )
+    if exception_scope:
+        context_text += f"\nScope: {exception_scope}\n"
+    if exception_risk:
+        context_text += f"\nRisk: {exception_risk}\n"
+    if exception_remediation:
+        context_text += f"\nRemediation: {exception_remediation}\n"
     if psx_url:
-        context_text += f"PSX/OCPEXCEPT Ticket: {psx_url}\n"
+        context_text += f"\nPSX/OCPEXCEPT Ticket: {psx_url}\n"
+
+    context_text += f"\n{build_provenance_footer()}"
+
+    return {
+        "version": 1,
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": context_text}],
+            },
+        ],
+    }
+
+
+def _build_rhoaieng_remediation_description(
+    rule: str,
+    components: list[str],
+    rhoai_version: str,
+    effective_until: str,
+    rhoaieng_approval_url: str | None,
+    exception_scope: str | None = None,
+    exception_remediation: str | None = None,
+) -> dict:
+    """Build ADF description for RHOAIENG remediation ticket."""
+    context_text = (
+        f"Remediation Required\n\n"
+        f"This ticket tracks the fix for the following Conforma violation.\n\n"
+        f"Rule: {rule}\n"
+        f"Components: {', '.join(components)}\n"
+        f"RHOAI Version: {rhoai_version}\n"
+        f"Exception Effective Until: {effective_until}\n"
+    )
+    if exception_scope:
+        context_text += f"\nScope: {exception_scope}\n"
+    if exception_remediation:
+        context_text += f"\nRemediation: {exception_remediation}\n"
+    if rhoaieng_approval_url:
+        context_text += f"\nApproval Ticket: {rhoaieng_approval_url}\n"
 
     context_text += f"\n{build_provenance_footer()}"
 
@@ -526,7 +646,6 @@ def _build_rhoaieng_description(
 def _build_psx_description(
     rule: str,
     components: list[str],
-    justification: str,
     rhoai_version: str,
     effective_until: str,
     rhoaieng_url: str,
@@ -558,14 +677,13 @@ def _build_psx_description(
 def _build_psx_filled_adf(
     rule: str,
     components: list[str],
-    justification: str,
     rhoai_version: str,
     effective_until: str,
     rhoaieng_url: str,
-    psx_scope: str | None = None,
-    psx_risk: str | None = None,
-    psx_remediation: str | None = None,
-    psx_impact: str | None = None,
+    exception_scope: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
+    exception_impact: str | None = None,
 ) -> dict:
     """Build proper ADF for PSX description matching the server-side template structure.
 
@@ -573,19 +691,18 @@ def _build_psx_filled_adf(
     This produces the same visual structure as PSX-1042 and other correctly-filled tickets.
     """
     components_text = ", ".join(components)
-    scope = psx_scope or f"Affected RHOAI container components: {components_text}"
-    risk = psx_risk or (
-        f"{justification} "
+    scope = exception_scope or f"Affected RHOAI container components: {components_text}"
+    risk = exception_risk or (
         f"The affected RHOAI versions have already been released or are in "
         f"code-freeze, therefore the violation cannot be fixed retroactively."
     )
-    remediation = psx_remediation or (
+    remediation = exception_remediation or (
         f"Grant Conforma exception for {rule} for affected "
         f"components for the duration of {rhoai_version} support lifecycle. "
         f"For future RHOAI releases, the exception will be requested as "
         f"part of the release exception MR process if the violation persists."
     )
-    impact = psx_impact or (
+    impact = exception_impact or (
         f"Without this exception, Conforma will block release pipeline gates "
         f"for {rhoai_version}. This would prevent z-stream security fixes "
         f"from shipping."
@@ -730,14 +847,13 @@ def _fill_psx_template(
     ticket_key: str,
     rule: str,
     components: list[str],
-    justification: str,
     rhoai_version: str,
     effective_until: str,
     rhoaieng_url: str,
-    psx_scope: str | None = None,
-    psx_risk: str | None = None,
-    psx_remediation: str | None = None,
-    psx_impact: str | None = None,
+    exception_scope: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
+    exception_impact: str | None = None,
     authorized_party: str | None = None,
 ) -> dict:
     """Fill the PSX ticket description with proper ADF content via REST API.
@@ -759,9 +875,9 @@ def _fill_psx_template(
         ap_set = ap_result.get("ok", False)
 
     adf = _build_psx_filled_adf(
-        rule, components, justification, rhoai_version, effective_until,
-        rhoaieng_url, psx_scope=psx_scope, psx_risk=psx_risk,
-        psx_remediation=psx_remediation, psx_impact=psx_impact,
+        rule, components, rhoai_version, effective_until,
+        rhoaieng_url, exception_scope=exception_scope, exception_risk=exception_risk,
+        exception_remediation=exception_remediation, exception_impact=exception_impact,
     )
 
     desc_result = _jira_rest_put(
@@ -782,7 +898,6 @@ def create_ticket(
     project: str,
     rule: str,
     components: list[str],
-    justification: str,
     rhoai_version: str,
     effective_until: str,
     rhoaieng_url: str | None = None,
@@ -790,15 +905,22 @@ def create_ticket(
     link_to: str | None = None,
     summary_context: str | None = None,
     vendor_tag: str | None = None,
-    psx_scope: str | None = None,
-    psx_risk: str | None = None,
-    psx_remediation: str | None = None,
-    psx_impact: str | None = None,
+    exception_scope: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
+    exception_impact: str | None = None,
     authorized_party: str | None = None,
     watcher_names: list[str] | None = None,
+    purpose: str = "approval",
+    assignee: str | None = None,
     dry_run: bool = False,
 ) -> dict:
-    """Create a Jira ticket in the specified project."""
+    """Create a Jira ticket in the specified project.
+
+    For RHOAIENG tickets, purpose controls the ticket type:
+      - "approval": Blocker Bug for exception approval
+      - "remediation": Bug for tracking the fix
+    """
     if project not in VALID_PROJECTS:
         return {
             "status": "failed",
@@ -809,20 +931,39 @@ def create_ticket(
         }
 
     tag_prefix = f"[{vendor_tag}] " if vendor_tag else ""
+    purpose_tag = "[Remediation] " if purpose == "remediation" else "[Conforma Exception] "
     if summary_context:
-        summary = f"{tag_prefix}[Conforma Exception] {rule} - {rhoai_version} - {summary_context}"
+        summary = f"{tag_prefix}{purpose_tag}{rule} - {rhoai_version} - {summary_context}"
     else:
-        summary = f"{tag_prefix}[Conforma Exception] {rule} - {rhoai_version}"
+        summary = f"{tag_prefix}{purpose_tag}{rule} - {rhoai_version}"
     labels = [PROVENANCE_LABEL, VIOLATION_LABEL]
 
-    if project == "RHOAIENG":
+    if project == "RHOAIENG" and purpose == "remediation":
+        exception_label = build_exception_label(rule, components)
+        labels.append(exception_label)
+        description_adf = _build_rhoaieng_remediation_description(
+            rule, components, rhoai_version, effective_until, rhoaieng_url,
+            exception_scope=exception_scope, exception_remediation=exception_remediation,
+        )
+        issue_json: dict = {
+            "projectKey": project,
+            "summary": summary,
+            "type": "Bug",
+            "description": description_adf,
+            "additionalAttributes": {
+                "labels": labels,
+            },
+        }
+    elif project == "RHOAIENG":
         fetch_template_description()
         exception_label = build_exception_label(rule, components)
         labels.append(exception_label)
         description_adf = _build_rhoaieng_description(
-            rule, components, justification, rhoai_version, effective_until, psx_url
+            rule, components, rhoai_version, effective_until, psx_url,
+            exception_scope=exception_scope, exception_risk=exception_risk,
+            exception_remediation=exception_remediation,
         )
-        issue_json: dict = {
+        issue_json = {
             "projectKey": project,
             "summary": summary,
             "type": "Bug",
@@ -836,7 +977,6 @@ def create_ticket(
         description_adf = _build_psx_description(
             rule,
             components,
-            justification,
             rhoai_version,
             effective_until,
             rhoaieng_url or "",
@@ -854,7 +994,6 @@ def create_ticket(
         description_adf = _build_psx_description(
             rule,
             components,
-            justification,
             rhoai_version,
             effective_until,
             rhoaieng_url or "",
@@ -880,8 +1019,10 @@ def create_ticket(
             "issue_json": issue_json,
         }
 
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
     tmp = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", prefix=f"{project.lower()}-create-", delete=False
+        mode="w", suffix=".json", prefix=f"{project.lower()}-create-", delete=False,
+        dir=WORK_DIR,
     )
     try:
         json.dump(issue_json, tmp, indent=2)
@@ -916,13 +1057,12 @@ def create_ticket(
                 link_to=link_to,
                 rule=rule,
                 components=components,
-                justification=justification,
                 rhoai_version=rhoai_version,
                 effective_until=effective_until,
-                psx_scope=psx_scope,
-                psx_risk=psx_risk,
-                psx_remediation=psx_remediation,
-                psx_impact=psx_impact,
+                exception_scope=exception_scope,
+                exception_risk=exception_risk,
+                exception_remediation=exception_remediation,
+                exception_impact=exception_impact,
                 authorized_party=authorized_party,
             )
         else:
@@ -1052,13 +1192,12 @@ def _apply_and_verify(
     link_to: str | None,
     rule: str,
     components: list[str],
-    justification: str,
     rhoai_version: str,
     effective_until: str,
-    psx_scope: str | None = None,
-    psx_risk: str | None = None,
-    psx_remediation: str | None = None,
-    psx_impact: str | None = None,
+    exception_scope: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
+    exception_impact: str | None = None,
     authorized_party: str | None = None,
 ) -> dict:
     """Apply all post-creation mutations and verify the final state.
@@ -1102,10 +1241,10 @@ def _apply_and_verify(
     # --- Step 3: Fill PSX/OCPEXCEPT description + authorized party ---
     if project in ("PSX", "OCPEXCEPT"):
         desc_result = _fill_psx_template(
-            ticket_key, rule, components, justification,
+            ticket_key, rule, components,
             rhoai_version, effective_until, rhoaieng_url or "",
-            psx_scope=psx_scope, psx_risk=psx_risk,
-            psx_remediation=psx_remediation, psx_impact=psx_impact,
+            exception_scope=exception_scope, exception_risk=exception_risk,
+            exception_remediation=exception_remediation, exception_impact=exception_impact,
             authorized_party=authorized_party,
         )
         description_filled = desc_result.get("ok", False)
@@ -1144,11 +1283,11 @@ def _apply_and_verify(
                     })
                 elif "description" in issue and project in ("PSX", "OCPEXCEPT"):
                     desc_r = _fill_psx_template(
-                        ticket_key, rule, components, justification,
+                        ticket_key, rule, components,
                         rhoai_version, effective_until, rhoaieng_url or "",
-                        psx_scope=psx_scope, psx_risk=psx_risk,
-                        psx_remediation=psx_remediation,
-                        psx_impact=psx_impact,
+                        exception_scope=exception_scope, exception_risk=exception_risk,
+                        exception_remediation=exception_remediation,
+                        exception_impact=exception_impact,
                         authorized_party=authorized_party,
                     )
                     operations.append({
@@ -1292,7 +1431,6 @@ def reconcile_ticket(
     project: str,
     rule: str,
     components: list[str],
-    justification: str,
     rhoai_version: str,
     effective_until: str,
     rhoaieng_url: str | None = None,
@@ -1300,10 +1438,10 @@ def reconcile_ticket(
     link_to: str | None = None,
     summary_context: str | None = None,
     vendor_tag: str | None = None,
-    psx_scope: str | None = None,
-    psx_risk: str | None = None,
-    psx_remediation: str | None = None,
-    psx_impact: str | None = None,
+    exception_scope: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
+    exception_impact: str | None = None,
     authorized_party: str | None = None,
 ) -> dict:
     """Reconcile an existing ticket to match expected state.
@@ -1375,10 +1513,10 @@ def reconcile_ticket(
         node_count = len(desc.get("content", [])) if isinstance(desc, dict) else 0
         if node_count < 15:
             desc_result = _fill_psx_template(
-                ticket_key, rule, components, justification,
+                ticket_key, rule, components,
                 rhoai_version, effective_until, rhoaieng_url or "",
-                psx_scope=psx_scope, psx_risk=psx_risk,
-                psx_remediation=psx_remediation, psx_impact=psx_impact,
+                exception_scope=exception_scope, exception_risk=exception_risk,
+                exception_remediation=exception_remediation, exception_impact=exception_impact,
                 authorized_party=authorized_party,
             )
             description_filled = desc_result.get("ok", False)
@@ -1444,11 +1582,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--rule", required=True)
     parser.add_argument("--components", required=True, help="Comma-separated")
-    parser.add_argument("--justification", required=True)
+    parser.add_argument("--justification", default=None,
+                        help="Justification template ID (e.g., dev_preview, code_frozen)")
     parser.add_argument("--rhoai-version", required=True)
     parser.add_argument("--effective-until", required=True)
     parser.add_argument(
-        "--rhoaieng-url", default=None, help="RHOAIENG ticket URL (for PSX/OCPEXCEPT)"
+        "--rhoaieng-url", default=None, help="RHOAIENG approval ticket URL (for PSX/OCPEXCEPT)"
+    )
+    parser.add_argument(
+        "--remediation-plan-url", default=None,
+        help="RHOAIENG resolution plan ticket URL (referenced in justification text)",
     )
     parser.add_argument("--psx-url", default=None, help="PSX ticket URL (for RHOAIENG back-ref)")
     parser.add_argument(
@@ -1466,19 +1609,14 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Vendor/distinguisher tag prepended to title, e.g. AMD, NVIDIA, FIPS",
     )
-    parser.add_argument("--psx-scope", default=None, help="PSX template: scope details (overrides --template)")
-    parser.add_argument("--psx-risk", default=None, help="PSX template: risk acceptance (overrides --template)")
-    parser.add_argument("--psx-remediation", default=None, help="PSX template: fix plan (overrides --template)")
-    parser.add_argument("--psx-impact", default=None, help="PSX template: impact if denied (overrides --template)")
+    parser.add_argument("--exception-scope", default=None, help="Exception scope (overrides template)")
+    parser.add_argument("--exception-risk", default=None, help="Exception risk acceptance (overrides template)")
+    parser.add_argument("--exception-remediation", default=None, help="Exception remediation plan (overrides template)")
+    parser.add_argument("--exception-impact", default=None, help="Exception impact if denied (overrides template)")
     parser.add_argument(
         "--template",
         default=None,
         help="Template category ID from exception_templates.yaml (e.g., rpm_signature_thirdparty)",
-    )
-    parser.add_argument(
-        "--template-variant",
-        default=None,
-        help="Template variant ID (e.g., fedora_epel, amd, habanalabs). Required if --template is set.",
     )
     parser.add_argument(
         "--authorized-party",
@@ -1496,6 +1634,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--purpose",
+        default="approval",
+        choices=["approval", "remediation"],
+        help="RHOAIENG ticket purpose: approval (Blocker Bug) or remediation (Bug for fix)",
+    )
+    parser.add_argument(
+        "--assignee",
+        default=None,
+        help="Jira display name to assign the ticket to",
+    )
+    parser.add_argument(
         "--reconcile",
         default=None,
         metavar="TICKET_KEY",
@@ -1509,13 +1658,8 @@ def main() -> int:
     args = parse_args()
     components = [c.strip() for c in args.components.split(",")]
 
-    # --- Resolve template if provided ---
+    # --- Resolve template + justification if provided ---
     if args.template:
-        if not args.template_variant:
-            print(
-                json.dumps({"status": "failed", "error": "--template-variant is required when --template is set"}),
-            )
-            return 2
         versions_str = args.rhoai_version or ""
         versions_list = [v.strip() for v in versions_str.split(",") if v.strip()]
         rule_key = args.rule.split(":", 1)[1] if ":" in args.rule else args.rule
@@ -1527,21 +1671,25 @@ def main() -> int:
             "versions": ", ".join(versions_list) if versions_list else versions_str,
             "version_count": str(len(versions_list)) if versions_list else "1",
             "vendor": args.vendor_tag or "",
-            "rhoaieng_url": args.rhoaieng_url or "",
+            "rhoaieng_exception_approval_url": args.rhoaieng_url or "",
+            "remediation_plan_url": args.remediation_plan_url or "",
             "psx_url": args.psx_url or "",
             "effective_until": args.effective_until or "",
         }
-        resolved = resolve_template(args.template, args.template_variant, template_vars)
+        resolved = resolve_template(
+            args.template, template_vars,
+            justification_id=args.justification,
+        )
         if not args.summary_context:
             args.summary_context = resolved.get("summary_context")
-        if not args.psx_scope:
-            args.psx_scope = resolved.get("scope")
-        if not args.psx_risk:
-            args.psx_risk = resolved.get("risk")
-        if not args.psx_remediation:
-            args.psx_remediation = resolved.get("remediation")
-        if not args.psx_impact:
-            args.psx_impact = resolved.get("impact")
+        if not args.exception_scope:
+            args.exception_scope = resolved.get("scope")
+        if not args.exception_risk:
+            args.exception_risk = resolved.get("risk")
+        if not args.exception_remediation:
+            args.exception_remediation = resolved.get("remediation")
+        if not args.exception_impact:
+            args.exception_impact = resolved.get("impact")
 
     if args.reconcile:
         result = reconcile_ticket(
@@ -1549,7 +1697,6 @@ def main() -> int:
             project=args.project,
             rule=args.rule,
             components=components,
-            justification=args.justification,
             rhoai_version=args.rhoai_version,
             effective_until=args.effective_until,
             rhoaieng_url=args.rhoaieng_url,
@@ -1557,10 +1704,10 @@ def main() -> int:
             link_to=args.link_to,
             summary_context=args.summary_context,
             vendor_tag=args.vendor_tag,
-            psx_scope=args.psx_scope,
-            psx_risk=args.psx_risk,
-            psx_remediation=args.psx_remediation,
-            psx_impact=args.psx_impact,
+            exception_scope=args.exception_scope,
+            exception_risk=args.exception_risk,
+            exception_remediation=args.exception_remediation,
+            exception_impact=args.exception_impact,
             authorized_party=args.authorized_party,
         )
         print(json.dumps(result, indent=2))
@@ -1574,7 +1721,6 @@ def main() -> int:
         project=args.project,
         rule=args.rule,
         components=components,
-        justification=args.justification,
         rhoai_version=args.rhoai_version,
         effective_until=args.effective_until,
         rhoaieng_url=args.rhoaieng_url,
@@ -1582,12 +1728,14 @@ def main() -> int:
         link_to=args.link_to,
         summary_context=args.summary_context,
         vendor_tag=args.vendor_tag,
-        psx_scope=args.psx_scope,
-        psx_risk=args.psx_risk,
-        psx_remediation=args.psx_remediation,
-        psx_impact=args.psx_impact,
+        exception_scope=args.exception_scope,
+        exception_risk=args.exception_risk,
+        exception_remediation=args.exception_remediation,
+        exception_impact=args.exception_impact,
         authorized_party=args.authorized_party,
         watcher_names=watcher_names,
+        purpose=args.purpose,
+        assignee=args.assignee,
         dry_run=args.dry_run,
     )
     print(json.dumps(result, indent=2))

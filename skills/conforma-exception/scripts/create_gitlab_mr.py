@@ -26,6 +26,9 @@ DEFAULT_BRANCH = "main"
 PROVENANCE_REPO = "opendatahub-io/ai-helpers"
 PROVENANCE_SKILL = "conforma-exception-ai-skill"
 
+_SKILL_DIR = Path(__file__).resolve().parent.parent
+WORK_DIR = _SKILL_DIR / ".work"
+
 
 def _build_commit_message(
     rule: str,
@@ -36,6 +39,8 @@ def _build_commit_message(
     reference_url: str | None = None,
     spreadsheet_url: str | None = None,
     target_file: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
 ) -> str:
     """Build a structured, multi-line commit message with provenance."""
     subject = f"Add conforma exception: {rule} ({rhoai_version})"
@@ -52,6 +57,11 @@ def _build_commit_message(
 
     if target_file:
         lines.append(f"  Policy file: {target_file}")
+
+    if exception_risk:
+        lines.append(f"  Risk: {exception_risk}")
+    if exception_remediation:
+        lines.append(f"  Remediation: {exception_remediation}")
 
     lines.append("")
 
@@ -84,6 +94,8 @@ def _build_commit_message_extend(
     reference_url: str | None = None,
     spreadsheet_url: str | None = None,
     target_file: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
 ) -> str:
     """Build a commit message for extending an existing exception's effectiveUntil."""
     subject = f"Extend conforma exception: {rule} ({rhoai_version})"
@@ -100,6 +112,10 @@ def _build_commit_message_extend(
 
     if target_file:
         lines.append(f"  Policy file: {target_file}")
+    if exception_risk:
+        lines.append(f"  Risk: {exception_risk}")
+    if exception_remediation:
+        lines.append(f"  Remediation: {exception_remediation}")
 
     lines.append("")
 
@@ -204,6 +220,8 @@ def _build_commit_message_consolidated(
     reference_url: str | None = None,
     spreadsheet_url: str | None = None,
     target_file: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
 ) -> str:
     """Build commit message for a consolidated MR covering multiple RHOAI versions."""
     versions = [s["version"] for s in version_specs]
@@ -217,6 +235,10 @@ def _build_commit_message_consolidated(
     ]
     if target_file:
         lines.append(f"  Policy file: {target_file}")
+    if exception_risk:
+        lines.append(f"  Risk: {exception_risk}")
+    if exception_remediation:
+        lines.append(f"  Remediation: {exception_remediation}")
     lines.append("")
 
     for spec in version_specs:
@@ -582,6 +604,8 @@ def create_mr(
     reference_title: str | None = None,
     spreadsheet_url: str | None = None,
     vendor_tag: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Clone repo, append exception, create MR."""
@@ -617,7 +641,8 @@ def create_mr(
             ),
         }
 
-    workdir = Path(tempfile.mkdtemp(prefix="conforma-mr-"))
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    workdir = Path(tempfile.mkdtemp(prefix="conforma-mr-", dir=WORK_DIR))
     try:
         clone_dest = str(workdir / "repo")
         repo_url = _get_authenticated_repo_url()
@@ -671,6 +696,8 @@ def create_mr(
                 reference_url=reference_url,
                 spreadsheet_url=spreadsheet_url,
                 target_file=target_file,
+                exception_risk=exception_risk,
+                exception_remediation=exception_remediation,
             )
         else:
             commit_msg = _build_commit_message(
@@ -682,6 +709,8 @@ def create_mr(
                 reference_url=reference_url,
                 spreadsheet_url=spreadsheet_url,
                 target_file=target_file,
+                exception_risk=exception_risk,
+                exception_remediation=exception_remediation,
             )
 
         _run_git(["git", "add", target_file], cwd=repo_dir)
@@ -792,6 +821,8 @@ def update_mr(
     reference_title: str | None = None,
     spreadsheet_url: str | None = None,
     vendor_tag: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Update an existing MR branch by recreating it from current main.
@@ -828,7 +859,8 @@ def update_mr(
             "mr_url": None,
         }
 
-    workdir = Path(tempfile.mkdtemp(prefix="conforma-mr-update-"))
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    workdir = Path(tempfile.mkdtemp(prefix="conforma-mr-update-", dir=WORK_DIR))
     try:
         clone_dest = str(workdir / "repo")
         repo_url = _get_authenticated_repo_url()
@@ -881,6 +913,8 @@ def update_mr(
                 reference_url=reference_url,
                 spreadsheet_url=spreadsheet_url,
                 target_file=target_file,
+                exception_risk=exception_risk,
+                exception_remediation=exception_remediation,
             )
         else:
             commit_msg = _build_commit_message(
@@ -892,6 +926,8 @@ def update_mr(
                 reference_url=reference_url,
                 spreadsheet_url=spreadsheet_url,
                 target_file=target_file,
+                exception_risk=exception_risk,
+                exception_remediation=exception_remediation,
             )
 
         _run_git(["git", "add", target_file], cwd=repo_dir)
@@ -947,6 +983,8 @@ def create_consolidated_mr(
     reference_title: str | None = None,
     spreadsheet_url: str | None = None,
     vendor_tag: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Create a single consolidated MR covering all RHOAI versions for one rule.
@@ -989,7 +1027,8 @@ def create_consolidated_mr(
             "mr_url": None,
         }
 
-    workdir = Path(tempfile.mkdtemp(prefix="conforma-mr-consolidated-"))
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    workdir = Path(tempfile.mkdtemp(prefix="conforma-mr-consolidated-", dir=WORK_DIR))
     try:
         clone_dest = str(workdir / "repo")
         repo_url = _get_authenticated_repo_url()
@@ -1048,6 +1087,8 @@ def create_consolidated_mr(
             reference_url=reference_url,
             spreadsheet_url=spreadsheet_url,
             target_file=target_file,
+            exception_risk=exception_risk,
+            exception_remediation=exception_remediation,
         )
 
         _run_git(["git", "add", target_file], cwd=repo_dir)
@@ -1211,12 +1252,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reference-url", required=True, help="PSX/OCPEXCEPT ticket URL")
     parser.add_argument("--reference-title", default=None, help="PSX/OCPEXCEPT ticket title")
     parser.add_argument("--rhoaieng-url", default=None)
+    parser.add_argument("--remediation-plan-url", default=None)
     parser.add_argument("--rhoai-version", default=None, help="Single-version mode")
     parser.add_argument("--environment", default="prod", choices=["prod", "stage"])
     parser.add_argument(
         "--spreadsheet-url", default=None, help="Tracking spreadsheet URL (YAML comment)"
     )
-    parser.add_argument("--self-service", action="store_true")
+    parser.add_argument("--self-service", action="store_true",
+                        help="Target exceptions/ dir (set automatically by orchestrator from workflow)")
     parser.add_argument("--image-ref", default=None, help="SHA digest for weekday_restriction")
     parser.add_argument(
         "--vendor-tag", default=None,
@@ -1231,12 +1274,50 @@ def parse_args() -> argparse.Namespace:
             "When provided, --components/--effective-until/--rhoai-version are ignored."
         ),
     )
+    parser.add_argument("--template", default=None,
+                        help="Template category ID from exception_templates.yaml")
+    parser.add_argument("--justification", default=None,
+                        help="Justification template ID (e.g., dev_preview, code_frozen)")
+    parser.add_argument("--exception-risk", default=None,
+                        help="Exception risk text (overrides template)")
+    parser.add_argument("--exception-remediation", default=None,
+                        help="Exception remediation text (overrides template)")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+
+    # --- Resolve template + justification if provided ---
+    if args.template:
+        from create_jira_ticket import resolve_template
+
+        versions_str = args.rhoai_version or ""
+        versions_list = [v.strip() for v in versions_str.split(",") if v.strip()]
+        rule_key = args.rule.split(":", 1)[1] if ":" in args.rule else args.rule
+        components_str = args.components or ""
+        components_list = [c.strip() for c in components_str.split(",") if c.strip()]
+        template_vars = {
+            "rule": args.rule,
+            "rule_key": rule_key,
+            "components": ", ".join(components_list),
+            "component_count": str(len(components_list)),
+            "versions": ", ".join(versions_list) if versions_list else versions_str,
+            "version_count": str(len(versions_list)) if versions_list else "1",
+            "vendor": args.vendor_tag or "",
+            "rhoaieng_exception_approval_url": args.rhoaieng_url or args.reference_url or "",
+            "remediation_plan_url": args.remediation_plan_url or "",
+            "effective_until": args.effective_until or "",
+        }
+        resolved = resolve_template(
+            args.template, template_vars,
+            justification_id=args.justification,
+        )
+        if not args.exception_risk:
+            args.exception_risk = resolved.get("risk")
+        if not args.exception_remediation:
+            args.exception_remediation = resolved.get("remediation")
 
     # Consolidated mode: single MR for all versions
     if args.version_specs_json:
@@ -1251,6 +1332,8 @@ def main() -> int:
             reference_title=args.reference_title,
             spreadsheet_url=args.spreadsheet_url,
             vendor_tag=args.vendor_tag,
+            exception_risk=args.exception_risk,
+            exception_remediation=args.exception_remediation,
             dry_run=args.dry_run,
         )
         print(json.dumps(result, indent=2))
@@ -1284,6 +1367,8 @@ def main() -> int:
             reference_title=args.reference_title,
             spreadsheet_url=args.spreadsheet_url,
             vendor_tag=args.vendor_tag,
+            exception_risk=args.exception_risk,
+            exception_remediation=args.exception_remediation,
             dry_run=args.dry_run,
         )
     else:
@@ -1301,6 +1386,8 @@ def main() -> int:
             reference_title=args.reference_title,
             spreadsheet_url=args.spreadsheet_url,
             vendor_tag=args.vendor_tag,
+            exception_risk=args.exception_risk,
+            exception_remediation=args.exception_remediation,
             dry_run=args.dry_run,
         )
     print(json.dumps(result, indent=2))

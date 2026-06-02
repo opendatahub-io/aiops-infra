@@ -30,7 +30,7 @@ paths:
 # FBC detection: component name contains 'fbc' (case-insensitive)
 fbc_detection_pattern: "(?i)fbc"
 
-# Self-service eligible rules (Path C)
+# Self-service eligible rules (auto-detected from exception_templates.yaml workflow)
 self_service_rules:
   - schedule.weekday_restriction
   - "test.no_failed_tests:fbc-target-index-pruning-check"

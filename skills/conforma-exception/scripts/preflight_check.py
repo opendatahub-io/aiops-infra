@@ -40,7 +40,7 @@ HARD_RULES = {
     "matching_componentNames_exception_handling": "extend_effectiveUntil_in_place",
 }
 
-# Default end-of-support dates (effectiveUntil = EOS + 7 days)
+# Default end-of-support dates (pre-calculated with +7 day buffer; buffer only applies to EOS-sourced dates)
 DEFAULT_EOS_DATES: dict[str, str] = {
     "rhoai-2.25": "2027-04-26",
     "rhoai-3.3": "2026-10-05",
@@ -269,14 +269,18 @@ def lookup_components_from_rpa(
 
 
 def resolve_effective_until_dates(rhoai_versions: list[str]) -> dict[str, dict]:
-    """Resolve effectiveUntil dates from defaults (end-of-support + 7 days)."""
+    """Resolve effectiveUntil dates from defaults (end-of-support + 7 day buffer).
+
+    The +7 day buffer is only applied to dates sourced from this EOS table.
+    User-provided or Jira-sourced dates are used as-is.
+    """
     results = {}
     for ver in rhoai_versions:
         if ver in DEFAULT_EOS_DATES:
             results[ver] = {
                 "effectiveUntil": f"{DEFAULT_EOS_DATES[ver]}T00:00:00Z",
                 "source": "default_eos_table",
-                "note": "End-of-support + 7 days buffer (pre-calculated)",
+                "note": "End-of-support date + 7 day buffer (pre-calculated)",
             }
         else:
             results[ver] = {
@@ -671,7 +675,7 @@ def run_preflight(
             )
         else:
             output["user_confirmation_required"].append(
-                "Confirm effectiveUntil dates (end-of-support + 7 days): "
+                "Confirm effectiveUntil dates (end-of-support + 7 day buffer): "
                 + ", ".join(f"{v}={d['effectiveUntil']}" for v, d in dates.items())
             )
 

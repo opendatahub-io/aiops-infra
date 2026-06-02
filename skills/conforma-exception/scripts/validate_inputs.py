@@ -4,11 +4,9 @@
 Handles:
 - RHOAI version parsing and comparison
 - Component name vs version reconciliation
-- effectiveUntil date calculation (+7 days buffer)
-- Justification enum validation
+- effectiveUntil date calculation (+7 day buffer only for end-of-support dates)
 - FBC detection
-- Self-service rule eligibility check
-- Path determination (A, B, or C)
+- Workflow determination from exception_templates.yaml
 """
 
 from __future__ import annotations
@@ -20,31 +18,12 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
-JUSTIFICATIONS = {
-    "1": (
-        "violation was not fixed in time before code-freeze of the current"
-        " rhoai release, it is planned to be fixed in the next release"
-    ),
-    "2": (
-        "violation can't be fixed in this rhoai release as it's already been"
-        " code-frozen/released and major code changes are not allowed in"
-        " subreleases/z-stream releases"
-    ),
-}
-
 # Relative paths within a konflux-release-data clone for component name lookups.
 # RPA = ReleasePlanAdmission (primary source, version-specific files)
 # PDS = ProjectDevelopmentStream source files (fallback, uses {{.versionName}} placeholders)
 #       These are the authoritative source; the auto-generated/ folder is derived from them.
 KRD_RPA_SUBPATH = "config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai"
 KRD_PDS_SUBPATH = "tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant"
-
-SELF_SERVICE_RULES = frozenset(
-    [
-        "schedule.weekday_restriction",
-        "test.no_failed_tests:fbc-target-index-pruning-check",
-    ]
-)
 
 APPROVAL_THRESHOLD_VERSION = (3, 5, "ea", 1)
 
@@ -113,16 +92,17 @@ def version_gte_threshold(version: RhoaiVersion) -> bool:
 def check_image_name_vs_component_name(component: str) -> str | None:
     """Detect if a name looks like a container image name rather than a Konflux component name.
 
-    Container image names end in -rhel9 (or -ubi9) without a version suffix.
-    Konflux component names always end in -vX-Y (e.g. -v2-25, -v3-3, -v3-5-ea-1).
+    Container image names (e.g. -rhel9, -ubi9 suffixed) are a legacy naming
+    convention. Konflux component names always end in -vX-Y (e.g. -v2-25,
+    -v3-3, -v3-5-ea-1) and are the correct identifiers for exception MRs.
     """
     if re.search(r"-rhel\d+$", component) or re.search(r"-ubi\d+$", component):
         if not re.search(r"v\d+-\d+", component):
             return (
-                f"'{component}' looks like a container image name (ends in -rhel9/-ubi9 "
-                f"without a version suffix). Konflux component names always include a "
-                f"version suffix like -v2-25 or -v3-3. Use the component name, not the "
-                f"image name."
+                f"'{component}' looks like a legacy container image name (ends in "
+                f"-rhel9/-ubi9 without a version suffix). Konflux component names "
+                f"always include a version suffix like -v2-25 or -v3-3. Use the "
+                f"Konflux component name, not the legacy image name."
             )
     return None
 
@@ -146,8 +126,13 @@ def reconcile_component_version(component: str, version: RhoaiVersion) -> str | 
     return None
 
 
-def compute_effective_until(base_date_str: str) -> str:
-    """Add 7 days to the base date and return RFC3339 timestamp."""
+def compute_effective_until(base_date_str: str, *, eos_buffer: bool = False) -> str:
+    """Parse a base date and return RFC3339 timestamp.
+
+    When eos_buffer=True (date sourced from RHOAI end-of-support table), adds
+    a +7 day buffer. When eos_buffer=False (user-provided or Jira-sourced
+    date), the date is used as-is.
+    """
     try:
         base_date = datetime.strptime(base_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     except ValueError as exc:
@@ -158,8 +143,9 @@ def compute_effective_until(base_date_str: str) -> str:
     if base_date.date() <= datetime.now(timezone.utc).date():
         raise ValueError(f"--effective-until-date must be a future date, got: '{base_date_str}'")
 
-    effective = base_date + timedelta(days=7)
-    return effective.strftime("%Y-%m-%dT00:00:00Z")
+    if eos_buffer:
+        base_date += timedelta(days=7)
+    return base_date.strftime("%Y-%m-%dT00:00:00Z")
 
 
 def detect_fbc(components: list[str]) -> bool:
@@ -167,13 +153,40 @@ def detect_fbc(components: list[str]) -> bool:
     return any("fbc" in c.lower() for c in components)
 
 
-def determine_path(rule: str, is_fips: bool, is_self_service: bool) -> str:
-    """Determine the exception path (A, B, or C)."""
-    if is_self_service or rule in SELF_SERVICE_RULES:
-        return "C"
-    if is_fips:
-        return "B"
-    return "A"
+def determine_workflow(rule: str) -> tuple[str | None, list[dict]]:
+    """Determine the workflow steps from exception_templates.yaml.
+
+    Returns (category_id, workflow_steps). If no template matches, returns
+    (None, []) and the caller should treat it as an error.
+    """
+    from create_jira_ticket import _load_templates, match_template_category
+
+    category_id = match_template_category(rule)
+    if not category_id:
+        return None, []
+
+    data = _load_templates()
+    cat = data.get("categories", {}).get(category_id, {})
+    workflow = cat.get("workflow", [])
+    return category_id, workflow
+
+
+def workflow_has_step(workflow: list[dict], step_id: str) -> bool:
+    """Check if a workflow contains a step with the given ID."""
+    return any(s.get("step") == step_id for s in workflow)
+
+
+def workflow_get_step(workflow: list[dict], step_id: str) -> dict | None:
+    """Get a specific step from the workflow by ID."""
+    for s in workflow:
+        if s.get("step") == step_id:
+            return s
+    return None
+
+
+def workflow_is_self_service(workflow: list[dict]) -> bool:
+    """A workflow is self-service if it has no psx_exception_jira step."""
+    return not workflow_has_step(workflow, "psx_exception_jira")
 
 
 def lookup_component_names(
@@ -349,7 +362,7 @@ def build_confirmation_summary(
     components: list[str],
     version: str,
     effective_until: str | None,
-    path: str,
+    workflow_steps: list[dict],
     rhoaieng_info: dict | None,
 ) -> list[str]:
     """Build a list of items the agent MUST present to the user for confirmation.
@@ -361,8 +374,9 @@ def build_confirmation_summary(
     items.append(f"Components: {', '.join(components)}")
     items.append(f"RHOAI version: {version}")
     if effective_until:
-        items.append(f"effectiveUntil: {effective_until} (base date + 7 days)")
-    items.append(f"Exception path: {path}")
+        items.append(f"effectiveUntil: {effective_until}")
+    step_names = [s.get("step", "?") for s in workflow_steps]
+    items.append(f"Workflow steps: {' -> '.join(step_names)}")
     if rhoaieng_info:
         items.append(
             f"RHOAIENG ticket: {rhoaieng_info.get('key', 'N/A')} "
@@ -395,15 +409,56 @@ def validate_all(args: argparse.Namespace) -> dict:
         if mismatch:
             errors.append(mismatch)
 
-    path = determine_path(args.rule, args.fips, args.self_service)
+    category_id, workflow_steps = determine_workflow(args.rule)
+    if not category_id:
+        errors.append(
+            f"Rule '{args.rule}' does not match any template in exception_templates.yaml "
+            f"and no catch-all 'other' category is available. "
+            f"Add a matching category before creating an exception."
+        )
+        return {"valid": False, "errors": errors, "warnings": warnings}
 
-    if path in ("A", "B") and not args.justification:
-        errors.append("--justification is required for Paths A and B (non-self-service)")
-    if args.justification and args.justification not in JUSTIFICATIONS:
-        errors.append(f"--justification must be '1' or '2', got: '{args.justification}'")
+    is_other_category = category_id == "other"
+    if is_other_category:
+        from create_jira_ticket import lookup_rule_in_catalog
+
+        rule_info = lookup_rule_in_catalog(args.rule)
+        if rule_info:
+            warnings.append(
+                f"Rule '{args.rule}' matched as '{rule_info['name']}' from the "
+                f"Conforma redhat collection. No specific template exists — using "
+                f"catch-all 'other' category. The agent must gather all exception "
+                f"text fields (scope, risk, remediation, impact) from the user. "
+                f"Docs: {rule_info.get('docs', 'N/A')}"
+            )
+        else:
+            warnings.append(
+                f"Rule '{args.rule}' is not in the known Conforma redhat collection "
+                f"rule catalog. Using catch-all 'other' category. Confirm with the "
+                f"user that this is the correct rule code. The agent must gather all "
+                f"exception text fields from the user."
+            )
+
+    is_self_service = workflow_is_self_service(workflow_steps)
+
+    from create_jira_ticket import _load_templates
+
+    data = _load_templates()
+    cat = data.get("categories", {}).get(category_id, {})
+    applicable_justifications = cat.get("applicable_justifications", [])
+
+    justification_id = getattr(args, "justification", None)
+    if justification_id:
+        if justification_id not in applicable_justifications:
+            errors.append(
+                f"Justification '{justification_id}' is not applicable for category "
+                f"'{category_id}'. Valid choices: {applicable_justifications}"
+            )
+    elif applicable_justifications:
+        justification_id = applicable_justifications[0]
 
     effective_until = None
-    if path != "C" or args.effective_until_date:
+    if not is_self_service or args.effective_until_date:
         if not args.effective_until_date:
             errors.append("--effective-until-date is required")
         else:
@@ -413,47 +468,7 @@ def validate_all(args: argparse.Namespace) -> dict:
                 errors.append(str(exc))
 
     is_fbc = detect_fbc(components)
-    requires_approval = version_gte_threshold(version) and path != "C"
-
-    if path == "C" and args.rule not in SELF_SERVICE_RULES and not args.self_service:
-        warnings.append(
-            f"Rule '{args.rule}' is not a known self-service rule. "
-            "Use --self-service to force Path C."
-        )
-
-    # Validate template arguments if provided
-    template_info = None
-    if getattr(args, "template", None):
-        if not getattr(args, "template_variant", None):
-            errors.append("--template-variant is required when --template is set")
-        else:
-            try:
-                from create_jira_ticket import _load_templates
-                data = _load_templates()
-                categories = data.get("categories", {})
-                if args.template not in categories:
-                    available = list(categories.keys())
-                    errors.append(
-                        f"Unknown template category '{args.template}'. "
-                        f"Available: {available}"
-                    )
-                else:
-                    cat = categories[args.template]
-                    variants = cat.get("variants", {})
-                    if args.template_variant not in variants:
-                        available = list(variants.keys())
-                        errors.append(
-                            f"Unknown variant '{args.template_variant}' in category "
-                            f"'{args.template}'. Available: {available}"
-                        )
-                    else:
-                        template_info = {
-                            "category": args.template,
-                            "variant": args.template_variant,
-                            "display_name": variants[args.template_variant]["display_name"],
-                        }
-            except (ImportError, FileNotFoundError) as exc:
-                warnings.append(f"Template validation skipped: {exc}")
+    requires_approval = version_gte_threshold(version) and not is_self_service
 
     rhoaieng_info = check_rhoaieng_ticket_type(args.rhoaieng_url)
     if rhoaieng_info and rhoaieng_info.get("warning"):
@@ -464,16 +479,24 @@ def validate_all(args: argparse.Namespace) -> dict:
         components=components,
         version=str(version),
         effective_until=effective_until,
-        path=path,
+        workflow_steps=workflow_steps,
         rhoaieng_info=rhoaieng_info,
     )
+
+    rule_catalog_info = None
+    if is_other_category:
+        from create_jira_ticket import lookup_rule_in_catalog
+        rule_catalog_info = lookup_rule_in_catalog(args.rule)
 
     result = {
         "valid": len(errors) == 0,
         "errors": errors,
         "warnings": warnings,
         "confirmation_required": confirmation_items,
-        "path": path,
+        "workflow_steps": workflow_steps,
+        "workflow_category": category_id,
+        "is_other_category": is_other_category,
+        "rule_catalog_info": rule_catalog_info,
         "version": str(version),
         "version_parsed": {
             "major": version.major,
@@ -483,19 +506,17 @@ def validate_all(args: argparse.Namespace) -> dict:
         },
         "components": components,
         "rule": args.rule,
-        "justification": JUSTIFICATIONS.get(args.justification, ""),
-        "justification_id": args.justification,
         "effective_until": effective_until,
         "effective_until_base": args.effective_until_date,
         "is_fbc": is_fbc,
-        "is_fips": args.fips,
-        "is_self_service": path == "C",
+        "is_self_service": is_self_service,
         "requires_approval": requires_approval,
+        "justification_id": justification_id,
+        "applicable_justifications": applicable_justifications,
         "environment": args.environment,
         "rhoaieng_url": args.rhoaieng_url,
         "psx_url": args.psx_url,
         "rhoaieng_info": rhoaieng_info,
-        "template_info": template_info,
         "dry_run": args.dry_run,
     }
     return result
@@ -508,8 +529,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--components", required=True, help="Comma-separated Konflux component names"
     )
-    parser.add_argument("--justification", help="'1' or '2' (required for Paths A/B)")
-    parser.add_argument("--effective-until-date", help="Base date YYYY-MM-DD (script adds +7 days)")
+    parser.add_argument("--effective-until-date", help="Date YYYY-MM-DD (used as-is; +7 day buffer only applies to EOS-sourced dates)")
     parser.add_argument(
         "--environment",
         default="prod",
@@ -518,19 +538,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--rhoaieng-url", help="Existing RHOAIENG ticket URL")
     parser.add_argument("--psx-url", help="Existing PSX/OCPEXCEPT ticket URL")
-    parser.add_argument("--fips", action="store_true", help="FIPS exception (routes to OCPEXCEPT)")
-    parser.add_argument("--self-service", action="store_true", help="Force self-service Path C")
+    parser.add_argument("--justification", default=None,
+                        help="Justification template ID (e.g., dev_preview, code_frozen)")
     parser.add_argument("--dry-run", action="store_true", help="Preview without creating anything")
-    parser.add_argument(
-        "--template",
-        default=None,
-        help="Template category ID from exception_templates.yaml",
-    )
-    parser.add_argument(
-        "--template-variant",
-        default=None,
-        help="Template variant ID (required with --template)",
-    )
     parser.add_argument(
         "--lookup-components",
         default=None,

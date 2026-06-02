@@ -66,7 +66,7 @@ Still require a RHOAIENG blocker ticket (no PSX/OCPEXCEPT needed).
 
 ## Policy File Structure
 
-### Standing Exceptions (Paths A/B)
+### Standing Exceptions
 
 Located under `config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/`.
 These are K8s `EnterpriseContractPolicy` resources. Exceptions go under:
@@ -84,7 +84,7 @@ spec:
             reference: <jira-url>
 ```
 
-### Self-Service Exceptions (Path C)
+### Self-Service Exceptions
 
 Located under `exceptions/`. Flat YAML list format:
 
@@ -118,3 +118,5 @@ From the [EC controller spec](https://github.com/enterprise-contract/enterprise-
 - [Konflux Release Troubleshooting](https://konflux.pages.redhat.com/docs/users/troubleshooting/releases.html)
 - [Volatile Config (effectiveUntil)](https://conforma.dev/docs/policy/packages/release_volatile_config.html)
 - [Schedule Weekday Restriction](https://conforma.dev/docs/policy/packages/release_schedule.html)
+- [Conforma Release Policy — all enforced rules](https://conforma.dev/docs/policy/release_policy.html)
+- [Conforma Release Policy — redhat collection rules](https://conforma.dev/docs/policy/release_policy.html#_available_rule_collections)

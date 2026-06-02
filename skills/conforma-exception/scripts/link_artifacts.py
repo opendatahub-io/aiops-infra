@@ -28,6 +28,9 @@ PROVENANCE_REPO = "opendatahub-io/ai-helpers"
 PROVENANCE_LABEL = "conforma-exception-ai-skill"
 VIOLATION_LABEL = "conforma-violation"
 
+_SKILL_DIR = Path(__file__).resolve().parent.parent
+WORK_DIR = _SKILL_DIR / ".work"
+
 
 def _jira_auth() -> tuple[str, str] | None:
     """Return (email, base64-encoded auth header value) or None if not configured."""
@@ -307,7 +310,8 @@ def comment_on_ticket(ticket_key: str, mr_url: str, dry_run: bool = False) -> di
                 "mr_url": mr_url,
             }
 
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", prefix="jira-comment-", delete=False)
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", prefix="jira-comment-", delete=False, dir=WORK_DIR)
     try:
         tmp.write(comment_text)
         tmp.close()
