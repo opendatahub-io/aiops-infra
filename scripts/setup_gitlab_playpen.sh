@@ -77,7 +77,7 @@ fi
 
 if [[ -z "$DEST_BRANCH" ]]; then
   TIMESTAMP=$(date +%Y%m%d%H%M%S)
-  DEST_BRANCH="${GITLAB_USER}-${TIMESTAMP}"
+  DEST_BRANCH="component-onboarding-${GITLAB_USER}-${TIMESTAMP}"
 fi
 
 # ── Inject token into remote URLs ──────────────────────────────────────────────

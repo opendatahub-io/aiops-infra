@@ -283,7 +283,7 @@ PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash scripts/setup_gitlab_playpen.sh \
   --src-url "$PYXIS_URL" \
   --dest-url "$PYXIS_URL" \
   --src-branch main \
-  ${JIRA_ID:+--dest-branch "$JIRA_ID"} \
+  ${JIRA_ID:+--dest-branch "component-onboarding-$JIRA_ID"} \
   --sparse-files "products/rhoai/rhoai.yaml")
 
 CLONE_DIR=$(echo "$PLAYPEN_OUTPUT" | head -1)

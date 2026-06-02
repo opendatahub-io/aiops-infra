@@ -194,7 +194,7 @@ For any other `<org>`, pause and ask:
 Set `YAML_FILE=<path>`.
 
 Determine `DEST_BRANCH`:
-- If `<jira-id>` is available: `DEST_BRANCH=<jira-id>` (e.g. `RHOAIENG-1234`)
+- If `<jira-id>` is available: `DEST_BRANCH=component-onboarding-<jira-id>` (e.g. `component-onboarding-RHOAIENG-1234`)
 - Otherwise: leave `DEST_BRANCH` unset (the playpen script will auto-generate one)
 
 ---

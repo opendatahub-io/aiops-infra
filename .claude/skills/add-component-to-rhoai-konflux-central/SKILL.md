@@ -303,7 +303,7 @@ cd "$WORKDIR"
 PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$RKC_URL" \
   --src-branch "$BRANCH_NAME" \
-  ${JIRA_ID:+--dest-branch "$JIRA_ID"} \
+  ${JIRA_ID:+--dest-branch "component-onboarding-$JIRA_ID"} \
   --sparse-files "pipelineruns/$REPO_NAME")
 
 CLONE_DIR=$(echo "$PLAYPEN_OUTPUT" | head -1)

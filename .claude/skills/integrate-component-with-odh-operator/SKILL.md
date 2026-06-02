@@ -314,7 +314,7 @@ cd "$WORKDIR"
 PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$ODH_OPERATOR_URL" \
   --src-branch "$OPERATOR_TARGET_BRANCH" \
-  --dest-branch "<jira-id>" \
+  --dest-branch "component-onboarding-<jira-id>" \
   --sparse-files "build")
 ```
 

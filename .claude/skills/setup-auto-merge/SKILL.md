@@ -277,7 +277,7 @@ PLAYPEN_ARGS=(
   --src-branch "main"
   --sparse-files "src/config .github/workflows"
 )
-[[ -n "$JIRA_ID" ]] && PLAYPEN_ARGS+=(--dest-branch "$JIRA_ID")
+[[ -n "$JIRA_ID" ]] && PLAYPEN_ARGS+=(--dest-branch "component-onboarding-$JIRA_ID")
 
 PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh "${PLAYPEN_ARGS[@]}")
 

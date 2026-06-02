@@ -286,7 +286,7 @@ cd "$WORKDIR"
 PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$OKC_URL" \
   --src-branch main \
-  --dest-branch "<jira-id>" \
+  --dest-branch "component-onboarding-<jira-id>" \
   --sparse-files "pipelineruns/template pipelineruns/$REPO_NAME .github/workflows")
 ```
 
