@@ -365,12 +365,26 @@ def delete_link(
     return {"status": "not_found", "from": ticket_key, "to": target_key}
 
 
+def _derive_mr_link_title(mr_url: str, mr_title: str | None = None) -> str:
+    """Build a descriptive title for the remote link.
+
+    If mr_title is provided, use it directly.
+    Otherwise, derive from the MR URL (branch name contains version info).
+    """
+    if mr_title:
+        return mr_title
+    match = re.search(r"/merge_requests/(\d+)", mr_url)
+    mr_num = match.group(1) if match else ""
+    return f"Conforma Exception MR !{mr_num}" if mr_num else "Conforma Exception MR"
+
+
 def link_all(
     mr_url: str,
     rhoaieng_url: str | None,
     psx_url: str | None,
     link_to: str | None = None,
     related_psx: str | None = None,
+    mr_title: str | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Comment MR URL, add provenance label, and link tickets to each other.
@@ -380,8 +394,11 @@ def link_all(
                      This is NOT the main exception ticket -- it's a pre-existing
                      ticket that should be cross-referenced but not used as the
                      exception's PSX ticket.
+        mr_title: Descriptive title for the remote web link in Jira.
+                  If not provided, derives from MR URL (e.g. "Conforma Exception MR !18281").
     """
     results = []
+    remote_link_title = _derive_mr_link_title(mr_url, mr_title)
 
     for url in (rhoaieng_url, psx_url):
         if not url:
@@ -389,7 +406,7 @@ def link_all(
         ticket_key = _extract_key(url)
         if not ticket_key:
             continue
-        results.append(add_remote_link(ticket_key, mr_url, "Conforma Exception MR", dry_run))
+        results.append(add_remote_link(ticket_key, mr_url, remote_link_title, dry_run))
         results.append(comment_on_ticket(ticket_key, mr_url, dry_run))
         results.append(add_label(ticket_key, dry_run))
 
@@ -453,6 +470,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Existing PSX ticket to link as Related only (not used as the exception ticket)",
     )
+    parser.add_argument(
+        "--mr-title",
+        default=None,
+        help="Descriptive title for the remote web link in Jira (e.g. 'Exception MR rhoai-2.25')",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -465,6 +487,7 @@ def main() -> int:
         psx_url=args.psx_url,
         link_to=args.link_to,
         related_psx=args.related_psx,
+        mr_title=args.mr_title,
         dry_run=args.dry_run,
     )
     print(json.dumps(result, indent=2))
