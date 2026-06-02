@@ -578,6 +578,254 @@ Each script validates inputs and exits non-zero on failure. The orchestrator sto
 - Jira ticket creation failure (permissions, invalid project)
 - Verification failure (labels, links, or fields not confirmed after retries)
 
+## Managing Expired Exceptions
+
+Expired exceptions are policy entries whose `effectiveUntil` date has passed. They must be reviewed to determine if they are still needed (violations persist) or can be removed (violations resolved).
+
+This is a two-skill workflow involving `conforma-exception` (this skill) and the sibling `conforma-analyze` skill.
+
+### Architecture
+
+```mermaid
+flowchart TD
+    subgraph analyze [conforma-analyze skill]
+        A1[verify_auth.py] --> A2[fetch_conforma_reports.py]
+        A2 --> A3[parse_violations.py]
+        A3 --> VY[conforma-violations.yaml]
+    end
+    subgraph exception [conforma-exception skill]
+        M1["manage_exceptions.py --find-expired"] --> EY[expired-exceptions.yaml stdout]
+        M2["manage_exceptions.py --assess-expired"] --> AY[assessed-exceptions.yaml]
+        AY --> UserReview[Agent presents to user]
+        UserReview -->|extend| CE[create_exception.py]
+        UserReview -->|remove| GM["create_gitlab_mr.py --remove-expired-exception"]
+    end
+    VY -->|"--violations-input"| M2
+```
+
+**`conforma-analyze`** is a self-contained, user-invocable skill that fetches CSV violation reports from the private `red-hat-data-services/conforma-reporter` repository and parses them into a structured YAML index (`conforma-violations.yaml`). It knows about violations only -- not exceptions, policy files, or Jira.
+
+**`conforma-exception`** (this skill) consumes the violations YAML via `manage_exceptions.py` to cross-reference expired exceptions against active violations, classify them, and recommend actions. Handling (extending or removing) is done via existing scripts after user confirmation.
+
+### Discovery: `manage_exceptions.py --find-expired`
+
+Lists all expired exceptions from policy files. No violations data needed.
+
+```bash
+python3 scripts/manage_exceptions.py --find-expired \
+  --environment prod \
+  [--clone-dir /tmp/konflux-release-data]
+```
+
+Output is structured YAML to stdout listing each expired exception with metadata:
+- `file`: policy file path (e.g. `EnterpriseContractPolicy/registry-rhoai-prod.yaml`)
+- `rule`: full rule code
+- `effective_until`: expired date
+- `expired_days_ago`: how long ago it expired
+- `is_legacy`: true if the exception has no `componentNames` (uses containerImage refs instead of component names)
+- `comment_header_lines`: preceding YAML comments (Jira URLs, version notes)
+
+### Assessment: `manage_exceptions.py --assess-expired`
+
+Cross-references expired exceptions against violations data to classify each.
+
+```bash
+python3 scripts/manage_exceptions.py --assess-expired \
+  --violations-input /tmp/conforma-violations.yaml \
+  --environment prod \
+  [--clone-dir /tmp/konflux-release-data] \
+  [--output /tmp/assessed-exceptions.yaml]
+```
+
+Requires `conforma-violations.yaml` from the `conforma-analyze` skill.
+
+**Classification logic (deterministic):**
+
+| Exception type | Violations found? | Classification |
+|---|---|---|
+| Has `componentNames` | All listed components still violate | `still_needed` |
+| Has `componentNames` | Some components still violate | `partially_needed` |
+| Has `componentNames` | No component violates | `no_longer_needed` |
+| Legacy (uses containerImage refs, no `componentNames`) | Any component violates for this rule | `still_needed` |
+| Legacy (uses containerImage refs, no `componentNames`) | No violations found | `no_longer_needed` |
+| Either type | Rule not in violations index | `no_longer_needed` |
+
+**Recommended actions (deterministic):**
+
+| Classification | Legacy? | `recommended_action` |
+|---|---|---|
+| `still_needed` | no | `extend` |
+| `still_needed` | yes | `extend_and_modernize` |
+| `partially_needed` | no | `narrow_and_extend` |
+| `partially_needed` | yes | `modernize_and_narrow` |
+| `no_longer_needed` | either | `remove` |
+
+The agent presents the assessment to the user with:
+- Why each exception is still needed or not (citing specific releases and components)
+- Suggested new `effectiveUntil` date for extensions
+- For legacy exceptions: recommend modernizing to componentNames-scoped blocks
+- Priority ordering: oldest expiry first
+
+### Handling: Extending Modern Exceptions (`extend`)
+
+For modern exceptions (has `componentNames`) classified as `still_needed`, use the standard creation flow which auto-extends via deduplication:
+
+```bash
+python3 scripts/create_exception.py \
+  --rule <rule> \
+  --rhoai-version <version> \
+  --components <components> \
+  --effective-until-date <new-date> \
+  --rhoaieng-url <approval-ticket>
+```
+
+### Handling: Modernizing Legacy Exceptions (`extend_and_modernize`)
+
+**Never blindly extend a legacy exception by bumping its `effectiveUntil` date.** Legacy exceptions use containerImage refs instead of `componentNames`. They are not scoped to specific components in the modern Konflux sense. When a legacy exception is still needed, it MUST be replaced with properly-scoped modern entries: per-componentName, per-version.
+
+The assessment evidence provides exactly which components still violate per release (in `evidence.still_violating_components` and `evidence.still_violating_releases`). Use this to create targeted replacements.
+
+Steps:
+1. **Remove the old legacy block**:
+
+```bash
+python3 scripts/create_gitlab_mr.py --remove-expired-exception \
+  --rule <rule> \
+  --effective-until <current-expired-date> \
+  --rhoai-version <version> \
+  --environment prod
+```
+
+2. **Create new scoped exception(s)** per version with the correct `componentNames`, using the standard flow:
+
+```bash
+python3 scripts/create_exception.py \
+  --rule <rule> \
+  --rhoai-version <version> \
+  --components <still-violating-component-1>,<still-violating-component-2> \
+  --effective-until-date <new-date> \
+  --rhoaieng-url <approval-ticket>
+```
+
+   Repeat for each version that still has violations. Only include the components that are actually violating in each version -- do NOT carry over the legacy "all components" scope.
+
+Both the removal and the new entries can be combined into a single consolidated MR if convenient.
+
+### Handling: Narrowing Exceptions (`narrow_and_extend`, `modernize_and_narrow`)
+
+For exceptions classified as `partially_needed`, some components no longer violate. The old block must be replaced with a narrower one covering only the components that still need coverage.
+
+Steps:
+1. Remove the old block (`create_gitlab_mr.py --remove-expired-exception`)
+2. Create a new exception with only the still-violating components (`create_exception.py`)
+
+For legacy exceptions (`modernize_and_narrow`), this is the same as `extend_and_modernize` above -- the old un-scoped block is replaced with modern per-componentName entries, but scoped to only the components that still violate.
+
+### Handling: Removing Exceptions (`remove`)
+
+For exceptions classified as `no_longer_needed`, use the removal flag on `create_gitlab_mr.py`:
+
+```bash
+python3 scripts/create_gitlab_mr.py --remove-expired-exception \
+  --rule <rule> \
+  --effective-until <current-expired-date> \
+  --rhoai-version <version> \
+  --environment prod \
+  [--components <components>] \
+  [--reference-url <psx-ticket-url>]
+```
+
+This creates a GitLab MR that removes the expired exception block and its preceding comment header entirely from the policy file. Block identification uses `--rule` + `--effective-until` (+ `--components` for modern exceptions).
+
+### Full Workflow
+
+When the user asks to handle expired exceptions:
+
+1. **Run `conforma-analyze`**: Invoke the sibling skill to fetch and parse violation reports. Releases are auto-detected from `rhods-devops-infra/rhoai-release-data.yaml` (all supported versions including EA/in-development). An exception is still needed if the violation persists in any release, even if resolved in older versions.
+
+2. **Find expired**: Run `manage_exceptions.py --find-expired` to list all expired exceptions.
+
+3. **Assess**: Run `manage_exceptions.py --assess-expired --violations-input <path>` to classify each expired exception.
+
+4. **Generate report and action plan**:
+
+```bash
+python3 scripts/generate_report.py \
+  --assessed-input /tmp/assessed-exceptions.yaml \
+  --output <canvas-path> \
+  --action-plan-output /tmp/action-plan.json
+```
+
+Present the canvas to the user. The action plan JSON contains a sorted list of actions (removals first, then extensions, then modernizations) with all data needed to create MRs.
+
+5. **Interactive action loop**: After presenting the canvas, announce that you will walk through each exception one by one for user confirmation. Read the action plan JSON and iterate over each action item in order.
+
+**For each exception:**
+
+   a. **Present summary**: Show the rule, classification, recommended action, affected releases, components, policy file, and existing reference URL.
+
+   b. **Ask the user** (using AskQuestion) with three options:
+      - "Create MR" -- proceed with the recommended action
+      - "Skip" -- move to the next exception
+      - "Other" -- await free-form user instructions
+
+   c. **If "Create MR":**
+
+      **i. Resolve `effectiveUntil` dates**: Use `preflight_check.resolve_effective_until_dates()` to look up end-of-support dates (with +7 day buffer) for each affected RHOAI version. Present the resolved dates to the user for confirmation before proceeding. If any version has no EOS date, ask the user to provide one.
+
+      **ii. RHOAIENG approval gate (hard requirement)**: Ask the user for an existing RHOAIENG approval Jira URL, or offer to search for one. This is a **hard gate** -- no MR can be created without an approved RHOAIENG ticket. This follows the same requirements as creating a new exception from scratch: check the ticket status with `preflight_check.check_rhoaieng_approval_status()`. If not approved, halt and inform the user. `--skip-approval-gate` requires explicit user confirmation.
+
+      **iii. Execute the action** based on the recommended action type:
+
+      - **`extend_and_modernize` / `modernize_and_narrow`**: Create a single consolidated MR that removes the legacy block and adds new per-componentName/per-version entries:
+
+      ```bash
+      python3 scripts/create_gitlab_mr.py \
+        --modernize-expired-exception \
+        --rule <rule> \
+        --effective-until <old-expired-date> \
+        --policy-file <file-from-assessment> \
+        --reference-url <psx-or-reference-url> \
+        --rhoaieng-url <approval-jira-url> \
+        --environment prod \
+        --version-specs-json '[{"version":"rhoai-3.3","components":["comp-v3-3"],"effective_until":"2026-10-05T00:00:00Z"}, ...]'
+      ```
+
+      Build `--version-specs-json` from the action plan's `versions` field (release -> components mapping) combined with the resolved `effectiveUntil` dates.
+
+      - **`remove`**: Remove the exception block:
+
+      ```bash
+      python3 scripts/create_gitlab_mr.py \
+        --remove-expired-exception \
+        --rule <rule> \
+        --effective-until <old-expired-date> \
+        --rhoai-version <version> \
+        --policy-file <file-from-assessment> \
+        --environment prod
+      ```
+
+      - **`extend`** (non-legacy only): Use the standard creation flow with the new effectiveUntil date:
+
+      ```bash
+      python3 scripts/create_exception.py \
+        --rule <rule> \
+        --rhoai-version <version> \
+        --components <still-violating-components> \
+        --effective-until-date <new-date> \
+        --rhoaieng-url <approval-jira-url>
+      ```
+
+      - **`narrow_and_extend`** (non-legacy): Remove the old block, then create a new exception with only the still-violating components. Use `--remove-expired-exception` followed by `create_exception.py`, or combine into a single MR if both target the same policy file.
+
+   d. **Report result**: After each MR creation, print the MR URL and move to the next exception.
+
+   e. **If "Skip"**: Move to the next exception without action.
+
+   f. **If "Other"**: Await free-form user instructions, then proceed accordingly.
+
+**Discovery and handling are always separate steps.** The agent MUST present the assessment and get user confirmation before performing any modifications. The action loop MUST use the `--policy-file` flag from the assessment's `file` field to ensure the correct policy file is targeted (especially important for FBC exceptions in `fbc-rhoai-prod.yaml`).
+
 ## Reference Documentation
 
 See `references/exception-process.md` for the full process documentation including:
