@@ -22,11 +22,11 @@ An exception is a YAML entry added to a release policy file in the [konflux-rele
   reference: https://redhat.atlassian.net/browse/PSX-1234
 ```
 
-Key fields: `value` = the [Conforma rule](https://conforma.dev/docs/policy/release_policy.html) being waived, `componentNames` = Konflux component names (not legacy image names), `effectiveUntil` = expiry date in RFC3339 format, `reference` = the PSX/OCPEXCEPT Jira ticket URL.
+Key fields: `value` = the [Conforma rule](https://conforma.dev/docs/policy/release_policy.html) being waived, `componentNames` = Konflux component names (not container image names), `effectiveUntil` = expiry date in RFC3339 format, `reference` = the PSX/OCPEXCEPT Jira ticket URL.
 
 ## Prerequisites
 
-The skill requires `acli` (Atlassian CLI) and `glab` (GitLab CLI). **`acli` is auto-installed** to `~/.local/bin/` on first use if not already on PATH. `glab` must be installed manually.
+The skill requires `acli` (Atlassian CLI) and `glab` (GitLab CLI). **`acli` is auto-installed** to `~/.local/bin/` on first use if not already on PATH — the download-from-CDN logic is built into `cli_runner.py` and triggers transparently whenever any script calls `run_acli()`. `glab` must be installed manually.
 
 **Always run preflight first** before creating any tickets or MRs:
 
@@ -77,7 +77,7 @@ Container mode requires API token authentication since `--web` OAuth cannot open
 
 ## RHOAIENG Approval Gate (Hard Prerequisite)
 
-**The RHOAIENG approval Jira ticket MUST be approved (Closed/Resolved) BEFORE creating the PSX/OCPEXCEPT Jira ticket and GitLab Merge Request.** This is a hard gate enforced by the orchestrator.
+**The RHOAIENG approval Jira ticket is created by the DevOps engineer (typically using this skill) and then MUST be approved by Senior Management (Closed/Resolved) BEFORE creating the PSX/OCPEXCEPT Jira ticket and GitLab Merge Request.** This is a hard gate enforced by the orchestrator. When explaining this to the user, always make clear that the ticket is created first, then separately approved by Senior Management — never imply that Senior Management creates the ticket.
 
 The orchestrator checks the RHOAIENG approval ticket status after creation (or when provided via `--rhoaieng-url`). If the ticket is not yet approved:
 
@@ -139,10 +139,12 @@ The RHOAIENG approval Jira ticket must be approved before PSX/MR creation (see "
 ### No Agent Decisions Policy
 
 **The agent MUST NOT make decisions about parameter values.** All parameters are resolved by deterministic scripts. The agent's ONLY role is:
-1. Run `preflight_check.py` to resolve all values from authoritative sources
-2. Present the script's output to the user as a structured questionnaire for confirmation
-3. Execute the creation scripts with the confirmed values
-4. Report results
+1. Run `preflight_check.py --check-existing-exception` — Existing Exception Gate (hard prerequisite, must pass before continuing)
+2. Run `preflight_check.py` (full) to resolve all values from authoritative sources
+3. Present the script's output to the user as a structured questionnaire for confirmation
+4. **Dry-run first**: Always run `create_exception.py` with `--dry-run` before the real execution and present the preview to the user. Only proceed with the real execution after the user confirms the dry-run output. This is a standard safety step — never skip it unless the user explicitly asks to go straight to execution.
+5. Execute the creation scripts with the confirmed values (remove `--dry-run`)
+6. Report results
 
 The agent MUST NEVER:
 - Decide link types (enforced by `link_artifacts.py`)
@@ -152,16 +154,37 @@ The agent MUST NEVER:
 - Create links without the script's idempotency checks
 - Override any value from `hard_rules` in the preflight output
 
+### Existing Exception Gate (Hard Prerequisite)
+
+**ALWAYS run the existing exception gate FIRST**, before Jira tickets, questionnaires, or the full preflight check. Run it as soon as the rule and component list are known:
+
+```bash
+python3 scripts/preflight_check.py --check-existing-exception \
+  --rule <rule> \
+  --components <comma-separated-components> \
+  [--environment prod]
+```
+
+The script checks the GitLab repo deterministically and outputs JSON with a `status` field. Present the script's output to the user. If `status` is not `passed`, do NOT proceed with the create-exception workflow.
+
+Coverage detection is fully deterministic — the script handles all matching logic:
+- **componentNames-scoped exceptions**: exact overlap check between requested and listed componentNames
+- **imageUrl-scoped exceptions**: base name matching (e.g. `quay.io/rhoai/odh-dashboard-rhel9` covers `odh-dashboard-v3-3`, `odh-dashboard-v3-4`, etc. by stripping the `-rhel9`/`-ubi9` suffix and the `-vX-Y` version suffix, then comparing base names)
+- **Unscoped exceptions** (no componentNames, no imageUrl): covers all components for that rule
+
+The agent MUST NOT perform its own imageUrl-to-componentName matching. The script output is authoritative.
+
+The gate also searches for **open merge requests** in the `konflux-release-data` GitLab repo that mention the violation. If open MRs are found, they are included in the `open_merge_requests` field. The agent MUST present them to the user with a note like: "There is already an open MR for this violation: [MR title](url) by @author (created date). You may want to check it before creating a new one." This is informational — it does not block the gate — but it prevents duplicate MRs.
+
 ### Mandatory Pre-Flight Script
 
-**ALWAYS run `preflight_check.py` FIRST** before any other action:
+**After the existing exception gate passes**, run `preflight_check.py` to resolve all remaining parameters:
 
 ```bash
 python3 scripts/preflight_check.py \
   --rhoaieng-url <url> \
   --versions rhoai-2.25,rhoai-3.3 \
-  --image-bases odh-vllm-cpu,odh-vllm-gaudi \
-  --clone-dir /tmp/conforma-check
+  --image-bases odh-vllm-cpu,odh-vllm-gaudi
 ```
 
 The script outputs JSON containing:
@@ -249,6 +272,117 @@ When `match_template_category()` returns `"other"`, the agent MUST follow an int
 ## Explaining Conforma Exceptions
 
 When the user asks what a Conforma exception is (e.g. "what is a conforma exception", "explain conforma exceptions"), always include the compact YAML example from the introduction above. This makes the concept concrete. Also link to the [Conforma redhat collection](https://conforma.dev/docs/policy/release_policy.html) and [VolatileCriteria schema](https://conforma.dev/docs/policy/packages/release_volatile_config.html).
+
+## Run Directory Convention
+
+Every session that creates intermediate files (downloaded CSVs, parsed violations, coverage checks, assessed exceptions, reports, action plans) MUST use a timestamped run directory inside `.work/`. This prevents runs from clobbering each other's files and keeps the directory navigable.
+
+At the start of each session, create the run directory:
+
+```bash
+RUN_DIR=".work/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$RUN_DIR"
+```
+
+All intermediate files go inside `$RUN_DIR`. Example layout for a single run:
+
+```
+.work/
+├── konflux-release-data/          # shared repo clone (persists across runs)
+├── 20260603-112300/               # this run
+│   ├── conforma-reports/
+│   │   └── rhoai-3.4.csv
+│   ├── conforma-violations.yaml
+│   ├── coverage-check.json
+│   ├── assessed-exceptions.yaml
+│   ├── exceptions-report.md
+│   └── action-plan.json
+```
+
+**Shared repo clone**: The `konflux-release-data` GitLab repo is large and slow to clone (~40s). To avoid re-cloning on every script invocation, maintain a shared clone at `.work/konflux-release-data` and pass `--clone-dir .work/konflux-release-data` to all commands that accept it (`preflight_check.py`, `manage_exceptions.py`, `create_gitlab_mr.py`). If the clone already exists, pull the latest before use:
+
+```bash
+if [ -d .work/konflux-release-data/.git ]; then
+  git -C .work/konflux-release-data fetch origin main && git -C .work/konflux-release-data reset --hard origin/main
+else
+  GITLAB_TOKEN=$(glab config get token --host gitlab.cee.redhat.com)
+  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@gitlab.cee.redhat.com/releng/konflux-release-data.git" .work/konflux-release-data
+fi
+```
+
+Script-internal temp directories (`conforma-exception-mr-*`, `conforma-exception-manage-*`, etc.) are created by Python scripts via `tempfile.mkdtemp()` and land directly in `.work/`. These are transient and self-cleaning — do not move them into run directories.
+
+## Starting Without Details
+
+When the user asks to create a Conforma exception but does not provide specific details (no rule, no version, no components, no Jira URL — e.g., "create conforma exception for componentA", "how do I create an exception", "I need a conforma exception"), the agent MUST present two entry points using the AskQuestion tool:
+
+1. **Paste violation text**: The user pastes Conforma violation output (from a CI log, Conforma report, or error message) directly into the prompt. The agent extracts the rule code, component name(s), RHOAI version, and any other available details from the pasted text, then runs the Existing Exception Gate before proceeding with the normal preflight/questionnaire flow.
+
+2. **Provide a Conforma report URL**: The user provides a URL to a Conforma violation report (e.g., a `conforma-reporter` GitHub URL, a raw CSV link, or a CI artifact URL). The agent:
+   a. Fetches the report content via raw download from `raw.githubusercontent.com` (using `curl` with the GitHub token from `gh auth token`)
+   b. Parses violations from the report using the `conforma-analyze` skill's `parse_violations.py`. The parser expects a directory of CSVs named `<release>.csv` (the release name is derived from the filename stem). Set up the directory inside `$RUN_DIR` and run:
+      ```bash
+      mkdir -p "$RUN_DIR/conforma-reports"
+      cp <downloaded-csv> "$RUN_DIR/conforma-reports/rhoai-3.4.csv"
+      python3 ../conforma-analyze/scripts/parse_violations.py \
+        --reports-dir "$RUN_DIR/conforma-reports" \
+        --output "$RUN_DIR/conforma-violations.yaml"
+      ```
+      If the user provides URLs for multiple releases, save each as `<release>.csv` in the same directory — the parser processes all `*.csv` files in one pass.
+   c. Runs the batch coverage check BEFORE presenting violations (pass `--clone-dir` to reuse the shared repo clone):
+      ```bash
+      python3 scripts/preflight_check.py \
+        --check-violations-coverage "$RUN_DIR/conforma-violations.yaml" \
+        --clone-dir .work/konflux-release-data \
+        --environment prod
+      ```
+      This checks all violations against existing exceptions in the policy file in one pass.
+   d. Presents violations as a summary table directly from the script's JSON output. The script provides display-ready fields — the agent MUST use them as-is without piping to ad-hoc formatters. Each violation entry includes:
+      - `rule`: violation code
+      - `display_components`: pre-formatted component list (all names if <=3, first 3 + "... +N more" otherwise)
+      - `total_components`: count
+      - `coverage_label`: human-readable status string
+      - `open_mr_label`: human-readable open MR summary with clickable markdown links (empty if none)
+      - `open_jira_label`: human-readable open Jira ticket summary with clickable links (empty if none). Covers RHOAIENG, PSX, and OCPEXCEPT tickets with the `conforma-violation` label that are not yet Closed/Resolved/Done.
+      - `next_steps`: self-explanatory recommended action with actual ticket keys, statuses, and MR references. All values are display-ready — the agent MUST present them as-is. Examples:
+        - "create exception Jira(s) + merge request(s)" — no existing artifacts
+        - "extend [MR !N](url) with M missing component(s)" — partial MR, no Jira
+        - "extend [MR !N](url) with M missing ... — work with Managers on approving [RHOAIENG-XXXXX](url) (In Progress) — work with ProdSec on getting [PSX-YYYY](url) (New) in progress — get [MR !N](url) submitted" — partial MR + open Jira
+        - "work with Managers on approving [RHOAIENG-XXXXX](url) (In Progress) — work with ProdSec on getting [PSX-YYYY](url) (New) in progress — get [MR !N](url) submitted" — fully covered MR + open Jira
+        - "no action needed — already covered" — fully covered MR, no open Jira
+      Present each row using these fields as table columns. All references are pre-formatted as markdown links with statuses. The agent MUST NOT reformat, summarize, or strip statuses from these fields.
+   e. Lets the user select which violation(s) to create exceptions for (using AskQuestion with multi-select)
+   f. Proceeds with the normal preflight/questionnaire flow for each selected violation, pre-filling the violation code and component details from the parsed report. The per-violation Existing Exception Gate has already been checked in step (c) — no need to re-run it.
+
+The agent MUST NOT proceed with the creation workflow until it has a concrete rule and component list — either from user-provided details, pasted violation text, or a parsed report selection. The Existing Exception Gate must pass before proceeding — see "Existing Exception Gate (Hard Prerequisite)" above.
+
+**Re-confirmation after interruptions**: If the user asks an unrelated or clarifying question between the AskQuestion violation-selection prompt and a "continue" / "proceed" instruction, the agent MUST re-present the selection for explicit confirmation before acting on it. A prior AskQuestion response that was followed by unrelated conversation MUST NOT be treated as a deliberate choice — the user may have dismissed the prompt without carefully selecting. Always re-confirm.
+
+### Open MR Coverage Analysis
+
+The `--check-existing-exception` and `--check-violations-coverage` script outputs include an `open_merge_requests` list for each violation. Each entry contains per-MR coverage data computed by `preflight_check.py` (the agent MUST NOT call `glab api` directly — all GitLab API interaction is encapsulated in the scripts):
+
+- `mr_components`: components the MR already covers (extracted from the MR diff or description)
+- `covered`: overlap between MR components and the requested components
+- `missing`: requested components not yet in the MR
+- `suggestion`: one of `"extend_mr"`, `"fully_covered"`, or `"no_overlap"`
+
+Present these to the user as follows:
+
+- **`extend_mr`**: "Open MR !{iid} already covers {N} of {M} components for this violation. Missing: {list}. Consider extending the existing MR rather than creating a new one."
+- **`fully_covered`**: "Open MR !{iid} already covers all {M} requested components for this violation. Creating a new MR would be a duplicate."
+- **`no_overlap`**: The MR is for the same violation but different components (likely a different RHOAI version). Proceed normally without referencing this MR.
+
+When multiple open MRs exist for the same violation, present each independently. In the AskQuestion violation selection, annotate violations that have open MRs with partial coverage as `[open MR covers N/M]` next to the coverage indicator.
+
+### Open Jira Ticket Coverage
+
+The `--check-violations-coverage` script also searches for open Jira tickets (RHOAIENG, PSX, OCPEXCEPT) with the `conforma-violation` label that match each violation rule. This is a single batch query, not per-violation. Each violation entry includes:
+
+- `open_jira_tickets`: list of matching tickets with `key`, `status`, `summary`, `url`
+- `open_jira_label`: pre-formatted markdown links for display (empty if none)
+
+When `open_jira_label` is non-empty, present it alongside the MR coverage in the violations table. This is informational — it does not block exception creation — but it prevents creating duplicate Jira tickets. If an open RHOAIENG or PSX ticket already exists for a violation, the agent should suggest reusing it (via `--rhoaieng-url` or `--psx-url`) rather than creating a new one.
 
 ## Listing Exception Types
 
@@ -358,7 +492,7 @@ The resolved exception text flows into all workflow artifacts: RHOAIENG Jira res
 
 ## Orchestration Flow
 
-1. **Validate** (`validate_inputs.py`): version parsing, component-version reconciliation (rejects legacy image names like `-rhel9`), date calculation (user-provided dates used as-is; +7 day buffer only for EOS-sourced dates), workflow determination from `exception_templates.yaml`
+1. **Validate** (`validate_inputs.py`): version parsing, component-version reconciliation (rejects container image names like `-rhel9`), date calculation (user-provided dates used as-is; +7 day buffer only for EOS-sourced dates), workflow determination from `exception_templates.yaml`
 2. **Auth check** (`verify_auth.py`): auto-install `acli` if needed, verify `acli` and `glab` are available and authenticated -- **stop here if any check fails**
 3. **Execute workflow steps** (from `exception_templates.yaml`): the orchestrator iterates through the matched category's `workflow` list and executes each step:
    - `rhoaieng_resolution_plan_jira` *(track: remediation_plan)*: Creates a Bug in RHOAIENG Jira assigned to the component team documenting the fix commitment. Created FIRST so its URL can be referenced in downstream justification text.
@@ -407,7 +541,7 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
    - "Yes, correct"
    - "No, let me specify different names"
 
-   Never use a legacy container image name (e.g. `-rhel9`) in a Merge Request without the user confirming the translation.
+   Never use a container image name (e.g. `-rhel9`) in a Merge Request without the user confirming the translation to a Konflux component name.
 
 6. **Vendor tag**: Present common options plus free text:
    - "Fedora/EPEL"
@@ -481,9 +615,9 @@ Component names are validated against `--rhoai-version`:
 | Type | Pattern | Example | Used in Merge Request? |
 |------|---------|---------|-------------|
 | Konflux component name | `{base}-v{major}-{minor}` | `odh-workbench-jupyter-pytorch-rocm-py312-v2-25` | YES |
-| Container image name (legacy) | `{base}-rhel9` (no version) | `odh-workbench-jupyter-pytorch-rocm-py312-rhel9` | NO |
+| Container image name (not for MRs) | `{base}-rhel9` (no version) | `odh-workbench-jupyter-pytorch-rocm-py312-rhel9` | NO |
 
-All Konflux component names include a version suffix (e.g. `-v2-25`, `-v3-3`, `-v3-5-ea-1`). Names ending in `-rhel9` or `-ubi9` without a version suffix are legacy container image names produced by those components -- they must NOT be used in `componentNames` fields in exception GitLab Merge Requests. The validation script rejects legacy image names and suggests the correct Konflux component name format.
+All Konflux component names include a version suffix (e.g. `-v2-25`, `-v3-3`, `-v3-5-ea-1`). Names ending in `-rhel9` or `-ubi9` without a version suffix are container image names produced by those components -- they must NOT be used in `componentNames` fields in exception GitLab Merge Requests. The validation script rejects container image names and suggests the correct Konflux component name format.
 
 To find correct component names, check the ReleasePlanAdmission files:
 `config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-vX-Y-components-prod.yaml`
@@ -578,9 +712,9 @@ Each script validates inputs and exits non-zero on failure. The orchestrator sto
 - Jira ticket creation failure (permissions, invalid project)
 - Verification failure (labels, links, or fields not confirmed after retries)
 
-## Managing Expired Exceptions
+## Managing Exceptions
 
-Expired exceptions are policy entries whose `effectiveUntil` date has passed. They must be reviewed to determine if they are still needed (violations persist) or can be removed (violations resolved).
+Exceptions can be assessed regardless of whether they have expired or are still active. Expired exceptions (whose `effectiveUntil` date has passed) must be extended or removed. Active exceptions where the violation has already been resolved can be proactively cleaned up before they expire.
 
 This is a two-skill workflow involving `conforma-exception` (this skill) and the sibling `conforma-analyze` skill.
 
@@ -594,8 +728,8 @@ flowchart TD
         A3 --> VY[conforma-violations.yaml]
     end
     subgraph exception [conforma-exception skill]
-        M1["manage_exceptions.py --find-expired"] --> EY[expired-exceptions.yaml stdout]
-        M2["manage_exceptions.py --assess-expired"] --> AY[assessed-exceptions.yaml]
+        M1["manage_exceptions.py --find-expired / --find-all"] --> EY[exceptions.yaml stdout]
+        M2["manage_exceptions.py --assess-expired / --assess-all"] --> AY[assessed-exceptions.yaml]
         AY --> UserReview[Agent presents to user]
         UserReview -->|extend| CE[create_exception.py]
         UserReview -->|remove| GM["create_gitlab_mr.py --remove-expired-exception"]
@@ -605,65 +739,89 @@ flowchart TD
 
 **`conforma-analyze`** is a self-contained, user-invocable skill that fetches CSV violation reports from the private `red-hat-data-services/conforma-reporter` repository and parses them into a structured YAML index (`conforma-violations.yaml`). It knows about violations only -- not exceptions, policy files, or Jira.
 
-**`conforma-exception`** (this skill) consumes the violations YAML via `manage_exceptions.py` to cross-reference expired exceptions against active violations, classify them, and recommend actions. Handling (extending or removing) is done via existing scripts after user confirmation.
+**`conforma-exception`** (this skill) consumes the violations YAML via `manage_exceptions.py` to cross-reference exceptions against active violations, classify them, and recommend actions. Handling (extending, narrowing, or removing) is done via existing scripts after user confirmation.
 
-### Discovery: `manage_exceptions.py --find-expired`
+### Discovery: `manage_exceptions.py --find-expired` / `--find-all`
 
-Lists all expired exceptions from policy files. No violations data needed.
+Lists exceptions from policy files. No violations data needed.
 
 ```bash
 python3 scripts/manage_exceptions.py --find-expired \
   --environment prod \
-  [--clone-dir /tmp/konflux-release-data]
+  --clone-dir .work/konflux-release-data
+
+python3 scripts/manage_exceptions.py --find-all \
+  --environment prod \
+  --clone-dir .work/konflux-release-data
 ```
 
-Output is structured YAML to stdout listing each expired exception with metadata:
+`--find-expired` returns only exceptions where `effectiveUntil < now`. `--find-all` returns both expired and active exceptions with expiry metadata.
+
+Output is structured YAML to stdout listing each exception with metadata:
 - `file`: policy file path (e.g. `EnterpriseContractPolicy/registry-rhoai-prod.yaml`)
 - `rule`: full rule code
-- `effective_until`: expired date
-- `expired_days_ago`: how long ago it expired
-- `is_legacy`: true if the exception has no `componentNames` (uses containerImage refs instead of component names)
+- `effective_until`: the date
+- `is_expired`: true if expired, false if still active
+- `expired_days_ago` (expired only): how long ago it expired
+- `expires_in_days` (active only): days until expiry
+- `is_unscoped`: true if the exception has no `componentNames` (uses containerImage refs instead of component names)
 - `comment_header_lines`: preceding YAML comments (Jira URLs, version notes)
 
-### Assessment: `manage_exceptions.py --assess-expired`
+### Assessment: `manage_exceptions.py --assess-expired` / `--assess-all`
 
-Cross-references expired exceptions against violations data to classify each.
+Cross-references exceptions against violations data to classify each.
 
 ```bash
 python3 scripts/manage_exceptions.py --assess-expired \
-  --violations-input /tmp/conforma-violations.yaml \
+  --violations-input "$RUN_DIR/conforma-violations.yaml" \
   --environment prod \
-  [--clone-dir /tmp/konflux-release-data] \
-  [--output /tmp/assessed-exceptions.yaml]
+  --clone-dir .work/konflux-release-data \
+  --output "$RUN_DIR/assessed-exceptions.yaml"
+
+python3 scripts/manage_exceptions.py --assess-all \
+  --violations-input "$RUN_DIR/conforma-violations.yaml" \
+  --environment prod \
+  --clone-dir .work/konflux-release-data \
+  --output "$RUN_DIR/assessed-exceptions.yaml"
 ```
+
+`--assess-expired` assesses only expired exceptions (backward compatible). `--assess-all` assesses all exceptions including active ones, identifying those that can be proactively removed or narrowed.
 
 Requires `conforma-violations.yaml` from the `conforma-analyze` skill.
 
-**Classification logic (deterministic):**
+**Classification logic (deterministic, same for expired and active):**
 
 | Exception type | Violations found? | Classification |
 |---|---|---|
 | Has `componentNames` | All listed components still violate | `still_needed` |
 | Has `componentNames` | Some components still violate | `partially_needed` |
 | Has `componentNames` | No component violates | `no_longer_needed` |
-| Legacy (uses containerImage refs, no `componentNames`) | Any component violates for this rule | `still_needed` |
-| Legacy (uses containerImage refs, no `componentNames`) | No violations found | `no_longer_needed` |
+| Unscoped (no `componentNames`, uses containerImage refs) | Any component violates for this rule | `still_needed` |
+| Unscoped (no `componentNames`, uses containerImage refs) | No violations found | `no_longer_needed` |
 | Either type | Rule not in violations index | `no_longer_needed` |
 
 **Recommended actions (deterministic):**
 
-| Classification | Legacy? | `recommended_action` |
-|---|---|---|
-| `still_needed` | no | `extend` |
-| `still_needed` | yes | `extend_and_modernize` |
-| `partially_needed` | no | `narrow_and_extend` |
-| `partially_needed` | yes | `modernize_and_narrow` |
-| `no_longer_needed` | either | `remove` |
+| Classification | Expired | Unscoped (no componentNames) | `recommended_action` |
+|---|---|---|---|
+| `still_needed` | yes | no | `extend` |
+| `still_needed` | yes | yes | `extend_and_modernize` |
+| `still_needed` | no | either | `keep` |
+| `partially_needed` | yes | no | `narrow_and_extend` |
+| `partially_needed` | yes | yes | `modernize_and_narrow` |
+| `partially_needed` | no | no | `narrow` |
+| `partially_needed` | no | yes | `modernize_and_narrow` |
+| `no_longer_needed` | either | either | `remove` |
+
+Key actions for active exceptions:
+- **`keep`**: still needed and not expired -- no action required
+- **`narrow`**: active exception where some components no longer violate -- trim scope now
+- **`remove`**: violation fully resolved before expiry -- clean up proactively
 
 The agent presents the assessment to the user with:
 - Why each exception is still needed or not (citing specific releases and components)
 - Suggested new `effectiveUntil` date for extensions
-- For legacy exceptions: recommend modernizing to componentNames-scoped blocks
+- For unscoped exceptions (no componentNames): recommend modernizing to componentNames-scoped blocks
 - Priority ordering: oldest expiry first
 
 ### Handling: Extending Modern Exceptions (`extend`)
@@ -679,14 +837,14 @@ python3 scripts/create_exception.py \
   --rhoaieng-url <approval-ticket>
 ```
 
-### Handling: Modernizing Legacy Exceptions (`extend_and_modernize`)
+### Handling: Modernizing Unscoped Exceptions (`extend_and_modernize`)
 
-**Never blindly extend a legacy exception by bumping its `effectiveUntil` date.** Legacy exceptions use containerImage refs instead of `componentNames`. They are not scoped to specific components in the modern Konflux sense. When a legacy exception is still needed, it MUST be replaced with properly-scoped modern entries: per-componentName, per-version.
+**Never blindly extend an unscoped exception by bumping its `effectiveUntil` date.** Unscoped exceptions use containerImage refs instead of `componentNames` — they cover all components for a rule rather than specific ones. When an unscoped exception is still needed, it MUST be replaced with properly-scoped entries: per-componentName, per-version.
 
 The assessment evidence provides exactly which components still violate per release (in `evidence.still_violating_components` and `evidence.still_violating_releases`). Use this to create targeted replacements.
 
 Steps:
-1. **Remove the old legacy block**:
+1. **Remove the old unscoped block**:
 
 ```bash
 python3 scripts/create_gitlab_mr.py --remove-expired-exception \
@@ -707,11 +865,11 @@ python3 scripts/create_exception.py \
   --rhoaieng-url <approval-ticket>
 ```
 
-   Repeat for each version that still has violations. Only include the components that are actually violating in each version -- do NOT carry over the legacy "all components" scope.
+   Repeat for each version that still has violations. Only include the components that are actually violating in each version -- do NOT carry over the unscoped "all components" coverage.
 
 Both the removal and the new entries can be combined into a single consolidated MR if convenient.
 
-### Handling: Narrowing Exceptions (`narrow_and_extend`, `modernize_and_narrow`)
+### Handling: Narrowing Exceptions (`narrow`, `narrow_and_extend`, `modernize_and_narrow`)
 
 For exceptions classified as `partially_needed`, some components no longer violate. The old block must be replaced with a narrower one covering only the components that still need coverage.
 
@@ -719,7 +877,7 @@ Steps:
 1. Remove the old block (`create_gitlab_mr.py --remove-expired-exception`)
 2. Create a new exception with only the still-violating components (`create_exception.py`)
 
-For legacy exceptions (`modernize_and_narrow`), this is the same as `extend_and_modernize` above -- the old un-scoped block is replaced with modern per-componentName entries, but scoped to only the components that still violate.
+For active exceptions (`narrow`), the same steps apply but the new exception keeps the original `effectiveUntil` date rather than extending it. For unscoped exceptions (`modernize_and_narrow`), this is the same as `extend_and_modernize` above -- the old unscoped block (no componentNames) is replaced with per-componentName entries, scoped to only the components that still violate.
 
 ### Handling: Removing Exceptions (`remove`)
 
@@ -739,26 +897,26 @@ This creates a GitLab MR that removes the expired exception block and its preced
 
 ### Full Workflow
 
-When the user asks to handle expired exceptions:
+When the user asks to handle expired exceptions (or analyze all exceptions):
 
 1. **Run `conforma-analyze`**: Invoke the sibling skill to fetch and parse violation reports. Releases are auto-detected from `rhods-devops-infra/rhoai-release-data.yaml` (all supported versions including EA/in-development). An exception is still needed if the violation persists in any release, even if resolved in older versions.
 
-2. **Find expired**: Run `manage_exceptions.py --find-expired` to list all expired exceptions.
+2. **Find exceptions**: Run `manage_exceptions.py --find-expired` (expired only) or `--find-all` (expired + active) to list exceptions.
 
-3. **Assess**: Run `manage_exceptions.py --assess-expired --violations-input <path>` to classify each expired exception.
+3. **Assess**: Run `manage_exceptions.py --assess-expired` or `--assess-all` with `--violations-input <path>` to classify each exception.
 
 4. **Generate report and action plan**:
 
 ```bash
 python3 scripts/generate_report.py \
-  --assessed-input /tmp/assessed-exceptions.yaml \
-  --output <canvas-path> \
-  --action-plan-output /tmp/action-plan.json
+  --assessed-input "$RUN_DIR/assessed-exceptions.yaml" \
+  --output "$RUN_DIR/exceptions-report.md" \
+  --action-plan-output "$RUN_DIR/action-plan.json"
 ```
 
-Present the canvas to the user. The action plan JSON contains a sorted list of actions (removals first, then extensions, then modernizations) with all data needed to create MRs.
+Present the markdown report to the user. The action plan JSON contains a sorted list of actionable items (removals first, then narrows, then extensions, then modernizations) with all data needed to create MRs. Exceptions with `keep` action are excluded from the action plan since they require no MR.
 
-5. **Interactive action loop**: After presenting the canvas, announce that you will walk through each exception one by one for user confirmation. Read the action plan JSON and iterate over each action item in order.
+5. **Interactive action loop**: After presenting the report, announce that you will walk through each exception one by one for user confirmation. Read the action plan JSON and iterate over each action item in order.
 
 **For each exception:**
 
@@ -777,7 +935,7 @@ Present the canvas to the user. The action plan JSON contains a sorted list of a
 
       **iii. Execute the action** based on the recommended action type:
 
-      - **`extend_and_modernize` / `modernize_and_narrow`**: Create a single consolidated MR that removes the legacy block and adds new per-componentName/per-version entries:
+      - **`extend_and_modernize` / `modernize_and_narrow`**: Create a single consolidated MR that removes the unscoped block (no componentNames) and adds new per-componentName/per-version entries:
 
       ```bash
       python3 scripts/create_gitlab_mr.py \
@@ -805,7 +963,7 @@ Present the canvas to the user. The action plan JSON contains a sorted list of a
         --environment prod
       ```
 
-      - **`extend`** (non-legacy only): Use the standard creation flow with the new effectiveUntil date:
+      - **`extend`** (componentNames-scoped only): Use the standard creation flow with the new effectiveUntil date:
 
       ```bash
       python3 scripts/create_exception.py \
@@ -816,7 +974,9 @@ Present the canvas to the user. The action plan JSON contains a sorted list of a
         --rhoaieng-url <approval-jira-url>
       ```
 
-      - **`narrow_and_extend`** (non-legacy): Remove the old block, then create a new exception with only the still-violating components. Use `--remove-expired-exception` followed by `create_exception.py`, or combine into a single MR if both target the same policy file.
+      - **`narrow`** (componentNames-scoped, active): Remove the old block, then create a new exception with only the still-violating components, keeping the original `effectiveUntil` date. Use `--remove-expired-exception` followed by `create_exception.py`.
+
+      - **`narrow_and_extend`** (componentNames-scoped, expired): Same as `narrow` but with an extended `effectiveUntil` date.
 
    d. **Report result**: After each MR creation, print the MR URL and move to the next exception.
 

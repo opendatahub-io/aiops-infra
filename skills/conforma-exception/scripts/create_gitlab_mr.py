@@ -162,7 +162,7 @@ def _build_commit_message_remove(
     if components:
         lines.append(f"  Components: {', '.join(components)}")
     else:
-        lines.append("  Components: (legacy, all components)")
+        lines.append("  Components: (unscoped, all components)")
 
     if target_file:
         lines.append(f"  Policy file: {target_file}")
@@ -475,6 +475,7 @@ def _find_existing_exceptions(content: str, rule: str, indent: str = "          
       - end: line index where the block ends (exclusive)
       - has_component_names: whether the block uses componentNames
       - component_names: list of component names (empty if not used)
+      - image_url: imageUrl value if present (empty string if not)
       - effective_until_line: line index of the effectiveUntil line (or None)
       - effective_until_value: current effectiveUntil value (or None)
     """
@@ -493,6 +494,7 @@ def _find_existing_exceptions(content: str, rule: str, indent: str = "          
                 "end": block_start + 1,
                 "has_component_names": False,
                 "component_names": [],
+                "image_url": "",
                 "effective_until_line": None,
                 "effective_until_value": None,
             }
@@ -514,6 +516,10 @@ def _find_existing_exceptions(content: str, rule: str, indent: str = "          
                         block_info["end"] = i + 1
                         i += 1
                     continue
+                if "imageUrl:" in line:
+                    iu_match = re.search(r'imageUrl:\s*"?([^"]+)"?', line)
+                    if iu_match:
+                        block_info["image_url"] = iu_match.group(1).strip()
                 if "effectiveUntil:" in line:
                     block_info["effective_until_line"] = i
                     eu_match = re.search(r'effectiveUntil:\s*"?([^"]+)"?', line)
@@ -557,7 +563,7 @@ def remove_exception_from_policy_file(
     """Remove an expired exception block and its preceding comment header.
 
     The block is identified by matching rule + effectiveUntil + components.
-    For legacy exceptions (no componentNames), only rule + effectiveUntil
+    For unscoped exceptions (no componentNames), only rule + effectiveUntil
     are needed.
 
     Returns:
@@ -697,7 +703,7 @@ def apply_exception_to_policy_file(
 
 
 def append_to_policy_file(file_path: Path, yaml_block: str, is_self_service: bool) -> None:
-    """Append the exception block to the target file (legacy interface)."""
+    """Append the exception block to the target file (deprecated interface)."""
     content = file_path.read_text(encoding="utf-8")
 
     if is_self_service:
@@ -766,7 +772,7 @@ def create_mr(
         }
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
-    workdir = Path(tempfile.mkdtemp(prefix="conforma-mr-", dir=WORK_DIR))
+    workdir = Path(tempfile.mkdtemp(prefix="conforma-exception-mr-", dir=WORK_DIR))
     try:
         clone_dest = str(workdir / "repo")
         repo_url = _get_authenticated_repo_url()
@@ -988,7 +994,7 @@ def update_mr(
         }
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
-    workdir = Path(tempfile.mkdtemp(prefix="conforma-mr-update-", dir=WORK_DIR))
+    workdir = Path(tempfile.mkdtemp(prefix="conforma-exception-mr-update-", dir=WORK_DIR))
     try:
         clone_dest = str(workdir / "repo")
         repo_url = _get_authenticated_repo_url()
@@ -1160,7 +1166,7 @@ def create_consolidated_mr(
         }
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
-    workdir = Path(tempfile.mkdtemp(prefix="conforma-mr-consolidated-", dir=WORK_DIR))
+    workdir = Path(tempfile.mkdtemp(prefix="conforma-exception-mr-consolidated-", dir=WORK_DIR))
     try:
         clone_dest = str(workdir / "repo")
         repo_url = _get_authenticated_repo_url()
@@ -1401,7 +1407,7 @@ def remove_expired_mr(
         is_temp = False
     else:
         import tempfile
-        workdir = Path(tempfile.mkdtemp(prefix="conforma-remove-", dir=WORK_DIR))
+        workdir = Path(tempfile.mkdtemp(prefix="conforma-exception-remove-", dir=WORK_DIR))
         repo_url = _get_authenticated_repo_url()
         repo_dir = workdir / "repo"
         try:
@@ -1490,7 +1496,7 @@ def remove_expired_mr(
             f"| **Rule** | `{rule}` |",
             f"| **RHOAI version** | `{rhoai_version}` |",
             f"| **Expired effectiveUntil** | `{effective_until}` |",
-            f"| **Components** | `{', '.join(components) if components else '(legacy, all)'}` |",
+            f"| **Components** | `{', '.join(components) if components else '(unscoped, all)'}` |",
             f"| **Policy file** | `{target_file}` |",
         ]
         if reference_url:
@@ -1561,7 +1567,7 @@ def modernize_exception_mr(
     exception_remediation: str | None = None,
     dry_run: bool = False,
 ) -> dict:
-    """Create a single MR that removes a legacy block and adds new scoped entries.
+    """Create a single MR that removes an unscoped block (no componentNames) and adds new scoped entries.
 
     Combines remove_exception_from_policy_file() + generate_exception_yaml() in
     one branch/commit so the modernization is atomic.
@@ -1582,7 +1588,7 @@ def modernize_exception_mr(
         target_file = get_target_file(comp_type, environment, is_self_service=False)
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
-    workdir = Path(tempfile.mkdtemp(prefix="conforma-modernize-", dir=WORK_DIR))
+    workdir = Path(tempfile.mkdtemp(prefix="conforma-exception-modernize-", dir=WORK_DIR))
     try:
         repo_url = _get_authenticated_repo_url()
         repo_dir = workdir / "repo"
@@ -1607,7 +1613,7 @@ def modernize_exception_mr(
         if remove_result["action"] == "not_found":
             return {
                 "status": "failed",
-                "error": f"Could not find legacy block to remove: {remove_result['detail']}",
+                "error": f"Could not find unscoped block to remove: {remove_result['detail']}",
                 "mr_url": None,
             }
 
@@ -1642,7 +1648,7 @@ def modernize_exception_mr(
         lines = [
             subject,
             "",
-            "Replaced legacy exception (no componentNames) with properly-scoped entries.",
+            "Replaced unscoped exception (no componentNames) with properly-scoped entries.",
             f"  Rule: {rule}",
             f"  Removed old effectiveUntil: {old_effective_until}",
             f"  Policy file: {target_file}",
@@ -1720,7 +1726,7 @@ def modernize_exception_mr(
         mr_body_lines = [
             f"## Modernize exception: `{rule}`",
             "",
-            "Replaced legacy exception (no `componentNames`) with properly-scoped entries.",
+            "Replaced unscoped exception (no `componentNames`) with properly-scoped entries.",
             "",
             "| Field | Value |",
             "|-------|-------|",
@@ -1845,13 +1851,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--remove-expired-exception", action="store_true",
                         help="Remove an expired exception instead of adding/extending one")
     parser.add_argument("--modernize-expired-exception", action="store_true",
-                        help="Remove legacy block and add new scoped entries in one MR. "
+                        help="Remove unscoped block (no componentNames) and add new scoped entries in one MR. "
                              "Requires --version-specs-json for the new entries.")
     parser.add_argument("--clone-dir", default=None,
                         help="Existing repo clone to use (remove-expired-exception mode)")
     parser.add_argument("--policy-file", default=None,
                         help="Override auto-detected policy file path within the repo "
-                             "(e.g. config/.../fbc-rhoai-prod.yaml). Required for legacy "
+                             "(e.g. config/.../fbc-rhoai-prod.yaml). Required for unscoped "
                              "FBC exceptions where component names are absent.")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()

@@ -12,8 +12,13 @@ Outputs a JSON with:
   - items requiring user confirmation
 
 Usage:
+  # Existing exception gate check (no Jira required — run FIRST)
+  python3 scripts/preflight_check.py --check-existing-exception \
+    --rule hermetic_task.hermetic \
+    --components odh-model-registry-v3-4
+
+  # Full pre-flight check (requires Jira URL)
   python3 scripts/preflight_check.py --rhoaieng-url https://redhat.atlassian.net/browse/RHOAIENG-38389
-  python3 scripts/preflight_check.py --rhoaieng-url ... --rpa-dir /tmp/conforma-check/config/.../rhoai
 """
 
 from __future__ import annotations
@@ -23,9 +28,13 @@ import json
 import re
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+_SKILL_DIR = Path(__file__).resolve().parent.parent
+WORK_DIR = _SKILL_DIR / ".work"
 
 
 # Hard rules — NOT configurable by the agent or user
@@ -57,6 +66,38 @@ def _run_acli(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess
 def _extract_ticket_key(url: str) -> str | None:
     match = re.search(r"([A-Z]+-\d+)", url)
     return match.group(1) if match else None
+
+
+def _extract_image_base(image_url: str) -> str:
+    """Extract the base image name from a full imageUrl.
+
+    quay.io/rhoai/odh-dashboard-rhel9 -> odh-dashboard
+    quay.io/rhoai/odh-mlmd-grpc-server-rhel9 -> odh-mlmd-grpc-server
+    quay.io/rhoai/odh-vllm-cpu-rhel9 -> odh-vllm-cpu
+    """
+    name = image_url.rsplit("/", 1)[-1]
+    name = re.sub(r"-rhel\d+$", "", name)
+    name = re.sub(r"-ubi\d+$", "", name)
+    return name
+
+
+def _extract_component_base(component_name: str) -> str:
+    """Extract the base name from a Konflux componentName (strip version suffix).
+
+    odh-dashboard-v3-4 -> odh-dashboard
+    odh-mlmd-grpc-server-v2-25 -> odh-mlmd-grpc-server
+    odh-vllm-cpu-v3-5-ea-1 -> odh-vllm-cpu
+    """
+    return re.sub(r"-v\d+-\d+(?:-[a-z]+-\d+)?$", "", component_name)
+
+
+def image_url_covers_component(image_url: str, component_name: str) -> bool:
+    """Check if an imageUrl-scoped exception covers a given componentName.
+
+    An imageUrl like quay.io/rhoai/odh-dashboard-rhel9 covers all components
+    with base name odh-dashboard (e.g. odh-dashboard-v3-3, odh-dashboard-v3-4).
+    """
+    return _extract_image_base(image_url) == _extract_component_base(component_name)
 
 
 def fetch_rhoaieng_ticket(url: str) -> dict:
@@ -118,6 +159,458 @@ def _extract_rule_from_summary(summary: str) -> str | None:
     return None
 
 
+GITLAB_HOST = "gitlab.cee.redhat.com"
+GITLAB_PROJECT = "releng/konflux-release-data"
+
+
+def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
+    """Issue a GET request to list open MRs matching a search term.
+
+    Uses --method GET with URL query parameters. The -f flag must NOT be used
+    for GET listing endpoints because glab sends -f values as POST form data,
+    which turns the request into a 'create MR' POST and returns HTTP 400.
+    """
+    from cli_runner import run_glab
+
+    encoded = urllib.parse.quote(search_term)
+    project = GITLAB_PROJECT.replace("/", "%2F")
+    try:
+        result = run_glab(
+            [
+                "api", "--hostname", GITLAB_HOST, "--method", "GET",
+                f"projects/{project}/merge_requests"
+                f"?state=opened&search={encoded}&per_page=20",
+            ],
+            timeout=timeout,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+    if result.returncode != 0:
+        return []
+
+    try:
+        mrs = json.loads(result.stdout)
+    except (ValueError, TypeError):
+        return []
+
+    return [mr for mr in mrs if isinstance(mr, dict)]
+
+
+def search_open_exception_mrs(rule: str) -> list[dict]:
+    """Search for open merge requests in konflux-release-data that mention this rule.
+
+    Performs two searches and merges results:
+    1. Full rule string (e.g. ``rpm_signature.allowed:9386b48a1a693c5c``)
+    2. Suffix after the last ``:`` (e.g. ``9386b48a1a693c5c``) as a safety net
+       in case GitLab tokenises on colons
+
+    Results are deduplicated by ``iid``.
+    """
+    search_term = rule
+    if len(search_term) > 60:
+        search_term = search_term[:60]
+
+    raw_mrs = _glab_get_mrs(search_term)
+
+    if ":" in rule:
+        suffix = rule.rsplit(":", 1)[1]
+        if suffix and suffix != search_term:
+            raw_mrs.extend(_glab_get_mrs(suffix))
+
+    seen_iids: set[int] = set()
+    results: list[dict] = []
+    for mr in raw_mrs:
+        iid = mr.get("iid")
+        if iid in seen_iids:
+            continue
+        seen_iids.add(iid)
+        results.append({
+            "iid": iid,
+            "title": mr.get("title", ""),
+            "url": mr.get("web_url", ""),
+            "author": mr.get("author", {}).get("username", ""),
+            "created_at": mr.get("created_at", ""),
+            "description": mr.get("description", ""),
+        })
+
+    return results
+
+
+def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
+    """Extract componentNames added for a given rule from a unified diff.
+
+    Scans ``+`` lines for a ``- value: <rule>`` pattern, then collects
+    subsequent ``componentNames:`` children.  Handles both policy indent
+    (10 spaces) and self-service / zero-indent by stripping leading
+    whitespace after removing the ``+`` prefix.
+    """
+    added_lines: list[str] = []
+    for raw in diff_text.splitlines():
+        if raw.startswith("+") and not raw.startswith("+++"):
+            added_lines.append(raw[1:])  # strip the leading '+'
+
+    components: list[str] = []
+    i = 0
+    while i < len(added_lines):
+        stripped = added_lines[i].strip()
+        if stripped == f"- value: {rule}" or stripped == f"- value: \"{rule}\"":
+            i += 1
+            in_component_names = False
+            while i < len(added_lines):
+                s = added_lines[i].strip()
+                if not s or s.startswith("- value:"):
+                    break
+                if s == "componentNames:":
+                    in_component_names = True
+                    i += 1
+                    continue
+                if in_component_names and s.startswith("- "):
+                    comp = s[2:].strip().strip('"').strip("'")
+                    if comp:
+                        components.append(comp)
+                    i += 1
+                    continue
+                if in_component_names:
+                    in_component_names = False
+                i += 1
+        else:
+            i += 1
+
+    return components
+
+
+def _parse_components_from_description(description: str) -> list[str]:
+    """Extract component names from a skill-generated MR description.
+
+    Handles two formats produced by ``_build_mr_body`` in ``create_gitlab_mr.py``:
+
+    **Single-version** — flat ``### Components`` section::
+
+        ### Components
+        - `odh-dashboard-v3-4`
+        - `odh-modelmesh-serving-v3-4`
+
+    **Multi-version** — per-version subsections::
+
+        ### `rhoai-3.4`
+        **Components**:
+        - `odh-dashboard-v3-4`
+
+    All components are collected into a single flat list regardless of
+    which version section they belong to.
+    """
+    components: list[str] = []
+    comp_re = re.compile(r"^-\s+`([^`]+)`")
+
+    in_components = False
+    for line in description.splitlines():
+        stripped = line.strip()
+
+        if stripped == "### Components" or stripped.startswith("**Components**"):
+            in_components = True
+            continue
+
+        if stripped.startswith("### ") and stripped != "### Components":
+            in_components = False
+            if "rhoai-" in stripped:
+                continue
+            continue
+
+        if in_components:
+            m = comp_re.match(stripped)
+            if m:
+                components.append(m.group(1))
+            elif stripped and not stripped.startswith("-"):
+                in_components = False
+
+    return components
+
+
+class _MRCache:
+    """In-memory cache for MR diffs fetched via the GitLab API.
+
+    Built once by ``prefetch_open_mrs()`` in batch mode so that
+    ``analyze_mr_component_coverage()`` never issues redundant API calls.
+    In single-violation mode the cache is empty and diffs are fetched on demand.
+    """
+
+    def __init__(self) -> None:
+        self._diffs: dict[int, list[dict]] = {}   # iid -> changes list
+
+    def has(self, iid: int) -> bool:
+        return iid in self._diffs
+
+    def get_changes(self, iid: int) -> list[dict]:
+        return self._diffs.get(iid, [])
+
+    def store(self, iid: int, changes: list[dict]) -> None:
+        self._diffs[iid] = changes
+
+    def prefetch(self, iids: list[int]) -> None:
+        """Fetch diffs for all *iids* that are not already cached."""
+        from cli_runner import run_glab
+        project = GITLAB_PROJECT.replace("/", "%2F")
+        for iid in iids:
+            if self.has(iid):
+                continue
+            try:
+                resp = run_glab(
+                    [
+                        "api", "--hostname", GITLAB_HOST, "--method", "GET",
+                        f"projects/{project}/merge_requests/{iid}/changes",
+                    ],
+                    timeout=30,
+                )
+                if resp.returncode == 0:
+                    data = json.loads(resp.stdout)
+                    self.store(iid, data.get("changes", []))
+                else:
+                    self.store(iid, [])
+            except (FileNotFoundError, subprocess.TimeoutExpired,
+                    json.JSONDecodeError):
+                self.store(iid, [])
+
+
+_mr_cache = _MRCache()
+
+
+def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
+    """Search for open MRs across all *rules* and prefetch their diffs.
+
+    Returns a mapping of ``rule -> list[mr_info]`` (same shape as
+    ``search_open_exception_mrs`` output).  All unique MR diffs are
+    fetched once and stored in ``_mr_cache`` so that downstream calls
+    to ``analyze_mr_component_coverage`` hit the cache instead of the API.
+    """
+    rule_to_mrs: dict[str, list[dict]] = {}
+    all_iids: set[int] = set()
+
+    for rule in rules:
+        mrs = search_open_exception_mrs(rule)
+        rule_to_mrs[rule] = mrs
+        for mr in mrs:
+            all_iids.add(mr["iid"])
+
+    _mr_cache.prefetch(sorted(all_iids))
+    return rule_to_mrs
+
+
+def prefetch_open_jira_tickets(rules: list[str]) -> dict[str, list[dict]]:
+    """Batch search for open Jira tickets (RHOAIENG, PSX, OCPEXCEPT) matching violations.
+
+    Does one broad JQL query to find all open conforma-violation tickets,
+    then matches them to rules by summary text. Returns a mapping of
+    ``rule -> list[ticket_info]``.
+    """
+    all_tickets: list[dict] = []
+
+    jql = (
+        "project in (RHOAIENG, PSX, OCPEXCEPT) "
+        "AND labels = 'conforma-violation' "
+        "AND status not in (Closed, Resolved, Done)"
+    )
+    result = _run_acli(
+        ["jira", "workitem", "search", "--jql", jql],
+        timeout=45,
+    )
+    if result.returncode == 0:
+        all_tickets = _parse_acli_table(result.stdout)
+
+    rule_to_tickets: dict[str, list[dict]] = {r: [] for r in rules}
+    for ticket in all_tickets:
+        summary_nospace = re.sub(r"\s+", "", ticket["summary"].lower())
+        for rule in rules:
+            rule_nospace = re.sub(r"\s+", "", rule.lower())
+            if rule_nospace in summary_nospace:
+                rule_to_tickets[rule].append(ticket)
+                break
+            if ":" in rule:
+                suffix_nospace = re.sub(r"\s+", "", rule.split(":", 1)[1].lower())
+                if suffix_nospace in summary_nospace:
+                    rule_to_tickets[rule].append(ticket)
+                    break
+
+    return rule_to_tickets
+
+
+def _parse_acli_table(stdout: str) -> list[dict]:
+    """Parse acli table output with multi-line wrapped cells.
+
+    The table has columns: Type | Key | Assignee | Priority | Status | Summary.
+    Rows are separated by ``├──`` lines. Long cell values wrap across multiple
+    lines within the same row.
+    """
+    tickets: list[dict] = []
+    current_cells: dict[str, str] = {}
+    col_indices: list[tuple[int, int]] = []
+
+    for line in stdout.splitlines():
+        if line.startswith("├") or line.startswith("└"):
+            if current_cells.get("key"):
+                tickets.append({
+                    "key": current_cells["key"].strip(),
+                    "type": current_cells.get("type", "").strip(),
+                    "status": current_cells.get("status", "").strip(),
+                    "summary": re.sub(r"\s+", " ", current_cells.get("summary", "")).strip(),
+                    "url": f"https://redhat.atlassian.net/browse/{current_cells['key'].strip()}",
+                })
+            current_cells = {}
+            continue
+
+        if line.startswith("┌"):
+            col_indices = []
+            start = 0
+            for m in re.finditer(r"[┬┐]", line):
+                col_indices.append((start + 1, m.start()))
+                start = m.start()
+            continue
+
+        if "│" not in line or not col_indices:
+            continue
+
+        if line.strip().startswith("│") and "Type" in line and "Key" in line:
+            continue
+
+        parts = []
+        raw_parts = []
+        for start, end in col_indices:
+            if start < len(line) and end <= len(line):
+                parts.append(line[start:end].strip())
+                raw_parts.append(line[start:end].rstrip())
+            else:
+                parts.append("")
+                raw_parts.append("")
+
+        if len(parts) >= 6:
+            key_candidate = parts[1]
+            if re.match(r"(RHOAIENG|PSX|OCPEXCEPT)-\d+", key_candidate):
+                current_cells = {
+                    "type": parts[0],
+                    "key": key_candidate,
+                    "status": parts[4],
+                    "summary": raw_parts[5],
+                }
+            elif current_cells:
+                current_cells["summary"] = current_cells.get("summary", "") + raw_parts[5]
+
+    if current_cells.get("key"):
+        tickets.append({
+            "key": current_cells["key"].strip(),
+            "type": current_cells.get("type", "").strip(),
+            "status": current_cells.get("status", "").strip(),
+            "summary": re.sub(r"\s+", " ", current_cells.get("summary", "")).strip(),
+            "url": f"https://redhat.atlassian.net/browse/{current_cells['key'].strip()}",
+        })
+
+    return tickets
+
+
+def analyze_mr_component_coverage(
+    mr_iid: int,
+    rule: str,
+    requested_components: list[str],
+    mr_description: str = "",
+) -> dict:
+    """Analyze which requested components an open MR already covers.
+
+    Primary: parse the MR diff for added ``componentNames`` under the rule.
+    Fallback: parse the structured MR description (for MRs that only change
+    ``effectiveUntil`` or where the diff yields nothing).
+
+    Uses ``_mr_cache`` if the diff was prefetched; otherwise fetches on demand.
+    """
+    from cli_runner import run_glab
+
+    result_base: dict = {
+        "mr_iid": mr_iid,
+        "mr_components": [],
+        "covered": [],
+        "missing": list(requested_components),
+        "source": "none",
+        "suggestion": "no_overlap",
+    }
+
+    # --- Primary: diff parsing (cache-aware) ---
+    diff_components: list[str] = []
+    if _mr_cache.has(mr_iid):
+        for change in _mr_cache.get_changes(mr_iid):
+            path = change.get("new_path", "")
+            if "EnterpriseContractPolicy/" in path or "exceptions/" in path:
+                diff_components.extend(
+                    _parse_components_from_diff(change.get("diff", ""), rule)
+                )
+    else:
+        project = GITLAB_PROJECT.replace("/", "%2F")
+        try:
+            resp = run_glab(
+                [
+                    "api", "--hostname", GITLAB_HOST, "--method", "GET",
+                    f"projects/{project}/merge_requests/{mr_iid}/changes",
+                ],
+                timeout=30,
+            )
+            if resp.returncode == 0:
+                data = json.loads(resp.stdout)
+                changes = data.get("changes", [])
+                _mr_cache.store(mr_iid, changes)
+                for change in changes:
+                    path = change.get("new_path", "")
+                    if "EnterpriseContractPolicy/" in path or "exceptions/" in path:
+                        diff_components.extend(
+                            _parse_components_from_diff(change.get("diff", ""), rule)
+                        )
+        except (FileNotFoundError, subprocess.TimeoutExpired,
+                json.JSONDecodeError):
+            result_base["coverage_error"] = "Failed to fetch MR diff"
+
+    if diff_components:
+        mr_comps = sorted(set(diff_components))
+        return _build_coverage_result(
+            result_base, mr_comps, requested_components, source="diff",
+        )
+
+    # --- Fallback: description parsing ---
+    if mr_description:
+        desc_components = _parse_components_from_description(mr_description)
+        if desc_components:
+            mr_comps = sorted(set(desc_components))
+            return _build_coverage_result(
+                result_base, mr_comps, requested_components, source="description",
+            )
+
+    return result_base
+
+
+def _build_coverage_result(
+    base: dict,
+    mr_components: list[str],
+    requested_components: list[str],
+    source: str,
+) -> dict:
+    """Compute overlap between MR components and requested components."""
+    mr_set = set(mr_components)
+    req_set = set(requested_components)
+    covered = sorted(mr_set & req_set)
+    missing = sorted(req_set - mr_set)
+
+    if not covered:
+        suggestion = "no_overlap"
+    elif not missing:
+        suggestion = "fully_covered"
+    else:
+        suggestion = "extend_mr"
+
+    return {
+        **base,
+        "mr_components": mr_components,
+        "covered": covered,
+        "missing": missing,
+        "source": source,
+        "suggestion": suggestion,
+    }
+
+
 def search_related_psx(rule: str) -> list[dict]:
     """Search for existing PSX tickets related to this rule."""
     rule_fragment = rule
@@ -154,7 +647,7 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
     if clone_dir:
         search_dir = Path(clone_dir)
     else:
-        search_dir = Path("/tmp/conforma-check")
+        search_dir = WORK_DIR
 
     if not search_dir.exists():
         return {"checked": False, "reason": "No local clone available"}
@@ -183,6 +676,7 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
                     "file": rel_path,
                     "has_componentNames": exc["has_component_names"],
                     "componentNames": exc["component_names"],
+                    "imageUrl": exc.get("image_url", ""),
                     "effectiveUntil": exc["effective_until_value"],
                 })
 
@@ -555,6 +1049,419 @@ def evaluate_decision(
     }
 
 
+def check_existing_exception_gate(
+    rule: str,
+    components: list[str],
+    clone_dir: str | None = None,
+    environment: str = "prod",
+    prefetched_mrs: list[dict] | None = None,
+) -> dict:
+    """Hard gate: check if active exceptions already cover the requested components.
+
+    Clones konflux-release-data (if needed), searches for existing exceptions
+    matching the rule, and determines whether any active (non-expired) exception
+    already covers the requested components.
+
+    Returns:
+        {
+            "gate": "existing_exception_check",
+            "status": "blocked" | "partial" | "passed" | "permanent",
+            "reason": str,
+            "rule": str,
+            "requested_components": list[str],
+            "active_exceptions": list[dict],
+            "permanent_exclusions": list[dict],
+            "covered_components": list[str],
+            "uncovered_components": list[str],
+        }
+    """
+    from datetime import datetime, timezone
+
+    base_result = {
+        "gate": "existing_exception_check",
+        "rule": rule,
+        "requested_components": components,
+        "active_exceptions": [],
+        "permanent_exclusions": [],
+        "covered_components": [],
+        "uncovered_components": list(components),
+    }
+
+    # Ensure clone exists
+    repo_dir = None
+    if clone_dir:
+        candidate = Path(clone_dir)
+        policy_sub = "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
+        if (candidate / policy_sub).is_dir():
+            repo_dir = candidate
+        elif (candidate / "repo" / policy_sub).is_dir():
+            repo_dir = candidate / "repo"
+
+    if not repo_dir:
+        try:
+            from manage_exceptions import _clone_repo
+            repo_dir, _ = _clone_repo(Path(clone_dir) if clone_dir else None)
+        except Exception as exc:
+            return {
+                **base_result,
+                "status": "passed",
+                "reason": (
+                    f"Could not clone konflux-release-data ({exc}). "
+                    "Gate check skipped — proceeding with caution."
+                ),
+            }
+
+    existing = search_existing_exceptions(rule, str(repo_dir))
+
+    open_mrs = prefetched_mrs if prefetched_mrs is not None else search_open_exception_mrs(rule)
+    enriched_mrs: list[dict] = []
+    for mr_info in open_mrs:
+        coverage = analyze_mr_component_coverage(
+            mr_iid=mr_info["iid"],
+            rule=rule,
+            requested_components=components,
+            mr_description=mr_info.get("description", ""),
+        )
+        merged = {**mr_info, **coverage}
+        merged.pop("description", None)
+        enriched_mrs.append(merged)
+    base_result["open_merge_requests"] = enriched_mrs
+
+    if not existing.get("checked"):
+        return {
+            **base_result,
+            "status": "passed",
+            "reason": (
+                f"Could not check existing exceptions: "
+                f"{existing.get('reason', 'unknown')}. "
+                "Gate check skipped — proceeding with caution."
+            ),
+        }
+
+    # Check permanent exclusions first
+    permanent = existing.get("permanent_exclusions", [])
+    env_permanent = [
+        p for p in permanent if f"-{environment}." in Path(p["file"]).name
+    ]
+    if env_permanent:
+        return {
+            **base_result,
+            "status": "permanent",
+            "permanent_exclusions": env_permanent,
+            "covered_components": list(components),
+            "uncovered_components": [],
+            "reason": (
+                f"Rule '{rule}' is permanently excluded globally in "
+                f"{env_permanent[0]['file']} (line {env_permanent[0]['line']}). "
+                f"All components are covered forever in {environment}. "
+                f"No exception needed."
+            ),
+        }
+
+    # Check volatile exceptions for active coverage
+    volatile = existing.get("existing_exceptions", [])
+    if not volatile:
+        return {
+            **base_result,
+            "status": "passed",
+            "reason": f"No existing exceptions found for rule '{rule}'. Proceed with creation.",
+        }
+
+    now = datetime.now(timezone.utc)
+    requested = set(components)
+    covered = set()
+    active_exceptions = []
+    seen_keys: set[str] = set()
+
+    for exc in volatile:
+        eu = exc.get("effectiveUntil")
+        is_active = True
+        if eu:
+            try:
+                eu_str = eu.strip('"').strip("'")
+                eu_dt = datetime.fromisoformat(eu_str.replace("Z", "+00:00"))
+                is_active = eu_dt > now
+            except (ValueError, TypeError):
+                is_active = True  # can't parse → assume active
+
+        if not is_active:
+            continue
+
+        env_file = Path(exc.get("file", "")).name
+        if f"-{environment}" not in env_file and environment != "":
+            continue
+
+        exc_comps = set(exc.get("componentNames", []))
+        dedup_key = f"{exc.get('file')}|{eu}|{sorted(exc_comps)}"
+        if dedup_key in seen_keys:
+            continue
+        seen_keys.add(dedup_key)
+
+        if exc.get("has_componentNames") and exc_comps:
+            overlap = requested & exc_comps
+            if overlap:
+                covered |= overlap
+                active_exceptions.append({
+                    "file": exc["file"],
+                    "componentNames": sorted(exc_comps),
+                    "effectiveUntil": eu,
+                    "covers_components": sorted(overlap),
+                })
+        elif not exc.get("has_componentNames"):
+            image_url = exc.get("imageUrl", "")
+            if image_url:
+                matched = {c for c in requested if image_url_covers_component(image_url, c)}
+                if matched:
+                    covered |= matched
+                    active_exceptions.append({
+                        "file": exc["file"],
+                        "componentNames": [],
+                        "imageUrl": image_url,
+                        "effectiveUntil": eu,
+                        "covers_components": sorted(matched),
+                        "note": f"imageUrl-scoped exception ({image_url} covers base name '{_extract_image_base(image_url)}')",
+                    })
+            else:
+                covered = requested.copy()
+                active_exceptions.append({
+                    "file": exc["file"],
+                    "componentNames": [],
+                    "effectiveUntil": eu,
+                    "covers_components": sorted(requested),
+                    "note": "Unscoped exception (no componentNames, no imageUrl) — covers all components for this rule",
+                })
+
+    uncovered = sorted(requested - covered)
+    covered_list = sorted(covered)
+
+    if not active_exceptions:
+        return {
+            **base_result,
+            "status": "passed",
+            "reason": (
+                f"Existing exceptions found for rule '{rule}' but all are expired. "
+                "Proceed with creation."
+            ),
+        }
+
+    if not uncovered:
+        return {
+            **base_result,
+            "status": "blocked",
+            "active_exceptions": active_exceptions,
+            "covered_components": covered_list,
+            "uncovered_components": [],
+            "reason": (
+                f"All {len(requested)} requested component(s) are already covered by "
+                f"active exception(s) in {active_exceptions[0]['file']} "
+                f"(effectiveUntil: {active_exceptions[0]['effectiveUntil']}). "
+                f"No new exception needed."
+            ),
+        }
+
+    return {
+        **base_result,
+        "status": "partial",
+        "active_exceptions": active_exceptions,
+        "covered_components": covered_list,
+        "uncovered_components": uncovered,
+        "reason": (
+            f"{len(covered_list)} of {len(requested)} component(s) already covered "
+            f"by active exception(s). {len(uncovered)} component(s) still need "
+            f"exceptions: {', '.join(uncovered[:5])}"
+            + (f"... (+{len(uncovered) - 5} more)" if len(uncovered) > 5 else "")
+        ),
+    }
+
+
+def check_violations_coverage(
+    violations_yaml_path: str,
+    clone_dir: str | None = None,
+    environment: str = "prod",
+) -> dict:
+    """Batch coverage check: read a violations YAML and check each violation's components
+    against existing exceptions in the policy file.
+
+    Returns a per-violation summary with coverage status so the agent can present
+    an informed violation list (covered vs uncovered) without per-violation round trips.
+    """
+    import yaml
+
+    path = Path(violations_yaml_path)
+    if not path.exists():
+        return {"error": f"Violations file not found: {violations_yaml_path}"}
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    by_rule = data.get("violation_data", {}).get("violations_by_rule", {})
+
+    if not by_rule:
+        return {"error": "No violations_by_rule found in input YAML"}
+
+    all_rules = list(by_rule.keys())
+
+    # Prefetch all open MRs and their diffs in one batch
+    prefetched_mrs = prefetch_open_mrs(all_rules)
+
+    # Prefetch all open Jira tickets (RHOAIENG, PSX, OCPEXCEPT) in one batch
+    prefetched_jira = prefetch_open_jira_tickets(all_rules)
+
+    results = []
+    for rule, info in sorted(by_rule.items()):
+        all_components = []
+        for release, comps in info.get("releases", {}).items():
+            all_components.extend(comps)
+        all_components = sorted(set(all_components))
+
+        if not all_components:
+            results.append({
+                "rule": rule,
+                "title": info.get("title", ""),
+                "total_components": 0,
+                "covered_components": [],
+                "uncovered_components": [],
+                "coverage": "no_components",
+                "status": "skipped",
+            })
+            continue
+
+        gate = check_existing_exception_gate(
+            rule=rule,
+            components=all_components,
+            clone_dir=clone_dir,
+            environment=environment,
+            prefetched_mrs=prefetched_mrs.get(rule),
+        )
+
+        covered = gate.get("covered_components", [])
+        uncovered = gate.get("uncovered_components", [])
+
+        if gate["status"] == "blocked":
+            coverage = "fully_covered"
+            coverage_label = "already covered"
+        elif gate["status"] == "partial":
+            coverage = "partially_covered"
+            coverage_label = f"{len(uncovered)} of {len(all_components)} uncovered"
+        else:
+            coverage = "not_covered"
+            coverage_label = "needs violation resolution or conforma exception"
+
+        open_mrs = gate.get("open_merge_requests", [])
+
+        mr_label = ""
+        next_steps = "create exception Jira(s) + merge request(s)"
+        mr_fully_covered = False
+        matched_mr: dict | None = None
+        for mr in open_mrs:
+            sug = mr.get("suggestion", "")
+            mr_url = mr.get("url", "")
+            if sug == "fully_covered":
+                mr_label = (
+                    f"fully covered by open [MR !{mr['iid']}]({mr_url})"
+                )
+                mr_fully_covered = True
+                matched_mr = mr
+                break
+            if sug == "extend_mr":
+                n_cov = len(mr.get("covered", []))
+                mr_label = (
+                    f"open [MR !{mr['iid']}]({mr_url}) covers "
+                    f"{n_cov}/{len(all_components)}"
+                )
+                next_steps = (
+                    f"extend [MR !{mr['iid']}]({mr_url}) "
+                    f"with {len(mr.get('missing', []))} missing component(s)"
+                )
+                matched_mr = mr
+
+        jira_tickets = prefetched_jira.get(rule, [])
+        jira_label = ""
+        if jira_tickets:
+            labels = []
+            for t in jira_tickets:
+                labels.append(f"[{t['key']}]({t['url']}) ({t['status']})")
+            jira_label = ", ".join(labels)
+
+        if jira_tickets and matched_mr:
+            rhoaieng = [t for t in jira_tickets if t["key"].startswith("RHOAIENG-")]
+            psx = [t for t in jira_tickets if t["key"].startswith(("PSX-", "OCPEXCEPT-"))]
+            mr_ref = f"[MR !{matched_mr['iid']}]({matched_mr['url']})"
+            approval_parts = []
+            if rhoaieng:
+                rhoaieng_refs = ", ".join(
+                    f"[{t['key']}]({t['url']}) ({t['status']})" for t in rhoaieng
+                )
+                approval_parts.append(f"work with Managers on approving {rhoaieng_refs}")
+            if psx:
+                _PSX_STATUS_ACTIONS = {
+                    "new": "Pending Approval",
+                    "open": "Pending Approval",
+                    "waiting": "Ready for Verification",
+                    "waiting for customer": "Ready for Verification",
+                    "in progress": "Ready for Verification",
+                }
+                for t in psx:
+                    status_lower = t["status"].lower()
+                    target = _PSX_STATUS_ACTIONS.get(status_lower)
+                    ref = f"[{t['key']}]({t['url']}) ({t['status']})"
+                    if target:
+                        approval_parts.append(
+                            f"work with ProdSec to get {ref} to \"{target}\""
+                        )
+                    else:
+                        approval_parts.append(
+                            f"work with ProdSec on {ref}"
+                        )
+            approval_parts.append(f"get {mr_ref} submitted")
+            approval_text = " — ".join(approval_parts)
+
+            if mr_fully_covered:
+                next_steps = approval_text
+            else:
+                next_steps += " — " + approval_text
+        elif mr_fully_covered:
+            next_steps = "no action needed — already covered"
+
+        if len(uncovered) <= 3:
+            display_components = ", ".join(uncovered)
+        else:
+            display_components = (
+                ", ".join(uncovered[:3]) + f" ... +{len(uncovered) - 3} more"
+            )
+
+        results.append({
+            "rule": rule,
+            "title": info.get("title", ""),
+            "total_components": len(all_components),
+            "covered_components": covered,
+            "uncovered_components": uncovered,
+            "covered_count": len(covered),
+            "uncovered_count": len(uncovered),
+            "display_components": display_components,
+            "open_merge_requests": open_mrs,
+            "open_mr_label": mr_label,
+            "open_jira_tickets": jira_tickets,
+            "open_jira_label": jira_label,
+            "next_steps": next_steps,
+            "coverage": coverage,
+            "coverage_label": coverage_label,
+            "status": gate["status"],
+        })
+
+    summary = {
+        "fully_covered": sum(1 for r in results if r["coverage"] == "fully_covered"),
+        "partially_covered": sum(1 for r in results if r["coverage"] == "partially_covered"),
+        "not_covered": sum(1 for r in results if r["coverage"] == "not_covered"),
+        "total_violations": len(results),
+    }
+
+    return {
+        "violations_source": violations_yaml_path,
+        "environment": environment,
+        "summary": summary,
+        "violations": results,
+    }
+
+
 def discover_user_groups() -> dict:
     """Discover the current user's Jira groups and their members dynamically.
 
@@ -896,8 +1803,27 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Deterministic pre-flight check for conforma-exception"
     )
-    parser.add_argument("--rhoaieng-url", required=True, help="RHOAIENG Jira ticket URL")
+    parser.add_argument(
+        "--check-existing-exception", action="store_true",
+        help=(
+            "Check if an active exception already exists for the given rule + components. "
+            "No Jira required. Requires --rule and --components. Outputs JSON gate result."
+        ),
+    )
+    parser.add_argument(
+        "--check-violations-coverage", default=None, metavar="VIOLATIONS_YAML",
+        help=(
+            "Batch coverage check: path to a conforma-violations.yaml file. "
+            "Checks all rules/components against existing exceptions in the policy file "
+            "and outputs per-rule coverage status (fully_covered / partially_covered / not_covered)."
+        ),
+    )
+    parser.add_argument("--rhoaieng-url", default=None, help="RHOAIENG Jira ticket URL")
     parser.add_argument("--rule", default=None, help="Override rule (skip extraction)")
+    parser.add_argument(
+        "--components", default=None,
+        help="Comma-separated Konflux component names (required for --check-existing-exception)",
+    )
     parser.add_argument(
         "--versions", default=None,
         help="Comma-separated RHOAI versions (e.g. rhoai-2.25,rhoai-3.3)"
@@ -912,11 +1838,43 @@ def parse_args() -> argparse.Namespace:
         "--environment", default="prod", choices=["prod", "stage"],
         help="Target environment (filters decision to relevant policy files)"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.check_existing_exception:
+        if not args.rule:
+            parser.error("--check-existing-exception requires --rule")
+        if not args.components:
+            parser.error("--check-existing-exception requires --components")
+    elif args.check_violations_coverage:
+        pass
+    elif not args.rhoaieng_url:
+        parser.error("--rhoaieng-url is required (unless using --check-existing-exception or --check-violations-coverage)")
+
+    return args
 
 
 def main() -> int:
     args = parse_args()
+
+    if args.check_violations_coverage:
+        result = check_violations_coverage(
+            violations_yaml_path=args.check_violations_coverage,
+            clone_dir=args.clone_dir,
+            environment=args.environment,
+        )
+        print(json.dumps(result, indent=2))
+        return 1 if "error" in result else 0
+
+    if args.check_existing_exception:
+        components = [c.strip() for c in args.components.split(",")]
+        result = check_existing_exception_gate(
+            rule=args.rule,
+            components=components,
+            clone_dir=args.clone_dir,
+            environment=args.environment,
+        )
+        print(json.dumps(result, indent=2))
+        return 0 if result["status"] != "blocked" else 1
 
     versions = [v.strip() for v in args.versions.split(",")] if args.versions else None
     image_bases = [i.strip() for i in args.image_bases.split(",")] if args.image_bases else None
