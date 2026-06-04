@@ -14,6 +14,7 @@ Updates child tasks with PR/MR URLs and status.
 Usage:
   rhoai_release_jira.py create <prev_version> <new_version>
   rhoai_release_jira.py update <task_key> --pr-url <url> --status <status>
+  rhoai_release_jira.py comment <issue_key> <comment_text>
   rhoai_release_jira.py get <parent_key>
 
 Environment:
@@ -244,6 +245,15 @@ def update_child_task(task_key: str, pr_url: str = None, status: str = None):
     print(f"\n{JIRA_URL}/browse/{task_key}")
 
 
+def add_comment_to_issue(issue_key: str, comment_text: str):
+    """Add a comment to a Jira issue."""
+    jira = create_jira_client()
+
+    print(f"Adding comment to {issue_key}...")
+    jira.add_comment(issue_key, comment_text)
+    print(f"✓ Comment added to {JIRA_URL}/browse/{issue_key}")
+
+
 def get_parent_info(parent_key: str):
     """Get parent issue and child tasks information."""
     jira = create_jira_client()
@@ -282,6 +292,11 @@ def main():
     get_parser = subparsers.add_parser("get", help="Get parent and child info")
     get_parser.add_argument("parent_key", help="Parent issue key")
 
+    # Comment command
+    comment_parser = subparsers.add_parser("comment", help="Add comment to an issue")
+    comment_parser.add_argument("issue_key", help="Issue key (e.g., RHOAIENG-12345)")
+    comment_parser.add_argument("comment_text", help="Comment text to add")
+
     args = parser.parse_args()
 
     try:
@@ -294,6 +309,8 @@ def main():
             update_child_task(args.task_key, args.pr_url, args.status)
         elif args.command == "get":
             get_parent_info(args.parent_key)
+        elif args.command == "comment":
+            add_comment_to_issue(args.issue_key, args.comment_text)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
