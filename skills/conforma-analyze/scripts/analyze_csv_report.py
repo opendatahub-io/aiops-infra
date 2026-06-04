@@ -10,17 +10,14 @@ human-readable analysis covering:
   - Prioritized remediation recommendations
 
 Usage:
-    # Analyze a single CSV:
-    python3 scripts/analyze_report.py --csv /path/to/report.csv
+    # Analyze all CSVs from the latest fetch run:
+    python3 scripts/analyze_csv_report.py --reports-dir .work/latest
 
-    # Analyze all CSVs in a directory (one per release):
-    python3 scripts/analyze_report.py --reports-dir /tmp/conforma-reports
+    # Analyze a single CSV:
+    python3 scripts/analyze_csv_report.py --csv .work/latest/rhoai-3.5-ea.1.csv
 
     # Output as markdown:
-    python3 scripts/analyze_report.py --csv /path/to/report.csv --format markdown
-
-    # Output as JSON (for programmatic consumption):
-    python3 scripts/analyze_report.py --csv /path/to/report.csv --format json
+    python3 scripts/analyze_csv_report.py --reports-dir .work/latest --format markdown
 """
 
 from __future__ import annotations
@@ -33,6 +30,7 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+
 
 
 @dataclass
@@ -460,7 +458,7 @@ def main() -> int:
     )
     input_group.add_argument(
         "--reports-dir",
-        help="Directory containing per-release CSV files",
+        help="Directory containing per-release CSV files (e.g. .work/latest)",
     )
     parser.add_argument(
         "--format",

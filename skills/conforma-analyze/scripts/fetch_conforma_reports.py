@@ -7,25 +7,40 @@ red-hat-data-services/conforma-reporter repository via raw download
 This handles multi-megabyte report files reliably without JSON/base64
 overhead or API size limits.
 
+When --output-dir is omitted, automatically creates a timestamped directory
+under .work/ (relative to this script's skill directory) and updates the
+.work/latest symlink to point to it.
+
 Usage:
+    # Auto-detect releases, auto-create .work/<timestamp>/:
+    python3 scripts/fetch_conforma_reports.py
+
+    # Explicit releases, auto-create .work/<timestamp>/:
+    python3 scripts/fetch_conforma_reports.py --releases rhoai-3.5-ea.1
+
+    # Explicit output directory:
     python3 scripts/fetch_conforma_reports.py \\
-      --releases rhoai-2.25,rhoai-3.3,rhoai-3.4 \\
+      --releases rhoai-2.25,rhoai-3.4 \\
       --output-dir /tmp/conforma-reports
 
     # Use pre-downloaded CSVs instead of fetching:
     python3 scripts/fetch_conforma_reports.py \\
-      --local-dir /path/to/csvs \\
-      --output-dir /tmp/conforma-reports
+      --local-dir /path/to/csvs
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
+
+SKILL_DIR = Path(__file__).resolve().parent.parent
+WORK_DIR = SKILL_DIR / ".work"
 
 
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
@@ -216,6 +231,26 @@ def fetch_supported_releases() -> list[str]:
     return releases
 
 
+def _create_timestamped_output_dir() -> Path:
+    """Create a timestamped run directory under .work/ and update the latest symlink."""
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir = WORK_DIR / timestamp
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    latest_link = WORK_DIR / "latest"
+    # Atomic symlink update: create temp link then rename
+    tmp_link = WORK_DIR / f".latest-{timestamp}"
+    try:
+        tmp_link.symlink_to(timestamp)
+        tmp_link.rename(latest_link)
+    except OSError:
+        # Fallback: remove then create
+        latest_link.unlink(missing_ok=True)
+        latest_link.symlink_to(timestamp)
+
+    return run_dir
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Fetch conforma violation reports per release"
@@ -227,8 +262,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--output-dir",
-        required=True,
-        help="Directory to write CSV files to",
+        default=None,
+        help="Directory to write CSV files to (default: auto-create .work/<timestamp>/)",
     )
     parser.add_argument(
         "--local-dir",
@@ -262,8 +297,12 @@ def main() -> int:
         print("Error: no releases specified", file=sys.stderr)
         return 1
 
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        output_dir = _create_timestamped_output_dir()
+        print(f"Run directory: {output_dir}", file=sys.stderr)
 
     if args.local_dir:
         results = copy_local_csvs(Path(args.local_dir), releases, output_dir)

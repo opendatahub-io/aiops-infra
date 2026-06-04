@@ -48,53 +48,51 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
 
    If auto-detection fails (e.g. network issue, repo access), the script errors out and instructs the user to provide `--releases` manually.
 
-3. **Fetch reports**: Run to auto-detect releases and fetch violation CSVs:
+3. **Fetch reports**: Run to auto-detect releases and fetch violation CSVs into a new timestamped run directory:
 
 ```bash
-python3 scripts/fetch_conforma_reports.py \
-  --output-dir /tmp/conforma-reports
+python3 scripts/fetch_conforma_reports.py
 ```
 
    Override with explicit releases only if needed for a one-off check:
 
 ```bash
-python3 scripts/fetch_conforma_reports.py \
-  --releases rhoai-2.25,rhoai-3.4 \
-  --output-dir /tmp/conforma-reports
+python3 scripts/fetch_conforma_reports.py --releases rhoai-2.25,rhoai-3.4
 ```
+
+   Each invocation creates a **new timestamped directory** under `.work/` (e.g. `.work/20260604-123000/`) and updates the `.work/latest` symlink. Previous runs are preserved — no clobbering. Use `--output-dir` only when you need output in a specific location outside `.work/`.
 
    Some in-development/EA branches may not have a violations report CSV yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
 
-4. **Parse violations**: Run to produce the structured YAML:
+4. **Parse violations**: Run on the **same timestamped directory from step 3** to produce the structured YAML:
 
 ```bash
 python3 scripts/parse_violations.py \
-  --reports-dir /tmp/conforma-reports \
-  --output /tmp/conforma-violations.yaml
+  --reports-dir .work/20260604-123000 \
+  --output .work/20260604-123000/violations.yaml
 ```
 
-5. **Analyze and present**: Run the CSV analysis script to produce a human-readable report:
+5. **Analyze and present**: Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data:
 
 ```bash
 # Text summary (default):
-python3 scripts/analyze_csv_report.py \
-  --reports-dir /tmp/conforma-reports
+python3 scripts/analyze_csv_report.py --reports-dir .work/20260604-123000
 
 # Markdown report:
 python3 scripts/analyze_csv_report.py \
-  --reports-dir /tmp/conforma-reports \
+  --reports-dir .work/20260604-123000 \
   --format markdown \
-  --output /tmp/conforma-analysis.md
+  --output .work/20260604-123000/conforma-analysis.md
 
 # JSON (for programmatic consumption):
 python3 scripts/analyze_csv_report.py \
-  --reports-dir /tmp/conforma-reports \
+  --reports-dir .work/20260604-123000 \
   --format json \
-  --output /tmp/conforma-analysis.json
+  --output .work/20260604-123000/conforma-analysis.json
 
 # Analyze a single CSV directly:
 python3 scripts/analyze_csv_report.py \
-  --csv /path/to/conforma-violations-report.csv
+  --csv .work/20260604-123000/rhoai-3.5-ea.1.csv
 ```
 
    The analysis script covers:
