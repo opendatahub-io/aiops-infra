@@ -1343,12 +1343,12 @@ def check_violations_coverage(
             coverage_label = f"{len(uncovered)} of {len(all_components)} uncovered"
         else:
             coverage = "not_covered"
-            coverage_label = "needs violation resolution or conforma exception"
+            coverage_label = "not covered — resolve in code first, exception as last resort"
 
         open_mrs = gate.get("open_merge_requests", [])
 
         mr_label = ""
-        next_steps = "create exception Jira(s) + merge request(s)"
+        next_steps = "resolve violation in component code — if not feasible, create conforma exception"
         mr_fully_covered = False
         matched_mr: dict | None = None
         for mr in open_mrs:
@@ -1393,8 +1393,9 @@ def check_violations_coverage(
                 approval_parts.append(f"work with Managers on approving {rhoaieng_refs}")
             if psx:
                 _PSX_STATUS_ACTIONS = {
-                    "new": "Pending Approval",
-                    "open": "Pending Approval",
+                    "new": "Pending Approval\" and then \"Ready for Verification",
+                    "open": "Pending Approval\" and then \"Ready for Verification",
+                    "pending approval": "Ready for Verification",
                     "waiting": "Ready for Verification",
                     "waiting for customer": "Ready for Verification",
                     "in progress": "Ready for Verification",
@@ -1454,12 +1455,43 @@ def check_violations_coverage(
         "total_violations": len(results),
     }
 
+    md_table = _render_violations_markdown_table(results, summary)
+
     return {
         "violations_source": violations_yaml_path,
         "environment": environment,
         "summary": summary,
         "violations": results,
+        "markdown_table": md_table,
     }
+
+
+def _render_violations_markdown_table(
+    results: list[dict], summary: dict
+) -> str:
+    """Pre-render a markdown table from violations coverage results.
+
+    Columns: #, Rule, Components, Open MRs, Open Jira, Next Steps.
+    No Coverage column — next_steps is the single source of guidance.
+    """
+    lines = [
+        f"**Summary**: {summary['total_violations']} unique rules — "
+        f"{summary['fully_covered']} fully covered, "
+        f"{summary['partially_covered']} partially covered, "
+        f"{summary['not_covered']} not covered.",
+        "",
+        "| # | Rule | Components | Open MRs | Open Jira | Next Steps |",
+        "|---|------|-----------|----------|-----------|------------|",
+    ]
+    for i, v in enumerate(results, 1):
+        rule = f"`{v['rule']}`"
+        comps = v["display_components"]
+        mr = v["open_mr_label"] or "—"
+        jira = v["open_jira_label"] or "—"
+        ns = v["next_steps"]
+        lines.append(f"| {i} | {rule} | {comps} | {mr} | {jira} | {ns} |")
+
+    return "\n".join(lines)
 
 
 def discover_user_groups() -> dict:
