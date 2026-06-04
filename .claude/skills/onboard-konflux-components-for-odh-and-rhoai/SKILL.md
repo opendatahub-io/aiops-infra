@@ -200,16 +200,20 @@ done
 ## Step 7: Compute Unblocked Steps
 
 A step is **executable** this run if:
-1. Its `status` is `"pending"` (not `pr_raised`, `mr_raised`, `merged`, `done`, `skipped`, `closed`)
+1. Its `status` is `"pending"`, OR it is `"deferred"` and can now be resolved (i.e., `is_operator` is set in state)
 2. All steps in its `depends_on` list have `status == "merged"` or `"done"`
 
 Compute `UNBLOCKED_STEPS` by reading `pipeline_state.json`:
 
 ```bash
 UNBLOCKED_STEPS=$(jq -r '
+  .is_operator as $is_op |
   .steps as $steps |
   $steps | to_entries[] |
-  select(.value.status == "pending") |
+  select(
+    (.value.status == "pending") or
+    (.value.status == "deferred" and .key == "operator" and $is_op == true)
+  ) |
   select(
     .value.depends_on | all(. as $dep |
       $steps[$dep].status == "merged" or $steps[$dep].status == "done"
@@ -431,6 +435,78 @@ uv run --script "scripts/update_jira_issue.py" "$JIRA_URL" \
 
 ---
 
+## Step 9b: Verify Pipeline Integrity
+
+After all Step 8/9 executions, perform a single verification pass to detect steps
+that were incorrectly skipped or deferred despite the component configuration
+requiring them. This catches timing bugs where `IS_OPERATOR` or `PRODUCT_CONTEXT`
+was not yet available when the state was first created.
+
+```bash
+CORRECTIONS=0
+
+# Rule 1: operator must not be skipped/deferred when is_operator=true
+ACTUAL_IS_OP=$(jq -r '.is_operator // false' "$PIPELINE_STATE")
+OP_STATUS=$(jq -r '.steps.operator.status' "$PIPELINE_STATE")
+if [[ "$ACTUAL_IS_OP" == "true" && ("$OP_STATUS" == "skipped" || "$OP_STATUS" == "deferred") ]]; then
+  TMP=$(mktemp)
+  jq '.steps.operator.status = "pending"' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+  echo "[verification] operator was '$OP_STATUS' but is_operator=true — corrected to 'pending'" >&2
+  CORRECTIONS=$((CORRECTIONS + 1))
+fi
+
+# Rule 2: RHOAI-only steps must not be skipped when product_context=RHOAI
+ACTUAL_PC=$(jq -r '.product_context // ""' "$PIPELINE_STATE")
+if [[ "$ACTUAL_PC" == "RHOAI" ]]; then
+  for KEY in delivery_repo product_listing auto_merge renovate renovate_sync pull_pipelines; do
+    S=$(jq -r --arg k "$KEY" '.steps[$k].status // "missing"' "$PIPELINE_STATE")
+    if [[ "$S" == "skipped" ]]; then
+      TMP=$(mktemp)
+      jq --arg k "$KEY" '.steps[$k].status = "pending"' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "[verification] $KEY was 'skipped' but product_context=RHOAI — corrected to 'pending'" >&2
+      CORRECTIONS=$((CORRECTIONS + 1))
+    fi
+  done
+fi
+
+# Rule 3: ODH-only steps must not be skipped when product_context=ODH
+if [[ "$ACTUAL_PC" == "ODH" ]]; then
+  for KEY in onboarder_workflow; do
+    S=$(jq -r --arg k "$KEY" '.steps[$k].status // "missing"' "$PIPELINE_STATE")
+    if [[ "$S" == "skipped" ]]; then
+      TMP=$(mktemp)
+      jq --arg k "$KEY" '.steps[$k].status = "pending"' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "[verification] $KEY was 'skipped' but product_context=ODH — corrected to 'pending'" >&2
+      CORRECTIONS=$((CORRECTIONS + 1))
+    fi
+  done
+fi
+
+if [[ "$CORRECTIONS" -gt 0 ]]; then
+  echo "[verification] Corrected $CORRECTIONS step(s). Re-computing unblocked steps." >&2
+  # Re-run Step 7 + Step 8 for newly unblocked steps (single retry, no recursion)
+  UNBLOCKED_STEPS=$(jq -r '
+    .is_operator as $is_op |
+    .steps as $steps |
+    $steps | to_entries[] |
+    select(
+      (.value.status == "pending") or
+      (.value.status == "deferred" and .key == "operator" and $is_op == true)
+    ) |
+    select(
+      .value.depends_on | all(. as $dep |
+        $steps[$dep].status == "merged" or $steps[$dep].status == "done"
+      )
+    ) | .key
+  ' "$PIPELINE_STATE")
+  # Execute any newly-unblocked steps following Step 8 logic above
+else
+  echo "[verification] All step statuses consistent with component configuration." >&2
+fi
+```
+
+---
+
 ## Step 10: Check Idle Reminder
 
 If any steps are still in `pr_raised` or `mr_raised` status AND `last_status_change_at`
@@ -500,7 +576,7 @@ Set `NEW_PRS_RAISED="true"` in Step 8 immediately after recording any new PR/MR 
 
 ```bash
 ALL_DONE=$(jq -r '
-  [.steps | to_entries[] | select(.value.status != "skipped")] |
+  [.steps | to_entries[] | select(.value.status != "skipped" and .value.status != "deferred")] |
   all(.value.status == "done" or .value.status == "merged")
 ' "$PIPELINE_STATE")
 ```
