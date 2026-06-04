@@ -34,11 +34,17 @@ Only rows with `type=violation` are included in the output. Warnings are exclude
 
 ## Workflow
 
-When the user asks to show violations, analyze violations, or fetch conforma reports:
+When the user asks to show violations, analyze violations, fetch conforma reports, or analyze a conforma report URL:
+
+### Handling user-provided URLs
+
+If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), extract the release branch from the URL path (the segment after `/blob/` and before the next `/`) and pass it to the fetch script via `--releases`. Example: from the URL above, extract `rhoai-3.4` and run with `--releases rhoai-3.4`.
+
+### Steps
 
 1. **Auth check**: Run `python3 scripts/verify_auth.py`. Stop if any check fails.
 
-2. **Releases**: The script auto-detects supported releases by fetching [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) from `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases. No static release list is maintained in this skill.
+2. **Releases**: If the user provided a URL, extract the release branch from it (see above). Otherwise, the script auto-detects supported releases by fetching [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) from `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases. No static release list is maintained in this skill.
 
    If auto-detection fails (e.g. network issue, repo access), the script errors out and instructs the user to provide `--releases` manually.
 
@@ -67,7 +73,38 @@ python3 scripts/parse_violations.py \
   --output /tmp/conforma-violations.yaml
 ```
 
-5. **Present results**: Read the output YAML and present to the user as summary tables (per-release totals, per-rule breakdowns, per-component lists). Use the `summary` section for the overview and `violations_by_rule` for detail.
+5. **Analyze and present**: Run the CSV analysis script to produce a human-readable report:
+
+```bash
+# Text summary (default):
+python3 scripts/analyze_csv_report.py \
+  --reports-dir /tmp/conforma-reports
+
+# Markdown report:
+python3 scripts/analyze_csv_report.py \
+  --reports-dir /tmp/conforma-reports \
+  --format markdown \
+  --output /tmp/conforma-analysis.md
+
+# JSON (for programmatic consumption):
+python3 scripts/analyze_csv_report.py \
+  --reports-dir /tmp/conforma-reports \
+  --format json \
+  --output /tmp/conforma-analysis.json
+
+# Analyze a single CSV directly:
+python3 scripts/analyze_csv_report.py \
+  --csv /path/to/conforma-violations-report.csv
+```
+
+   The analysis script covers:
+   - Totals and breakdown by violation code (count, %, affected components)
+   - Root cause extraction (untrusted task names, signing keys)
+   - Per-component violation patterns (code combinations)
+   - Effective date enforcement deadlines
+   - Prioritized remediation recommendations with resolution %
+
+   Present the output to the user. For the `--format text` output, display it directly. For markdown, render it as the response.
 
 ## Output Format
 

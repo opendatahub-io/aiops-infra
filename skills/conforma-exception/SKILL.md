@@ -269,9 +269,62 @@ When `match_template_category()` returns `"other"`, the agent MUST follow an int
 
 **Important**: The `other` category still uses the same orchestration scripts (`create_exception.py`, `create_jira_ticket.py`, `create_gitlab_mr.py`). The only difference is that exception text comes from user input rather than from template resolution. All other validation, deduplication, linking, and verification logic applies identically.
 
+## Exception Creation Workflow Diagram
+
+The following mermaid diagram shows the end-to-end flow for creating a new Conforma exception. **The agent MUST render this diagram to the user** in the following situations:
+
+1. **Generic questions** — When the user asks what a Conforma exception is, how exceptions work, or asks about the exception process (e.g. "what is a conforma exception", "explain conforma exceptions", "how does the exception workflow work", "what's the process for creating an exception")
+2. **Before prompting for details** — When the user initiates exception creation (e.g. "create conforma exception", "I need a conforma exception", "create exception for componentA") the agent MUST show this diagram BEFORE presenting the entry-point choices or the questionnaire, so the user understands the full flow they are about to go through
+
+```mermaid
+flowchart TD
+    Start([User requests exception creation]) --> EntryPoint{How will you provide\nviolation details?}
+
+    EntryPoint -->|"Paste violation text"| Extract[Extract rule, components,\nversion from pasted text]
+    EntryPoint -->|"Provide report URL"| Fetch[Fetch & parse Conforma report]
+    EntryPoint -->|"Provide details directly\n(rule + version + Jira URL)"| Details[Rule + version + components known]
+
+    Fetch --> Select[User selects violation from report]
+    Select --> Gate
+    Extract --> Gate
+    Details --> Gate
+
+    Gate{Existing Exception Gate\n— already covered?}
+    Gate -->|"Blocked: exception exists"| Stop1([Already covered — no action needed])
+    Gate -->|Passed| Preflight[Preflight Check\nresolve parameters from authoritative sources]
+
+    Preflight --> Decision{Decision\nevaluated by script}
+    Decision -->|"proceed: false"| Stop2([Cannot proceed — reason shown to user])
+    Decision -->|"proceed: true"| Questionnaire
+
+    Questionnaire[User Questionnaire\nBatch 1: Rule + versions\nBatch 2: Components + vendor\nBatch 3: Approval + PSX + dates]
+    Questionnaire --> DryRun[Dry-run preview\nreview YAML + tickets before creation]
+    DryRun --> Confirm{User confirms\ndry-run output?}
+    Confirm -->|Edit| Questionnaire
+    Confirm -->|Proceed| Exec
+
+    subgraph Exec [Execution — workflow steps from template]
+        direction TB
+        Step1["① RHOAIENG component bugfix Jira\n(remediation plan — created first)"]
+        Step1 --> Step2["② RHOAIENG Senior Management\napproval Jira"]
+        Step2 --> ApprovalGate{{"③ APPROVAL GATE\nSenior Management\nmust approve"}}
+        ApprovalGate -->|Not approved| Halt([Halted — get approval,\nthen re-run])
+        ApprovalGate -->|Approved| Step3
+        Step3["④ PSX or OCPEXCEPT Jira\n(skip for self-service rules)"]
+        Step3 --> Step4["⑤ GitLab Merge Request\n(exception YAML in konflux-release-data)"]
+        Step4 --> Link["⑥ Link all artifacts\n(comments, labels, Jira links)"]
+    end
+
+    Link --> Done([Done — MR URL + ticket URLs reported])
+```
+
+**Self-service variant** (for rules like `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check`): Steps ① and ④ are skipped — the workflow is: Senior Management approval → Approval Gate → GitLab MR (to `exceptions/` directory).
+
 ## Explaining Conforma Exceptions
 
 When the user asks what a Conforma exception is (e.g. "what is a conforma exception", "explain conforma exceptions"), always include the compact YAML example from the introduction above. This makes the concept concrete. Also link to the [Conforma redhat collection](https://conforma.dev/docs/policy/release_policy.html) and [VolatileCriteria schema](https://conforma.dev/docs/policy/packages/release_volatile_config.html).
+
+**Additionally**, always render the workflow diagram from the "Exception Creation Workflow Diagram" section above when explaining Conforma exceptions, so the user can see the full process visually.
 
 ## Run Directory Convention
 
@@ -314,13 +367,16 @@ Script-internal temp directories (`conforma-exception-mr-*`, `conforma-exception
 
 ## Starting Without Details
 
-When the user asks to create a Conforma exception but does not provide specific details (no rule, no version, no components, no Jira URL — e.g., "create conforma exception for componentA", "how do I create an exception", "I need a conforma exception"), the agent MUST present two entry points using the AskQuestion tool:
+When the user asks to create a Conforma exception but does not provide specific details (no rule, no version, no components, no Jira URL — e.g., "create conforma exception for componentA", "how do I create an exception", "I need a conforma exception"), the agent MUST:
 
-1. **Paste violation text**: The user pastes Conforma violation output (from a CI log, Conforma report, or error message) directly into the prompt. The agent extracts the rule code, component name(s), RHOAI version, and any other available details from the pasted text, then runs the Existing Exception Gate before proceeding with the normal preflight/questionnaire flow.
+1. **Show the workflow diagram first** — render the mermaid diagram from the "Exception Creation Workflow Diagram" section so the user understands the full flow before beginning
+2. **Then present two entry points** using the AskQuestion tool:
 
-2. **Provide a Conforma report URL**: The user provides a URL to a Conforma violation report (e.g., a `conforma-reporter` GitHub URL, a raw CSV link, or a CI artifact URL). The agent:
-   a. Fetches the report content via raw download from `raw.githubusercontent.com` (using `curl` with the GitHub token from `gh auth token`)
-   b. Parses violations from the report using the `conforma-analyze` skill's `parse_violations.py`. The parser expects a directory of CSVs named `<release>.csv` (the release name is derived from the filename stem). Set up the directory inside `$RUN_DIR` and run:
+   a. **Paste violation text**: The user pastes Conforma violation output (from a CI log, Conforma report, or error message) directly into the prompt. The agent extracts the rule code, component name(s), RHOAI version, and any other available details from the pasted text, then runs the Existing Exception Gate before proceeding with the normal preflight/questionnaire flow.
+
+   b. **Provide a Conforma report URL**: The user provides a URL to a Conforma violation report (e.g., a `conforma-reporter` GitHub URL, a raw CSV link, or a CI artifact URL). The agent:
+      i. Fetches the report content via raw download from `raw.githubusercontent.com` (using `curl` with the GitHub token from `gh auth token`)
+      ii. Parses violations from the report using the `conforma-analyze` skill's `parse_violations.py`. The parser expects a directory of CSVs named `<release>.csv` (the release name is derived from the filename stem). Set up the directory inside `$RUN_DIR` and run:
       ```bash
       mkdir -p "$RUN_DIR/conforma-reports"
       cp <downloaded-csv> "$RUN_DIR/conforma-reports/rhoai-3.4.csv"
@@ -329,7 +385,7 @@ When the user asks to create a Conforma exception but does not provide specific 
         --output "$RUN_DIR/conforma-violations.yaml"
       ```
       If the user provides URLs for multiple releases, save each as `<release>.csv` in the same directory — the parser processes all `*.csv` files in one pass.
-   c. Runs the batch coverage check BEFORE presenting violations (pass `--clone-dir` to reuse the shared repo clone):
+      iii. Runs the batch coverage check BEFORE presenting violations (pass `--clone-dir` to reuse the shared repo clone):
       ```bash
       python3 scripts/preflight_check.py \
         --check-violations-coverage "$RUN_DIR/conforma-violations.yaml" \
@@ -337,7 +393,7 @@ When the user asks to create a Conforma exception but does not provide specific 
         --environment prod
       ```
       This checks all violations against existing exceptions in the policy file in one pass.
-   d. Presents violations as a summary table directly from the script's JSON output. The script provides display-ready fields — the agent MUST use them as-is without piping to ad-hoc formatters. Each violation entry includes:
+      iv. Presents violations as a summary table directly from the script's JSON output. The script provides display-ready fields — the agent MUST use them as-is without piping to ad-hoc formatters. Each violation entry includes:
       - `rule`: violation code
       - `display_components`: pre-formatted component list (all names if <=3, first 3 + "... +N more" otherwise)
       - `total_components`: count
@@ -351,8 +407,8 @@ When the user asks to create a Conforma exception but does not provide specific 
         - "work with Managers on approving [RHOAIENG-XXXXX](url) (In Progress) — work with ProdSec on getting [PSX-YYYY](url) (New) in progress — get [MR !N](url) submitted" — fully covered MR + open Jira
         - "no action needed — already covered" — fully covered MR, no open Jira
       Present each row using these fields as table columns. All references are pre-formatted as markdown links with statuses. The agent MUST NOT reformat, summarize, or strip statuses from these fields.
-   e. Lets the user select which violation(s) to create exceptions for (using AskQuestion with multi-select)
-   f. Proceeds with the normal preflight/questionnaire flow for each selected violation, pre-filling the violation code and component details from the parsed report. The per-violation Existing Exception Gate has already been checked in step (c) — no need to re-run it.
+      v. Lets the user select which violation(s) to create exceptions for (using AskQuestion with multi-select)
+      vi. Proceeds with the normal preflight/questionnaire flow for each selected violation, pre-filling the violation code and component details from the parsed report. The per-violation Existing Exception Gate has already been checked in step (iii) — no need to re-run it.
 
 The agent MUST NOT proceed with the creation workflow until it has a concrete rule and component list — either from user-provided details, pasted violation text, or a parsed report selection. The Existing Exception Gate must pass before proceeding — see "Existing Exception Gate (Hard Prerequisite)" above.
 
