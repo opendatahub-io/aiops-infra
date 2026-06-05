@@ -122,10 +122,11 @@ consolidated text.** Scan all of the following for field values:
 
 - The epic's own description and summary
 - All comments on the epic
-- Descriptions of sibling epics under the same parent feature
+- Descriptions AND comments of sibling epics under the same parent feature
+- Attachments on sibling epics (note filenames for any structured data)
 - Descriptions of linked issues
-- Any existing attachments (note filenames — if `component_onboarding_details.yaml`
-  already exists, this is a re-assessment)
+- Any existing attachments on the epic itself (note filenames — if
+  `component_onboarding_details.yaml` already exists, this is a re-assessment)
 
 **Fields to extract:**
 
