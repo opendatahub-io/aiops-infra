@@ -119,9 +119,29 @@ def build_provenance_footer() -> str:
     )
 
 
+def _get_existing_remote_links(ticket_key: str) -> list[dict]:
+    """Fetch existing remote/web links on a Jira ticket."""
+    creds = _jira_auth()
+    if not creds:
+        return []
+    _, auth = creds
+
+    jira_url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}/remotelink"
+    req = urllib.request.Request(jira_url, headers={
+        "Authorization": f"Basic {auth}",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return []
+
+
 def add_remote_link(ticket_key: str, url: str, title: str, dry_run: bool = False) -> dict:
     """Add a web/remote link to a Jira ticket via REST API.
 
+    Idempotent: checks for existing links with the same URL before adding.
     Requires JIRA_API_TOKEN and JIRA_EMAIL environment variables.
     Falls back gracefully if not available.
     """
@@ -142,6 +162,15 @@ def add_remote_link(ticket_key: str, url: str, title: str, dry_run: bool = False
             "ticket_key": ticket_key,
             "remote_link": url,
         }
+
+    existing = _get_existing_remote_links(ticket_key)
+    for link in existing:
+        if link.get("object", {}).get("url") == url:
+            return {
+                "status": "remote_link_already_exists",
+                "ticket_key": ticket_key,
+                "remote_link": url,
+            }
 
     import base64
 
@@ -227,8 +256,39 @@ def add_label(ticket_key: str, dry_run: bool = False) -> dict:
     }
 
 
+def _get_existing_comments(ticket_key: str) -> list[str]:
+    """Fetch existing comment bodies (as plain text) on a Jira ticket."""
+    creds = _jira_auth()
+    if not creds:
+        return []
+    _, auth = creds
+
+    url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}/comment"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Basic {auth}",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read())
+    except Exception:
+        return []
+
+    texts = []
+    for comment in data.get("comments", []):
+        body_text = ""
+        for block in comment.get("body", {}).get("content", []):
+            for item in block.get("content", []):
+                body_text += item.get("text", "")
+        texts.append(body_text)
+    return texts
+
+
 def comment_on_ticket(ticket_key: str, mr_url: str, dry_run: bool = False) -> dict:
-    """Add a comment with the MR URL to a Jira ticket."""
+    """Add a comment with the MR URL to a Jira ticket.
+
+    Idempotent: checks if a comment containing this MR URL already exists.
+    """
     comment_text = f"Conforma exception MR created:\n{mr_url}\n\n{build_provenance_footer()}"
 
     if dry_run:
@@ -237,6 +297,15 @@ def comment_on_ticket(ticket_key: str, mr_url: str, dry_run: bool = False) -> di
             "ticket_key": ticket_key,
             "comment": comment_text,
         }
+
+    existing = _get_existing_comments(ticket_key)
+    for body in existing:
+        if mr_url in body:
+            return {
+                "status": "comment_already_exists",
+                "ticket_key": ticket_key,
+                "mr_url": mr_url,
+            }
 
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", prefix="jira-comment-", delete=False)
     try:
@@ -273,7 +342,16 @@ def comment_on_ticket(ticket_key: str, mr_url: str, dry_run: bool = False) -> di
 def ensure_link(
     from_key: str, to_key: str, link_type: str = "Related", dry_run: bool = False
 ) -> dict:
-    """Ensure a link exists between two Jira tickets, with post-creation verification."""
+    """Ensure a link exists between two Jira tickets, with post-creation verification.
+
+    Semantics: from_key <link_type> to_key.
+      - ensure_link("A", "B", "Blocks") → A blocks B
+      - ensure_link("A", "B", "Related") → A relates to B
+
+    acli semantics for "Blocks": --in = blocker, --out = blocked issue.
+    So "A blocks B" requires: --out B --in A --type Blocks.
+    For "Related": direction doesn't matter, use --out/--in as-is.
+    """
     if dry_run:
         return {
             "status": "dry_run",
@@ -285,6 +363,13 @@ def ensure_link(
     if _verify_link_exists(from_key, to_key):
         return {"status": "link_exists", "from": from_key, "to": to_key, "verified": True}
 
+    if link_type == "Blocks":
+        acli_out = to_key
+        acli_in = from_key
+    else:
+        acli_out = from_key
+        acli_in = to_key
+
     result = run_acli(
         [
             "jira",
@@ -292,9 +377,9 @@ def ensure_link(
             "link",
             "create",
             "--out",
-            from_key,
+            acli_out,
             "--in",
-            to_key,
+            acli_in,
             "--type",
             link_type,
             "--yes",
@@ -410,29 +495,37 @@ def link_all(
         results.append(comment_on_ticket(ticket_key, mr_url, dry_run))
         results.append(add_label(ticket_key, dry_run))
 
+    # --- Deterministic link type rules (NOT configurable by the caller) ---
+    # RHOAIENG → PSX/OCPEXCEPT: always "Blocks" (RHOAIENG blocks PSX)
+    # PSX (new) → PSX (related/old): always "Related"
+    # Any ticket → tracking ticket (link_to): always "Related"
+    # RHOAIENG → related_psx: always "Related"
     rhoaieng_key = _extract_key(rhoaieng_url) if rhoaieng_url else None
     psx_key = _extract_key(psx_url) if psx_url else None
-    if rhoaieng_key and psx_key:
-        results.append(ensure_link(rhoaieng_key, psx_key, dry_run))
+    if rhoaieng_key and psx_key and rhoaieng_key != psx_key:
+        results.append(ensure_link(rhoaieng_key, psx_key, link_type="Blocks", dry_run=dry_run))
 
     if link_to:
+        link_to_key = _extract_key(link_to) if "/" in link_to else link_to
         for key in (rhoaieng_key, psx_key):
-            if key:
-                results.append(ensure_link(key, link_to, dry_run))
+            if key and link_to_key and key != link_to_key:
+                results.append(ensure_link(key, link_to_key, link_type="Related", dry_run=dry_run))
 
     if related_psx:
         related_key = _extract_key(related_psx) if "/" in related_psx else related_psx
         if related_key:
-            if psx_key:
-                results.append(ensure_link(psx_key, related_key, dry_run))
-            if rhoaieng_key:
-                results.append(ensure_link(rhoaieng_key, related_key, dry_run))
+            if psx_key and psx_key != related_key:
+                results.append(ensure_link(psx_key, related_key, link_type="Related", dry_run=dry_run))
+            if rhoaieng_key and rhoaieng_key != related_key:
+                results.append(ensure_link(rhoaieng_key, related_key, link_type="Related", dry_run=dry_run))
 
     success_statuses = (
         "commented",
+        "comment_already_exists",
         "label_added",
         "label_already_present",
         "remote_link_added",
+        "remote_link_already_exists",
         "skipped_no_token",
         "linked",
         "link_exists",
