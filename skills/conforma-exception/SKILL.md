@@ -24,6 +24,15 @@ An exception is a YAML entry added to a release policy file in the [konflux-rele
 
 Key fields: `value` = the [Conforma rule](https://conforma.dev/docs/policy/release_policy.html) being waived, `componentNames` = Konflux component names (not container image names), `effectiveUntil` = expiry date in RFC3339 format, `reference` = the PSX/OCPEXCEPT Jira ticket URL.
 
+## Violations-First Philosophy
+
+**Conforma exceptions are a last resort, not the default resolution path.** When a violation is detected, the primary goal is to fix the underlying issue in the component code (e.g., enable hermetic builds, use signed RPMs, fix failing tests). An exception should only be created when a code fix is genuinely not feasible within the release timeline.
+
+When presenting violations to the user:
+- Frame next steps in terms of resolving the violation first
+- Only suggest creating an exception when there's evidence the violation cannot be fixed in code (e.g., third-party RPM signing keys that Red Hat cannot control, upstream dependencies with known timelines)
+- Never present "create exception" as the default or first-choice action for new violations without existing artifacts
+
 ## Prerequisites
 
 The skill requires `acli` (Atlassian CLI) and `glab` (GitLab CLI). **`acli` is auto-installed** to `~/.local/bin/` on first use if not already on PATH — the download-from-CDN logic is built into `cli_runner.py` and triggers transparently whenever any script calls `run_acli()`. `glab` must be installed manually.
@@ -74,6 +83,25 @@ If auto-install fails (restricted network, unsupported platform), the scripts fa
 | glab | `docker.io/gitlab/glab:latest` | `GLAB_IMAGE` |
 
 Container mode requires API token authentication since `--web` OAuth cannot open the host browser from inside a container. See `verify_auth.py` output for container-specific auth instructions.
+
+## Remote Data Access Policy
+
+When fetching data from remote repositories (GitLab, GitHub):
+
+- **ALWAYS** use the remote API directly (`glab api`, `gh api`, raw HTTP download via `curl`)
+- **NEVER** use `find` to locate local clones, `cd` into them, or `git checkout`/`git show` on a local working tree
+- **NEVER** assume a local clone is up-to-date or on the correct branch
+
+Local clones on a dev workstation may be on a feature branch, days out of date, or modified with uncommitted changes. Using the remote API guarantees you always read the canonical, production state of the repository at the exact ref you specify.
+
+```bash
+# GOOD — fetch a file from GitLab
+glab api "projects/releng%2Fkonflux-release-data/repository/files/path%2Fto%2Ffile.yaml/raw?ref=main" \
+  --hostname gitlab.cee.redhat.com
+
+# BAD — using a local clone
+cd ~/dev/gitlab/releng/konflux-release-data && git show origin/main:path/to/file.yaml
+```
 
 ## RHOAIENG Approval Gate (Hard Prerequisite)
 
@@ -278,47 +306,38 @@ The following mermaid diagram shows the end-to-end flow for creating a new Confo
 
 ```mermaid
 flowchart TD
-    Start([User requests exception creation]) --> EntryPoint{How will you provide\nviolation details?}
+    Step1["① RHOAIENG component bugfix Jira\n(remediation plan — created first)"]
+    Step2["② RHOAIENG Senior Management\napproval Jira"]
+    Step3{{"③ APPROVAL GATE\nSenior Management\nmust approve"}}
+    Halt([Halted — get approval,\nthen re-run])
+    Step4["④ PSX or OCPEXCEPT Jira\n(skip for self-service rules)"]
+    Step5["⑤ GitLab Merge Request\n(exception YAML in konflux-release-data)"]
+    Step6["⑥ Link all artifacts\n(comments, labels, Jira links)"]
 
-    EntryPoint -->|"Paste violation text"| Extract[Extract rule, components,\nversion from pasted text]
-    EntryPoint -->|"Provide report URL"| Fetch[Fetch & parse Conforma report]
-    EntryPoint -->|"Provide details directly\n(rule + version + Jira URL)"| Details[Rule + version + components known]
+    Step1 --> Step2
+    Step2 --> Step3
+    Step3 -->|Not approved| Halt
+    Step3 -->|Approved| Step4
+    Step4 --> Step5
+    Step5 --> Step6
 
-    Fetch --> Select[User selects violation from report]
-    Select --> Gate
-    Extract --> Gate
-    Details --> Gate
-
-    Gate{Existing Exception Gate\n— already covered?}
-    Gate -->|"Blocked: exception exists"| Stop1([Already covered — no action needed])
-    Gate -->|Passed| Preflight[Preflight Check\nresolve parameters from authoritative sources]
-
-    Preflight --> Decision{Decision\nevaluated by script}
-    Decision -->|"proceed: false"| Stop2([Cannot proceed — reason shown to user])
-    Decision -->|"proceed: true"| Questionnaire
-
-    Questionnaire[User Questionnaire\nBatch 1: Rule + versions\nBatch 2: Components + vendor\nBatch 3: Approval + PSX + dates]
-    Questionnaire --> DryRun[Dry-run preview\nreview YAML + tickets before creation]
-    DryRun --> Confirm{User confirms\ndry-run output?}
-    Confirm -->|Edit| Questionnaire
-    Confirm -->|Proceed| Exec
-
-    subgraph Exec [Execution — workflow steps from template]
+    subgraph Review [External review — human]
         direction TB
-        Step1["① RHOAIENG component bugfix Jira\n(remediation plan — created first)"]
-        Step1 --> Step2["② RHOAIENG Senior Management\napproval Jira"]
-        Step2 --> ApprovalGate{{"③ APPROVAL GATE\nSenior Management\nmust approve"}}
-        ApprovalGate -->|Not approved| Halt([Halted — get approval,\nthen re-run])
-        ApprovalGate -->|Approved| Step3
-        Step3["④ PSX or OCPEXCEPT Jira\n(skip for self-service rules)"]
-        Step3 --> Step4["⑤ GitLab Merge Request\n(exception YAML in konflux-release-data)"]
-        Step4 --> Link["⑥ Link all artifacts\n(comments, labels, Jira links)"]
+        Step7["⑦ ProdSec reviews PSX Jira\n→ Ready for Verification"]
+        Step8["⑧ Release Engineering\nmerges GitLab MR"]
     end
 
-    Link --> Done([Done — MR URL + ticket URLs reported])
+    Step6 --> Step7
+    Step6 --> Step8
+    Step7 --> Granted
+    Step8 --> Granted
+
+    Granted([Exception granted])
 ```
 
-**Self-service variant** (for rules like `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check`): Steps ① and ④ are skipped — the workflow is: Senior Management approval → Approval Gate → GitLab MR (to `exceptions/` directory).
+The exception is only granted when **both** conditions are met: the PSX Jira ticket reaches **Ready for Verification** and the GitLab Merge Request is **merged**. Steps ①–⑥ are automated by this skill; steps ⑦–⑧ require human review by ProdSec and Release Engineering respectively.
+
+**Self-service variant** (for rules like `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check`): Steps ① and ④ are skipped, and step ⑦ does not apply — the workflow is: Senior Management approval → Approval Gate → GitLab MR (to `exceptions/` directory) → MR merged → Exception granted.
 
 ## Explaining Conforma Exceptions
 
@@ -393,20 +412,11 @@ When the user asks to create a Conforma exception but does not provide specific 
         --environment prod
       ```
       This checks all violations against existing exceptions in the policy file in one pass.
-      iv. Presents violations as a summary table directly from the script's JSON output. The script provides display-ready fields — the agent MUST use them as-is without piping to ad-hoc formatters. Each violation entry includes:
-      - `rule`: violation code
-      - `display_components`: pre-formatted component list (all names if <=3, first 3 + "... +N more" otherwise)
-      - `total_components`: count
-      - `coverage_label`: human-readable status string
-      - `open_mr_label`: human-readable open MR summary with clickable markdown links (empty if none)
-      - `open_jira_label`: human-readable open Jira ticket summary with clickable links (empty if none). Covers RHOAIENG, PSX, and OCPEXCEPT tickets with the `conforma-violation` label that are not yet Closed/Resolved/Done.
-      - `next_steps`: self-explanatory recommended action with actual ticket keys, statuses, and MR references. All values are display-ready — the agent MUST present them as-is. Examples:
-        - "create exception Jira(s) + merge request(s)" — no existing artifacts
-        - "extend [MR !N](url) with M missing component(s)" — partial MR, no Jira
-        - "extend [MR !N](url) with M missing ... — work with Managers on approving [RHOAIENG-XXXXX](url) (In Progress) — work with ProdSec on getting [PSX-YYYY](url) (New) in progress — get [MR !N](url) submitted" — partial MR + open Jira
-        - "work with Managers on approving [RHOAIENG-XXXXX](url) (In Progress) — work with ProdSec on getting [PSX-YYYY](url) (New) in progress — get [MR !N](url) submitted" — fully covered MR + open Jira
-        - "no action needed — already covered" — fully covered MR, no open Jira
-      Present each row using these fields as table columns. All references are pre-formatted as markdown links with statuses. The agent MUST NOT reformat, summarize, or strip statuses from these fields.
+      iv. Presents violations as a summary table by printing `result["markdown_table"]` verbatim. The script pre-renders a complete markdown table with columns: #, Rule, Components, Open MRs, Open Jira, Next Steps.
+
+      **Do NOT include a Coverage column.** The `coverage_label` field exists in the JSON output for programmatic use but is misleading when shown to users — it can give the impression that a conforma exception is the default resolution. Instead, the `next_steps` column is the single source of guidance for the user.
+
+      The `markdown_table` field is a complete, ready-to-display markdown string. The agent MUST print it as-is without modification. Do NOT reconstruct the table from individual fields — always use the pre-rendered version.
       v. Lets the user select which violation(s) to create exceptions for (using AskQuestion with multi-select)
       vi. Proceeds with the normal preflight/questionnaire flow for each selected violation, pre-filling the violation code and component details from the parsed report. The per-violation Existing Exception Gate has already been checked in step (iii) — no need to re-run it.
 

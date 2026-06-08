@@ -11,6 +11,10 @@ Fetch and expose Conforma violation report data for RHOAI releases. This skill r
 
 This skill knows about **violations** only. It has no knowledge of exceptions, policy files, Jira tickets, or GitLab Merge Requests. For exception management, see the `conforma-exception` skill. Output from this skill is consumed by `conforma-exception`'s `--assess-expired` mode -- see the "Managing Expired Exceptions" section in `conforma-exception`'s SKILL.md for the full cross-skill workflow.
 
+## Violations-First Philosophy
+
+When presenting violation data — whether standalone or when handing off to the `conforma-exception` skill — always frame violations as issues to be **resolved in component code first**. Conforma exceptions are a last resort for cases where the violation genuinely cannot be fixed within the release timeline (e.g., third-party RPM signing keys that Red Hat cannot control). Never default to suggesting "create an exception" without first acknowledging the code-fix path.
+
 ## Prerequisites
 
 - **`gh` CLI** authenticated (`gh auth login`)
@@ -20,6 +24,24 @@ This skill knows about **violations** only. It has no knowledge of exceptions, p
 
 ```bash
 python3 scripts/verify_auth.py
+```
+
+## Remote Data Access Policy
+
+When fetching data from remote repositories (GitLab, GitHub):
+
+- **ALWAYS** use the remote API directly (`gh api`, raw HTTP download via `curl`)
+- **NEVER** use `find` to locate local clones, `cd` into them, or `git checkout`/`git show` on a local working tree
+- **NEVER** assume a local clone is up-to-date or on the correct branch
+
+Local clones on a dev workstation may be on a feature branch, days out of date, or modified with uncommitted changes. Using the remote API guarantees you always read the canonical, production state of the repository at the exact ref you specify.
+
+```bash
+# GOOD — fetch from GitHub
+gh api "repos/org/repo/contents/path/to/file?ref=main" --jq '.content' | base64 -d
+
+# BAD — using a local clone
+cd ~/dev/github/org/repo && git show origin/main:path/to/file
 ```
 
 ## Data Source
