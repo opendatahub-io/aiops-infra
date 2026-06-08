@@ -31,6 +31,7 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 | Intent keywords | Route to |
 |-----------------|----------|
 | violations, scan, status, what's failing, conforma report, violation report, fetch violations | use the **conforma-analyze** skill |
+| fetch tekton report, fetch pipelinerun, EC report, raw report JSON | use the **conforma-report-fetch** skill (Tekton JSON mechanism) |
 | create exception, new exception, extend exception, waive, add exception | use the **conforma-exception** skill |
 | expired, manage exceptions, assess exceptions, cleanup, action loop | use the **conforma-exception** skill (with `--assess-expired` or `--find-expired` mode) |
 | fix, remedy, resolve, patch, code change | use the **conforma-remedy** skill |

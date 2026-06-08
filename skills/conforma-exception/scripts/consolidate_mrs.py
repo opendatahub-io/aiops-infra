@@ -20,12 +20,14 @@ import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
 import argparse
 import json
+import os
 import re
 import sys
 import urllib.request
 from pathlib import Path
 
 import gitlab_ops
+import jira_ops
 
 GITLAB_HOST = "gitlab.cee.redhat.com"
 GITLAB_PROJECT = "releng/konflux-release-data"
@@ -211,7 +213,6 @@ def _check_jira_rest_api() -> dict:
     Returns {"available": bool, "detail": str}.
     """
     from link_artifacts import _jira_auth
-    from verify_auth import _test_jira_rest_api_token
 
     from cli_runner import _resolve_env
 
@@ -230,13 +231,15 @@ def _check_jira_rest_api() -> dict:
 
     email = _resolve_env("JIRA_EMAIL") or ""
     token = _resolve_env("JIRA_API_TOKEN") or ""
-    validation = _test_jira_rest_api_token(email, token)
-    if validation["valid"]:
+    os.environ.setdefault("JIRA_EMAIL", email)
+    os.environ.setdefault("JIRA_API_TOKEN", token)
+    result = jira_ops.verify_auth()
+    if result["ok"]:
         return {"available": True, "detail": "JIRA_API_TOKEN validated"}
     return {
         "available": False,
         "detail": (
-            f"JIRA_API_TOKEN is invalid: {validation['detail']}. "
+            f"JIRA_API_TOKEN is invalid: {result['error']}. "
             f"Remote link operations will be skipped. "
             f"Generate a new token at: "
             f"https://id.atlassian.com/manage-profile/security/api-tokens"

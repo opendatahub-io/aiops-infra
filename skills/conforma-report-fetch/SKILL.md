@@ -1,17 +1,91 @@
 ---
-name: conforma-fetch
-description: Fetch raw Conforma (EC) verification report JSON from a Konflux PipelineRun via the Tekton Results API, with live-pod fallback. Outputs a handover state document for downstream pipeline steps.
-allowed-tools: Bash(oc:*,curl:*,jq:*,awk:*,sed:*)
+name: conforma-report-fetch
+description: Fetch conforma reports from two sources -- CSV violation reports from the conforma-reporter GitHub repo, and raw EC JSON from Konflux PipelineRuns via the Tekton Results API.
+allowed-tools: Bash(python3:*,gh:*,oc:*,curl:*,jq:*,awk:*,sed:*)
 user-invocable: true
 ---
 
-# Conforma Fetch
+# Conforma Report Fetch
 
-Fetch the raw Conforma Enterprise Contract (EC) verification report JSON for a specific PipelineRun from the Konflux cluster. Uses the Tekton Results API as the primary data source, with automatic fallback to live pod container logs when archive data is not yet populated.
+Fetch conforma reports from two independent sources:
 
-The output is a handover state document that records fetch status and the path to the raw report file. Downstream tools (e.g. `conforma-parse`) consume this handover — they MUST check `report_fetch.status`, not the script exit code. The script exits non-zero if it cannot resolve any required infrastructure coordinate — PipelineRun UUID, verify TaskRun, or log record — and no handover is produced. It exits 0 with `report_fetch.status: "failed"` if the run was found but report extraction failed.
+1. **Tekton JSON reports** (`fetch_tekton_report.sh`) -- raw Enterprise Contract (EC) verification report JSON fetched directly from a Konflux PipelineRun via the Tekton Results API. **This is the preferred source** because it reflects the exact state of the most recent verification run in real time.
+2. **CSV violation reports** (`fetch_csv_reports.py`) -- historical per-release violation data from the `conforma-reporter` GitHub repo. CSV reports are generated on a schedule and **may be hours or days behind** the latest Konflux pipeline results. Use CSVs for historical trend analysis, cross-release comparisons, or when Konflux/VPN access is unavailable.
 
-## Prerequisites
+**Default choice: Tekton (Konflux).** When the user asks to "fetch a conforma report" without specifying a source, prefer the Tekton JSON mode if a PipelineRun name is available or can be looked up. Fall back to CSVs when the user wants a broad cross-release overview, historical data, or cannot connect to the Konflux cluster.
+
+---
+
+## 1. CSV Violation Reports (GitHub)
+
+> **Staleness warning:** CSV reports are generated on a schedule by the `conforma-reporter` CI job and committed to the repo. They can lag behind the live Konflux state by hours or days. When using CSV data, always inform the user of the report's `created_at` timestamp (returned by the fetch script) so they know how current it is. For the freshest data, use the Tekton JSON mode instead.
+
+Downloads CSV violation reports from each release branch of the private `red-hat-data-services/conforma-reporter` repository via `raw.githubusercontent.com`. Handles multi-megabyte files reliably without GitHub Contents API size limits.
+
+### Prerequisites
+
+- **`gh` CLI** authenticated (`gh auth login`)
+- Read access to `red-hat-data-services/conforma-reporter` (private repo)
+
+**Auth check:**
+
+```bash
+gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name
+```
+
+### Data Source
+
+- **Repo**: `red-hat-data-services/conforma-reporter` (private)
+- **Branch per release**: `rhoai-2.25`, `rhoai-3.3`, `rhoai-3.4`, etc.
+- **Columns**: `type`, `component_name`, `image`, `message`, `effective_on`, `code`, `title`, `description`, `solution`
+
+The script tries multiple CSV paths within the `prod/` directory in order:
+1. `prod/release_day/conforma-violations-report.csv` (primary)
+2. `prod/future/build_type_latest/conforma-violations-report.csv`
+3. `prod/future/build_type_nightly/conforma-violations-report.csv`
+
+If `release_day` is unavailable (e.g. for in-development versions), the script automatically falls back to the next available report.
+
+### Usage
+
+```bash
+# Auto-detect releases, auto-create .work/<timestamp>/:
+python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py
+
+# Explicit releases:
+python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py --releases rhoai-2.25,rhoai-3.4
+
+# Explicit output directory (used by conforma-analyze):
+python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
+  --releases rhoai-3.4 \
+  --output-dir /path/to/output
+
+# Use pre-downloaded CSVs instead of fetching:
+python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
+  --local-dir /path/to/csvs
+```
+
+When `--output-dir` is omitted, the script creates a timestamped directory under `.work/` (relative to this skill) and updates the `.work/latest` symlink.
+
+### Release Auto-Detection
+
+When `--releases` is omitted, the script fetches the list of supported release branches from [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) in `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases.
+
+Some in-development/EA branches may not have a violations report CSV yet. The script reports failures per release -- this is expected and not a blocker.
+
+### Handling User-Provided URLs
+
+If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), extract the release branch from the URL path (the segment after `/blob/` and before the next `/`) and pass it via `--releases`.
+
+---
+
+## 2. Tekton JSON Reports (Konflux) — Preferred
+
+Fetch the raw EC verification report JSON for a specific PipelineRun directly from the Konflux cluster. This is the **most up-to-date source** — it reads the exact output of the verification run, with no scheduled-job lag. Uses the Tekton Results API as the primary data source, with automatic fallback to live pod container logs when archive data is not yet populated.
+
+The output is a handover state document that records fetch status and the path to the raw report file. Downstream tools (e.g. `conforma-parse`) consume this handover -- they MUST check `report_fetch.status`, not the script exit code. The script exits non-zero if it cannot resolve any required infrastructure coordinate (PipelineRun UUID, verify TaskRun, or log record) and no handover is produced. It exits 0 with `report_fetch.status: "failed"` if the run was found but report extraction failed.
+
+### Prerequisites
 
 - **VPN**: Connected to the corporate VPN (required for internal Tekton Results API domain routing)
 - **`oc` CLI**: Installed and authenticated to the Konflux cluster:
@@ -22,37 +96,28 @@ The output is a handover state document that records fetch status and the path t
 - **`curl`**, **`awk`**, **`sed`**: Standard Unix tools (used for API requests and log extraction)
 - **Namespace access**: Read access to the `rhoai-tenant` namespace
 
-## Workflow
+### Usage
 
-When the user asks to fetch a Conforma report:
+```bash
+skills/conforma-report-fetch/scripts/fetch_tekton_report.sh <pipelinerun-name> --output /tmp/conforma-handover.json
+```
 
-1. **Get the PipelineRun name** from the user. They typically copy this from the Konflux UI.
-
-2. **Run the fetch script**:
-   ```bash
-   ./scripts/conforma-fetch.sh <pipelinerun-name> --output /tmp/conforma-handover.json
-   ```
-
-3. **Check the handover output**: Read the handover JSON. If `report_fetch.status` is `"completed"`, the raw report is at the path in `report_fetch.raw_report_path`. If `"failed"`, report the error from `report_fetch.error`.
-
-4. **Pass downstream**: Hand the state file to the next pipeline step (e.g. `conforma-parse`).
-
-## Arguments
+### Arguments
 
 | Argument | Required | Default | Description |
 |---|---|---|---|
 | `<pipelinerun-name>` | yes | -- | Konflux PipelineRun name (positional argument). Trailing `-verify` is stripped automatically if present. |
 | `--handover` | no | -- | Path to an existing handover JSON to update (preserves state from prior steps) |
 | `--output` | no | stdout | Path to write the updated handover JSON |
-| *(stdin pipe)* | no | -- | Alternative to `--handover`: pipe a handover JSON via stdin (e.g. `echo '{}' \| ./scripts/conforma-fetch.sh <name>`) |
+| *(stdin pipe)* | no | -- | Alternative to `--handover`: pipe a handover JSON via stdin (e.g. `echo '{}' \| skills/conforma-report-fetch/scripts/fetch_tekton_report.sh <name>`) |
 
-## Environment Variables
+### Environment Variables
 
 | Variable | Description |
 |---|---|
 | `KONFLUX_TOKEN` | Optional. Bearer token for cluster auth. Falls back to `oc whoami -t` if unset. |
 
-## Handover Output
+### Handover Output
 
 ```json
 {
@@ -75,8 +140,25 @@ When the user asks to fetch a Conforma report:
 
 The raw EC JSON report is written to `/tmp/` (path recorded in `raw_report_path`). It is not embedded in the handover.
 
+### Workflow
+
+When the user asks to fetch a Conforma report from a PipelineRun:
+
+1. **Get the PipelineRun name** from the user. They typically copy this from the Konflux UI.
+
+2. **Run the fetch script**:
+   ```bash
+   skills/conforma-report-fetch/scripts/fetch_tekton_report.sh <pipelinerun-name> --output /tmp/conforma-handover.json
+   ```
+
+3. **Check the handover output**: Read the handover JSON. If `report_fetch.status` is `"completed"`, the raw report is at the path in `report_fetch.raw_report_path`. If `"failed"`, report the error from `report_fetch.error`.
+
+4. **Pass downstream**: Hand the state file to the next pipeline step (e.g. `conforma-parse`).
+
+---
+
 ## Relationship to Other Skills
 
-- **`conforma-analyze`**: Fetches CSV violation reports from the `conforma-reporter` GitHub repo (historical, violations-only, no warnings). Good for cross-release analysis. This skill fetches raw JSON directly from the cluster (fresh, full fidelity, violations + warnings).
-- **`conforma-parse`** (downstream): Consumes the handover from this skill to parse violations and warnings from the raw report.
+- **`conforma-analyze`**: Consumes CSV reports from this skill. Calls `fetch_csv_reports.py` with `--output-dir` to write CSVs into its own `.work/` directory, then parses and analyzes them.
+- **`conforma-parse`** (downstream): Consumes the Tekton handover from `fetch_tekton_report.sh` to parse violations and warnings from the raw JSON report.
 - **`conforma-exception`**: Manages exception creation. Can consume parsed output from either fetch mechanism.

@@ -40,7 +40,7 @@ The skill requires `acli` (Atlassian CLI) and `glab` (GitLab CLI). **`acli` is a
 **Always run preflight first** before creating any tickets or MRs:
 
 ```bash
-python3 scripts/verify_auth.py
+python3 skills/conforma-exception/scripts/verify_auth.py
 ```
 
 ### Install glab
@@ -187,7 +187,7 @@ The agent MUST NEVER:
 **ALWAYS run the existing exception gate FIRST**, before Jira tickets, questionnaires, or the full preflight check. Run it as soon as the rule and component list are known:
 
 ```bash
-python3 scripts/preflight_check.py --check-existing-exception \
+python3 skills/conforma-exception/scripts/preflight_check.py --check-existing-exception \
   --rule <rule> \
   --components <comma-separated-components> \
   [--environment prod]
@@ -209,7 +209,7 @@ The gate also searches for **open merge requests** in the `konflux-release-data`
 **After the existing exception gate passes**, run `preflight_check.py` to resolve all remaining parameters:
 
 ```bash
-python3 scripts/preflight_check.py \
+python3 skills/conforma-exception/scripts/preflight_check.py \
   --rhoaieng-url <url> \
   --versions rhoai-2.25,rhoai-3.3 \
   --image-bases odh-vllm-cpu,odh-vllm-gaudi
@@ -399,14 +399,14 @@ When the user asks to create a Conforma exception but does not provide specific 
       ```bash
       mkdir -p "$RUN_DIR/conforma-reports"
       cp <downloaded-csv> "$RUN_DIR/conforma-reports/rhoai-3.4.csv"
-      python3 ../conforma-analyze/scripts/parse_violations.py \
+      python3 skills/conforma-analyze/scripts/parse_violations.py \
         --reports-dir "$RUN_DIR/conforma-reports" \
         --output "$RUN_DIR/conforma-violations.yaml"
       ```
       If the user provides URLs for multiple releases, save each as `<release>.csv` in the same directory — the parser processes all `*.csv` files in one pass.
       iii. Runs the batch coverage check BEFORE presenting violations (pass `--clone-dir` to reuse the shared repo clone):
       ```bash
-      python3 scripts/preflight_check.py \
+      python3 skills/conforma-exception/scripts/preflight_check.py \
         --check-violations-coverage "$RUN_DIR/conforma-violations.yaml" \
         --clone-dir .work/konflux-release-data \
         --environment prod
@@ -454,7 +454,7 @@ When `open_jira_label` is non-empty, present it alongside the MR coverage in the
 
 When the user asks about Conforma exception types (e.g. "what are the conforma exception types", "list exception types", "show me conforma violations"), always:
 
-1. Run `python3 scripts/create_exception.py --list-exception-types` (from this skill directory). This returns JSON with:
+1. Run `python3 skills/conforma-exception/scripts/create_exception.py --list-exception-types` (from this skill directory). This returns JSON with:
    - `common`: the 7 most common RHOAI exception types (full details)
    - `common_count`, `non_common_count`, `total_catalog_rules`, `conforma_rules_url`: counts and links for the summary
 
@@ -475,7 +475,7 @@ When the user asks about Conforma exception types (e.g. "what are the conforma e
 
    Then add a brief note suggesting the user can ask to see more details on the remaining templated types or the full list of all supported types if they're interested. Do NOT use the AskQuestion tool here -- just mention it conversationally in the response text.
 
-4. If the user asks to see remaining types, run `python3 scripts/create_exception.py --list-exception-types --all` and render the `non_common` array plus the `catch_all` entry in the same table format.
+4. If the user asks to see remaining types, run `python3 skills/conforma-exception/scripts/create_exception.py --list-exception-types --all` and render the `non_common` array plus the `catch_all` entry in the same table format.
 
 5. If the user asks for the rule reference, read `references/conforma-release-policy-rules.yaml` and display the rules grouped by category heading (the `# ---` comment sections) as a compact table with columns: Rule Code, Name, Docs (link).
 
@@ -490,7 +490,7 @@ When the user asks about Conforma exception types (e.g. "what are the conforma e
 ### Standalone mode (user-provided details)
 
 ```bash
-python3 scripts/create_exception.py \
+python3 skills/conforma-exception/scripts/create_exception.py \
   --rhoai-version rhoai-3.3 \
   --rule hermetic_task.hermetic \
   --components odh-mlflow-v3-3,odh-another-v3-3 \
@@ -502,7 +502,7 @@ python3 scripts/create_exception.py \
 ### With existing Jira tickets
 
 ```bash
-python3 scripts/create_exception.py \
+python3 skills/conforma-exception/scripts/create_exception.py \
   --rhoai-version rhoai-3.3 \
   --rule hermetic_task.hermetic \
   --components odh-mlflow-v3-3 \
@@ -514,7 +514,7 @@ python3 scripts/create_exception.py \
 ### Self-service (auto-detected from rule)
 
 ```bash
-python3 scripts/create_exception.py \
+python3 skills/conforma-exception/scripts/create_exception.py \
   --rhoai-version rhoai-3.4 \
   --rule schedule.weekday_restriction \
   --components rhoai-fbc-fragment-v3-4 \
@@ -649,7 +649,7 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
 10. **PSX Jira ticket visibility / watchers (MANDATORY)**: PSX tickets are restricted — **watchers are a hard requirement, not optional**. The script always adds the mandatory watchers (Jay Koehler, Lindani Phiri) even if `--watchers` is omitted, but the full team should be included for proper visibility.
 
     The agent MUST follow this flow:
-    1. **Automatically run team discovery** by calling `add_jira_watchers.discover_team()` (or `python3 scripts/add_jira_watchers.py --tickets <placeholder> --auto-discover --dry-run`) to find the caller's team from Jira groups ≤ 100 members.
+    1. **Automatically run team discovery** by calling `add_jira_watchers.discover_team()` (or `python3 skills/conforma-exception/scripts/add_jira_watchers.py --tickets <placeholder> --auto-discover --dry-run`) to find the caller's team from Jira groups ≤ 100 members.
     2. **Present the full watcher list** (mandatory watchers + discovered team) to the user for confirmation:
        - "The following people will be added as Additional watchers on the PSX ticket: [full name list]. Confirm?"
        - "Yes, add all"
@@ -717,7 +717,7 @@ All operations return structured dicts reporting what was attempted, what the ac
 The `--reconcile TICKET_KEY` flag on `create_jira_ticket.py` enables idempotent re-runs:
 
 ```bash
-python3 scripts/create_jira_ticket.py --project PSX \
+python3 skills/conforma-exception/scripts/create_jira_ticket.py --project PSX \
   --reconcile PSX-1098 \
   --rule rpm_signature.allowed:9386b48a1a693c5c \
   --components odh-workbench-jupyter-pytorch-rocm-py312-v2-25 \
@@ -801,7 +801,7 @@ fi
 2. **Run the script** (from the skill directory):
 
 ```bash
-python3 scripts/list_exceptions.py --clone-dir .work/konflux-release-data
+python3 skills/conforma-exception/scripts/list_exceptions.py --clone-dir .work/konflux-release-data
 ```
 
 3. **Print the output verbatim** — do NOT modify, reformat, or summarize the Markdown. The script produces a deterministic report with consistent table columns across all sections (Rule, Component / Image, RHOAI Version, Effective Until, Reference). RHOAI versions are derived from the actual data (componentName version suffixes like `-v3-4` → `3.4`, or `all` for imageUrl-scoped / unscoped exceptions) — never from YAML comments. All Jira ticket IDs and policy file names are rendered as clickable Markdown links.
@@ -814,6 +814,54 @@ The report groups exceptions into sections by expiry status:
 - **Expired** — `effectiveUntil` is in the past (need cleanup)
 - **Expiring within N days** — approaching deadline
 - **Expiring YYYY-MM-DD** — one section per remaining date, sorted chronologically
+
+## Searching Open Exception MRs
+
+When the user asks about open/pending conforma exception Merge Requests (e.g. "are there open MRs for rpm_signature?", "show me open exception MRs", "any pending MRs for rhoai-3.4?"), use `search_open_mrs.py`. **Do NOT call `glab api` directly** — the script handles GitLab auth, search, title parsing, and structured output.
+
+```bash
+# All open conforma exception MRs:
+python3 skills/conforma-exception/scripts/search_open_mrs.py
+
+# Filter by rule code (prefix or full):
+python3 skills/conforma-exception/scripts/search_open_mrs.py --rule rpm_signature
+python3 skills/conforma-exception/scripts/search_open_mrs.py --rule hermetic_task.hermetic
+
+# Filter by RHOAI version:
+python3 skills/conforma-exception/scripts/search_open_mrs.py --version rhoai-3.4
+
+# Combine filters:
+python3 skills/conforma-exception/scripts/search_open_mrs.py --rule rpm_signature --version 3.4
+
+# Output formats (default: text):
+python3 skills/conforma-exception/scripts/search_open_mrs.py --format markdown
+python3 skills/conforma-exception/scripts/search_open_mrs.py --format json
+```
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--rule` | *(all)* | Filter by rule code or prefix (e.g. `rpm_signature`, `hermetic_task.hermetic`, `rpm_signature.allowed:9386b48a`) |
+| `--version` | *(all)* | Filter by RHOAI version in MR title (e.g. `rhoai-3.4` or `3.4`) |
+| `--author` | *(all)* | Filter by MR author GitLab username |
+| `--format` | `text` | Output format: `text`, `markdown`, or `json` |
+
+### How it works
+
+The script reuses `_glab_get_mrs()` from `preflight_check.py` (python-gitlab with glab CLI fallback). When `--rule` is given, it searches by the full rule, by any suffix after `:`, and by the rule family prefix (e.g. `rpm_signature` from `rpm_signature.allowed:9386b48a`). Without `--rule`, it performs a broad search for MRs with "Conforma exception" in the title.
+
+Standard MR titles (e.g. `[AMD] [RHOAI] Conforma exception: rpm_signature.allowed:9386b48a for rhoai-3.3, rhoai-3.4`) are parsed to extract vendor, rule, and version fields for structured output. Non-standard titles still appear but with fewer parsed fields.
+
+### When to use
+
+| User question | Command |
+|---------------|---------|
+| "Are there open MRs for rpm_signature?" | `--rule rpm_signature` |
+| "Any pending exception MRs for rhoai-3.4?" | `--version rhoai-3.4` |
+| "Show me all open conforma exception MRs" | *(no filters)* |
+| "Open MRs for hermetic build exceptions?" | `--rule hermetic_task` |
+| "What's my open exception MRs?" | `--author <username>` |
 
 ## Adding Jira Watchers
 
@@ -843,7 +891,7 @@ When creating PSX/OCPEXCEPT tickets, the agent MUST run `discover_team()` during
 Add explicit watchers:
 
 ```bash
-python3 scripts/add_jira_watchers.py \
+python3 skills/conforma-exception/scripts/add_jira_watchers.py \
   --tickets PSX-1038,PSX-1039,PSX-1040 \
   --watchers 'Akshay Ghodake,Jane Doe' \
   --dry-run
@@ -852,7 +900,7 @@ python3 scripts/add_jira_watchers.py \
 Auto-discover team and add them:
 
 ```bash
-python3 scripts/add_jira_watchers.py \
+python3 skills/conforma-exception/scripts/add_jira_watchers.py \
   --tickets PSX-1040 \
   --auto-discover \
   --dry-run
@@ -861,7 +909,7 @@ python3 scripts/add_jira_watchers.py \
 Combine both — explicit names plus auto-discovered team:
 
 ```bash
-python3 scripts/add_jira_watchers.py \
+python3 skills/conforma-exception/scripts/add_jira_watchers.py \
   --tickets PSX-1040 \
   --watchers 'Akshay Ghodake' \
   --auto-discover
@@ -870,7 +918,7 @@ python3 scripts/add_jira_watchers.py \
 Mixed projects in a single call are supported — the script routes each ticket to the correct mechanism:
 
 ```bash
-python3 scripts/add_jira_watchers.py \
+python3 skills/conforma-exception/scripts/add_jira_watchers.py \
   --tickets PSX-1040,RHOAIENG-38414 \
   --watchers 'Akshay Ghodake'
 ```
@@ -914,9 +962,12 @@ This is a two-skill workflow involving `conforma-exception` (this skill) and the
 
 ```mermaid
 flowchart TD
+    subgraph reportFetch [conforma-report-fetch skill]
+        A2[fetch_csv_reports.py]
+    end
     subgraph analyze [conforma-analyze skill]
-        A1[verify_auth.py] --> A2[fetch_conforma_reports.py]
-        A2 --> A3[parse_violations.py]
+        A2 --> A1[verify_auth.py]
+        A1 --> A3[parse_violations.py]
         A3 --> VY[conforma-violations.yaml]
     end
     subgraph exception [conforma-exception skill]
@@ -938,11 +989,11 @@ flowchart TD
 Lists exceptions from policy files. No violations data needed.
 
 ```bash
-python3 scripts/manage_exceptions.py --find-expired \
+python3 skills/conforma-exception/scripts/manage_exceptions.py --find-expired \
   --environment prod \
   --clone-dir .work/konflux-release-data
 
-python3 scripts/manage_exceptions.py --find-all \
+python3 skills/conforma-exception/scripts/manage_exceptions.py --find-all \
   --environment prod \
   --clone-dir .work/konflux-release-data
 ```
@@ -964,13 +1015,13 @@ Output is structured YAML to stdout listing each exception with metadata:
 Cross-references exceptions against violations data to classify each.
 
 ```bash
-python3 scripts/manage_exceptions.py --assess-expired \
+python3 skills/conforma-exception/scripts/manage_exceptions.py --assess-expired \
   --violations-input "$RUN_DIR/conforma-violations.yaml" \
   --environment prod \
   --clone-dir .work/konflux-release-data \
   --output "$RUN_DIR/assessed-exceptions.yaml"
 
-python3 scripts/manage_exceptions.py --assess-all \
+python3 skills/conforma-exception/scripts/manage_exceptions.py --assess-all \
   --violations-input "$RUN_DIR/conforma-violations.yaml" \
   --environment prod \
   --clone-dir .work/konflux-release-data \
@@ -1021,7 +1072,7 @@ The agent presents the assessment to the user with:
 For modern exceptions (has `componentNames`) classified as `still_needed`, use the standard creation flow which auto-extends via deduplication:
 
 ```bash
-python3 scripts/create_exception.py \
+python3 skills/conforma-exception/scripts/create_exception.py \
   --rule <rule> \
   --rhoai-version <version> \
   --components <components> \
@@ -1039,7 +1090,7 @@ Steps:
 1. **Remove the old unscoped block**:
 
 ```bash
-python3 scripts/create_gitlab_mr.py --remove-expired-exception \
+python3 skills/conforma-exception/scripts/create_gitlab_mr.py --remove-expired-exception \
   --rule <rule> \
   --effective-until <current-expired-date> \
   --rhoai-version <version> \
@@ -1049,7 +1100,7 @@ python3 scripts/create_gitlab_mr.py --remove-expired-exception \
 2. **Create new scoped exception(s)** per version with the correct `componentNames`, using the standard flow:
 
 ```bash
-python3 scripts/create_exception.py \
+python3 skills/conforma-exception/scripts/create_exception.py \
   --rule <rule> \
   --rhoai-version <version> \
   --components <still-violating-component-1>,<still-violating-component-2> \
@@ -1076,7 +1127,7 @@ For active exceptions (`narrow`), the same steps apply but the new exception kee
 For exceptions classified as `no_longer_needed`, use the removal flag on `create_gitlab_mr.py`:
 
 ```bash
-python3 scripts/create_gitlab_mr.py --remove-expired-exception \
+python3 skills/conforma-exception/scripts/create_gitlab_mr.py --remove-expired-exception \
   --rule <rule> \
   --effective-until <current-expired-date> \
   --rhoai-version <version> \
@@ -1100,7 +1151,7 @@ When the user asks to handle expired exceptions (or analyze all exceptions):
 4. **Generate report and action plan**:
 
 ```bash
-python3 scripts/generate_report.py \
+python3 skills/conforma-exception/scripts/generate_report.py \
   --assessed-input "$RUN_DIR/assessed-exceptions.yaml" \
   --output "$RUN_DIR/exceptions-report.md" \
   --action-plan-output "$RUN_DIR/action-plan.json"
@@ -1130,7 +1181,7 @@ Present the markdown report to the user. The action plan JSON contains a sorted 
       - **`extend_and_modernize` / `modernize_and_narrow`**: Create a single consolidated MR that removes the unscoped block (no componentNames) and adds new per-componentName/per-version entries:
 
       ```bash
-      python3 scripts/create_gitlab_mr.py \
+      python3 skills/conforma-exception/scripts/create_gitlab_mr.py \
         --modernize-expired-exception \
         --rule <rule> \
         --effective-until <old-expired-date> \
@@ -1146,7 +1197,7 @@ Present the markdown report to the user. The action plan JSON contains a sorted 
       - **`remove`**: Remove the exception block:
 
       ```bash
-      python3 scripts/create_gitlab_mr.py \
+      python3 skills/conforma-exception/scripts/create_gitlab_mr.py \
         --remove-expired-exception \
         --rule <rule> \
         --effective-until <old-expired-date> \
@@ -1158,7 +1209,7 @@ Present the markdown report to the user. The action plan JSON contains a sorted 
       - **`extend`** (componentNames-scoped only): Use the standard creation flow with the new effectiveUntil date:
 
       ```bash
-      python3 scripts/create_exception.py \
+      python3 skills/conforma-exception/scripts/create_exception.py \
         --rule <rule> \
         --rhoai-version <version> \
         --components <still-violating-components> \

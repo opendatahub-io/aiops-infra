@@ -11,20 +11,23 @@ When --output-dir is omitted, automatically creates a timestamped directory
 under .work/ (relative to this script's skill directory) and updates the
 .work/latest symlink to point to it.
 
+Part of the conforma-report-fetch skill. Consumed by conforma-analyze
+(which passes --output-dir to keep .work/ writes local to its own skill).
+
 Usage:
     # Auto-detect releases, auto-create .work/<timestamp>/:
-    python3 scripts/fetch_conforma_reports.py
+    python3 scripts/fetch_csv_reports.py
 
     # Explicit releases, auto-create .work/<timestamp>/:
-    python3 scripts/fetch_conforma_reports.py --releases rhoai-3.5-ea.1
+    python3 scripts/fetch_csv_reports.py --releases rhoai-3.5-ea.1
 
     # Explicit output directory:
-    python3 scripts/fetch_conforma_reports.py \\
+    python3 scripts/fetch_csv_reports.py \\
       --releases rhoai-2.25,rhoai-3.4 \\
       --output-dir /tmp/conforma-reports
 
     # Use pre-downloaded CSVs instead of fetching:
-    python3 scripts/fetch_conforma_reports.py \\
+    python3 scripts/fetch_csv_reports.py \\
       --local-dir /path/to/csvs
 """
 

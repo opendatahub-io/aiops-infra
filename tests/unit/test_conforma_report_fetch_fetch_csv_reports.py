@@ -1,4 +1,4 @@
-"""Tests for conforma-analyze fetch_conforma_reports.py."""
+"""Tests for conforma-report-fetch fetch_csv_reports.py."""
 from __future__ import annotations
 
 import shutil
@@ -7,66 +7,66 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import fetch_conforma_reports
+import fetch_csv_reports
 
 
 class TestGetGithubToken:
     def setup_method(self):
-        fetch_conforma_reports._github_token_cache = None
+        fetch_csv_reports._github_token_cache = None
 
     def test_token_from_gh_cli(self):
         mock_result = MagicMock(returncode=0, stdout="ghp_abc123\n")
-        with patch("fetch_conforma_reports.subprocess.run", return_value=mock_result):
-            token = fetch_conforma_reports._get_github_token()
+        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+            token = fetch_csv_reports._get_github_token()
         assert token == "ghp_abc123"
 
     def test_token_cached(self):
-        fetch_conforma_reports._github_token_cache = "cached_token"
-        token = fetch_conforma_reports._get_github_token()
+        fetch_csv_reports._github_token_cache = "cached_token"
+        token = fetch_csv_reports._get_github_token()
         assert token == "cached_token"
 
     def test_token_failure(self):
         mock_result = MagicMock(returncode=1, stdout="")
-        with patch("fetch_conforma_reports.subprocess.run", return_value=mock_result):
-            token = fetch_conforma_reports._get_github_token()
+        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+            token = fetch_csv_reports._get_github_token()
         assert token == ""
 
     def teardown_method(self):
-        fetch_conforma_reports._github_token_cache = None
+        fetch_csv_reports._github_token_cache = None
 
 
 class TestDownloadFileRaw:
     def setup_method(self):
-        fetch_conforma_reports._github_token_cache = None
+        fetch_csv_reports._github_token_cache = None
 
     def test_no_token(self, tmp_path):
-        fetch_conforma_reports._github_token_cache = ""
+        fetch_csv_reports._github_token_cache = ""
         output = tmp_path / "test.csv"
-        result = fetch_conforma_reports._download_file_raw("path.csv", "main", output)
+        result = fetch_csv_reports._download_file_raw("path.csv", "main", output)
         assert result is not None
         assert "token" in result["error"].lower()
 
     def test_curl_failure(self, tmp_path):
-        fetch_conforma_reports._github_token_cache = "token123"
+        fetch_csv_reports._github_token_cache = "token123"
         output = tmp_path / "test.csv"
         mock_result = MagicMock(returncode=22, stderr="404 Not Found")
-        with patch("fetch_conforma_reports.subprocess.run", return_value=mock_result):
-            result = fetch_conforma_reports._download_file_raw("path.csv", "main", output)
+        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+            result = fetch_csv_reports._download_file_raw("path.csv", "main", output)
         assert result is not None
         assert "404" in result["error"]
 
     def test_successful_download(self, tmp_path):
-        fetch_conforma_reports._github_token_cache = "token123"
+        fetch_csv_reports._github_token_cache = "token123"
         output = tmp_path / "test.csv"
         output.write_text("type,component_name\nviolation,comp-a\n")
 
         mock_result = MagicMock(returncode=0)
-        with patch("fetch_conforma_reports.subprocess.run", return_value=mock_result):
-            result = fetch_conforma_reports._download_file_raw("path.csv", "main", output)
+        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+            result = fetch_csv_reports._download_file_raw("path.csv", "main", output)
         assert result is None
 
     def teardown_method(self):
-        fetch_conforma_reports._github_token_cache = None
+        fetch_csv_reports._github_token_cache = None
 
 
 class TestCopyLocalCsvs:
@@ -79,7 +79,7 @@ class TestCopyLocalCsvs:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        results = fetch_conforma_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
+        results = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
         assert len(results) == 1
         assert results[0]["status"] == "copied"
         assert (output_dir / "rhoai-3.4.csv").exists()
@@ -94,7 +94,7 @@ class TestCopyLocalCsvs:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        results = fetch_conforma_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
+        results = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
         assert len(results) == 1
         assert results[0]["status"] == "copied"
 
@@ -104,22 +104,22 @@ class TestCopyLocalCsvs:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        results = fetch_conforma_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
+        results = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
         assert len(results) == 1
         assert results[0]["status"] == "failed"
 
 
 class TestFetchSupportedReleases:
     def setup_method(self):
-        fetch_conforma_reports._github_token_cache = None
+        fetch_csv_reports._github_token_cache = None
 
     def test_no_token(self):
-        fetch_conforma_reports._github_token_cache = ""
-        releases = fetch_conforma_reports.fetch_supported_releases()
+        fetch_csv_reports._github_token_cache = ""
+        releases = fetch_csv_reports.fetch_supported_releases()
         assert releases == []
 
     def test_parses_yaml_response(self):
-        fetch_conforma_reports._github_token_cache = "token123"
+        fetch_csv_reports._github_token_cache = "token123"
         yaml_content = (
             "supported:\n"
             "  - rhoai-3.4:\n"
@@ -128,39 +128,39 @@ class TestFetchSupportedReleases:
             "      branch: rhoai-3.5-ea.1\n"
         )
         mock_result = MagicMock(returncode=0, stdout=yaml_content.encode("utf-8"))
-        with patch("fetch_conforma_reports.subprocess.run", return_value=mock_result):
-            releases = fetch_conforma_reports.fetch_supported_releases()
+        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+            releases = fetch_csv_reports.fetch_supported_releases()
         assert "rhoai-3.4" in releases
         assert "rhoai-3.5-ea.1" in releases
 
     def test_curl_failure(self):
-        fetch_conforma_reports._github_token_cache = "token123"
+        fetch_csv_reports._github_token_cache = "token123"
         mock_result = MagicMock(returncode=1, stdout=b"")
-        with patch("fetch_conforma_reports.subprocess.run", return_value=mock_result):
-            releases = fetch_conforma_reports.fetch_supported_releases()
+        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+            releases = fetch_csv_reports.fetch_supported_releases()
         assert releases == []
 
     def test_invalid_yaml(self):
-        fetch_conforma_reports._github_token_cache = "token123"
+        fetch_csv_reports._github_token_cache = "token123"
         mock_result = MagicMock(returncode=0, stdout=b"not: valid: yaml: [[[")
-        with patch("fetch_conforma_reports.subprocess.run", return_value=mock_result):
-            releases = fetch_conforma_reports.fetch_supported_releases()
+        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+            releases = fetch_csv_reports.fetch_supported_releases()
         assert releases == []
 
     def teardown_method(self):
-        fetch_conforma_reports._github_token_cache = None
+        fetch_csv_reports._github_token_cache = None
 
 
 class TestFetchCsvForRelease:
     def setup_method(self):
-        fetch_conforma_reports._github_token_cache = "token123"
+        fetch_csv_reports._github_token_cache = "token123"
 
     def test_all_paths_fail(self, tmp_path):
         def mock_download(csv_path, ref, output_file):
             return {"error": f"404 for {csv_path}"}
 
-        with patch.object(fetch_conforma_reports, "_download_file_raw", side_effect=mock_download):
-            result = fetch_conforma_reports.fetch_csv_for_release("rhoai-3.4", tmp_path)
+        with patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download):
+            result = fetch_csv_reports.fetch_csv_for_release("rhoai-3.4", tmp_path)
         assert result["status"] == "failed"
         assert result["path"] is None
 
@@ -172,12 +172,12 @@ class TestFetchCsvForRelease:
             return {"error": "not found"}
 
         mock_date = MagicMock(returncode=0, stdout="2026-06-01T00:00:00Z\n")
-        with patch.object(fetch_conforma_reports, "_download_file_raw", side_effect=mock_download), \
-             patch("fetch_conforma_reports.subprocess.run", return_value=mock_date):
-            result = fetch_conforma_reports.fetch_csv_for_release("rhoai-3.4", tmp_path)
+        with patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download), \
+             patch("fetch_csv_reports.subprocess.run", return_value=mock_date):
+            result = fetch_csv_reports.fetch_csv_for_release("rhoai-3.4", tmp_path)
         assert result["status"] == "fetched"
         assert result["path"] is not None
         assert "release_day" in result["source_path"]
 
     def teardown_method(self):
-        fetch_conforma_reports._github_token_cache = None
+        fetch_csv_reports._github_token_cache = None

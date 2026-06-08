@@ -20,6 +20,8 @@ For practical contributor guidance, see [CONTRIBUTING.md](CONTRIBUTING.md).
 flowchart TD
     user[User query] --> entry["conforma (entry-point)"]
     entry -->|"violations/status"| analyze["conforma-analyze"]
+    entry -->|"fetch tekton report"| reportFetch["conforma-report-fetch"]
+    analyze -->|"fetches CSVs via"| reportFetch
     entry -->|"create/extend exception"| exception["conforma-exception"]
     entry -->|"manage expired"| manage["conforma-exception-manage"]
     entry -->|"fix violations"| remedy["conforma-remedy"]
@@ -43,7 +45,8 @@ flowchart TD
 
 | Skill | Purpose | Status |
 |-------|---------|--------|
-| `conforma-analyze` | Fetch violation CSVs, parse into YAML index, trace history | Exists |
+| `conforma-analyze` | Parse violation CSVs into YAML index, trace history | Exists |
+| `conforma-report-fetch` | Fetch conforma reports: CSV from GitHub, JSON from Tekton | Exists |
 | `conforma-exception` | Create/extend/view/review exceptions (Jira, GitLab MRs, linking) | Exists |
 | `conforma-exception-manage` | Find/assess expired exceptions, generate reports, action loop | Planned |
 | `conforma-remedy` | Find and apply fixes to underlying violations | Planned |
@@ -196,6 +199,7 @@ aiops-infra/
   skills/                     # Conforma skills (.cursor/skills -> symlink)
     conforma/                 # Entry-point orchestrator (SKILL.md only)
     conforma-analyze/         # Violation report analysis
+    conforma-report-fetch/    # Fetch reports: CSV from GitHub, JSON from Tekton
     conforma-exception/       # Exception management
     conforma-exception-manage/# Expired exception management
     conforma-remedy/          # Fix violations in code

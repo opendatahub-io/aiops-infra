@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Full-text search across conforma documentation and reference files.
 
-Indexes YAML reference data and markdown documentation, then performs
-keyword search with ranked results.
+Auto-discovers all skills/conforma* directories and indexes:
+- references/*.md, references/*.yaml — reference data and documentation
+- docs/*.md, docs/*.yaml — additional documentation
+- SKILL.md — skill definitions (prose only; frontmatter and code blocks stripped)
 
 Usage:
     python3 scripts/search_docs.py --query "hermetic build"
@@ -18,15 +20,38 @@ from pathlib import Path
 
 import yaml
 
-SKILL_DIR = Path(__file__).resolve().parent.parent
-REFERENCES_DIR = SKILL_DIR / "references"
-EXCEPTION_REFS_DIR = SKILL_DIR.parent / "conforma-exception" / "references"
+SKILLS_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+def _discover_conforma_dirs() -> list[Path]:
+    """Find all conforma* skill directories (includes the router)."""
+    return sorted(
+        p for p in SKILLS_DIR.iterdir()
+        if p.is_dir() and p.name.startswith("conforma")
+    )
+
+
+def _strip_frontmatter_and_code_blocks(text: str) -> str:
+    """Remove YAML frontmatter and fenced code blocks, keeping only prose."""
+    text = re.sub(r"\A---\s*\n.*?\n---\s*\n", "", text, count=1, flags=re.DOTALL)
+    text = re.sub(r"```[^\n]*\n.*?```", "", text, flags=re.DOTALL)
+    return text
+
+
+def _collect_dirs(subdir: str) -> list[Path]:
+    """Collect existing subdirectories of the given name across all conforma skills."""
+    dirs = []
+    for skill_dir in _discover_conforma_dirs():
+        d = skill_dir / subdir
+        if d.is_dir():
+            dirs.append(d)
+    return dirs
 
 
 def _load_policy_rules() -> list[dict]:
-    """Load policy rules from reference YAML files."""
+    """Load policy rules from conforma-release-policy-rules.yaml."""
     entries = []
-    for refs_dir in [REFERENCES_DIR, EXCEPTION_REFS_DIR]:
+    for refs_dir in _collect_dirs("references"):
         rules_file = refs_dir / "conforma-release-policy-rules.yaml"
         if rules_file.is_file():
             data = yaml.safe_load(rules_file.read_text(encoding="utf-8"))
@@ -40,16 +65,60 @@ def _load_policy_rules() -> list[dict]:
 
 
 def _load_markdown_docs() -> list[dict]:
-    """Load markdown documentation files."""
+    """Load markdown documentation from references/ and docs/ across all conforma skills."""
     docs = []
-    for refs_dir in [REFERENCES_DIR, EXCEPTION_REFS_DIR]:
-        if not refs_dir.is_dir():
-            continue
-        for md_file in refs_dir.glob("*.md"):
-            content = md_file.read_text(encoding="utf-8")
+    for subdir in ["references", "docs"]:
+        for d in _collect_dirs(subdir):
+            for md_file in sorted(d.glob("*.md")):
+                content = md_file.read_text(encoding="utf-8")
+                skill_name = d.parent.name
+                docs.append({
+                    "source": f"{skill_name}/{subdir}/{md_file.name}",
+                    "title": md_file.stem.replace("-", " ").title(),
+                    "content": content,
+                })
+    return docs
+
+
+def _load_yaml_docs() -> list[dict]:
+    """Load YAML reference files as searchable text (excluding the policy-rules file)."""
+    docs = []
+    for subdir in ["references", "docs"]:
+        for d in _collect_dirs(subdir):
+            for yaml_file in sorted(d.glob("*.yaml")):
+                if yaml_file.name == "conforma-release-policy-rules.yaml":
+                    continue
+                content = yaml_file.read_text(encoding="utf-8")
+                skill_name = d.parent.name
+                docs.append({
+                    "source": f"{skill_name}/{subdir}/{yaml_file.name}",
+                    "title": yaml_file.stem.replace("-", " ").title(),
+                    "content": content,
+                })
+    for subdir in ["references", "docs"]:
+        for d in _collect_dirs(subdir):
+            for yml_file in sorted(d.glob("*.yml")):
+                content = yml_file.read_text(encoding="utf-8")
+                skill_name = d.parent.name
+                docs.append({
+                    "source": f"{skill_name}/{subdir}/{yml_file.name}",
+                    "title": yml_file.stem.replace("-", " ").title(),
+                    "content": content,
+                })
+    return docs
+
+
+def _load_skill_docs() -> list[dict]:
+    """Load SKILL.md files from all conforma skills (prose only)."""
+    docs = []
+    for skill_dir in _discover_conforma_dirs():
+        skill_md = skill_dir / "SKILL.md"
+        if skill_md.is_file():
+            raw = skill_md.read_text(encoding="utf-8")
+            content = _strip_frontmatter_and_code_blocks(raw)
             docs.append({
-                "source": str(md_file.relative_to(SKILL_DIR.parent)),
-                "title": md_file.stem.replace("-", " ").title(),
+                "source": f"{skill_dir.name}/SKILL.md",
+                "title": skill_dir.name.replace("-", " ").title(),
                 "content": content,
             })
     return docs
@@ -90,20 +159,33 @@ def search(query: str, max_results: int = 10) -> list[dict]:
     for doc in _load_markdown_docs():
         score = _score_match(doc["content"], query_terms)
         if score > 0:
-            snippet_start = -1
-            for term in query_terms:
-                idx = doc["content"].lower().find(term.lower())
-                if idx >= 0 and (snippet_start < 0 or idx < snippet_start):
-                    snippet_start = idx
-
-            snippet = ""
-            if snippet_start >= 0:
-                start = max(0, snippet_start - 100)
-                end = min(len(doc["content"]), snippet_start + 300)
-                snippet = doc["content"][start:end].strip()
-
+            snippet = _extract_snippet(doc["content"], query_terms)
             results.append({
                 "type": "documentation",
+                "score": score,
+                "title": doc["title"],
+                "snippet": snippet,
+                "source": doc["source"],
+            })
+
+    for doc in _load_yaml_docs():
+        score = _score_match(doc["content"], query_terms)
+        if score > 0:
+            snippet = _extract_snippet(doc["content"], query_terms)
+            results.append({
+                "type": "reference_data",
+                "score": score,
+                "title": doc["title"],
+                "snippet": snippet,
+                "source": doc["source"],
+            })
+
+    for doc in _load_skill_docs():
+        score = _score_match(doc["content"], query_terms)
+        if score > 0:
+            snippet = _extract_snippet(doc["content"], query_terms)
+            results.append({
+                "type": "skill_doc",
                 "score": score,
                 "title": doc["title"],
                 "snippet": snippet,
@@ -114,11 +196,28 @@ def search(query: str, max_results: int = 10) -> list[dict]:
     return results[:max_results]
 
 
+def _extract_snippet(content: str, query_terms: list[str]) -> str:
+    """Extract a text snippet around the first matching term."""
+    snippet_start = -1
+    for term in query_terms:
+        idx = content.lower().find(term.lower())
+        if idx >= 0 and (snippet_start < 0 or idx < snippet_start):
+            snippet_start = idx
+
+    if snippet_start < 0:
+        return ""
+    start = max(0, snippet_start - 100)
+    end = min(len(content), snippet_start + 300)
+    return content[start:end].strip()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Search conforma documentation")
     parser.add_argument("--query", required=True, help="Search query")
     parser.add_argument("--max-results", type=int, default=10, help="Max results")
-    parser.add_argument("--format", choices=["json", "text"], default="text", help="Output format")
+    parser.add_argument(
+        "--format", choices=["json", "text"], default="text", help="Output format"
+    )
     args = parser.parse_args()
 
     results = search(args.query, args.max_results)

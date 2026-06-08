@@ -23,7 +23,7 @@ When presenting violation data — whether standalone or when handing off to the
 **Always run auth check first:**
 
 ```bash
-python3 scripts/verify_auth.py
+gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name
 ```
 
 ## Remote Data Access Policy
@@ -64,32 +64,36 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
 
 ### Steps
 
-1. **Auth check**: Run `python3 scripts/verify_auth.py`. Stop if any check fails.
+1. **Auth check**: Run `gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name`. Stop if either command fails.
 
 2. **Releases**: If the user provided a URL, extract the release branch from it (see above). Otherwise, the script auto-detects supported releases by fetching [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) from `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases. No static release list is maintained in this skill.
 
    If auto-detection fails (e.g. network issue, repo access), the script errors out and instructs the user to provide `--releases` manually.
 
-3. **Fetch reports**: Run to auto-detect releases and fetch violation CSVs into a new timestamped run directory:
+3. **Fetch reports**: CSV fetching is provided by the **`conforma-report-fetch`** skill. Create a timestamped output directory under this skill's `.work/` and pass it via `--output-dir` to keep all data local:
 
 ```bash
-python3 scripts/fetch_conforma_reports.py
+mkdir -p .work
+RUNDIR=".work/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$RUNDIR"
+python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
+  --output-dir "$RUNDIR"
 ```
 
    Override with explicit releases only if needed for a one-off check:
 
 ```bash
-python3 scripts/fetch_conforma_reports.py --releases rhoai-2.25,rhoai-3.4
+python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
+  --releases rhoai-2.25,rhoai-3.4 \
+  --output-dir "$RUNDIR"
 ```
-
-   Each invocation creates a **new timestamped directory** under `.work/` (e.g. `.work/20260604-123000/`) and updates the `.work/latest` symlink. Previous runs are preserved — no clobbering. Use `--output-dir` only when you need output in a specific location outside `.work/`.
 
    Some in-development/EA branches may not have a violations report CSV yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
 
 4. **Parse violations**: Run on the **same timestamped directory from step 3** to produce the structured YAML:
 
 ```bash
-python3 scripts/parse_violations.py \
+python3 skills/conforma-analyze/scripts/parse_violations.py \
   --reports-dir .work/20260604-123000 \
   --output .work/20260604-123000/violations.yaml
 ```
@@ -98,22 +102,22 @@ python3 scripts/parse_violations.py \
 
 ```bash
 # Text summary (default):
-python3 scripts/analyze_csv_report.py --reports-dir .work/20260604-123000
+python3 skills/conforma-analyze/scripts/analyze_csv_report.py --reports-dir .work/20260604-123000
 
 # Markdown report:
-python3 scripts/analyze_csv_report.py \
+python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
   --reports-dir .work/20260604-123000 \
   --format markdown \
   --output .work/20260604-123000/conforma-analysis.md
 
 # JSON (for programmatic consumption):
-python3 scripts/analyze_csv_report.py \
+python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
   --reports-dir .work/20260604-123000 \
   --format json \
   --output .work/20260604-123000/conforma-analysis.json
 
 # Analyze a single CSV directly:
-python3 scripts/analyze_csv_report.py \
+python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
   --csv .work/20260604-123000/rhoai-3.5-ea.1.csv
 ```
 
@@ -159,14 +163,14 @@ If the user's phrase does not match any alias above, first run `analyze_csv_repo
 
 ### Steps
 
-1. **Auth check**: Run `python3 scripts/verify_auth.py`. Stop if any check fails.
+1. **Auth check**: Run `gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name`. Stop if either command fails.
 
 2. **Resolve the violation code**: Map the user's phrase to an exact `--code` value using the alias table above.
 
 3. **Run the history script**:
 
 ```bash
-python3 scripts/violation_history.py \
+python3 skills/conforma-analyze/scripts/violation_history.py \
   --release rhoai-3.5-ea.1 \
   --code prefetch_dependencies.mode_not_permissive \
   --format text
@@ -185,7 +189,7 @@ python3 scripts/violation_history.py \
 **"When was the last time we saw permissive prefetch mode for 3.5-ea.1?"**
 
 ```bash
-python3 scripts/violation_history.py \
+python3 skills/conforma-analyze/scripts/violation_history.py \
   --release rhoai-3.5-ea.1 \
   --code prefetch_dependencies.mode_not_permissive \
   --format text
@@ -194,7 +198,7 @@ python3 scripts/violation_history.py \
 **"When did rpm signature violations disappear for rhoai-3.4?"** (with `--until-found` for speed)
 
 ```bash
-python3 scripts/violation_history.py \
+python3 skills/conforma-analyze/scripts/violation_history.py \
   --release rhoai-3.4 \
   --code rpm_signature.allowed \
   --until-found \
@@ -206,7 +210,7 @@ python3 scripts/violation_history.py \
 Given URL `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.5-ea.1/prod/future/build_type_latest/conforma-violations-report.csv`:
 
 ```bash
-python3 scripts/violation_history.py \
+python3 skills/conforma-analyze/scripts/violation_history.py \
   --release rhoai-3.5-ea.1 \
   --code prefetch_dependencies.mode_not_permissive \
   --csv-path prod/future/build_type_latest/conforma-violations-report.csv \
@@ -239,15 +243,6 @@ The CSV `code` column contains base rules only (e.g. `rpm_signature.allowed`), w
 
 ## CSV Fetch Mechanism
 
-The fetch script downloads reports via **raw download** from `raw.githubusercontent.com` (using `curl` with the GitHub token from `gh auth token`). This avoids the GitHub Contents API entirely, handling multi-megabyte report files reliably without JSON/base64 overhead or API size limits.
+CSV fetching is delegated to the **`conforma-report-fetch`** skill (`fetch_csv_reports.py`). See that skill's SKILL.md for data source details, fallback paths, and release auto-detection.
 
-The script tries multiple paths within the `prod/` directory in order:
-1. `prod/release_day/conforma-violations-report.csv` (primary)
-2. `prod/future/build_type_latest/conforma-violations-report.csv`
-3. `prod/future/build_type_nightly/conforma-violations-report.csv`
-
-If `release_day` is unavailable (e.g. for in-development versions), the script automatically falls back to the next available report.
-
-## Alternative Fetch Mechanism
-
-If GitHub access is unreliable or the report production pipeline changes, a separate `conforma-report-fetch` skill can be created to provide an alternative fetch mechanism (e.g. direct clone, CI artifact download, or internal API). This skill's parsing layer (`parse_violations.py`) is decoupled from the fetch layer and accepts any directory of CSV files via `--reports-dir`, making it compatible with any fetch method.
+This skill's parsing layer (`parse_violations.py`) is decoupled from the fetch layer and accepts any directory of CSV files via `--reports-dir`, making it compatible with any fetch method.
