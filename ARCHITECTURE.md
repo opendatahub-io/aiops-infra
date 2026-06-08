@@ -22,8 +22,7 @@ flowchart TD
     entry -->|"violations/status"| analyze["conforma-analyze"]
     entry -->|"fetch tekton report"| reportFetch["conforma-report-fetch"]
     analyze -->|"fetches CSVs via"| reportFetch
-    entry -->|"create/extend exception"| exception["conforma-exception"]
-    entry -->|"manage expired"| manage["conforma-exception-manage"]
+    entry -->|"create/extend/manage exception"| exception["conforma-exception"]
     entry -->|"fix violations"| remedy["conforma-remedy"]
     entry -->|"search docs"| docs["conforma-docs"]
     entry -->|"can X ship?"| readiness["conforma-release-readiness"]
@@ -31,9 +30,8 @@ flowchart TD
 
     readiness -->|"reads violations"| analyze
     readiness -->|"queries GitLab"| sharedScripts
-    manage -->|"YAML handover"| analyze
-    manage -->|"creates MRs"| sharedScripts["scripts/*_ops.py"]
-    exception --> sharedScripts
+    exception -->|"YAML handover"| analyze
+    exception --> sharedScripts["scripts/*_ops.py"]
     remedy --> sharedScripts
     readiness --> sharedScripts
     docs --> sharedScripts
@@ -47,8 +45,7 @@ flowchart TD
 |-------|---------|--------|
 | `conforma-analyze` | Parse violation CSVs into YAML index, trace history | Exists |
 | `conforma-report-fetch` | Fetch conforma reports: CSV from GitHub, JSON from Tekton | Exists |
-| `conforma-exception` | Create/extend/view/review exceptions (Jira, GitLab MRs, linking) | Exists |
-| `conforma-exception-manage` | Find/assess expired exceptions, generate reports, action loop | Planned |
+| `conforma-exception` | Create/extend/manage/view/review exceptions (Jira, GitLab MRs, linking, expired exception assessment) | Exists |
 | `conforma-remedy` | Find and apply fixes to underlying violations | Planned |
 | `conforma-docs` | Full-text search across conforma documentation and runbooks | Planned |
 | `conforma-release-readiness` | "Can version X ship?" — detailed breakdown and verdict | Planned |
@@ -200,8 +197,7 @@ aiops-infra/
     conforma/                 # Entry-point orchestrator (SKILL.md only)
     conforma-analyze/         # Violation report analysis
     conforma-report-fetch/    # Fetch reports: CSV from GitHub, JSON from Tekton
-    conforma-exception/       # Exception management
-    conforma-exception-manage/# Expired exception management
+    conforma-exception/       # Exception management (create, extend, assess, cleanup)
     conforma-remedy/          # Fix violations in code
     conforma-docs/            # Documentation search
     conforma-release-readiness/ # Ship/no-ship verdict
