@@ -1,0 +1,36 @@
+# Mapping of (component_type, environment) to GitLab policy file paths
+# within the releng/konflux-release-data repository.
+#
+# Routing logic:
+# - FBC fragment component -> fbc-rhoai-{env}.yaml
+# - Any other component -> registry-rhoai-{env}.yaml
+# - Self-service eligible -> exceptions/{policy}.yaml
+
+gitlab_project: releng/konflux-release-data
+gitlab_host: gitlab.cee.redhat.com
+default_branch: main
+
+paths:
+  standing_exceptions:
+    registry:
+      prod: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/registry-rhoai-prod.yaml
+      stage: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/registry-rhoai-stage.yaml
+    fbc:
+      prod: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/fbc-rhoai-prod.yaml
+      stage: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/fbc-rhoai-stage.yaml
+
+  self_service:
+    fbc:
+      prod: exceptions/fbc-rhoai-prod.yaml
+      stage: exceptions/fbc-rhoai-stage.yaml
+    registry:
+      prod: exceptions/registry-rhoai-prod.yaml
+      stage: exceptions/registry-rhoai-stage.yaml
+
+# FBC detection: component name contains 'fbc' (case-insensitive)
+fbc_detection_pattern: "(?i)fbc"
+
+# Self-service eligible rules (auto-detected from exception_templates.yaml workflow)
+self_service_rules:
+  - schedule.weekday_restriction
+  - "test.no_failed_tests:fbc-target-index-pruning-check"
