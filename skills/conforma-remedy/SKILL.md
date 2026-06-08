@@ -13,6 +13,8 @@ Find and apply fixes to underlying conforma violations. This skill focuses on re
 
 This skill is part of the conforma suite in [aiops-infra](https://github.com/opendatahub-io/aiops-infra).
 
+**Setup:** See [README.md](README.md) for installation and prerequisites.
+
 ## Violations-First Philosophy
 
 This skill embodies the core principle: **fix the violation, don't just waive it.** Exceptions should only be created when a code fix is genuinely not feasible within the release timeline.

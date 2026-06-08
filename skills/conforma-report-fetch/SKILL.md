@@ -24,8 +24,7 @@ Downloads CSV violation reports from each release branch of the private `red-hat
 
 ### Prerequisites
 
-- **`gh` CLI** authenticated (`gh auth login`)
-- Read access to `red-hat-data-services/conforma-reporter` (private repo)
+See [README.md](README.md) for installation and shared prerequisites.
 
 **Auth check:**
 
@@ -86,6 +85,8 @@ Fetch the raw EC verification report JSON for a specific PipelineRun directly fr
 The output is a handover state document that records fetch status and the path to the raw report file. Downstream tools (e.g. `conforma-parse`) consume this handover -- they MUST check `report_fetch.status`, not the script exit code. The script exits non-zero if it cannot resolve any required infrastructure coordinate (PipelineRun UUID, verify TaskRun, or log record) and no handover is produced. It exits 0 with `report_fetch.status: "failed"` if the run was found but report extraction failed.
 
 ### Prerequisites
+
+See [README.md](README.md) for shared prerequisites. Tekton mode requires these additional tools:
 
 - **VPN**: Connected to the corporate VPN (required for internal Tekton Results API domain routing)
 - **`oc` CLI**: Installed and authenticated to the Konflux cluster:

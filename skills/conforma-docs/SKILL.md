@@ -13,9 +13,7 @@ Search Conforma documentation and runbooks. This skill provides full-text search
 
 This skill is part of the conforma suite in [aiops-infra](https://github.com/opendatahub-io/aiops-infra).
 
-**Install all conforma skills** (via skills-registry):
-- Cursor: `cursor skills install opendatahub-io/aiops-infra`
-- Claude Code: `claude install-skill opendatahub-io/aiops-infra`
+**Setup:** See [README.md](README.md) for installation and prerequisites.
 
 ## Mandatory Presentation Format
 

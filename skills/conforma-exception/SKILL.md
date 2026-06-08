@@ -35,54 +35,13 @@ When presenting violations to the user:
 
 ## Prerequisites
 
-The skill requires `acli` (Atlassian CLI) and `glab` (GitLab CLI). **`acli` is auto-installed** to `~/.local/bin/` on first use if not already on PATH — the download-from-CDN logic is built into `cli_runner.py` and triggers transparently whenever any script calls `run_acli()`. `glab` must be installed manually.
+**Setup:** See [README.md](README.md) for installation and one-time authentication setup.
 
 **Always run preflight first** before creating any tickets or MRs:
 
 ```bash
 python3 skills/conforma-exception/scripts/verify_auth.py
 ```
-
-### Install glab
-
-On Fedora/RHEL:
-
-```bash
-sudo dnf install glab
-```
-
-On macOS:
-
-```bash
-brew install glab
-```
-
-### One-time authentication
-
-After tools are available, authenticate once (credentials persist across sessions):
-
-1. **Jira**: generate an API token at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens), then:
-
-```bash
-echo "YOUR_TOKEN" | acli jira auth login --site redhat.atlassian.net --email "$USER@redhat.com" --token
-```
-
-2. **GitLab**: go to [gitlab.cee.redhat.com/-/user_settings/personal_access_tokens](https://gitlab.cee.redhat.com/-/user_settings/personal_access_tokens), create a token named `glab-cli` with `api` scope and 1 year expiration, then:
-
-```bash
-glab auth login --hostname gitlab.cee.redhat.com --token "YOUR_TOKEN"
-```
-
-### Container fallback (advanced)
-
-If auto-install fails (restricted network, unsupported platform), the scripts fall back to container images via docker/podman:
-
-| Tool | Default image | Override env var |
-|------|--------------|------------------|
-| acli | `docker.io/davidsmith3/acli:latest` | `ACLI_IMAGE` |
-| glab | `docker.io/gitlab/glab:latest` | `GLAB_IMAGE` |
-
-Container mode requires API token authentication since `--web` OAuth cannot open the host browser from inside a container. See `verify_auth.py` output for container-specific auth instructions.
 
 ## Remote Data Access Policy
 

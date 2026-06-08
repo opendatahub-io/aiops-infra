@@ -17,8 +17,7 @@ When presenting violation data — whether standalone or when handing off to the
 
 ## Prerequisites
 
-- **`gh` CLI** authenticated (`gh auth login`)
-- **`GITHUB_TOKEN`** with read access to `red-hat-data-services/conforma-reporter` (private repo)
+**Setup:** See [README.md](README.md) for installation and one-time authentication setup.
 
 **Always run auth check first:**
 

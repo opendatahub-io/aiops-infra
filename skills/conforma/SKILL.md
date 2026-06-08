@@ -13,16 +13,7 @@ Single entry point for all Conforma-related queries. Detect the user's intent an
 
 This skill is part of the conforma suite in [aiops-infra](https://github.com/opendatahub-io/aiops-infra).
 
-**Install all conforma skills** (via skills-registry):
-- Cursor: `cursor skills install opendatahub-io/aiops-infra`
-- Claude Code: `claude install-skill opendatahub-io/aiops-infra`
-
-**Prerequisites** (CLI tools -- install once):
-- `glab` -- GitLab CLI ([install](https://gitlab.com/gitlab-org/cli/-/releases))
-- `acli` -- Jira CLI
-- `gh` -- GitHub CLI ([install](https://cli.github.com))
-
-Python dependencies are auto-installed on first run.
+**Setup:** See [README.md](README.md) for installation and prerequisites.
 
 ## Intent Routing
 

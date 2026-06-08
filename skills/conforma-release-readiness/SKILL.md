@@ -13,10 +13,7 @@ Answer "Can RHOAI version X ship?" with a detailed breakdown and verdict.
 
 This skill is part of the conforma suite in [aiops-infra](https://github.com/opendatahub-io/aiops-infra).
 
-**Prerequisites:**
-- `gh` CLI authenticated (`gh auth login`)
-- `glab` CLI authenticated (`glab auth login --hostname gitlab.cee.redhat.com`)
-- Read access to `red-hat-data-services/conforma-reporter` (private)
+**Setup:** See [README.md](README.md) for installation and prerequisites.
 
 ## What It Does
 
