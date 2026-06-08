@@ -81,9 +81,11 @@ See `parse_violations.py` for the complete output schema.
 
 The CSV `code` column contains base rules only (e.g. `rpm_signature.allowed`), while policy files use full rules with suffixes (e.g. `rpm_signature.allowed:9386b48a1a693c5c`). The `parse_violations.py` script deterministically extracts the full rule code from the `message` column using regex patterns per rule family. If no suffix can be extracted, the base code is used as-is.
 
-## CSV Fetch Fallbacks
+## CSV Fetch Mechanism
 
-The fetch script tries multiple paths within the `prod/` directory in order:
+The fetch script downloads reports via **raw download** from `raw.githubusercontent.com` (using `curl` with the GitHub token from `gh auth token`). This avoids the GitHub Contents API entirely, handling multi-megabyte report files reliably without JSON/base64 overhead or API size limits.
+
+The script tries multiple paths within the `prod/` directory in order:
 1. `prod/release_day/conforma-violations-report.csv` (primary)
 2. `prod/future/build_type_latest/conforma-violations-report.csv`
 3. `prod/future/build_type_nightly/conforma-violations-report.csv`
@@ -92,4 +94,4 @@ If `release_day` is unavailable (e.g. for in-development versions), the script a
 
 ## Alternative Fetch Mechanism
 
-The current fetch uses the GitHub Contents API via `gh`. If GitHub access is unreliable or the report production pipeline changes, a separate `conforma-report-fetch` skill can be created to provide an alternative fetch mechanism (e.g. direct clone, CI artifact download, or internal API). This skill's parsing layer (`parse_violations.py`) is decoupled from the fetch layer and accepts any directory of CSV files via `--reports-dir`, making it compatible with any fetch method.
+If GitHub access is unreliable or the report production pipeline changes, a separate `conforma-report-fetch` skill can be created to provide an alternative fetch mechanism (e.g. direct clone, CI artifact download, or internal API). This skill's parsing layer (`parse_violations.py`) is decoupled from the fetch layer and accepts any directory of CSV files via `--reports-dir`, making it compatible with any fetch method.

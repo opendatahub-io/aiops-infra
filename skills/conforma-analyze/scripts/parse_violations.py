@@ -169,17 +169,16 @@ def parse_csv_file(csv_path: Path, release: str) -> list[dict]:
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
 
 
-def _build_report_url(release: str, source_path: str = "") -> str:
+def _build_report_url(release: str) -> str:
     """Build a GitHub URL to the violations report for a release."""
-    csv_path = source_path or "prod/release_day/conforma-violations-report.csv"
-    return f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{release}/{csv_path}"
+    return f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{release}/prod/release_day/conforma-violations-report.csv"
 
 
 def build_violations_index(
     all_records: list[dict],
     releases: list[str],
-    source_paths: dict[str, str] | None = None,
     failed_releases: list[dict] | None = None,
+    report_dates: dict[str, str] | None = None,
 ) -> dict:
     """Build the structured violations index from parsed records."""
     by_rule: dict[str, dict] = {}
@@ -233,16 +232,16 @@ def build_violations_index(
             "unique_components": len(unique_components),
         }
 
-    report_urls = {}
-    for release in releases:
-        src = (source_paths or {}).get(release, "")
-        report_urls[release] = _build_report_url(release, src)
+    report_urls = {release: _build_report_url(release) for release in releases}
+    dates = report_dates or {}
+    report_created_at = {rel: dates.get(rel, "") for rel in releases if dates.get(rel)}
 
     result = {
         "violation_data": {
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "releases": releases,
             "report_urls": report_urls,
+            "report_created_at": report_created_at,
             "summary": summary,
             "violations_by_rule": violations_by_rule,
             "violations_by_component": violations_by_component,
@@ -270,14 +269,14 @@ def main() -> int:
         help="Output YAML file path",
     )
     parser.add_argument(
-        "--source-paths-json",
-        default=None,
-        help='JSON mapping release->source_path (e.g. \'{"rhoai-3.4":"prod/release_day/conforma-violations-report.csv"}\')',
-    )
-    parser.add_argument(
         "--failed-releases-json",
         default=None,
         help='JSON array of releases that failed to fetch (e.g. \'[{"release":"rhoai-3.5","error":"branch not found"}]\')',
+    )
+    parser.add_argument(
+        "--report-dates-json",
+        default=None,
+        help='JSON mapping release->ISO-8601 date when the report was last committed',
     )
     args = parser.parse_args()
 
@@ -304,15 +303,15 @@ def main() -> int:
 
     import json as _json
 
-    source_paths = None
-    if args.source_paths_json:
-        source_paths = _json.loads(args.source_paths_json)
-
     failed_releases = None
     if args.failed_releases_json:
         failed_releases = _json.loads(args.failed_releases_json)
 
-    index = build_violations_index(all_records, releases, source_paths, failed_releases)
+    report_dates = None
+    if args.report_dates_json:
+        report_dates = _json.loads(args.report_dates_json)
+
+    index = build_violations_index(all_records, releases, failed_releases, report_dates)
 
     comment_header = (
         f"# conforma-analyze violations output\n"

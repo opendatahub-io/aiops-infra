@@ -2,7 +2,10 @@
 """Fetch conforma violation report CSVs from conforma-reporter per release.
 
 Downloads the CSV from each release branch of the private
-red-hat-data-services/conforma-reporter repository using the gh CLI.
+red-hat-data-services/conforma-reporter repository via raw download
+(raw.githubusercontent.com), avoiding the GitHub Contents API entirely.
+This handles multi-megabyte report files reliably without JSON/base64
+overhead or API size limits.
 
 Usage:
     python3 scripts/fetch_conforma_reports.py \\
@@ -18,7 +21,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import shutil
 import subprocess
@@ -27,6 +29,7 @@ from pathlib import Path
 
 
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
+RAW_DOWNLOAD_BASE = "https://raw.githubusercontent.com"
 CSV_FILENAME = "conforma-violations-report.csv"
 
 CSV_PATHS = [
@@ -35,73 +38,92 @@ CSV_PATHS = [
     f"prod/future/build_type_nightly/{CSV_FILENAME}",
 ]
 
+_github_token_cache: str | None = None
 
-def _download_file(api_path: str, output_file: Path) -> dict | None:
-    """Download a file via the Contents API. Returns error dict or None on success."""
+
+def _get_github_token() -> str:
+    """Get the GitHub token from gh CLI (cached for the process lifetime)."""
+    global _github_token_cache
+    if _github_token_cache is not None:
+        return _github_token_cache
     result = subprocess.run(
-        ["gh", "api", api_path, "-H", "Accept: application/vnd.github.v3+json"],
+        ["gh", "auth", "token"],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=10,
+    )
+    _github_token_cache = result.stdout.strip() if result.returncode == 0 else ""
+    return _github_token_cache
+
+
+def _download_file_raw(csv_path: str, ref: str, output_file: Path) -> dict | None:
+    """Download a file via raw.githubusercontent.com. Returns error dict or None on success.
+
+    Always uses raw download — no Contents API, no JSON, no base64.
+    Handles files of any size reliably.
+    """
+    token = _get_github_token()
+    if not token:
+        return {"error": "Failed to get GitHub token from 'gh auth token'"}
+
+    url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{ref}/{csv_path}"
+    result = subprocess.run(
+        ["curl", "-fsSL", "-H", f"Authorization: token {token}",
+         "-o", str(output_file), url],
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
 
     if result.returncode != 0:
+        output_file.unlink(missing_ok=True)
         return {"error": result.stderr.strip()[:300]}
 
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        return {"error": f"Failed to parse API response: {exc}"}
-
-    encoding = data.get("encoding", "")
-
-    if encoding == "base64":
-        try:
-            csv_bytes = base64.b64decode(data.get("content", ""))
-            output_file.write_bytes(csv_bytes)
-        except Exception as exc:
-            return {"error": f"Failed to decode base64 content: {exc}"}
-    else:
-        download_url = data.get("download_url")
-        if not download_url:
-            return {"error": "File too large for base64 and no download_url available"}
-        dl_result = subprocess.run(
-            ["gh", "api", download_url, "--method", "GET"],
-            capture_output=True,
-            timeout=120,
-        )
-        if dl_result.returncode != 0:
-            return {
-                "error": f"Download failed: {dl_result.stderr.decode(errors='replace').strip()[:200]}"
-            }
-        output_file.write_bytes(dl_result.stdout)
+    if not output_file.exists() or output_file.stat().st_size == 0:
+        output_file.unlink(missing_ok=True)
+        return {"error": f"Downloaded file is empty or missing: {url}"}
 
     return None
 
 
+def _fetch_last_commit_date(release: str, csv_path: str) -> str:
+    """Get the ISO-8601 date of the last commit that touched the CSV file."""
+    api_path = (
+        f"repos/{CONFORMA_REPORTER_REPO}/commits"
+        f"?path={csv_path}&sha={release}&per_page=1"
+    )
+    result = subprocess.run(
+        ["gh", "api", api_path, "--jq", ".[0].commit.committer.date"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return ""
+
+
 def fetch_csv_for_release(release: str, output_dir: Path) -> dict:
-    """Fetch the violations CSV for a single release branch via gh API.
+    """Fetch the violations CSV for a single release branch via raw download.
 
     Tries CSV_PATHS in order (prod/release_day first, then fallbacks
-    under prod/future/). Uses the Contents API with ref as a query
-    parameter. When the file is too large for base64, falls back to the
-    raw download URL.
+    under prod/future/). Downloads directly from raw.githubusercontent.com
+    to handle multi-megabyte report files without API size limits.
     """
     output_file = output_dir / f"{release}.csv"
     last_error = ""
 
     for csv_path in CSV_PATHS:
-        api_path = (
-            f"repos/{CONFORMA_REPORTER_REPO}/contents/{csv_path}?ref={release}"
-        )
-        err = _download_file(api_path, output_file)
+        err = _download_file_raw(csv_path, release, output_file)
         if err is None:
+            created_at = _fetch_last_commit_date(release, csv_path)
             return {
                 "release": release,
                 "status": "fetched",
                 "path": str(output_file),
                 "size_bytes": output_file.stat().st_size,
                 "source_path": csv_path,
+                "created_at": created_at,
             }
         last_error = err["error"]
 
@@ -120,7 +142,7 @@ def copy_local_csvs(local_dir: Path, releases: list[str], output_dir: Path) -> l
         candidates = [
             local_dir / f"{release}.csv",
             local_dir / release / "conforma-violations-report.csv",
-            local_dir / release / CSV_PATH.split("/")[-1],
+            local_dir / release / CSV_FILENAME,
         ]
         found = None
         for candidate in candidates:
@@ -156,35 +178,26 @@ RELEASE_DATA_PATH = "src/config/rhoai-release-data.yaml"
 def fetch_supported_releases() -> list[str]:
     """Fetch the list of supported release branches from rhods-devops-infra.
 
-    Reads rhoai-release-data.yaml and returns the `branch` field from
-    each entry in the `supported` list.
+    Downloads rhoai-release-data.yaml via raw.githubusercontent.com and
+    returns the `branch` field from each entry in the `supported` list.
     """
     import yaml
 
-    api_path = f"repos/{RELEASE_DATA_REPO}/contents/{RELEASE_DATA_PATH}?ref=main"
+    token = _get_github_token()
+    if not token:
+        return []
+
+    url = f"{RAW_DOWNLOAD_BASE}/{RELEASE_DATA_REPO}/main/{RELEASE_DATA_PATH}"
     result = subprocess.run(
-        ["gh", "api", api_path, "--jq", ".download_url"],
+        ["curl", "-fsSL", "-H", f"Authorization: token {token}", url],
         capture_output=True,
-        text=True,
-        timeout=15,
+        timeout=30,
     )
     if result.returncode != 0:
         return []
 
-    download_url = result.stdout.strip()
-    if not download_url:
-        return []
-
-    dl_result = subprocess.run(
-        ["gh", "api", download_url, "--method", "GET"],
-        capture_output=True,
-        timeout=30,
-    )
-    if dl_result.returncode != 0:
-        return []
-
     try:
-        data = yaml.safe_load(dl_result.stdout.decode("utf-8"))
+        data = yaml.safe_load(result.stdout.decode("utf-8"))
     except Exception:
         return []
 
@@ -274,7 +287,11 @@ def main() -> int:
 
     output = {
         "releases": {
-            r["release"]: {"path": r["path"], "source_path": r.get("source_path", "")}
+            r["release"]: {
+                "path": r["path"],
+                "source_path": r.get("source_path", ""),
+                "created_at": r.get("created_at", ""),
+            }
             for r in succeeded
         },
         "total_fetched": len(succeeded),

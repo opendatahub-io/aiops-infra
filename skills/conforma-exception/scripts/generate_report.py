@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
-"""Generate a Cursor Canvas report from assessed expired exceptions.
+"""Generate a markdown report from assessed exceptions.
 
-Reads the assessed-exceptions.yaml (output of manage_exceptions.py --assess-expired)
-and produces a .canvas.tsx file with all data embedded for interactive viewing.
+Reads assessed-exceptions.yaml (output of manage_exceptions.py --assess-expired
+or --assess-all) and produces a .md file with summary stats, an exception/release
+matrix table, and per-exception detail sections.
+
+Supports both expired-only and mixed (expired + active) input. The report format
+adapts automatically based on the input scope.
 
 Usage:
     python3 scripts/generate_report.py \\
-      --assessed-input /tmp/assessed-exceptions.yaml \\
-      --output ~/.cursor/projects/<workspace>/canvases/conforma-expired-exceptions.canvas.tsx
+      --assessed-input .work/assessed-exceptions.yaml \\
+      --output .work/exceptions-report.md
+
+    # Also write a machine-readable action plan for the agent:
+    python3 scripts/generate_report.py \\
+      --assessed-input .work/assessed-exceptions.yaml \\
+      --output .work/exceptions-report.md \\
+      --action-plan-output .work/action-plan.json
 """
 
 from __future__ import annotations
@@ -15,13 +25,34 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import textwrap
 from pathlib import Path
 
 import yaml
 
 
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
+KONFLUX_RELEASE_DATA_HOST = "gitlab.cee.redhat.com"
+KONFLUX_RELEASE_DATA_PROJECT = "releng/konflux-release-data"
+
+ACTION_LABELS = {
+    "extend": "extend",
+    "extend_and_modernize": "extend + modernize",
+    "narrow_and_extend": "narrow + extend",
+    "narrow": "narrow",
+    "modernize_and_narrow": "modernize + narrow",
+    "remove": "remove",
+    "keep": "keep",
+}
+
+ACTION_DETAILS = {
+    "extend": "extend effectiveUntil date",
+    "extend_and_modernize": "remove unscoped block (no componentNames), create new per-componentName exceptions",
+    "narrow_and_extend": "reduce scope to still-violating releases, extend date",
+    "narrow": "active exception, remove components that no longer violate",
+    "modernize_and_narrow": "remove unscoped block (no componentNames), create per-componentName exceptions for remaining violations only",
+    "remove": "violation resolved, delete exception block",
+    "keep": "still needed and not expired, no action required",
+}
 
 
 def _load_assessment(path: Path) -> dict:
@@ -29,15 +60,12 @@ def _load_assessment(path: Path) -> dict:
         return yaml.safe_load(f)
 
 
-def _build_report_url(release: str, source_path: str = "") -> str:
-    csv_path = source_path or "prod/release_day/conforma-violations-report.csv"
-    return f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{release}/{csv_path}"
+def _build_report_url(release: str) -> str:
+    return f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{release}/prod/release_day/conforma-violations-report.csv"
 
 
-def _shorten_rule(rule: str, max_len: int = 35) -> str:
-    if len(rule) <= max_len:
-        return rule
-    return rule[:max_len - 3] + "..."
+def _build_policy_file_url(file_path: str) -> str:
+    return f"https://{KONFLUX_RELEASE_DATA_HOST}/{KONFLUX_RELEASE_DATA_PROJECT}/-/blob/main/{file_path}"
 
 
 def _exception_label(exc: dict) -> str:
@@ -46,21 +74,12 @@ def _exception_label(exc: dict) -> str:
     for line in headers:
         cleaned = line.lstrip("# ").strip()
         if cleaned and not cleaned.startswith("http") and not cleaned.startswith("impacted") and not cleaned.startswith("dates "):
-            if len(cleaned) > 40:
-                cleaned = cleaned[:37] + "..."
+            if len(cleaned) > 60:
+                cleaned = cleaned[:57] + "..."
             return cleaned
     rule = exc.get("rule", "")
     base = rule.split(":")[0] if ":" in rule else rule
     return base
-
-
-def _summarize_components(components: list[str]) -> str:
-    """Summarize a component list for the matrix cell."""
-    if not components:
-        return "[]"
-    if len(components) <= 3:
-        return json.dumps(components)
-    return json.dumps([f"{len(components)} components"])
 
 
 def _reference_label(exc: dict) -> tuple[str, str]:
@@ -94,12 +113,166 @@ def _policy_label(file_path: str) -> str:
     return name.replace(".yaml", "")
 
 
-def generate_canvas(data: dict) -> str:
-    """Generate the full .canvas.tsx source from assessment data."""
+def _md_link(text: str, url: str) -> str:
+    if url:
+        return f"[{text}]({url})"
+    return text
+
+
+def _strip_version_suffix(name: str) -> str:
+    """Strip the trailing release-version suffix from a Konflux component name.
+
+    E.g. 'odh-mlflow-v3-3' -> 'odh-mlflow', 'odh-dashboard-v3-5-ea-1' -> 'odh-dashboard'.
+    """
+    import re
+    return re.sub(r"-v\d+[-.\d]*(-(ea|rc|beta)[-.\d]*)?$", "", name)
+
+
+def _component_cell(exc: dict) -> str:
+    """Build a compact component-names or imageUrl cell for the matrix table.
+
+    Shows what is declared in the policy file:
+    - Scoped exceptions: componentNames list
+    - Unscoped exceptions with imageUrl: the image URL
+    - Unscoped exceptions without imageUrl: 'all' (blanket exception)
+    """
+    comp_names = exc.get("component_names", [])
+    if comp_names:
+        names = sorted(comp_names)
+        if len(names) == 1:
+            return f"`{names[0]}`"
+        if len(names) <= 3:
+            return ", ".join(f"`{c}`" for c in names)
+        return f"{len(names)} components"
+
+    image_url = exc.get("image_url", "")
+    if image_url:
+        return f"`{image_url}`"
+
+    return "all"
+
+
+def _components_by_release(exc: dict) -> dict[str, list[str]]:
+    """Map components to their release based on version suffix in the name."""
+    evidence = exc.get("evidence", {})
+    still_violating = evidence.get("still_violating_releases", [])
+    still_components = evidence.get("still_violating_components", [])
+
+    result: dict[str, list[str]] = {}
+    for comp in still_components:
+        for rel in still_violating:
+            suffix = rel.replace("rhoai-", "v").replace(".", "-")
+            if suffix in comp or rel in comp:
+                result.setdefault(rel, []).append(comp)
+                break
+        else:
+            for rel in still_violating:
+                result.setdefault(rel, [])
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Markdown report generation
+# ---------------------------------------------------------------------------
+
+def _effective_until_cell(exc: dict) -> str:
+    """Format the effective-until column for the matrix row."""
+    effective_until = exc.get("effective_until", "")
+    date_str = effective_until[:10] if effective_until else "--"
+    is_expired = exc.get("is_expired", True)
+
+    if is_expired:
+        days_ago = exc.get("expired_days_ago", 0)
+        return f"{date_str} ({days_ago}d ago)"
+    else:
+        days_left = exc.get("expires_in_days", 0)
+        return f"{date_str} (in {days_left}d)"
+
+
+def _effective_until_detail(exc: dict) -> str:
+    """Format the effective-until line for the detail section."""
+    effective_until = exc.get("effective_until", "")
+    date_str = effective_until[:10] if effective_until else "--"
+    is_expired = exc.get("is_expired", True)
+
+    if is_expired:
+        days_ago = exc.get("expired_days_ago", 0)
+        return f"**Expired**: {date_str} ({days_ago} days ago)"
+    else:
+        days_left = exc.get("expires_in_days", 0)
+        return f"**Effective until**: {date_str} (in {days_left} days)"
+
+
+def _append_matrix_table(
+    lines: list[str],
+    exceptions: list[dict],
+    releases: list[str],
+    is_all: bool,
+    report_created_at: dict[str, str] | None = None,
+) -> None:
+    """Append an exception/release matrix table to the lines list."""
+    date_col = "Effective Until" if is_all else "Expired"
+    dates = report_created_at or {}
+    rel_headers = []
+    for rel in releases:
+        label = rel.replace("rhoai-", "")
+        created = dates.get(rel, "")
+        if created:
+            label += f" ({created[:10]})"
+        rel_headers.append(f"[{label}]({_build_report_url(rel)})")
+    header = f"| Exception | Component(s) | Rule | {date_col} | Ref | " + " | ".join(rel_headers) + " | Action |"
+    sep = "|:----------|:-------------|:-----|:--------|:----" + "|:------:" * len(releases) + "|:-------|"
+    lines.append(header)
+    lines.append(sep)
+
+    for exc in exceptions:
+        label = _exception_label(exc)
+        rule = exc.get("rule", "")
+        eu_cell = _effective_until_cell(exc)
+        ref_label, ref_url = _reference_label(exc)
+        action = exc.get("recommended_action", "review")
+        is_unscoped = exc.get("is_unscoped", False)
+        policy = _policy_label(exc.get("file", ""))
+        comp_cell = _component_cell(exc)
+
+        evidence = exc.get("evidence", {})
+        resolved_in = evidence.get("resolved_in_releases", [])
+        comps_by_rel = _components_by_release(exc)
+
+        exc_label = label
+        if policy == "fbc":
+            exc_label += " `[fbc]`"
+
+        ref_cell = _md_link(ref_label, ref_url) if ref_url else ref_label
+
+        rel_cells = []
+        for rel in releases:
+            if rel in resolved_in:
+                rel_cells.append("resolved")
+            elif rel in comps_by_rel and comps_by_rel[rel]:
+                count = len(comps_by_rel[rel])
+                rel_cells.append(f"**{count}** comp{'s' if count > 1 else ''}")
+            else:
+                rel_cells.append("--")
+
+        action_text = ACTION_LABELS.get(action, action)
+        if is_unscoped and action not in ("keep", "remove") and "modernize" not in action:
+            action_text += " (unscoped, no componentNames)"
+
+        row = (f"| {exc_label} | {comp_cell} | `{rule}` | {eu_cell} | {ref_cell} | "
+               + " | ".join(rel_cells)
+               + f" | {action_text} |")
+        lines.append(row)
+
+
+def generate_markdown(data: dict) -> str:
+    """Generate a markdown report from assessment data."""
     releases = data.get("releases_checked", [])
     not_checked = data.get("releases_not_checked", [])
     exceptions = data.get("assessed_exceptions", [])
     generated_at = data.get("generated_at", "unknown")
+    scope = data.get("scope", "expired")
+    is_all = scope == "all"
 
     report_urls: dict[str, str] = {}
     for exc in exceptions:
@@ -110,304 +283,190 @@ def generate_canvas(data: dict) -> str:
         if rel not in report_urls:
             report_urls[rel] = _build_report_url(rel)
 
-    exc_data_lines = []
-    for exc in exceptions:
-        label = _exception_label(exc)
-        rule = exc.get("rule", "")
-        effective_until = exc.get("effective_until", "")
-        expired_str = effective_until[:10] if effective_until else "--"
-        days_ago = exc.get("expired_days_ago", 0)
-        ref_label, ref_url = _reference_label(exc)
-        classification = exc.get("classification", "unknown")
-        action = exc.get("recommended_action", "review")
-        is_legacy = exc.get("is_legacy", False)
-        policy = _policy_label(exc.get("file", ""))
-
-        evidence = exc.get("evidence", {})
-        still_violating = evidence.get("still_violating_releases", [])
-        still_components = evidence.get("still_violating_components", [])
-        resolved_in = evidence.get("resolved_in_releases", [])
-
-        components_by_release: dict[str, list[str]] = {}
-        if still_components and still_violating:
-            for comp in still_components:
-                for rel in still_violating:
-                    version_suffix = rel.replace("rhoai-", "v").replace(".", "-").replace("-ea-", "-ea-")
-                    if version_suffix in comp or rel in comp:
-                        components_by_release.setdefault(rel, []).append(comp)
-                        break
-                else:
-                    for rel in still_violating:
-                        components_by_release.setdefault(rel, [])
-
-        exc_data_lines.append(
-            "  {\n"
-            f'    rule: {json.dumps(rule)},\n'
-            f'    label: {json.dumps(label)},\n'
-            f'    expired: {json.dumps(expired_str)},\n'
-            f'    daysAgo: {days_ago},\n'
-            f'    reference: {json.dumps(ref_label)},\n'
-            f'    referenceUrl: {json.dumps(ref_url)},\n'
-            f'    classification: {json.dumps(classification)},\n'
-            f'    action: {json.dumps(action)},\n'
-            f'    isLegacy: {"true" if is_legacy else "false"},\n'
-            f'    policy: {json.dumps(policy)},\n'
-            f'    components: {json.dumps(components_by_release)},\n'
-            f'    resolvedIn: {json.dumps(resolved_in)},\n'
-            "  }"
-        )
-
-    exc_array = ",\n".join(exc_data_lines)
+    report_created_at: dict[str, str] = data.get("report_created_at", {})
 
     total = len(exceptions)
-    still_needed = sum(1 for e in exceptions if e.get("classification") == "still_needed")
-    no_longer = sum(1 for e in exceptions if e.get("classification") == "no_longer_needed")
-    partial = sum(1 for e in exceptions if e.get("classification") == "partially_needed")
+    total_expired = sum(1 for e in exceptions if e.get("is_expired", True))
+    total_active = total - total_expired
+    can_remove = sum(1 for e in exceptions if e.get("classification") == "no_longer_needed")
+    need_action = sum(
+        1 for e in exceptions
+        if e.get("is_expired", True) and e.get("classification") in ("still_needed", "partially_needed")
+    )
+    no_action = sum(
+        1 for e in exceptions
+        if e.get("recommended_action") == "keep"
+    )
     need_modernize = sum(1 for e in exceptions if "modernize" in e.get("recommended_action", ""))
 
-    action_pill_map = {
-        "extend": {"tone": "info", "text": "extend", "detail": "extend effectiveUntil date"},
-        "extend_and_modernize": {"tone": "warning", "text": "extend + modernize", "detail": "remove legacy block, create new per-componentName exceptions"},
-        "narrow_and_extend": {"tone": "warning", "text": "narrow + extend", "detail": "reduce scope to still-violating releases, extend date"},
-        "modernize_and_narrow": {"tone": "warning", "text": "modernize + narrow", "detail": "remove legacy block, create per-componentName exceptions for remaining violations only"},
-        "remove": {"tone": "success", "text": "remove", "detail": "violation resolved, delete exception block"},
-    }
+    lines: list[str] = []
 
-    canvas = textwrap.dedent(f'''\
-    import {{
-      Stack, Row, Grid, H1, H2, Text, Code, Link, Table, Stat, Pill,
-      Callout, Divider, CollapsibleSection, useHostTheme,
-    }} from "cursor/canvas";
+    if is_all:
+        lines.append("# RHOAI Conforma Exception Assessment")
+    else:
+        lines.append("# RHOAI Conforma Expired Exceptions")
+    lines.append("")
+    lines.append(f"Assessment as of {generated_at[:10]}. Source: konflux-release-data policy files.")
+    lines.append("")
 
-    const RELEASES = {json.dumps(releases)};
-    const REPORT_URLS: Record<string, string> = {json.dumps(report_urls, indent=2)};
-    const NOT_CHECKED = {json.dumps(not_checked, indent=2)};
+    # --- Summary ---
+    lines.append("## Summary")
+    lines.append("")
+    if is_all:
+        lines.append("| Total | Expired | Active | Can remove | Need action | No action needed |")
+        lines.append("|:-----:|:-------:|:------:|:----------:|:-----------:|:----------------:|")
+        lines.append(f"| {total} | {total_expired} | {total_active} | {can_remove} | {need_action} | {no_action} |")
+    else:
+        still_needed = sum(1 for e in exceptions if e.get("classification") == "still_needed")
+        lines.append("| Expired | Still needed | Can remove | Need modernizing |")
+        lines.append("|:-------:|:------------:|:----------:|:----------------:|")
+        lines.append(f"| {total} | {still_needed} | {can_remove} | {need_modernize} |")
+    lines.append("")
 
-    interface ExceptionData {{
-      rule: string;
-      label: string;
-      expired: string;
-      daysAgo: number;
-      reference: string;
-      referenceUrl: string;
-      classification: string;
-      action: string;
-      isLegacy: boolean;
-      policy: string;
-      components: Record<string, string[]>;
-      resolvedIn: string[];
-    }}
+    # --- Release report links ---
+    lines.append("## Violation reports")
+    lines.append("")
+    for rel in releases:
+        url = report_urls.get(rel, "")
+        created = report_created_at.get(rel, "")
+        date_suffix = f" (created {created[:10]})" if created else ""
+        if url:
+            lines.append(f"- {rel}: [conforma-violations-report.csv]({url}){date_suffix}")
+        else:
+            lines.append(f"- {rel}: *(no report)*")
+    lines.append("")
 
-    const EXCEPTIONS: ExceptionData[] = [
-    {exc_array}
-    ];
+    # --- Policy file links ---
+    policy_files = sorted({exc.get("file", "") for exc in exceptions if exc.get("file")})
+    if policy_files:
+        lines.append("## Policy files")
+        lines.append("")
+        for pf in policy_files:
+            name = pf.rsplit("/", 1)[-1] if "/" in pf else pf
+            url = _build_policy_file_url(pf)
+            lines.append(f"- [{name}]({url})")
+        lines.append("")
 
-    const ACTION_PILLS: Record<string, {{ tone: "success" | "warning" | "info" | "neutral"; text: string; detail: string }}> = {json.dumps(action_pill_map)};
-
-    function CellContent({{ comps, resolved }}: {{ comps: string[] | undefined; resolved: boolean }}) {{
-      const theme = useHostTheme();
-      if (resolved) return <Text size="small" style={{{{ color: theme.palette.green }}}}>resolved</Text>;
-      if (!comps || comps.length === 0) return <Text size="small" tone="tertiary">--</Text>;
-      const count = comps.length;
-      return (
-        <Stack gap={{2}}>
-          <Text size="small" weight="semibold" style={{{{ color: theme.palette.red }}}}>
-            {{count}} component{{count > 1 ? "s" : ""}}
-          </Text>
-          {{comps.length <= 3 && comps.map((c, i) => <Text key={{i}} size="small" tone="tertiary">{{c}}</Text>)}}
-        </Stack>
-      );
-    }}
-
-    export default function ConformaExpiredExceptions() {{
-      const theme = useHostTheme();
-      const relHeaders = RELEASES.map(r => r.replace("rhoai-", ""));
-
-      const matrixRows = EXCEPTIONS.map(exc => {{
-        const relCells = RELEASES.map(rel => (
-          <CellContent comps={{exc.components[rel]}} resolved={{exc.resolvedIn.includes(rel)}} />
-        ));
-        const pill = ACTION_PILLS[exc.action] || {{ tone: "neutral" as const, text: exc.action, detail: "" }};
-        return [
-          <Stack gap={{2}}>
-            <Row gap={{4}} align="center">
-              <Text size="small" weight="semibold">{{exc.label}}</Text>
-              {{exc.policy === "fbc" && <Pill tone="neutral" size="sm">fbc</Pill>}}
-            </Row>
-            <Code>{{exc.rule.length > 35 ? exc.rule.slice(0, 32) + "..." : exc.rule}}</Code>
-          </Stack>,
-          <Stack gap={{0}}>
-            <Text size="small">{{exc.expired}}</Text>
-            <Text size="small" tone="tertiary">{{exc.daysAgo}}d ago</Text>
-          </Stack>,
-          exc.referenceUrl
-            ? <Link href={{exc.referenceUrl}}>{{exc.reference}}</Link>
-            : <Text size="small">{{exc.reference}}</Text>,
-          ...relCells,
-          <Stack gap={{2}} align="center">
-            <Pill tone={{pill.tone}} size="sm">{{pill.text}}</Pill>
-            {{pill.detail && <Text size="xsmall" tone="tertiary">{{pill.detail}}</Text>}}
-          </Stack>,
-        ];
-      }});
-
-      return (
-        <Stack gap={{20}}>
-          <Stack gap={{4}}>
-            <H1>RHOAI Conforma Expired Exceptions</H1>
-            <Text tone="secondary">
-              Assessment as of {generated_at[:10]}. Source: registry-rhoai-prod.yaml in konflux-release-data.
-            </Text>
-          </Stack>
-
-          <Grid columns={{4}} gap={{12}}>
-            <Stat value={{{total}}} label="Expired" tone="danger" />
-            <Stat value={{{still_needed}}} label="Still needed" tone="warning" />
-            <Stat value={{{no_longer}}} label="Can remove" tone="success" />
-            <Stat value={{{need_modernize}}} label="Need modernizing" tone="info" />
-          </Grid>
-
-          <Stack gap={{8}}>
-            <H2>Exception / Release Matrix</H2>
-            <Text size="small" tone="secondary">
-              Red = violation active. Green = resolved. Click "report" under each release to view the violation CSV.
-            </Text>
-          </Stack>
-
-          <Table
-            headers={{[
-              "Exception", "Expired", "Ref",
-              ...relHeaders.map((h, i) => {{
-                const url = REPORT_URLS[RELEASES[i]];
-                return (
-                  <Stack gap={{2}} align="center">
-                    <Text size="small" weight="semibold">{{h}}</Text>
-                    {{url && <Link href={{url}}><Text size="xsmall" tone="tertiary">report</Text></Link>}}
-                  </Stack>
-                );
-              }}),
-              "Action",
-            ]}}
-            rows={{matrixRows}}
-            columnAlign={{["left", "left", "left", ...RELEASES.map(() => "center" as const), "center"]}}
-            striped
-            stickyHeader
-          />
-    ''')
-
+    # --- Not checked ---
     if not_checked:
-        canvas += textwrap.dedent(f'''\
+        lines.append("> **Not checked:** "
+                     + "; ".join(f"{nc['release']}: {nc['error']}" for nc in not_checked)
+                     + ".")
+        lines.append("")
 
-          <Callout tone="warning" title="Not checked">
-            <Text size="small">
-              {". ".join(f"{nc['release']}: {nc['error']}" for nc in not_checked)}.
-            </Text>
-          </Callout>
-    ''')
+    # --- Removable exceptions table (shown first when present) ---
+    removable = [e for e in exceptions if e.get("classification") == "no_longer_needed"]
+    if removable:
+        lines.append("## Can remove")
+        lines.append("")
+        lines.append("Violations resolved in all checked releases -- these exceptions can be deleted now.")
+        lines.append("")
+        _append_matrix_table(lines, removable, releases, is_all, report_created_at)
+        lines.append("")
 
-    canvas += textwrap.dedent(f'''\
+    # --- Exception / Release Matrix ---
+    lines.append("## Exception / Release Matrix")
+    lines.append("")
 
-          <Stack gap={{8}}>
-            <H2>Detailed component lists</H2>
-            <Text size="small" tone="secondary">Expand each exception for full per-release breakdown.</Text>
-          </Stack>
+    _append_matrix_table(lines, exceptions, releases, is_all, report_created_at)
+    lines.append("")
 
-          {{EXCEPTIONS.map((exc, idx) => (
-            <CollapsibleSection
-              key={{idx}}
-              label={{`${{exc.label}} -- ${{exc.rule}}`}}
-              trailing={{
-                <Row gap={{6}} align="center">
-                  <Text size="small" tone="tertiary">expired {{exc.expired}}</Text>
-                  {{(() => {{ const p = ACTION_PILLS[exc.action] || {{ tone: "neutral" as const, text: exc.action, detail: "" }}; return <Stack gap={{2}} align="center"><Pill tone={{p.tone}} size="sm">{{p.text}}</Pill>{{p.detail && <Text size="xsmall" tone="tertiary">{{p.detail}}</Text>}}</Stack>; }})()}}
-                </Row>
-              }}
-            >
-              <Stack gap={{8}}>
-                <Row gap={{16}} align="center">
-                  {{exc.referenceUrl && <Text size="small">Reference: <Link href={{exc.referenceUrl}}>{{exc.reference}}</Link></Text>}}
-                  {{exc.resolvedIn.length > 0 && (
-                    <Text size="small" style={{{{ color: theme.palette.green }}}}>
-                      Resolved in: {{exc.resolvedIn.join(", ")}}
-                    </Text>
-                  )}}
-                  {{exc.isLegacy && <Pill tone="info" size="sm">legacy</Pill>}}
-                  {{exc.policy === "fbc" && <Pill tone="neutral" size="sm">fbc policy</Pill>}}
-                </Row>
-                <Table
-                  headers={{["Release", "Status", "Components"]}}
-                  rows={{RELEASES.map(rel => {{
-                    const comps = exc.components[rel];
-                    const resolved = exc.resolvedIn.includes(rel);
-                    const url = REPORT_URLS[rel];
-                    const relCell = url ? <Link href={{url}}>{{rel}}</Link> : rel;
-                    if (resolved) return [relCell, <Pill tone="success" size="sm">resolved</Pill>, "--"];
-                    if (!comps || comps.length === 0) return [relCell, <Text tone="tertiary">--</Text>, "--"];
-                    return [
-                      relCell,
-                      <Pill tone="warning" size="sm">violating</Pill>,
-                      <Stack gap={{2}}>{{comps.map((c, i) => <Text key={{i}} size="small"><Code>{{c}}</Code></Text>)}}</Stack>,
-                    ];
-                  }})}}
-                  striped
-                />
-              </Stack>
-            </CollapsibleSection>
-          ))}}
+    # --- Detailed component lists ---
+    lines.append("## Details per exception")
+    lines.append("")
 
-          <Divider />
-          <Text size="small" tone="quaternary">
-            Generated by conforma-analyze + conforma-exception skills.
-          </Text>
-        </Stack>
-      );
-    }}
-    ''')
+    for i, exc in enumerate(exceptions, 1):
+        label = _exception_label(exc)
+        rule = exc.get("rule", "")
+        ref_label, ref_url = _reference_label(exc)
+        action = exc.get("recommended_action", "review")
+        is_unscoped = exc.get("is_unscoped", False)
+        policy_file = exc.get("file", "")
 
-    return canvas
+        evidence = exc.get("evidence", {})
+        resolved_in = evidence.get("resolved_in_releases", [])
+        comps_by_rel = _components_by_release(exc)
 
+        action_label = ACTION_LABELS.get(action, action)
+        action_detail = ACTION_DETAILS.get(action, "")
+
+        lines.append(f"### {i}. {label}")
+        lines.append("")
+        lines.append(f"- **Rule**: `{rule}`")
+        lines.append(f"- {_effective_until_detail(exc)}")
+        if ref_url:
+            lines.append(f"- **Reference**: [{ref_label}]({ref_url})")
+        elif ref_label != "--":
+            lines.append(f"- **Reference**: {ref_label}")
+        lines.append(f"- **Policy file**: `{policy_file}`")
+        if is_unscoped:
+            lines.append("- **Type**: unscoped (uses containerImage refs instead of componentNames)")
+        lines.append(f"- **Action**: **{action_label}** -- {action_detail}")
+        if resolved_in:
+            lines.append(f"- **Resolved in**: {', '.join(resolved_in)}")
+        lines.append("")
+
+        if comps_by_rel:
+            lines.append("| Release | Components |")
+            lines.append("|:--------|:-----------|")
+            for rel in releases:
+                if rel in resolved_in:
+                    lines.append(f"| {rel} | *resolved* |")
+                elif rel in comps_by_rel and comps_by_rel[rel]:
+                    comp_list = ", ".join(f"`{c}`" for c in comps_by_rel[rel])
+                    lines.append(f"| {rel} | {comp_list} |")
+                else:
+                    lines.append(f"| {rel} | -- |")
+            lines.append("")
+
+    # --- Footer ---
+    lines.append("---")
+    lines.append("")
+    lines.append("*Generated by conforma-analyze + conforma-exception skills.*")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Action plan (JSON) -- machine-readable for the agent's action loop
+# ---------------------------------------------------------------------------
 
 def build_action_plan(data: dict) -> dict:
     """Build a machine-readable action plan from the assessment data.
 
     Returns a JSON-serializable dict with structured action items the
-    agent can iterate over to create MRs.
+    agent can iterate over to create MRs. Excludes "keep" actions since
+    they require no MR.
     """
     exceptions = data.get("assessed_exceptions", [])
     generated_at = data.get("generated_at", "unknown")
 
-    ACTION_ORDER = {"remove": 0, "extend": 1, "narrow_and_extend": 2,
-                    "extend_and_modernize": 3, "modernize_and_narrow": 4}
+    ACTION_ORDER = {"remove": 0, "narrow": 1, "extend": 2, "narrow_and_extend": 3,
+                    "extend_and_modernize": 4, "modernize_and_narrow": 5}
 
     actions = []
+    skipped = 0
     for exc in exceptions:
         action = exc.get("recommended_action", "review")
-        evidence = exc.get("evidence", {})
-        still_violating = evidence.get("still_violating_releases", [])
-        still_components = evidence.get("still_violating_components", [])
+        if action == "keep":
+            skipped += 1
+            continue
 
-        versions: dict[str, list[str]] = {}
-        for comp in still_components:
-            for rel in still_violating:
-                suffix = rel.replace("rhoai-", "v").replace(".", "-")
-                if suffix in comp or rel in comp:
-                    versions.setdefault(rel, []).append(comp)
-                    break
-            else:
-                for rel in still_violating:
-                    versions.setdefault(rel, [])
+        versions = _components_by_release(exc)
 
         actions.append({
             "rule": exc.get("rule", ""),
             "label": _exception_label(exc),
             "action": action,
             "classification": exc.get("classification", "unknown"),
+            "is_expired": exc.get("is_expired", True),
             "policy_file": exc.get("file", ""),
             "old_effective_until": exc.get("effective_until", ""),
-            "is_legacy": exc.get("is_legacy", False),
+            "is_unscoped": exc.get("is_unscoped", False),
             "reference": exc.get("reference", ""),
             "versions": versions,
-            "resolved_in": evidence.get("resolved_in_releases", []),
+            "resolved_in": exc.get("evidence", {}).get("resolved_in_releases", []),
         })
 
     actions.sort(key=lambda a: ACTION_ORDER.get(a["action"], 99))
@@ -415,13 +474,14 @@ def build_action_plan(data: dict) -> dict:
     return {
         "generated_at": generated_at,
         "total_actions": len(actions),
+        "total_skipped_keep": skipped,
         "actions": actions,
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate a Cursor Canvas report from assessed exceptions"
+        description="Generate a markdown report from assessed exceptions"
     )
     parser.add_argument(
         "--assessed-input",
@@ -431,7 +491,7 @@ def main() -> int:
     parser.add_argument(
         "--output",
         required=True,
-        help="Output path for the .canvas.tsx file",
+        help="Output path for the markdown report (.md)",
     )
     parser.add_argument(
         "--action-plan-output",
@@ -446,16 +506,16 @@ def main() -> int:
         return 1
 
     data = _load_assessment(input_path)
-    canvas_source = generate_canvas(data)
+    report = generate_markdown(data)
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(canvas_source, encoding="utf-8")
+    output_path.write_text(report, encoding="utf-8")
 
     exc_count = len(data.get("assessed_exceptions", []))
     rel_count = len(data.get("releases_checked", []))
     print(
-        f"Generated canvas: {exc_count} exceptions x {rel_count} releases -> {output_path}",
+        f"Report: {exc_count} exceptions x {rel_count} releases -> {output_path}",
         file=sys.stderr,
     )
 

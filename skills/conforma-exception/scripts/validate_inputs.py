@@ -92,17 +92,17 @@ def version_gte_threshold(version: RhoaiVersion) -> bool:
 def check_image_name_vs_component_name(component: str) -> str | None:
     """Detect if a name looks like a container image name rather than a Konflux component name.
 
-    Container image names (e.g. -rhel9, -ubi9 suffixed) are a legacy naming
-    convention. Konflux component names always end in -vX-Y (e.g. -v2-25,
+    Container image names (e.g. -rhel9, -ubi9 suffixed) are not Konflux
+    component names. Konflux component names always end in -vX-Y (e.g. -v2-25,
     -v3-3, -v3-5-ea-1) and are the correct identifiers for exception MRs.
     """
     if re.search(r"-rhel\d+$", component) or re.search(r"-ubi\d+$", component):
         if not re.search(r"v\d+-\d+", component):
             return (
-                f"'{component}' looks like a legacy container image name (ends in "
-                f"-rhel9/-ubi9 without a version suffix). Konflux component names "
-                f"always include a version suffix like -v2-25 or -v3-3. Use the "
-                f"Konflux component name, not the legacy image name."
+                f"'{component}' looks like a container image name (ends in "
+                f"-rhel9/-ubi9 without a version suffix), not a Konflux component name. "
+                f"Konflux component names always include a version suffix like -v2-25 "
+                f"or -v3-3. Use the Konflux component name, not the container image name."
             )
     return None
 

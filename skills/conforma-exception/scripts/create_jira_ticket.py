@@ -532,7 +532,7 @@ def build_provenance_footer() -> str:
 def fetch_template_description() -> str:
     """Fetch the description of the RHOAIENG template ticket via acli."""
     result = run_acli(
-        ["jira", "workitem", "view", "--key", TEMPLATE_TICKET, "--output", "json"],
+        ["jira", "workitem", "view", TEMPLATE_TICKET, "--json"],
         timeout=30,
     )
     if result.returncode != 0:

@@ -388,7 +388,7 @@ def main() -> int:
         if step_id == "rhoaieng_resolution_plan_jira":
             jira_args = [
                 "--project", "RHOAIENG",
-                "--purpose", "resolution_plan",
+                "--purpose", "remediation",
                 "--rule", args.rule,
                 "--components", args.components,
                 "--rhoai-version", args.rhoai_version,
