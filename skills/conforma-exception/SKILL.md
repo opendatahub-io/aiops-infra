@@ -32,6 +32,8 @@ When presenting violations to the user:
 - Frame next steps in terms of resolving the violation first
 - Only suggest creating an exception when there's evidence the violation cannot be fixed in code (e.g., third-party RPM signing keys that Red Hat cannot control, upstream dependencies with known timelines)
 - Never present "create exception" as the default or first-choice action for new violations without existing artifacts
+- Consult [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) for the `exception_context.when_to_exception` field to determine if an exception is appropriate for the given violation type
+- For violations with `classification.resolution_path: code_fix`, redirect to the **conforma-remedy** skill first
 
 ## Prerequisites
 

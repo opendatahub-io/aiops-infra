@@ -25,7 +25,7 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 | fetch tekton report, fetch pipelinerun, EC report, raw report JSON | use the **conforma-report-fetch** skill (Tekton JSON mechanism) |
 | create exception, new exception, extend exception, waive, add exception | use the **conforma-exception** skill |
 | expired, manage exceptions, assess exceptions, cleanup, action loop | use the **conforma-exception** skill (with `--assess-expired` or `--find-expired` mode) |
-| fix, remedy, resolve, patch, code change | use the **conforma-remedy** skill |
+| fix, remedy, resolve, patch, code change, troubleshoot, diagnose, why is this failing, how to fix | use the **conforma-remedy** skill |
 | docs, documentation, search docs, runbook, policy rules, what is conforma | use the **conforma-docs** skill |
 | ship, release, readiness, gate, can we ship, blocking, go/no-go | use the **conforma-release-readiness** skill |
 | gitlab auth, gitlab token, glab login, glab auth | use the **gitlab-auth** skill |
@@ -39,7 +39,7 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 
 2. **Prefer the most specific skill.** If the user asks about violations AND wants to create an exception, first route to `conforma-analyze` to get the violation data, then route to `conforma-exception` to create the exception.
 
-3. **Violations-first philosophy.** When a user mentions a violation, always start with `conforma-analyze` to understand the current state before suggesting exception creation. Exceptions are a last resort.
+3. **Violations-first philosophy.** When a user mentions a violation, always start with `conforma-analyze` to understand the current state before suggesting exception creation. If the violation is fixable at the code level (consult [`skills/references/violation-catalog.yaml`](references/violation-catalog.yaml) for classification), route to `conforma-remedy` first. Exceptions are a last resort.
 
 4. **Auth issues take priority.** If the user reports an auth error or a skill fails with an auth-related error, route to the appropriate auth skill first.
 
@@ -54,3 +54,5 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 - "What does the hermetic build rule mean?" → **conforma-docs**
 - "My gitlab auth isn't working" → **gitlab-auth**
 - "Fix the prefetch-dependencies violation in model-registry" → **conforma-remedy**
+- "Why is model-registry failing the hermetic check?" → **conforma-remedy**
+- "How do I fix the untrusted task violation?" → **conforma-remedy**

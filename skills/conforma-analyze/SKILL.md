@@ -139,6 +139,15 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 
    Pass the violations YAML from step 4 as input. The coverage table is the primary deliverable; the statistical breakdown from step 5 can be presented as supplementary detail below it.
 
+7. **Enrich with violation catalog guidance**: After presenting the coverage table, read [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) and for each violation in the report:
+
+   - Look up the violation by its `conforma_rule_codes` in the catalog
+   - Check `known_false_alerts` — if the violation matches a known false alert AND the condition applies, flag it as "likely a false positive"
+   - Supplement the generic `next_steps` from the coverage check with type-specific guidance from the catalog's `fix_steps`
+   - Note the `classification.typical_owner` and `requires_rebuild` fields to give actionable context
+   - For violations with `resolution_path: code_fix`, point the user to the `conforma-remedy` skill for detailed fix procedures
+   - For violations with `resolution_path: mixed`, present both the fix path and the exception path
+
 ## Violation History
 
 Trace when a specific violation type last appeared (or disappeared) in the CSV git history for a release branch. Use this when the user asks questions like:
@@ -149,20 +158,9 @@ Trace when a specific violation type last appeared (or disappeared) in the CSV g
 
 ### Violation Code Alias Table
 
-Users refer to violations by natural-language phrases. **Always resolve the phrase to an exact `code` value before invoking the script.** Use this table (case-insensitive match on the left column):
+Users refer to violations by natural-language phrases. **Always resolve the phrase to an exact `code` value before invoking the script.** Read [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) and match the user's phrase against the `aliases` field of each violation entry.
 
-| User phrase | `--code` value |
-|---|---|
-| permissive prefetch, permissive prefetch mode, mode not permissive | `prefetch_dependencies.mode_not_permissive` |
-| untrusted task, trusted task | `trusted_task.trusted` |
-| rpm signature, signing key, rpm signing, allowed key | `rpm_signature.allowed` |
-| hermetic, hermetic build, non-hermetic | `hermetic_task.hermetic` |
-| failed test, test failed | `test.no_failed_tests` |
-| unique version, rpm version, version mismatch, multi-arch version | `rpm_packages.unique_version` |
-| package registry, registry proxy, package registry proxy | `prefetch_dependencies.package_registry_proxy_enabled` |
-| required untrusted task | `tasks.required_untrusted_task_found` |
-
-If the user's phrase does not match any alias above, first run `analyze_csv_report.py` (see Workflow step 5) to list all violation codes in the current report, then pick the matching code.
+If the user's phrase does not match any alias in the catalog, first run `analyze_csv_report.py` (see Workflow step 5) to list all violation codes in the current report, then pick the matching code.
 
 ### Extracting release from user input
 
@@ -174,7 +172,7 @@ If the user's phrase does not match any alias above, first run `analyze_csv_repo
 
 1. **Auth check**: Run `gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name`. Stop if either command fails.
 
-2. **Resolve the violation code**: Map the user's phrase to an exact `--code` value using the alias table above.
+2. **Resolve the violation code**: Map the user's phrase to an exact `--code` value using the `aliases` field in [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml).
 
 3. **Run the history script**:
 

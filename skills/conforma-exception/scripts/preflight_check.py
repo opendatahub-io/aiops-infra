@@ -482,6 +482,20 @@ def prefetch_open_jira_tickets(rules: list[str]) -> dict[str, list[dict]]:
                     rule_to_tickets[rule].append(ticket)
                     break
 
+    unmatched = [r for r, tickets in rule_to_tickets.items() if not tickets]
+    for rule in unmatched:
+        label_jql = (
+            f"project in (RHOAIENG, PSX, OCPEXCEPT) AND labels = '{rule}' AND status not in (Closed, Resolved, Done)"
+        )
+        label_result = _run_acli(
+            ["jira", "workitem", "search", "--jql", label_jql],
+            timeout=45,
+        )
+        if label_result.returncode == 0:
+            for ticket in _parse_acli_table(label_result.stdout):
+                if ticket not in rule_to_tickets[rule]:
+                    rule_to_tickets[rule].append(ticket)
+
     return rule_to_tickets
 
 

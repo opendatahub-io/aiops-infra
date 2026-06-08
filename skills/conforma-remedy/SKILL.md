@@ -19,42 +19,82 @@ This skill is part of the conforma suite in [aiops-infra](https://github.com/ope
 
 This skill embodies the core principle: **fix the violation, don't just waive it.** Exceptions should only be created when a code fix is genuinely not feasible within the release timeline.
 
-## Common Fixes by Violation Type
+## Violation Catalog
 
-### `hermetic_task.hermetic` — Enable hermetic builds
+All violation knowledge lives in the shared **violation catalog**:
 
-Set `HERMETIC=true` in the Tekton PipelineRun YAML for the component's build task.
+```
+skills/references/violation-catalog.yaml
+```
 
-### `trusted_task.trusted` — Upgrade to trusted task version
-
-Upgrade the `prefetch-dependencies` task (or other untrusted tasks) to the latest trusted version. Check the task bundle reference SHA in the component's PipelineRun.
-
-### `prefetch_dependencies.mode_not_permissive` — Fix prefetch mode
-
-Change the `prefetch-dependencies` task mode from `permissive` to a secure value in the PipelineRun YAML.
-
-### `prefetch_dependencies.package_registry_proxy_enabled` — Enable package registry proxy
-
-Set `enable-package-registry-proxy=true` in the `prefetch-dependencies` task parameters.
-
-### `rpm_signature.allowed` — Fix RPM signing
-
-Ensure RPMs use an allowed signing key, or get the additional key approved by the release engineering team. This often requires coordination with upstream package maintainers.
-
-### `test.no_failed_tests` — Fix failing tests
-
-Investigate and fix the failing integration/enterprise contract tests. These violations indicate real test failures that need addressing.
+This file is the single source of truth for:
+- What each violation type means
+- How to fix it (step-by-step)
+- When to escalate to `conforma-exception` instead
+- Known false alerts that can be ignored
 
 ## Workflow
 
-When the user asks to fix/remedy/resolve a violation:
+When the user asks to fix/remedy/resolve/troubleshoot/diagnose a violation:
 
-1. Identify the violation type and affected components
-2. Look up the appropriate fix from the table above
-3. Locate the component's build configuration (PipelineRun YAML)
-4. Apply the fix
-5. Verify the fix by checking if the violation clears on the next build
+### 1. Identify the violation
+
+Determine the violation type from the user's input. The user may provide:
+- An exact conforma rule code (e.g., `hermetic_task.hermetic`)
+- A natural-language phrase (e.g., "hermetic build", "untrusted task")
+- A violation message from a conforma report
+- A specific component name + violation combination
+
+**Read** `skills/references/violation-catalog.yaml` and match the user's input against:
+- The `conforma_rule_codes` field (exact match)
+- The `aliases` field (phrase match)
+- The `symptoms` field (message match)
+
+If the violation code is NOT in the catalog, inform the user that this is an unrecognized violation type and suggest:
+- Consulting the `conforma-docs` skill for documentation
+- Asking on #konflux-users Slack for guidance
+
+### 2. Check for known false alerts
+
+Check the `known_false_alerts` section of the catalog. If the violation matches a known false alert AND the `condition` is met (e.g., single-component run, specific component version), inform the user:
+
+> "This is likely a known false positive: {title}. {condition}. No action needed unless the condition doesn't match your case."
+
+### 3. Present the fix
+
+From the matching catalog entry, present:
+- **Title and description** — what the violation means
+- **Classification** — who typically owns this (`typical_owner`), effort level, whether a rebuild is needed
+- **Fix steps** — the ordered `fix_steps` from the catalog, including references/links
+- **Rebuild reminder** — if `requires_rebuild: true`, always remind the user that a Konflux rebuild is needed after the fix for the violation to clear
+
+### 4. Handle mixed-path violations
+
+For violations classified as `resolution_path: mixed` (e.g., `rpm_signature.allowed`):
+- Present the code-fix options FIRST
+- Then note that if code fixes are not feasible, an exception may be needed
+- Provide the `exception_context.when_to_exception` text explaining when an exception is appropriate
+
+### 5. Escalation to conforma-exception
+
+If the user determines the fix is not feasible within the release timeline, escalate:
+
+> "Since this violation cannot be resolved in code within the timeline, use the `conforma-exception` skill to create a policy exception. The exception template category for this violation is: {exception_template_category}."
+
+## Direct Invocation vs From-Analyze Path
+
+This skill handles two invocation patterns:
+
+- **From conforma-analyze**: The violation is already identified (rule code known). Look it up directly in the catalog.
+- **Direct invocation** (e.g., "fix the hermetic build violation in model-registry"): Use the `aliases` field to resolve the user's phrase to a catalog entry, then proceed with the fix workflow.
+
+## Operational Issues
+
+For violations classified as `type: operational_issue` (e.g., "No Conforma report in Slack", "Version label mismatch"):
+- These are NOT conforma policy violations — they're infrastructure/workflow issues
+- Present the `fix_steps` which describe the operational troubleshooting procedure
+- These cannot be resolved via conforma-exception (no rule code to waive)
 
 ## Status
 
-This skill is in early development. Currently provides guidance and fix templates. Future versions will include automated fix scripts.
+This skill provides catalog-driven guidance. Future versions will include automated fix scripts for simpler violation types (e.g., updating task bundle SHAs, setting hermetic=true).
