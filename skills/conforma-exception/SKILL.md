@@ -549,7 +549,7 @@ The resolved exception text flows into all workflow artifacts: RHOAIENG Jira res
 | `--vendor-tag` | none | Vendor/distinguisher tag prepended to titles (e.g. `AMD`, `Intel`, `FIPS`). Also fills `{vendor}` in templates. |
 | `--spreadsheet-url` | none | Tracking spreadsheet URL (added as YAML comment in MR and commit message) |
 | `--authorized-party` | none | Senior manager accepting risk (Authorized Party in PSX workflow) |
-| `--watchers` | none | Comma-separated display names (user-approved) to add as PSX watchers |
+| `--watchers` | none | Comma-separated display names to add as watchers (any project; PSX/OCPEXCEPT mandatory watchers are prepended automatically) |
 | `--image-ref` | none | SHA digest (only for `schedule.weekday_restriction`) |
 | `--reconcile` | none | Existing ticket key to reconcile (idempotent re-run) |
 | `--skip-approval-gate` | false | Override the RHOAIENG approval gate -- proceed with PSX/MR creation even if approval Jira is not approved. **NOT RECOMMENDED.** Agent MUST ask for explicit user confirmation before using. |
@@ -646,13 +646,18 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
 
 **Batch 3 — Approval and PSX details:**
 
-10. **PSX Jira ticket visibility / watchers**: PSX Jira tickets are restricted by default. The preflight script dynamically discovers the user's Jira groups and their members via `discover_user_groups()`. Present the discovered list as a **suggestion**:
-    - "Found you in group(s): [group names]. Suggested watchers: [member list]. Add all as watchers?"
-    - "Yes, add all suggested watchers"
-    - "Let me pick from the list (remove some)"
-    - "No additional watchers"
+10. **PSX Jira ticket visibility / watchers (MANDATORY)**: PSX tickets are restricted — **watchers are a hard requirement, not optional**. The script always adds the mandatory watchers (Jay Koehler, Lindani Phiri) even if `--watchers` is omitted, but the full team should be included for proper visibility.
 
-    The discovered members are **always a suggestion** — never auto-applied. The user must confirm or edit the list before watchers are added. Pass the confirmed names via `--watchers 'Name1,Name2,Name3'` to `create_jira_ticket.py`. If Jira API is unavailable, the script reports the failure and the user must provide watcher names manually. The watcher addition is idempotent (skips users already watching).
+    The agent MUST follow this flow:
+    1. **Automatically run team discovery** by calling `add_jira_watchers.discover_team()` (or `python3 scripts/add_jira_watchers.py --tickets <placeholder> --auto-discover --dry-run`) to find the caller's team from Jira groups ≤ 100 members.
+    2. **Present the full watcher list** (mandatory watchers + discovered team) to the user for confirmation:
+       - "The following people will be added as Additional watchers on the PSX ticket: [full name list]. Confirm?"
+       - "Yes, add all"
+       - "Let me remove some from the list"
+       - "Let me add more names"
+    3. **Pass confirmed names** via `--watchers 'Name1,Name2,Name3'` to `create_jira_ticket.py`.
+
+    The mandatory watchers are always added by the script regardless — the confirmation step is for the team members. The watcher addition is idempotent (skips users already present).
 
 11. **Authorized Party**: Free text prompt:
     - "Who is the senior manager accepting risk? (e.g., Lindani Phiri, Jay Koehler)"
@@ -777,6 +782,127 @@ Each script validates inputs and exits non-zero on failure. The orchestrator sto
 - GitLab Merge Request creation failure (permissions, branch conflict)
 - Jira ticket creation failure (permissions, invalid project)
 - Verification failure (labels, links, or fields not confirmed after retries)
+
+## Listing Current Exceptions
+
+When the user asks to see current Conforma exceptions (e.g. "show me current exceptions", "list exceptions", "what exceptions exist"), use the deterministic `list_exceptions.py` script. **Do NOT manually parse policy files or format output yourself** — the script produces a complete, ready-to-display Markdown report.
+
+1. **Ensure the clone is fresh** (or let the script clone a temp copy):
+
+```bash
+if [ -d .work/konflux-release-data/.git ]; then
+  git -C .work/konflux-release-data fetch origin main && git -C .work/konflux-release-data reset --hard origin/main
+else
+  GITLAB_TOKEN=$(glab config get token --host gitlab.cee.redhat.com)
+  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@gitlab.cee.redhat.com/releng/konflux-release-data.git" .work/konflux-release-data
+fi
+```
+
+2. **Run the script** (from the skill directory):
+
+```bash
+python3 scripts/list_exceptions.py --clone-dir .work/konflux-release-data
+```
+
+3. **Print the output verbatim** — do NOT modify, reformat, or summarize the Markdown. The script produces a deterministic report with consistent table columns across all sections (Rule, Component / Image, RHOAI Version, Effective Until, Reference). RHOAI versions are derived from the actual data (componentName version suffixes like `-v3-4` → `3.4`, or `all` for imageUrl-scoped / unscoped exceptions) — never from YAML comments. All Jira ticket IDs and policy file names are rendered as clickable Markdown links.
+
+**Only analyze prod by default.** If the user specifically asks for stage exceptions, add `--environment stage`. Never show both environments unless the user explicitly asks.
+
+The `--soon-days` flag controls the "expiring soon" threshold (default: 14 days). Example: `--soon-days 30` includes exceptions expiring within 30 days in the "expiring soon" section rather than in per-date sections.
+
+The report groups exceptions into sections by expiry status:
+- **Expired** — `effectiveUntil` is in the past (need cleanup)
+- **Expiring within N days** — approaching deadline
+- **Expiring YYYY-MM-DD** — one section per remaining date, sorted chronologically
+
+## Adding Jira Watchers
+
+When the user asks to add watchers to Jira tickets (e.g. "add Akshay Ghodake as watcher to PSX-1040", "add watchers to these tickets"), use the deterministic `add_jira_watchers.py` script. **Do NOT use the Jira REST API directly or write inline watcher logic** — the script handles all project-specific differences.
+
+The script auto-selects the correct mechanism per project:
+
+| Project | Mechanism | Notes |
+|---------|-----------|-------|
+| PSX, OCPEXCEPT | `customfield_10705` ("Additional watchers" custom field) | Standard watcher API fails because users lack PSX view permissions. Editing the custom field requires the caller to be the reporter or assignee. |
+| RHOAIENG, others | Standard Jira watchers API (`POST /issue/{key}/watchers`) | Works for any user with project access. |
+
+### Automatic team discovery
+
+The `--auto-discover` flag discovers the caller's Jira group members and adds them as watchers automatically. The script:
+
+1. Calls GET /myself to identify the caller
+2. Fetches the caller's Jira groups
+3. **Skips groups with > 100 members** (org-wide groups like `jira-users`, `employee`, etc.)
+4. Fetches members only from small team-sized groups (≤ 100 members)
+5. Adds all discovered team members (excluding the caller) as watchers
+
+When creating PSX/OCPEXCEPT tickets, the agent MUST run `discover_team()` during the questionnaire, present the discovered team to the user for confirmation, then pass the confirmed names via `--watchers`. The mandatory watchers (Jay Koehler, Lindani Phiri) are always included. See the questionnaire "Batch 3, item 10" for the exact agent flow.
+
+### Usage
+
+Add explicit watchers:
+
+```bash
+python3 scripts/add_jira_watchers.py \
+  --tickets PSX-1038,PSX-1039,PSX-1040 \
+  --watchers 'Akshay Ghodake,Jane Doe' \
+  --dry-run
+```
+
+Auto-discover team and add them:
+
+```bash
+python3 scripts/add_jira_watchers.py \
+  --tickets PSX-1040 \
+  --auto-discover \
+  --dry-run
+```
+
+Combine both — explicit names plus auto-discovered team:
+
+```bash
+python3 scripts/add_jira_watchers.py \
+  --tickets PSX-1040 \
+  --watchers 'Akshay Ghodake' \
+  --auto-discover
+```
+
+Mixed projects in a single call are supported — the script routes each ticket to the correct mechanism:
+
+```bash
+python3 scripts/add_jira_watchers.py \
+  --tickets PSX-1040,RHOAIENG-38414 \
+  --watchers 'Akshay Ghodake'
+```
+
+### Flags
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--tickets` | yes | Comma-separated ticket keys (e.g. `PSX-1038,RHOAIENG-38414`) |
+| `--watchers` | no | Comma-separated Jira display names (must match exactly). Required if `--auto-discover` is not set. |
+| `--auto-discover` | no | Discover caller's team from Jira groups and add as watchers. Can combine with `--watchers`. |
+| `--dry-run` | no | Preview what would change without writing |
+
+### Output
+
+Structured JSON with per-ticket results. Each ticket reports:
+- `method`: `custom_field` or `standard_api`
+- `status`: `updated`, `no_change`, `dry_run`, or `error`
+- `added` / `already_present`: which names were added vs already there
+- `errors`: detailed error messages (e.g. permission issues with reporter/assignee context)
+
+When `--auto-discover` is used, the output includes a `team_discovery` section showing which groups were checked, which were included vs skipped (with member counts), and how many team members were discovered.
+
+### Integration
+
+Other scripts in this skill (e.g. `create_jira_ticket.py`) import `add_jira_watchers.add_watchers_to_tickets()` as a library function instead of implementing their own watcher logic. For PSX/OCPEXCEPT tickets, `create_jira_ticket.py` passes `auto_discover=True` so the caller's team is added automatically at ticket creation time. When adding watcher support to new scripts, import from `add_jira_watchers` — do not duplicate the logic.
+
+### Known limitations
+
+- **PSX/OCPEXCEPT custom field**: Only the reporter or assignee on the ticket can edit `customfield_10705`. If the caller is neither, the script reports the error with the reporter/assignee names so the user knows who to ask.
+- **Display name matching**: User lookup requires an exact match on the Jira display name. The script fails early if any name cannot be resolved, before modifying any ticket.
+- **Team discovery group threshold**: Groups with > 100 members are skipped. If the caller's team group happens to be larger than 100, team discovery won't find it. The threshold is `MAX_TEAM_GROUP_SIZE` in `add_jira_watchers.py`.
 
 ## Managing Exceptions
 

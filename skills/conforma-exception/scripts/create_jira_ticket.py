@@ -37,6 +37,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from add_jira_watchers import add_watchers_to_tickets as _add_jira_watchers
 from cli_runner import run_acli
 
 TEMPLATE_TICKET = "RHOAIENG-62569"
@@ -45,7 +46,7 @@ PROVENANCE_LABEL = "conforma-exception-ai-skill"
 VIOLATION_LABEL = "conforma-violation"
 VALID_PROJECTS = ("RHOAIENG", "PSX", "OCPEXCEPT")
 
-PSX_MANDATORY_WATCHERS = ["Jay Koehler", "Lindani LD Phiri"]
+PSX_MANDATORY_WATCHERS = ["Jay Koehler", "Lindani Phiri"]
 
 MAX_VERIFY_RETRIES = 2
 
@@ -275,137 +276,6 @@ def _jira_rest_put(path: str, payload: dict) -> dict:
         return {"ok": False, "status": e.code, "error": body}
     except Exception as e:
         return {"ok": False, "status": 0, "error": str(e)}
-
-
-# ---------------------------------------------------------------------------
-# Watcher management
-# ---------------------------------------------------------------------------
-
-
-def _search_jira_user(display_name: str) -> str | None:
-    """Search Jira for a user by display name, return accountId or None."""
-    import urllib.request
-
-    creds = _jira_auth()
-    if not creds:
-        return None
-    _, auth = creds
-
-    search_url = (
-        f"https://redhat.atlassian.net/rest/api/3/user/search"
-        f"?query={urllib.request.quote(display_name)}&maxResults=5"
-    )
-    req = urllib.request.Request(search_url, headers={
-        "Authorization": f"Basic {auth}",
-        "Accept": "application/json",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            users = json.loads(resp.read())
-    except Exception:
-        return None
-
-    for user in users:
-        if user.get("displayName", "").lower() == display_name.lower():
-            return user.get("accountId")
-    if users:
-        return users[0].get("accountId")
-    return None
-
-
-def _get_existing_watchers(ticket_key: str) -> set[str]:
-    """Get set of accountIds already watching the ticket."""
-    import urllib.request
-
-    creds = _jira_auth()
-    if not creds:
-        return set()
-    _, auth = creds
-
-    url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}/watchers"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Basic {auth}",
-        "Accept": "application/json",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read())
-    except Exception:
-        return set()
-
-    return {w.get("accountId", "") for w in data.get("watchers", [])}
-
-
-def add_watchers_to_ticket(ticket_key: str, display_names: list[str]) -> dict:
-    """Add watchers to a Jira ticket by display name. Idempotent.
-
-    Resolves each display name to an accountId, checks if already watching,
-    and only adds those not yet watching.
-
-    Returns:
-        {
-            "action": "add_watchers",
-            "ticket_key": str,
-            "added": [str],
-            "already_watching": [str],
-            "not_found": [str],
-            "errors": [str],
-        }
-    """
-    import urllib.error
-    import urllib.request
-
-    creds = _jira_auth()
-    if not creds:
-        return {
-            "action": "add_watchers", "ticket_key": ticket_key,
-            "added": [], "already_watching": [], "not_found": [],
-            "errors": ["JIRA auth not configured"],
-        }
-    _, auth = creds
-
-    existing_watchers = _get_existing_watchers(ticket_key)
-    added = []
-    already_watching = []
-    not_found = []
-    errors = []
-
-    for name in display_names:
-        account_id = _search_jira_user(name)
-        if not account_id:
-            not_found.append(name)
-            continue
-
-        if account_id in existing_watchers:
-            already_watching.append(name)
-            continue
-
-        url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}/watchers"
-        data = json.dumps(account_id).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={
-            "Authorization": f"Basic {auth}",
-            "Content-Type": "application/json",
-        }, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                if resp.status in (200, 204):
-                    added.append(name)
-                    existing_watchers.add(account_id)
-                else:
-                    errors.append(f"{name}: HTTP {resp.status}")
-        except urllib.error.HTTPError as e:
-            errors.append(f"{name}: HTTP {e.code}")
-        except Exception as e:
-            errors.append(f"{name}: {e}")
-
-    return {
-        "action": "add_watchers",
-        "ticket_key": ticket_key,
-        "added": added,
-        "already_watching": already_watching,
-        "not_found": not_found,
-        "errors": errors,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -1068,16 +938,24 @@ def create_ticket(
         else:
             apply_result = {"operations": [], "verification": None}
 
-        # --- Post-creation: add watchers for PSX tickets ---
+        # --- Post-creation: add watchers ---
+        # For PSX/OCPEXCEPT, mandatory watchers are always prepended.
+        # Team members should already be included in watcher_names by the
+        # agent after running discover_team() and getting user confirmation
+        # during the questionnaire (Batch 3, item 10).
         watcher_result = None
-        if ticket_key and project in ("PSX", "OCPEXCEPT"):
-            all_watchers = list(PSX_MANDATORY_WATCHERS)
+        if ticket_key:
+            is_psx = project in ("PSX", "OCPEXCEPT")
+            all_watchers = list(PSX_MANDATORY_WATCHERS) if is_psx else []
             if watcher_names:
                 for name in watcher_names:
                     if name not in all_watchers:
                         all_watchers.append(name)
-            watcher_result = add_watchers_to_ticket(ticket_key, all_watchers)
-            apply_result.setdefault("operations", []).append(watcher_result)
+            if all_watchers:
+                batch = _add_jira_watchers([ticket_key], all_watchers)
+                watcher_result = batch.get("tickets", [None])[0]
+                if watcher_result:
+                    apply_result.setdefault("operations", []).append(watcher_result)
 
         return {
             "status": "created",
