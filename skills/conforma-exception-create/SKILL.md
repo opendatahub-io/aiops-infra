@@ -205,8 +205,10 @@ All created tickets receive the `conforma-exception-create-ai-skill` and `confor
    - [ ] rhoai-3.5-ea.1
 
 4. **Multi-version handling** (if multiple versions selected):
-   - "One PSX + RHOAIENG ticket per version (recommended, standard)"
-   - "Single consolidated ticket covering all versions"
+   - "One PSX + RHOAIENG ticket per version (default, recommended)"
+   - "Single consolidated PSX + RHOAIENG ticket covering all versions (once-off deviation)"
+
+   **Hard rule regardless of ticket strategy: always create 1 GitLab MR per RHOAI version.** Each MR contains the exception for only one RHOAI version (that version's components + that version's effectiveUntil date). This is NOT configurable and NOT driven by the user. Whether there is 1 PSX ticket or N PSX tickets, the MR split is always per-version.
 
 5. **Justification**:
    - "1 — Violation not fixed in time before code-freeze, planned for next release"
