@@ -180,12 +180,12 @@ All created tickets receive the `conforma-exception-create-ai-skill` and `confor
 
 **Before running**, gather the following from the user (ask early -- these are needed for PSX/OCPEXCEPT ticket creation). Present each item explicitly and wait for confirmation. Do NOT proceed until all items are confirmed.
 
-1. **Conforma rule confirmation**: Extract the rule from the Jira or user input, then **show it back to the user** and ask them to confirm the exact value. Signing key IDs can be truncated or confused between vendors -- always verify. Example: "I see signing key `28da432daac8baea` in the Jira. Confirm the rule is `rpm_signature.allowed:28da432daac8baea`?"
+1. **Conforma rule confirmation**: The conforma rule/violation details MUST be present in the RHOAIENG Jira ticket. If they're not, ask the user to add them to the Jira first -- do NOT proceed without them. Once present, extract the rule and **show it back to the user** for confirmation. Signing key IDs can be truncated or confused between vendors -- always highlight discrepancies (e.g. same key used by multiple vendors). Example: "I see signing key `28da432daac8baea` in the Jira. Confirm the rule is `rpm_signature.allowed:28da432daac8baea`?"
 2. **RHOAIENG ticket type check**: If the user provides an existing `--rhoaieng-url`, verify its issue type. The exception process expects a **Blocker Bug** (cloned from RHOAIENG-62569). If the provided ticket is an Epic, Story, or other type, warn the user and ask whether to: (a) create a proper Blocker Bug and link to the existing ticket, or (b) use it as-is (non-standard). Record the decision.
 3. **Component name lookup and confirmation**: Look up Konflux componentNames from ReleasePlanAdmission files based on the container image name in the Jira. **Show the resolved names to the user** and ask for confirmation. Never use a container image name (e.g. `-rhel9`) in an MR without the user noticing and confirming the translation.
 4. **Vendor tag**: Ask what vendor/distinguisher tag to prepend to ticket titles (e.g. `AMD`, `Intel`, `FIPS`). Pass via `--vendor-tag`.
 5. **Tracking ticket**: Is there an existing tracking ticket (Feature, Epic, RHAISTRAT item, etc.) to link to? Pass via `--link-to`.
-6. **Related PSX (existing)**: Is there a pre-existing PSX ticket that should be linked as "Related" only (not used as the exception ticket itself)? Pass via `--related-psx`. This creates a Jira "Related" link but still creates a new PSX ticket for the current exception.
+6. **Related PSX (existing)**: Is there a pre-existing PSX ticket that should be linked as "Related" only (not used as the exception ticket itself)? Pass via `--related-psx`. When presenting this option, always include the ticket title alongside the key so the user can identify it (e.g. "PSX-1038: (Mellanox) request to extend exception for rpm signing key"). This creates a Jira "Related" link but still creates a new PSX ticket for the current exception.
 7. **Summary context**: A brief description of the exception for ticket titles (e.g. "long-standing Intel RPM signing key exception"). Pass via `--summary-context`.
 8. **Multi-version handling**: If multiple RHOAI versions are involved, ask whether to create one PSX/RHOAIENG ticket per version (the default, recommended) or a single consolidated ticket. Per-version is standard. Consolidation is only for cases with many versions+components that would create excessive tickets.
 9. **Authorized Party**: Who is the senior manager accepting the risk for this exception? This is required for the PSX workflow. Pass via `--authorized-party`. The Authorized Party must be a Senior Manager or above who can approve the acceptance of risk (see [Understanding Acceptance of Risk](https://redhat.atlassian.net/wiki/spaces/PRODSEC/pages/289208726/Understanding+Acceptance+of+Risk+as+an+Authorized+Party)). If the user is unsure, suggest they check with their management chain.
@@ -258,6 +258,22 @@ Behavior:
 - Returns `"status": "reconciled"` if all checks pass, `"status": "partial"` if unmet expectations remain
 
 This handles cases where a previous run partially succeeded (ticket created but fields missing).
+
+## Existing Exception Deduplication
+
+When creating an MR, the script checks the target policy file for existing exceptions matching the same rule (`- value: <rule>`). The behavior depends on whether the existing exception uses `componentNames`:
+
+| Existing exception style | Behavior |
+|---|---|
+| No existing exception for this rule | Append new block (standard behavior) |
+| Uses `componentNames` and components match | **Extend**: update `effectiveUntil` date in-place (no new block created) |
+| Uses `componentNames` but different components | Append new block alongside existing |
+| Old-style (no `componentNames`) | Leave intact, append a **new** block using `componentNames` |
+
+This ensures:
+- Version-scoped exceptions (using `componentNames`) are extended rather than duplicated when only the expiry date changes
+- Legacy exceptions without `componentNames` are never modified (they may apply broadly); a new version-scoped block is added instead
+- The commit message reflects whether the exception was "extended" vs. "added"
 
 ## Commit Message Structure
 
