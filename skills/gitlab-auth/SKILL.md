@@ -31,8 +31,8 @@ The token is discovered in this order:
 **Fix:**
 
 ```bash
-# Option A: Set environment variable
-export GITLAB_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"
+# Option A: Set environment variable (token format: glpat-<random>)
+export GITLAB_TOKEN="<your-gitlab-personal-access-token>"
 
 # Option B: Login with glab CLI (creates config file)
 glab auth login --hostname "$GITLAB_HOST"
@@ -51,7 +51,8 @@ glab auth login --hostname "$GITLAB_HOST"
 # Or generate a new Personal Access Token:
 # 1. Go to https://$GITLAB_HOST/-/user_settings/personal_access_tokens
 # 2. Create token with scopes: api, read_repository, write_repository
-# 3. Export: export GITLAB_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"
+# 3. Export (token format: glpat-<random>):
+export GITLAB_TOKEN="<your-gitlab-personal-access-token>"
 ```
 
 ### "SSL certificate verify failed"

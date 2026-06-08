@@ -67,7 +67,7 @@ When the user asks about a specific Conforma policy rule:
 2. **Fetch upstream docs** via WebFetch using the `docs:` URL (e.g., `https://conforma.dev/docs/policy/packages/release_hermetic_task.html`)
 3. **Present in the mandatory format**: use the upstream content (rule description, solution text, failure message) as the basis, then wrap with RHOAI context
 
-**Fallback**: if the upstream fetch fails (offline, VPN issues), use the rule `name` and `code` from the local YAML catalog and note that full details are available at the `docs:` URL.
+**Fallback**: if the upstream fetch fails (offline, VPN issues), use the rule `name` and `code` from the local YAML catalog and state that full details are available at the `docs:` URL.
 
 ### Keyword search
 
