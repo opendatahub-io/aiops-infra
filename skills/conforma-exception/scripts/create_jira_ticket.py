@@ -40,7 +40,7 @@ from pathlib import Path
 from cli_runner import run_acli
 
 TEMPLATE_TICKET = "RHOAIENG-62569"
-PROVENANCE_REPO = "opendatahub-io/ai-helpers"
+PROVENANCE_REPO = "opendatahub-io/aiops-infra"
 PROVENANCE_LABEL = "conforma-exception-ai-skill"
 VIOLATION_LABEL = "conforma-violation"
 VALID_PROJECTS = ("RHOAIENG", "PSX", "OCPEXCEPT")
