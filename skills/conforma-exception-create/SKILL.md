@@ -107,6 +107,15 @@ The script outputs JSON containing:
 
 The agent presents `user_confirmation_required` items to the user and waits for confirmation. It does NOT modify any resolved values.
 
+### Decision Short-Circuit
+
+The preflight output includes a `decision` field evaluated deterministically by `evaluate_decision()`. When `decision.proceed` is `false`, the agent MUST:
+1. Report the `decision.reason` to the user
+2. Stop immediately — do NOT present remaining questionnaire items
+3. Do NOT create tickets, MRs, or any other artifacts
+
+The agent has NO discretion to override a `proceed: false` decision. Only the user can re-run with `--rule` override or manually modify the policy file.
+
 ## Three Exception Paths
 
 | Path | When | Jira tickets | MR target |
