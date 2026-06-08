@@ -4,11 +4,11 @@
 Verifies that required CLI tools (acli, glab) are available (natively or via
 container fallback) and authenticated before any Jira or GitLab operations.
 
-All paths require both acli (Jira) and glab (GitLab) since all paths
-create a RHOAIENG ticket and a GitLab MR.
+All workflows require both acli (Jira) and glab (GitLab) since all workflows
+create at least a RHOAIENG ticket and a GitLab MR.
 
 Can be run standalone for debugging:
-    python3 scripts/verify_auth.py --path A
+    python3 scripts/verify_auth.py
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def _acli_auth_fix() -> str:
         f"{image} acli jira auth login "
         f"--site redhat.atlassian.net --email $USER@redhat.com --token\n"
         "Verify with:\n"
-        "  python3 scripts/verify_auth.py --path A"
+        "  python3 scripts/verify_auth.py"
     )
 
 
@@ -87,7 +87,7 @@ def _glab_auth_fix() -> str:
         f"  {token_url}\n"
         f"Then set it and verify:\n"
         f'  export GITLAB_TOKEN="your-access-token"\n'
-        f"  python3 scripts/verify_auth.py --path A\n"
+        f"  python3 scripts/verify_auth.py\n"
         f"On success the token is saved automatically for future sessions."
     )
 
@@ -344,8 +344,8 @@ def _setup_jira_rest_api(checks: list[dict]) -> None:
     )
 
 
-def run_checks(path: str) -> dict:
-    """Run all relevant checks for the given path."""
+def run_checks() -> dict:
+    """Run all auth checks (acli for Jira, glab for GitLab)."""
     checks: list[dict] = []
 
     checks.append(check_acli_available())
@@ -363,27 +363,12 @@ def run_checks(path: str) -> dict:
     all_passed = all(c["passed"] for c in checks)
     return {
         "passed": all_passed,
-        "path": path,
         "checks": checks,
     }
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Pre-flight auth check for conforma-exception"
-    )
-    parser.add_argument(
-        "--path",
-        default="A",
-        choices=["A", "B", "C"],
-        help="Exception path (A=standard, B=FIPS, C=self-service)",
-    )
-    return parser.parse_args()
-
-
 def main() -> int:
-    args = parse_args()
-    result = run_checks(args.path)
+    result = run_checks()
     print(json.dumps(result, indent=2))
 
     if not result["passed"]:
