@@ -132,7 +132,7 @@ def _bootstrap() -> Path:
 
     scripts_dir = str(root / "scripts")
     if scripts_dir not in sys.path:
-        sys.path.insert(0, scripts_dir)
+        sys.path.insert(1, scripts_dir)
 
     _load_site_config(root)
 

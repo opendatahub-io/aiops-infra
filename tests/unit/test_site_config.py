@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -65,9 +65,11 @@ class TestFindConfig:
             finally:
                 site_config.CONFIG_SEARCH_PATHS[0] = None
 
-    def test_returns_none_when_no_config(self, tmp_path):
+    def test_returns_none_when_no_config(self, tmp_path, monkeypatch):
         orig = site_config.CONFIG_SEARCH_PATHS[:]
         site_config.CONFIG_SEARCH_PATHS[:] = [tmp_path / "nonexistent.yaml"]
+        monkeypatch.setattr(site_config, "REMOTE_CACHE_FILE", tmp_path / "no-cache.yaml")
+        monkeypatch.setattr(site_config, "_fetch_remote_config", lambda: None)
         try:
             assert site_config.find_config() is None
         finally:
@@ -200,3 +202,104 @@ class TestGetStatus:
             status = site_config.get_status()
         assert "entries" in status
         assert any(e["env_var"] == "GITLAB_HOST" for e in status["entries"])
+
+
+class TestIsCacheFresh:
+    def test_fresh_cache(self, tmp_path):
+        cache = tmp_path / "test.yaml"
+        cache.write_text("test: true")
+        assert site_config._is_cache_fresh(cache) is True
+
+    def test_missing_cache(self, tmp_path):
+        assert site_config._is_cache_fresh(tmp_path / "missing.yaml") is False
+
+    def test_stale_cache(self, tmp_path):
+        cache = tmp_path / "test.yaml"
+        cache.write_text("test: true")
+        import time as _time
+
+        stale_mtime = _time.time() - (site_config.CACHE_TTL_HOURS + 1) * 3600
+        os.utime(cache, (stale_mtime, stale_mtime))
+        assert site_config._is_cache_fresh(cache) is False
+
+
+class TestFetchRemoteConfig:
+    def test_success(self, monkeypatch):
+        import base64
+
+        content = "gitlab:\n  host: remote.example.com\n"
+        encoded = base64.b64encode(content.encode()).decode()
+        mock_result = MagicMock(returncode=0, stdout=encoded + "\n", stderr="")
+        with patch("subprocess.run", return_value=mock_result):
+            result = site_config._fetch_remote_config()
+        assert result is not None
+        assert "remote.example.com" in result
+
+    def test_failure(self):
+        mock_result = MagicMock(returncode=1, stdout="", stderr="error")
+        with patch("subprocess.run", return_value=mock_result):
+            result = site_config._fetch_remote_config()
+        assert result is None
+
+    def test_timeout(self):
+        import subprocess as sp
+
+        with patch("subprocess.run", side_effect=sp.TimeoutExpired("gh", 30)):
+            result = site_config._fetch_remote_config()
+        assert result is None
+
+    def test_custom_url(self, monkeypatch):
+        monkeypatch.setenv("CONFORMA_SKILL_SITE_CONFIG_URL", "repos/custom/repo/contents/config.yaml")
+        mock_result = MagicMock(returncode=1, stdout="", stderr="")
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            site_config._fetch_remote_config()
+        call_args = mock_run.call_args[0][0]
+        assert "repos/custom/repo/contents/config.yaml" in call_args
+
+
+class TestFindConfigWithRemoteCache:
+    def test_local_takes_precedence(self, config_file, tmp_path):
+        cache = tmp_path / ".remote-cache" / "site-config.yaml"
+        cache.parent.mkdir(parents=True)
+        cache.write_text("gitlab:\n  host: remote-cached.example.com\n")
+        with patch.object(site_config, "CONFIG_SEARCH_PATHS", [config_file]):
+            found = site_config.find_config()
+        assert found == config_file
+
+    def test_uses_fresh_cache(self, tmp_path):
+        cache_dir = tmp_path / ".remote-cache"
+        cache_dir.mkdir()
+        cache = cache_dir / "site-config.yaml"
+        cache.write_text("gitlab:\n  host: cached.example.com\n")
+        with (
+            patch.object(site_config, "CONFIG_SEARCH_PATHS", [tmp_path / "no-local.yaml"]),
+            patch.object(site_config, "REMOTE_CACHE_FILE", cache),
+        ):
+            found = site_config.find_config()
+        assert found == cache
+
+
+class TestWriteLocal:
+    def test_creates_new_file(self, tmp_path, monkeypatch):
+        with patch.object(site_config, "write_local") as _:
+            pass
+        result = site_config.write_local(["gitlab.host=test.example.com", "konflux.cluster_domain=my.cluster.p1"])
+        written = result["written"]
+        assert written["gitlab.host"] == "test.example.com"
+        assert written["konflux.cluster_domain"] == "my.cluster.p1"
+
+    def test_ignores_invalid_pairs(self):
+        result = site_config.write_local(["not-a-pair", "valid.key=value"])
+        assert len(result["written"]) == 1
+
+
+class TestSetYamlPath:
+    def test_creates_nested_structure(self):
+        data: dict = {}
+        site_config._set_yaml_path(data, "gitlab.host", "test.com")
+        assert data["gitlab"]["host"] == "test.com"
+
+    def test_overwrites_existing(self):
+        data = {"gitlab": {"host": "old.com"}}
+        site_config._set_yaml_path(data, "gitlab.host", "new.com")
+        assert data["gitlab"]["host"] == "new.com"

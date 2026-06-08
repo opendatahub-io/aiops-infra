@@ -12,6 +12,7 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "requests>=2.31",
     "PyYAML>=6.0",
+    "slack_sdk>=3.27",
 ]
 
 [tool.setuptools]

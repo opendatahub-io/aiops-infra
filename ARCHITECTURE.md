@@ -57,6 +57,7 @@ flowchart TD
 | `gitlab-auth` | Verify and fix GitLab auth. References `scripts/gitlab_ops.py verify-auth` |
 | `jira-auth` | Verify and fix Jira/acli auth. References `scripts/jira_ops.py verify-auth` |
 | `github-auth` | Verify and fix GitHub/gh auth. References `scripts/github_ops.py verify-auth` |
+| `slack-auth` | Verify and fix Slack auth. References `scripts/slack_ops.py verify-auth` |
 
 ### Entry-point skill
 
@@ -75,6 +76,7 @@ Location: `scripts/` at repo root. These contain ONLY generic primitives — not
 | `gitlab_ops.py` | `get_client`, `verify_auth`, `get_project`, `clone_repo`, `push_branch`, `create_mr`, `update_mr`, `find_mr` | `python-gitlab` |
 | `jira_ops.py` | `get_client`, `verify_auth`, `create_issue`, `update_issue`, `add_watchers`, `search_user`, `link_issues`, `transition_issue` | `jira` |
 | `github_ops.py` | `verify_auth`, `create_pr`, `get_file`, `get_repo`, `check_workflow_run` | `gh` CLI + `requests` |
+| `slack_ops.py` | `get_client`, `verify_auth`, `search_messages` | `slack_sdk` |
 | `yaml_ops.py` | `load`, `load_multi_doc`, `dump`, `dump_preserving_comments`, `merge` | `ruamel.yaml` |
 | `cli_runner.py` | `run`, `run_with_retry`, `run_json` | `subprocess` |
 
@@ -204,6 +206,8 @@ aiops-infra/
     gitlab-auth/              # GitLab auth troubleshooting (SKILL.md only)
     jira-auth/                # Jira auth troubleshooting (SKILL.md only)
     github-auth/              # GitHub auth troubleshooting (SKILL.md only)
+    slack-auth/               # Slack auth troubleshooting (SKILL.md only)
+    references/               # Shared references (site-config-setup.md)
   .claude/skills/             # Onboarding pipeline skills (17 existing)
   tests/                      # Unit + integration tests
   .github/workflows/          # CI: lint + test workflows

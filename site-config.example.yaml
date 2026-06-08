@@ -1,12 +1,19 @@
 # Site Configuration for aiops-infra
 # ====================================
 #
-# This file documents all infrastructure-specific values required by
-# aiops-infra skills. Copy it to one of the following locations and
-# fill in your organization's values:
+# Automatic setup (recommended for RHOAI team):
+#   If you have `gh` access to red-hat-data-services/rhods-devops-infra,
+#   the team's config is fetched automatically. No manual setup needed.
+#   Run `python3 scripts/site_config.py --show-source` to verify.
+#   Run `python3 scripts/site_config.py --refresh` to force a re-fetch.
 #
-#   ~/.config/aiops-infra/site-config.yaml    (recommended, user-level)
+# Manual setup (for custom or offline use):
+#   Copy this file to ~/.config/aiops-infra/site-config.yaml and fill in values.
+#   Local config always takes precedence over the remote config.
+#
+# Other options:
 #   $AIOPS_SITE_CONFIG                        (explicit path override)
+#   $CONFORMA_SKILL_SITE_CONFIG_URL           (override remote fetch URL)
 #
 # The loader (scripts/site_config.py) reads this file at runtime and
 # populates environment variables. Env vars set before loading take
@@ -36,3 +43,7 @@ konflux:
   #   API derived:    https://api.<domain>.openshiftapps.com:6443
   #   Tekton derived: tekton-results-tekton-results.apps.<domain>.openshiftapps.com
   cluster_domain: ""
+
+slack:
+  # SLACK_WORKSPACE_URL — Slack workspace base URL (used to build search links)
+  workspace_url: ""

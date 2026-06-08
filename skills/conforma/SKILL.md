@@ -31,6 +31,7 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 | gitlab auth, gitlab token, glab login, glab auth | use the **gitlab-auth** skill |
 | jira auth, acli auth, jira login, jira token | use the **jira-auth** skill |
 | github auth, gh auth, github token | use the **github-auth** skill |
+| slack auth, slack token, slack search | use the **slack-auth** skill |
 
 ## Routing Rules
 

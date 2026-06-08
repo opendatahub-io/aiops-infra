@@ -363,21 +363,9 @@ When the user asks to create a Conforma exception but does not provide specific 
         --output "$RUN_DIR/conforma-violations.yaml"
       ```
       If the user provides URLs for multiple releases, save each as `<release>.csv` in the same directory — the parser processes all `*.csv` files in one pass.
-      iii. Runs the batch coverage check BEFORE presenting violations (pass `--clone-dir` to reuse the shared repo clone):
-      ```bash
-      python3 skills/conforma-exception/scripts/preflight_check.py \
-        --check-violations-coverage "$RUN_DIR/conforma-violations.yaml" \
-        --clone-dir .work/konflux-release-data \
-        --environment prod
-      ```
-      This checks all violations against existing exceptions in the policy file in one pass.
-      iv. Presents violations as a summary table by printing `result["markdown_table"]` verbatim. The script pre-renders a complete markdown table with columns: #, Rule, Components, Open MRs, Open Jira, Next Steps.
-
-      **Do NOT include a Coverage column.** The `coverage_label` field exists in the JSON output for programmatic use but is misleading when shown to users — it can give the impression that a conforma exception is the default resolution. Instead, the `next_steps` column is the single source of guidance for the user.
-
-      The `markdown_table` field is a complete, ready-to-display markdown string. The agent MUST print it as-is without modification. Do NOT reconstruct the table from individual fields — always use the pre-rendered version.
-      v. Lets the user select which violation(s) to create exceptions for (using AskQuestion with multi-select)
-      vi. Proceeds with the normal preflight/questionnaire flow for each selected violation, pre-filling the violation code and component details from the parsed report. The per-violation Existing Exception Gate has already been checked in step (iii) — no need to re-run it.
+      iii. Runs the batch coverage check and presents results. Read and follow [`references/coverage-check.md`](references/coverage-check.md) for the full workflow (clone setup, command, output handling). Pass the violations YAML from step (ii) as input.
+      iv. Lets the user select which violation(s) to create exceptions for (using AskQuestion with multi-select)
+      v. Proceeds with the normal preflight/questionnaire flow for each selected violation, pre-filling the violation code and component details from the parsed report. The per-violation Existing Exception Gate has already been checked in step (iii) — no need to re-run it.
 
 The agent MUST NOT proceed with the creation workflow until it has a concrete rule and component list — either from user-provided details, pasted violation text, or a parsed report selection. The Existing Exception Gate must pass before proceeding — see "Existing Exception Gate (Hard Prerequisite)" above.
 

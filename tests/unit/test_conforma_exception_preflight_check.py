@@ -272,3 +272,99 @@ class TestAnalyzeMrComponentCoverage:
         assert result["source"] == "diff"
         assert result["suggestion"] == "fully_covered"
         assert mod._mr_cache.has(55)
+
+
+class TestPrefetchOpenSlackThreads:
+    @patch("slack_ops.search_messages")
+    def test_returns_threads_per_rule(self, mock_search):
+        mock_search.return_value = [
+            {
+                "channel": "conforma",
+                "channel_id": "C123",
+                "permalink": "https://slack.com/p1",
+                "thread_ts": "1700000000.000000",
+                "thread_reply_count": 3,
+                "user": "alice",
+                "date": "2024-12-01",
+            }
+        ]
+        result = mod.prefetch_open_slack_threads(["hermetic_task.hermetic"])
+        assert len(result["hermetic_task.hermetic"]) == 1
+        assert result["hermetic_task.hermetic"][0]["channel"] == "conforma"
+
+    @patch("slack_ops.search_messages")
+    def test_deduplicates_by_thread(self, mock_search):
+        thread = {
+            "channel": "conforma",
+            "channel_id": "C123",
+            "permalink": "https://slack.com/p1",
+            "thread_ts": "1700000000.000000",
+            "thread_reply_count": 3,
+            "user": "alice",
+            "date": "2024-12-01",
+        }
+        mock_search.return_value = [thread, thread]
+        result = mod.prefetch_open_slack_threads(["test.rule"])
+        assert len(result["test.rule"]) == 1
+
+    @patch("slack_ops.search_messages")
+    def test_empty_results(self, mock_search):
+        mock_search.return_value = []
+        result = mod.prefetch_open_slack_threads(["no_match.rule"])
+        assert result["no_match.rule"] == []
+
+
+class TestBuildSearchUrls:
+    def test_builds_all_urls(self, monkeypatch):
+        monkeypatch.setattr(mod, "GITLAB_HOST", "gitlab.example.com")
+        monkeypatch.setattr(mod, "GITLAB_PROJECT", "releng/konflux-release-data")
+        urls = mod._build_search_urls("hermetic_task.hermetic", "https://test.slack.com")
+        assert "gitlab.example.com" in urls["mr"]
+        assert "hermetic_task.hermetic" in urls["jira"]
+        assert "test.slack.com" in urls["slack"]
+
+    def test_no_slack_url_without_team(self, monkeypatch):
+        monkeypatch.setattr(mod, "GITLAB_HOST", "gitlab.example.com")
+        monkeypatch.setattr(mod, "GITLAB_PROJECT", "test/project")
+        urls = mod._build_search_urls("test.rule", "")
+        assert urls["slack"] == ""
+        assert urls["mr"] != ""
+
+    def test_no_mr_url_without_gitlab(self, monkeypatch):
+        monkeypatch.setattr(mod, "GITLAB_HOST", "")
+        monkeypatch.setattr(mod, "GITLAB_PROJECT", "")
+        urls = mod._build_search_urls("test.rule", "https://test.slack.com")
+        assert urls["mr"] == ""
+        assert urls["jira"] != ""
+
+
+class TestRenderViolationsMarkdownTableSlack:
+    def test_includes_slack_column_when_enabled(self):
+        results = [
+            {
+                "rule": "test.rule",
+                "display_components": "comp-v1",
+                "open_mr_label": "",
+                "open_jira_label": "",
+                "open_slack_label": "[#conforma](https://slack.com/p1)",
+                "next_steps": "resolve",
+            }
+        ]
+        summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
+        md = mod._render_violations_markdown_table(results, summary, include_slack=True)
+        assert "Slack" in md
+        assert "#conforma" in md
+
+    def test_excludes_slack_column_when_disabled(self):
+        results = [
+            {
+                "rule": "test.rule",
+                "display_components": "comp-v1",
+                "open_mr_label": "",
+                "open_jira_label": "",
+                "next_steps": "resolve",
+            }
+        ]
+        summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
+        md = mod._render_violations_markdown_table(results, summary, include_slack=False)
+        assert "Slack" not in md

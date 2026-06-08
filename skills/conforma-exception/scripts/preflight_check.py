@@ -35,6 +35,8 @@ import urllib.parse
 from pathlib import Path
 
 import gitlab_ops
+import jira_ops
+import slack_ops
 
 _SKILL_DIR = Path(__file__).resolve().parent.parent
 WORK_DIR = _SKILL_DIR / ".work"
@@ -266,12 +268,14 @@ def search_open_exception_mrs(rule: str) -> list[dict]:
         if iid in seen_iids:
             continue
         seen_iids.add(iid)
+        author_val = mr.get("author")
+        author_name = author_val.get("username", "") if isinstance(author_val, dict) else str(author_val or "")
         results.append(
             {
                 "iid": iid,
                 "title": mr.get("title", ""),
                 "url": mr.get("web_url", ""),
-                "author": mr.get("author", {}).get("username", ""),
+                "author": author_name,
                 "created_at": mr.get("created_at", ""),
                 "description": mr.get("description", ""),
             }
@@ -479,6 +483,63 @@ def prefetch_open_jira_tickets(rules: list[str]) -> dict[str, list[dict]]:
                     break
 
     return rule_to_tickets
+
+
+def prefetch_open_slack_threads(rules: list[str]) -> dict[str, list[dict]]:
+    """Search Slack for messages mentioning each violation rule (last 30 days).
+
+    Per-rule search with suffix fallback (same pattern as MR search).
+    Results are grouped by thread.  Returns ``rule -> list[thread_match]``.
+    """
+    rule_to_threads: dict[str, list[dict]] = {r: [] for r in rules}
+
+    for rule in rules:
+        seen: set[tuple[str, str]] = set()
+        results = slack_ops.search_messages(query=rule, after_days=30)
+
+        if ":" in rule:
+            suffix = rule.rsplit(":", 1)[1]
+            if suffix and suffix != rule:
+                results.extend(slack_ops.search_messages(query=suffix, after_days=30))
+
+        for match in results:
+            key = (match.get("channel_id", ""), match.get("thread_ts", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            rule_to_threads[rule].append(match)
+
+    return rule_to_threads
+
+
+def _build_search_urls(
+    rule: str,
+    slack_team_url: str,
+) -> dict[str, str]:
+    """Build clickable search URLs for each data source."""
+    encoded_rule = urllib.parse.quote(rule)
+
+    mr_search_url = ""
+    if GITLAB_HOST and GITLAB_PROJECT:
+        mr_search_url = f"https://{GITLAB_HOST}/{GITLAB_PROJECT}/-/merge_requests?state=opened&search={encoded_rule}"
+
+    jql = (
+        f"project in (RHOAIENG, PSX, OCPEXCEPT) "
+        f"AND labels = 'conforma-violation' "
+        f"AND status not in (Closed, Resolved, Done) "
+        f"AND summary ~ '{rule}'"
+    )
+    jira_search_url = f"https://redhat.atlassian.net/issues/?jql={urllib.parse.quote(jql)}"
+
+    slack_search_url = ""
+    if slack_team_url:
+        slack_search_url = f"{slack_team_url}/search/{encoded_rule}"
+
+    return {
+        "mr": mr_search_url,
+        "jira": jira_search_url,
+        "slack": slack_search_url,
+    }
 
 
 def _parse_acli_table(stdout: str) -> list[dict]:
@@ -1344,6 +1405,8 @@ def check_violations_coverage(
     violations_yaml_path: str,
     clone_dir: str | None = None,
     environment: str = "prod",
+    require_jira: bool = True,
+    require_slack: bool = True,
 ) -> dict:
     """Batch coverage check: read a violations YAML and check each violation's components
     against existing exceptions in the policy file.
@@ -1369,7 +1432,22 @@ def check_violations_coverage(
     prefetched_mrs = prefetch_open_mrs(all_rules)
 
     # Prefetch all open Jira tickets (RHOAIENG, PSX, OCPEXCEPT) in one batch
-    prefetched_jira = prefetch_open_jira_tickets(all_rules)
+    if require_jira:
+        jira_auth = jira_ops.verify_auth()
+        if not jira_auth["ok"]:
+            return {"error": f"Jira auth failed: {jira_auth['error']}"}
+    prefetched_jira = prefetch_open_jira_tickets(all_rules) if require_jira else {}
+
+    # Prefetch Slack threads (per-rule search, last 30 days)
+    slack_team_url = ""
+    if require_slack:
+        slack_auth = slack_ops.verify_auth()
+        if not slack_auth["ok"]:
+            return {"error": f"Slack auth failed: {slack_auth['error']}"}
+        slack_team_url = slack_auth.get("team_url", "")
+        prefetched_slack = prefetch_open_slack_threads(all_rules)
+    else:
+        prefetched_slack = {}
 
     results = []
     for rule, info in sorted(by_rule.items()):
@@ -1443,6 +1521,33 @@ def check_violations_coverage(
                 labels.append(f"[{t['key']}]({t['url']}) ({t['status']})")
             jira_label = ", ".join(labels)
 
+        slack_threads = prefetched_slack.get(rule, [])
+        slack_label = ""
+        if slack_threads:
+            labels = []
+            for t in slack_threads:
+                reply_info = f", {t['thread_reply_count']} replies" if t.get("thread_reply_count") else ""
+                labels.append(f"[#{t['channel']}]({t['permalink']}) ({t['date']}{reply_info})")
+            slack_label = ", ".join(labels)
+
+        search_urls = _build_search_urls(rule, slack_team_url)
+        if search_urls["mr"]:
+            mr_label = (
+                (mr_label + f" ([search]({search_urls['mr']}))") if mr_label else f"[search]({search_urls['mr']})"
+            )
+        if search_urls["jira"]:
+            jira_label = (
+                (jira_label + f" ([search]({search_urls['jira']}))")
+                if jira_label
+                else f"[search]({search_urls['jira']})"
+            )
+        if search_urls["slack"]:
+            slack_label = (
+                (slack_label + f" ([search]({search_urls['slack']}))")
+                if slack_label
+                else f"[search]({search_urls['slack']})"
+            )
+
         if jira_tickets and matched_mr:
             rhoaieng = [t for t in jira_tickets if t["key"].startswith("RHOAIENG-")]
             psx = [t for t in jira_tickets if t["key"].startswith(("PSX-", "OCPEXCEPT-"))]
@@ -1483,26 +1588,31 @@ def check_violations_coverage(
         else:
             display_components = ", ".join(uncovered[:3]) + f" ... +{len(uncovered) - 3} more"
 
-        results.append(
-            {
-                "rule": rule,
-                "title": info.get("title", ""),
-                "total_components": len(all_components),
-                "covered_components": covered,
-                "uncovered_components": uncovered,
-                "covered_count": len(covered),
-                "uncovered_count": len(uncovered),
-                "display_components": display_components,
-                "open_merge_requests": open_mrs,
-                "open_mr_label": mr_label,
-                "open_jira_tickets": jira_tickets,
-                "open_jira_label": jira_label,
-                "next_steps": next_steps,
-                "coverage": coverage,
-                "coverage_label": coverage_label,
-                "status": gate["status"],
-            }
-        )
+        entry = {
+            "rule": rule,
+            "title": info.get("title", ""),
+            "total_components": len(all_components),
+            "covered_components": covered,
+            "uncovered_components": uncovered,
+            "covered_count": len(covered),
+            "uncovered_count": len(uncovered),
+            "display_components": display_components,
+            "open_merge_requests": open_mrs,
+            "open_mr_label": mr_label,
+            "open_mr_search_url": search_urls["mr"],
+            "open_jira_tickets": jira_tickets,
+            "open_jira_label": jira_label,
+            "open_jira_search_url": search_urls["jira"],
+            "next_steps": next_steps,
+            "coverage": coverage,
+            "coverage_label": coverage_label,
+            "status": gate["status"],
+        }
+        if require_slack:
+            entry["open_slack_threads"] = slack_threads
+            entry["open_slack_label"] = slack_label
+            entry["open_slack_search_url"] = search_urls["slack"]
+        results.append(entry)
 
     summary = {
         "fully_covered": sum(1 for r in results if r["coverage"] == "fully_covered"),
@@ -1511,7 +1621,7 @@ def check_violations_coverage(
         "total_violations": len(results),
     }
 
-    md_table = _render_violations_markdown_table(results, summary)
+    md_table = _render_violations_markdown_table(results, summary, include_slack=require_slack)
 
     return {
         "violations_source": violations_yaml_path,
@@ -1522,10 +1632,10 @@ def check_violations_coverage(
     }
 
 
-def _render_violations_markdown_table(results: list[dict], summary: dict) -> str:
+def _render_violations_markdown_table(results: list[dict], summary: dict, include_slack: bool = False) -> str:
     """Pre-render a markdown table from violations coverage results.
 
-    Columns: #, Rule, Components, Open MRs, Open Jira, Next Steps.
+    Columns: #, Rule, Components, Open MRs, Open Jira, [Slack,] Next Steps.
     No Coverage column — next_steps is the single source of guidance.
     """
     lines = [
@@ -1534,16 +1644,25 @@ def _render_violations_markdown_table(results: list[dict], summary: dict) -> str
         f"{summary['partially_covered']} partially covered, "
         f"{summary['not_covered']} not covered.",
         "",
-        "| # | Rule | Components | Open MRs | Open Jira | Next Steps |",
-        "|---|------|-----------|----------|-----------|------------|",
     ]
+    if include_slack:
+        lines.append("| # | Rule | Components | Open MRs | Open Jira | Slack | Next Steps |")
+        lines.append("|---|------|-----------|----------|-----------|-------|------------|")
+    else:
+        lines.append("| # | Rule | Components | Open MRs | Open Jira | Next Steps |")
+        lines.append("|---|------|-----------|----------|-----------|------------|")
+
     for i, v in enumerate(results, 1):
         rule = f"`{v['rule']}`"
         comps = v["display_components"]
         mr = v["open_mr_label"] or "—"
         jira = v["open_jira_label"] or "—"
         ns = v["next_steps"]
-        lines.append(f"| {i} | {rule} | {comps} | {mr} | {jira} | {ns} |")
+        if include_slack:
+            slack = v.get("open_slack_label") or "—"
+            lines.append(f"| {i} | {rule} | {comps} | {mr} | {jira} | {slack} | {ns} |")
+        else:
+            lines.append(f"| {i} | {rule} | {comps} | {mr} | {jira} | {ns} |")
 
     return "\n".join(lines)
 
@@ -1917,6 +2036,18 @@ def parse_args() -> argparse.Namespace:
         choices=["prod", "stage"],
         help="Target environment (filters decision to relevant policy files)",
     )
+    parser.add_argument(
+        "--require-jira",
+        default="true",
+        choices=["true", "false"],
+        help="Require Jira auth for open ticket cross-reference (default: true)",
+    )
+    parser.add_argument(
+        "--require-slack",
+        default="true",
+        choices=["true", "false"],
+        help="Require Slack auth and include Slack column in coverage check (default: true)",
+    )
     args = parser.parse_args()
 
     if args.check_existing_exception:
@@ -1942,6 +2073,8 @@ def main() -> int:
             violations_yaml_path=args.check_violations_coverage,
             clone_dir=args.clone_dir,
             environment=args.environment,
+            require_jira=(args.require_jira == "true"),
+            require_slack=(args.require_slack == "true"),
         )
         print(json.dumps(result, indent=2))
         return 1 if "error" in result else 0
