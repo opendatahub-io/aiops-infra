@@ -4,8 +4,9 @@ Adds the pull-request Tekton PipelineRun definition for a new RHOAI component to
 `rhoai-konflux-central`. Unlike the push pipeline (which is version-branch specific),
 this PR always targets `main`.
 
-**Applies to:** RHOAI only  
-**Pipeline step:** 4 (pull-request pipeline)
+**Applies to:** RHOAI only
+**Pipeline step:** 5b (pull-request pipeline)
+**Blocked by:** `onboard-component-to-konflux-release-data` (krd) must merge.
 
 ## Repository touched
 

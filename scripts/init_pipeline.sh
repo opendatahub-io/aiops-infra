@@ -55,11 +55,31 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     OKC_LABEL_DONE="rkc-pr-merged"
   fi
 
-  # delivery_repo must merge before krd for RHOAI; no dependency for ODH
-  KRD_DEPENDS_ON="[]"
+  # krd depends on quay (both); also delivery_repo for RHOAI
+  KRD_DEPENDS_ON='["quay"]'
   if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
-    KRD_DEPENDS_ON='["delivery_repo"]'
+    KRD_DEPENDS_ON='["quay", "delivery_repo"]'
   fi
+
+  # okc depends on krd for RHOAI; no dependency for ODH
+  OKC_DEPENDS_ON="[]"
+  if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+    OKC_DEPENDS_ON='["krd"]'
+  fi
+
+  # pull_pipelines depends on krd (RHOAI-only step, so no conditional needed)
+  PULL_PIPELINES_DEPENDS_ON='["krd"]'
+
+  # bundle depends on onboarder_workflow (ODH) or okc (RHOAI)
+  BUNDLE_DEPENDS_ON="[]"
+  if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
+    BUNDLE_DEPENDS_ON='["onboarder_workflow"]'
+  elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+    BUNDLE_DEPENDS_ON='["okc"]'
+  fi
+
+  # operator depends on bundle (both products)
+  OPERATOR_DEPENDS_ON='["bundle"]'
 
   SKIP_RHOAI_ONLY="pending"
   SKIP_ODH_ONLY="pending"
@@ -103,28 +123,28 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     "okc": {
       "status": "pending",
       "pr_url": "",
-      "depends_on": [],
+      "depends_on": ${OKC_DEPENDS_ON},
       "label_raised": "${OKC_LABEL_RAISED}",
       "label_done": "${OKC_LABEL_DONE}"
     },
     "pull_pipelines": {
       "status": "${SKIP_RHOAI_ONLY}",
       "pr_url": "",
-      "depends_on": [],
+      "depends_on": ${PULL_PIPELINES_DEPENDS_ON},
       "label_raised": "rkc-pull-pr-raised",
       "label_done": "rkc-pull-changes-done"
     },
     "operator": {
       "status": "${OP_STATUS}",
       "pr_url": "",
-      "depends_on": [],
+      "depends_on": ${OPERATOR_DEPENDS_ON},
       "label_raised": "operator-pr-raised",
       "label_done": "operator-pr-merged"
     },
     "bundle": {
       "status": "pending",
       "pr_url": "",
-      "depends_on": [],
+      "depends_on": ${BUNDLE_DEPENDS_ON},
       "label_raised": "bundle-pr-raised",
       "label_done": "bundle-changes-done"
     },
@@ -204,9 +224,10 @@ else
     fi
   fi
 
-  # Fix krd depends_on for RHOAI: delivery_repo must merge before krd starts.
-  # Old state files have depends_on: [] for krd — patch them on resume.
+  # Backward-compat: patch depends_on arrays for old state files.
   CURRENT_PC=$(jq -r '.product_context // ""' "$PIPELINE_STATE")
+
+  # krd: add "delivery_repo" if missing (RHOAI only)
   if [[ "$CURRENT_PC" == "RHOAI" ]]; then
     if ! jq -e '.steps.krd.depends_on | index("delivery_repo") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
       TMP=$(mktemp)
@@ -214,6 +235,59 @@ else
         "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
       echo "  krd.depends_on: added delivery_repo (RHOAI prerequisite)" >&2
     fi
+  fi
+
+  # krd: add "quay" if missing (both products)
+  if ! jq -e '.steps.krd.depends_on | index("quay") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+    TMP=$(mktemp)
+    jq '.steps.krd.depends_on = ((.steps.krd.depends_on // []) + ["quay"] | unique)' \
+      "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+    echo "  krd.depends_on: added quay (prerequisite)" >&2
+  fi
+
+  # okc: add "krd" if missing (RHOAI only)
+  if [[ "$CURRENT_PC" == "RHOAI" ]]; then
+    if ! jq -e '.steps.okc.depends_on | index("krd") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      TMP=$(mktemp)
+      jq '.steps.okc.depends_on = ((.steps.okc.depends_on // []) + ["krd"] | unique)' \
+        "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  okc.depends_on: added krd (RHOAI prerequisite)" >&2
+    fi
+  fi
+
+  # pull_pipelines: add "krd" if missing (RHOAI only — step is skipped for ODH)
+  if [[ "$CURRENT_PC" == "RHOAI" ]]; then
+    if ! jq -e '.steps.pull_pipelines.depends_on | index("krd") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      TMP=$(mktemp)
+      jq '.steps.pull_pipelines.depends_on = ((.steps.pull_pipelines.depends_on // []) + ["krd"] | unique)' \
+        "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  pull_pipelines.depends_on: added krd (prerequisite)" >&2
+    fi
+  fi
+
+  # bundle: add "onboarder_workflow" (ODH) or "okc" (RHOAI) if missing
+  if [[ "$CURRENT_PC" == "ODH" ]]; then
+    if ! jq -e '.steps.bundle.depends_on | index("onboarder_workflow") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      TMP=$(mktemp)
+      jq '.steps.bundle.depends_on = ((.steps.bundle.depends_on // []) + ["onboarder_workflow"] | unique)' \
+        "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  bundle.depends_on: added onboarder_workflow (ODH prerequisite)" >&2
+    fi
+  elif [[ "$CURRENT_PC" == "RHOAI" ]]; then
+    if ! jq -e '.steps.bundle.depends_on | index("okc") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      TMP=$(mktemp)
+      jq '.steps.bundle.depends_on = ((.steps.bundle.depends_on // []) + ["okc"] | unique)' \
+        "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  bundle.depends_on: added okc (RHOAI prerequisite)" >&2
+    fi
+  fi
+
+  # operator: add "bundle" if missing (both products)
+  if ! jq -e '.steps.operator.depends_on | index("bundle") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+    TMP=$(mktemp)
+    jq '.steps.operator.depends_on = ((.steps.operator.depends_on // []) + ["bundle"] | unique)' \
+      "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+    echo "  operator.depends_on: added bundle (prerequisite)" >&2
   fi
 fi
 

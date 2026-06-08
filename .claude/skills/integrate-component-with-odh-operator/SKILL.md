@@ -170,6 +170,24 @@ ERROR in Step 3d: Could not resolve operator URL. See details above.
 **`ODH_OPERATOR_URL` and `ODH_OPERATOR_PATH` are now fixed for the remainder of the skill.
 Never hardcode a URL — always use `$ODH_OPERATOR_URL` and `$ODH_OPERATOR_PATH`.**
 
+**3e. Resolve `OPERATOR_TARGET_BRANCH`:**
+
+Set the target branch for cloning and raising PRs based on product context:
+- **ODH** — targets `main`
+- **RHOAI** — targets `$REPO_BRANCH` (the component's branch from the onboarding YAML, e.g. `rhoai-2.20`)
+
+```bash
+if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+  OPERATOR_TARGET_BRANCH="$REPO_BRANCH"
+else
+  OPERATOR_TARGET_BRANCH="main"
+fi
+echo "OPERATOR_TARGET_BRANCH: $OPERATOR_TARGET_BRANCH"
+```
+
+**`OPERATOR_TARGET_BRANCH` is now fixed for the remainder of the skill.** Use it wherever
+the target branch is needed (clone, API checks, PR destination). Never hardcode `main`.
+
 ---
 
 ## Step 4: Check is_operator Gate
@@ -215,7 +233,7 @@ is_operator=true. Proceeding with odh-operator integration.
 ## Step 5: Check If Component Already Exists in manifests-config.yaml
 
 Before cloning the repo, check whether `$COMPONENT_NAME` already has an entry in the
-`map:` object of `build/manifests-config.yaml` on the **`main` branch** of `$ODH_OPERATOR_URL`.
+`map:` object of `build/manifests-config.yaml` on the **`$OPERATOR_TARGET_BRANCH` branch** of `$ODH_OPERATOR_URL`.
 
 > **Reminder:** Use `$ODH_OPERATOR_PATH` (derived from `$ODH_OPERATOR_URL` in Step 3d) for
 > the GitHub API URL. Do NOT substitute the hardcoded upstream path.
@@ -227,14 +245,14 @@ MANIFESTS_TMPFILE=$(mktemp)
 HTTP_STATUS=$(curl -s -w "%{http_code}" \
   -H "Authorization: token $GITHUB_TOKEN" \
   -H "Accept: application/vnd.github.v3.raw" \
-  "https://api.github.com/repos/${ODH_OPERATOR_PATH}/contents/build/manifests-config.yaml?ref=main" \
+  "https://api.github.com/repos/${ODH_OPERATOR_PATH}/contents/build/manifests-config.yaml?ref=${OPERATOR_TARGET_BRANCH}" \
   -o "$MANIFESTS_TMPFILE")
 ```
 
 **If `HTTP_STATUS` is not `200`:**
 - `404` — file not found in the repo. Warn and continue to Step 6:
   ```
-  WARN in Step 5: build/manifests-config.yaml not found on main branch (HTTP 404).
+  WARN in Step 5: build/manifests-config.yaml not found on $OPERATOR_TARGET_BRANCH branch (HTTP 404).
     Verify ODH_OPERATOR_URL points to the correct repo. Continuing.
   ```
 - Any other non-200 — GitHub API error. Warn and continue to Step 6:
@@ -262,14 +280,14 @@ If `ENTRY_EXISTS=true`:
 ```bash
 uv run --script scripts/update_jira_issue.py <jira-url> \
   --add-label "odh-operator-pr-raised" \
-  --comment "'$COMPONENT_NAME' is already present in build/manifests-config.yaml on the main branch of ${ODH_OPERATOR_PATH}.
+  --comment "'$COMPONENT_NAME' is already present in build/manifests-config.yaml on the ${OPERATOR_TARGET_BRANCH} branch of ${ODH_OPERATOR_PATH}.
 
 No changes are needed. The odh-operator integration for this component is already complete."
 ```
 
 Print:
 ```
-$COMPONENT_NAME already exists in build/manifests-config.yaml (main branch).
+$COMPONENT_NAME already exists in build/manifests-config.yaml ($OPERATOR_TARGET_BRANCH branch).
 Jira updated with label 'odh-operator-pr-raised'. No action needed.
 ```
 
@@ -295,7 +313,7 @@ cd "$WORKDIR"
 
 PLAYPEN_OUTPUT=$(bash scripts/setup_github_playpen.sh \
   --src-url "$ODH_OPERATOR_URL" \
-  --src-branch main \
+  --src-branch "$OPERATOR_TARGET_BRANCH" \
   --dest-branch "<jira-id>" \
   --sparse-files "build")
 ```
@@ -391,7 +409,7 @@ PR_URL=$(uv run --script scripts/raise_github_pr.py \
   --src-url "$ODH_OPERATOR_URL" \
   --src-branch "$DEST_BRANCH" \
   --dest-url "$ODH_OPERATOR_URL" \
-  --dest-branch main \
+  --dest-branch "$OPERATOR_TARGET_BRANCH" \
   --title "Add $COMPONENT_NAME to manifests-config.yaml" \
   --description "Adds '$COMPONENT_NAME' to the operator manifests config map.
 

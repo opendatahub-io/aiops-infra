@@ -3,8 +3,9 @@
 Creates a Quay.io repository for the component via a GitOps merge request to
 `app-interface`. The repository is provisioned automatically when the MR merges.
 
-**Applies to:** ODH and RHOAI  
-**Pipeline step:** 1 (both)
+**Applies to:** ODH and RHOAI
+**Pipeline step:** 1 (ODH) / 1 (RHOAI)
+**Blocked by:** — (no dependencies, runs in the first batch)
 
 ## Repository touched
 

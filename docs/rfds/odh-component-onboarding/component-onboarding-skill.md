@@ -43,11 +43,19 @@ flowchart TD
 
         Fetch -->|"one child pipeline per issue"| ChildPipeline
         ChildPipeline --> Wrapper
-        Wrapper --> S1 --> S2
+        Wrapper --> S1
+        Wrapper --> S2
         S2 --> S4
-        S2 --> S3RHOAI --> S4
-        S4 --> S5ODH --> S6 --> S7 --> S8
-        S4 --> S5RHOAI --> S5b --> S7 --> S8 --> S9 --> S10 --> S11
+        S3RHOAI --> S4
+        S4 --> S5ODH
+        S4 --> S5RHOAI
+        S4 --> S5b
+        S5ODH --> S6
+        S6 --> S8
+        S5RHOAI --> S8
+        S8 --> S7
+        S3RHOAI --> S9
+        S9 --> S10 --> S11
         Wrapper <-->|"Read / Write"| State
     end
 
@@ -205,12 +213,12 @@ If no issues match, a no-op child pipeline is emitted and the run exits cleanly.
 | 1 | `validate-component-onboarding-jira` | Fetch YAML from Jira; validate against schema; set Jira → "In Progress" | — | Both | Blocks on schema failure |
 | 2 | `create-quay-repo` | Raise GitLab MR to `app-interface` to create Quay repository | `gitlab.cee.redhat.com` | Both | MR review + merge |
 | 3 | `create-rhoai-delivery-repo` | Raise GitLab MR to `pyxis-repo-configs` to provision the RHOAI delivery repository; **must merge before Step 4 is unblocked for RHOAI** | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
-| 4 | `onboard-component-to-konflux-release-data` | Render Konflux Component YAML; raise GitLab MR to `konflux-release-data`; run `build-single.sh`. For RHOAI: `depends_on delivery_repo` | `gitlab.cee.redhat.com` | Both | MR review + merge |
-| 5 | `add-component-to-odh-konflux-central` / `add-component-to-rhoai-konflux-central` | Add push-pipeline Tekton PipelineRun YAMLs; raise GitHub PR to the product-specific konflux-central repo | `odh-konflux-central` / `rhoai-konflux-central` | Both (product-specific skill) | PR review + merge |
-| 5b | `create-pull-pipelines-in-rhoai-konflux-central` | Add pull-request Tekton PipelineRun YAMLs; raise GitHub PR to `rhoai-konflux-central` | `rhoai-konflux-central` | RHOAI only | PR review + merge |
+| 4 | `onboard-component-to-konflux-release-data` | Render Konflux Component YAML; raise GitLab MR to `konflux-release-data`; run `build-single.sh`. `depends_on quay` (both); for RHOAI also `depends_on delivery_repo` | `gitlab.cee.redhat.com` | Both | MR review + merge |
+| 5 | `add-component-to-odh-konflux-central` / `add-component-to-rhoai-konflux-central` | Add push-pipeline Tekton PipelineRun YAMLs; raise GitHub PR to the product-specific konflux-central repo. For RHOAI: `depends_on krd` | `odh-konflux-central` / `rhoai-konflux-central` | Both (product-specific skill) | PR review + merge |
+| 5b | `create-pull-pipelines-in-rhoai-konflux-central` | Add pull-request Tekton PipelineRun YAMLs; raise GitHub PR to `rhoai-konflux-central`. `depends_on krd` | `rhoai-konflux-central` | RHOAI only | PR review + merge |
 | 6 | `run-odh-konflux-onboarder-workflow` | *(Deferred, ODH only)* Once **both** Steps 4 and 5 are merged, triggers `odh-konflux-onboarder.yml` and monitors the resulting Tekton PR | `odh-konflux-central` | ODH only | Tekton PR review + merge |
-| 7 | `integrate-component-with-odh-operator` | Skipped if `is_operator=false`. Raise GitHub PR to add manifest config to `opendatahub-operator` | `opendatahub-operator` | Both | PR review + merge |
-| 8 | `integrate-component-with-bundle` | Fetch latest image digest from Quay; add `relatedImages` entry to `bundle-patch.yaml`; raise GitHub PR | `ODH-Build-Config` | Both | PR review + merge |
+| 7 | `integrate-component-with-bundle` | Add `relatedImages` entry to `bundle-patch.yaml`; raise GitHub PR. ODH: `depends_on onboarder_workflow`; RHOAI: `depends_on okc` | `ODH-Build-Config` | Both | PR review + merge |
+| 8 | `integrate-component-with-odh-operator` | Skipped if `is_operator=false`. Raise GitHub PR to add manifest config to `opendatahub-operator`. `depends_on bundle` | `opendatahub-operator` | Both | PR review + merge |
 | 9 | `update-rhoai-product-listing` | Raise GitLab MR to `pyxis-repo-configs` to add the component to the RHOAI product listing; runs after Step 3 (`delivery_repo`) merges | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
 | 10 | `setup-auto-merge` | Raise GitHub PR to `rhods-devops-infra` to configure auto-merge for the component repo | `rhods-devops-infra` | RHOAI only | PR review + merge |
 | 11 | `enable-renovate-on-rhoai-component-repo` | Raise GitHub PR to `rhoai-konflux-central` to enable Renovate; on merge, trigger deferred `sync-rhoai-renovate-configs` workflow | `rhoai-konflux-central` | RHOAI only | PR review + merge |
@@ -306,4 +314,4 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 **Cons**
 - **2-hour lag** — progress only advances on the CI schedule; a just-merged PR won't unblock the next step until the next run.
 - **CI runner network dependency** — the runner must reach `gitlab.cee.redhat.com`; network issues stall all active tickets until the next run.
-- **RHOAI delivery repo is a hard gate** — for RHOAI, `krd` (Step 4) is blocked until the `delivery_repo` MR (Step 3) merges, adding one extra review cycle before Konflux onboarding begins.
+- **Sequential dependency chain** — the chain `quay → krd → okc/onboarder → bundle → operator` means a minimum of 5 CI runs (~10 hours wall time) for both ODH and RHOAI to complete all steps. For RHOAI, `krd` is additionally blocked on `delivery_repo`, and `okc` is blocked on `krd`.

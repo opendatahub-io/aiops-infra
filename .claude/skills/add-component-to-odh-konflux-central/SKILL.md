@@ -1,5 +1,5 @@
 ---
-name: update-component-using-odh-konflux-central
+name: add-component-to-odh-konflux-central
 description: Onboards a new ODH component onto the Konflux CI platform by adding PipelineRun YAMLs and updating the onboarder workflow in the odh-konflux-central GitHub repository and raising a pull request. Automates Step 4 of the ODH component onboarding pipeline.
 allowed-tools: Bash
 user-invocable: true

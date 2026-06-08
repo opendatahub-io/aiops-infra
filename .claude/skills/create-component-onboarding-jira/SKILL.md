@@ -214,6 +214,24 @@ _Execute only when `product_context == RHOAI`. Skip entirely for ODH._
 → Store in `repo_url`.
   Validate: must match `^https://github\.com/.+/.+$`. Re-ask if invalid.
 
+**Q4-check — Verify repository exists (always)**
+
+After storing `repo_url`, verify the repository is publicly accessible before continuing:
+
+```bash
+REPO_HTTP_STATUS=$(curl -sL -o /dev/null -w "%{http_code}" "$repo_url" 2>/dev/null)
+```
+
+**If `REPO_HTTP_STATUS` is not `200`**: stop with a blocking error:
+```
+ERROR: The repository $repo_url could not be reached (HTTP $REPO_HTTP_STATUS).
+The GitHub repository must exist and be publicly accessible before onboarding can proceed.
+Please ensure the repository has been created, then re-run this skill.
+Aborting.
+```
+
+**If `REPO_HTTP_STATUS` is `200`**: print `Repository found: $repo_url` and continue.
+
 **Q4.5 — Component descriptions (RHOAI only)**
 
 _Execute only when `product_context == RHOAI`. Skip entirely for ODH._
@@ -650,6 +668,7 @@ If `TEMPLATE_ID` was not used (i.e. the user provided a Jira URL directly), omit
 | `uv` not installed | 0 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | `jq` not installed | 2 | `brew install jq` or `sudo dnf install jq` |
 | Jira fetch fails (401/403/404) | 2 | Check credentials and issue key |
+| Repository not found / not accessible (non-200 HTTP) | Q4-check | Create the GitHub repository first, then re-run |
 | YAML generation fails | 5 | Check arguments; see stderr from `generate_onboarding_yaml.py` |
 | YAML validation fails | 6 | Correct the inputs and re-generate |
 | Dockerfile digest violations found | 6b | Pin all FROM images with @sha256 digests, then re-run |

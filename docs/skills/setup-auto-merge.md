@@ -3,8 +3,9 @@
 Configures automated upstream→downstream merge for the new RHOAI component by adding
 it to the auto-merge configuration in `rhods-devops-infra`.
 
-**Applies to:** RHOAI only  
-**Pipeline step:** 8
+**Applies to:** RHOAI only
+**Pipeline step:** 4
+**Blocked by:** — (no dependencies, runs in the first batch)
 
 ## Repository touched
 

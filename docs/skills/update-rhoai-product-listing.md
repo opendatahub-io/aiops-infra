@@ -3,9 +3,9 @@
 Adds the new component's container registry path to the RHOAI product listing in
 `pyxis-repo-configs`. This makes the component visible in the Red Hat container catalog.
 
-**Applies to:** RHOAI only  
-**Pipeline step:** 7  
-**Runs after:** `create-rhoai-delivery-repo` MR has merged.
+**Applies to:** RHOAI only
+**Pipeline step:** 6
+**Blocked by:** `create-rhoai-delivery-repo` MR must merge.
 
 ## Repository touched
 

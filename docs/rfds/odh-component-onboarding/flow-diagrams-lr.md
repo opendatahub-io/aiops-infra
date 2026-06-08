@@ -17,20 +17,18 @@ flowchart LR
     S3[Konflux Release Data]:::both
     S4[Konflux Central Build Pipelines]:::both
     S5[ODH Onboarder Workflow]:::odhOnly
+    S6[Update Bundle Config]:::both
     OP{Operator?}:::decide
-    S6[Update ODH Operator Config]:::cond
-    S7[Update Bundle Config]:::both
+    S7[Update ODH Operator Config]:::cond
     DONE([Jira to Review]):::done
 
     S1 --> S2 --> S3
-    S2 --> S4
+    S1 --> S4
     S3 --> S5
     S4 --> S5
-    S5 --> OP
-    OP -->|Yes| S6
-    S6 --> S7
-    OP -->|No| S7
-    S7 --> DONE
+    S5 --> S6 --> OP
+    OP -->|Yes| S7 --> DONE
+    OP -->|No| DONE
 ```
 
 | 🟢 Green | Both ODH & RHOAI | 🔵 Blue | ODH only | ⬜ Grey dashed | Conditional |
@@ -51,10 +49,10 @@ flowchart LR
     S2[Create Quay Repo]:::both
     S3[Konflux Release Data]:::both
     S4[Konflux Central Build Pipelines]:::both
-    S5[Add Dockerfile Labels]:::rhoai
+    S5[Pull Pipelines]:::rhoai
+    S6[Update Bundle Config]:::both
     OP{Operator?}:::decide
-    S6[Update ODH Operator Config]:::cond
-    S7[Add Bundle Config]:::both
+    S7[Update Operator Config]:::cond
     S8[Create Delivery Repo]:::rhoai
     S9[Update Product Listing]:::rhoai
     S10[Configure Auto Merge]:::rhoai
@@ -64,20 +62,18 @@ flowchart LR
 
     S1 --> S2
     S1 --> S8
+    S1 --> S10
+    S1 --> S11
+    S2 --> S3
     S8 --> S3
-    S1 --> S4
-    S1 --> S5
-    S2 --> OP
-    S4 --> OP
-    S3 --> OP
-    S5 --> OP
-    OP -->|Yes| S6
-    S6 --> S7
-    OP -->|No| S7
-    S7 --> S9
-    S7 --> S10
-    S7 --> S11
+    S8 --> S9
+    S3 --> S4
+    S3 --> S5
+    S4 --> S6 --> OP
+    OP -->|Yes| S7 --> DONE
+    OP -->|No| DONE
     S11 --> S12
+    S5 --> DONE
     S9 --> DONE
     S10 --> DONE
     S12 --> DONE

@@ -1,6 +1,6 @@
 ---
 name: validate-component-onboarding-jira
-description: Pre-flight validation tool for ODH component onboarding. Given a Jira issue URL, fetches issue details, downloads the component_onboarding_details.yaml attachment, and validates it against the JSON Schema. Use before invoking the full onboarding automation to confirm a ticket is correctly set up.
+description: Pre-flight validation tool for ODH component onboarding. Given a Jira issue URL, fetches issue details, downloads the component_onboarding_details.yaml attachment, and validates it against the JSON Schema. Use before invoking the full onboarding automation to confirm a ticket meets all schema requirements.
 allowed-tools: Bash
 user-invocable: true
 ---

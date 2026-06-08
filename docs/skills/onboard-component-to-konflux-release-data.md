@@ -4,8 +4,9 @@ Registers the component with the Konflux CI platform by appending Tekton `Compon
 custom resources to `konflux-release-data`. The component is provisioned on the cluster
 when the MR merges.
 
-**Applies to:** ODH and RHOAI (different files per product)  
-**Pipeline step:** 2 (ODH) / 3 (RHOAI)
+**Applies to:** ODH and RHOAI (different files per product)
+**Pipeline step:** 4 (both products)
+**Blocked by:** `create-quay-repo` must merge (both products); for RHOAI, `create-rhoai-delivery-repo` must also merge.
 
 ## Repository touched
 

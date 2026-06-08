@@ -5,6 +5,11 @@ allowed-tools: Bash
 user-invocable: true
 ---
 
+> **WARNING:** This skill is not designed to be invoked manually from user playpen
+> Only run `onboard-konflux-components-for-odh-and-rhoai` directly if you know what you are doing.
+
+> **Ask the user to confirm before proceeding.**
+
 # Onboard Konflux Components for ODH and RHOAI
 
 Orchestrates the complete component onboarding pipeline (idempotent re-run model):
@@ -12,11 +17,11 @@ Orchestrates the complete component onboarding pipeline (idempotent re-run model
 1. `validate-component-onboarding-jira` — fetch + validate Jira YAML
 2. `create-quay-repo` — GitLab MR to app-interface
 3. `create-rhoai-delivery-repo` — GitLab MR to pyxis-repo-configs **(RHOAI only; prerequisite of krd)**
-4. `onboard-component-to-konflux-release-data` — GitLab MR to konflux-release-data (after delivery-repo merges for RHOAI)
-5. `add-component-to-odh-konflux-central` **(ODH)** / `add-component-to-rhoai-konflux-central` + `create-pull-pipelines-in-rhoai-konflux-central` **(RHOAI)**
+4. `onboard-component-to-konflux-release-data` — GitLab MR to konflux-release-data **(after quay merges; also after delivery-repo for RHOAI)**
+5. `add-component-to-odh-konflux-central` **(ODH)** / `add-component-to-rhoai-konflux-central` + `create-pull-pipelines-in-rhoai-konflux-central` **(RHOAI; after krd merges)**
 6. `run-odh-konflux-onboarder-workflow` — triggered once krd+okc are both merged **(ODH only)**
-7. `integrate-component-with-odh-operator` — GitHub PR (if is_operator=true)
-8. `integrate-component-with-bundle` — GitHub PR to ODH-Build-Config
+7. `integrate-component-with-bundle` — GitHub PR **(ODH: after onboarder_workflow; RHOAI: after okc merges)**
+8. `integrate-component-with-odh-operator` — GitHub PR **(after bundle merges; if is_operator=true)**
 9. `update-rhoai-product-listing` — GitLab MR, triggered after delivery-repo merges **(RHOAI only)**
 10. `setup-auto-merge` — GitHub PR to rhods-devops-infra **(RHOAI only)**
 11. `enable-renovate-on-rhoai-component-repo` + deferred `sync-rhoai-renovate-configs` **(RHOAI only)**
@@ -278,8 +283,8 @@ adds label `delivery-repo-mr-merged`. Step 7 then unblocks `krd` on the next re-
 **Execute if** `krd` is in `UNBLOCKED_STEPS`.
 
 > **VPN must be active.**
-> **For RHOAI:** the `depends_on: ["delivery_repo"]` check in Step 7 ensures the delivery-repo MR is
-> merged before this step is unblocked. For ODH there is no such dependency.
+> **For both products:** `depends_on` includes `"quay"`, so the Quay MR must merge before krd is unblocked.
+> **For RHOAI:** `depends_on` also includes `"delivery_repo"`, so both quay and delivery-repo must merge first.
 
 Follow `onboard-component-to-konflux-release-data` through **Step 9** (Raise MR). Capture `$MR_URL`.
 Record: `steps.krd.mr_url = "$MR_URL"`, `status = "mr_raised"`.
@@ -290,6 +295,9 @@ If child exits because component already exists: set `status = "done"`, add labe
 ### Step 8d: add-component-to-*-konflux-central (step key: `okc`)
 
 **Execute if** `okc` is in `UNBLOCKED_STEPS`.
+
+> **For RHOAI:** `depends_on: ["krd"]` — the krd MR must merge before okc is unblocked.
+> For ODH, there is no dependency — okc runs in parallel with other early steps.
 
 **If `PRODUCT_CONTEXT == "ODH"`:** follow `add-component-to-odh-konflux-central` through PR raise.
 Record: `steps.okc.pr_url = "$PR_URL"`, `status = "pr_raised"`. Add label `okc-pr-raised`.
@@ -305,14 +313,28 @@ If child exits because PipelineRun already exists: set `status = "done"`.
 
 **Execute if** `pull_pipelines` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
 
+> `depends_on: ["krd"]` — the krd MR must merge before pull_pipelines is unblocked.
+
 Follow `create-pull-pipelines-in-rhoai-konflux-central` through **Step 10** (Raise PR). Capture `$PULL_PR_URL`.
 Record: `steps.pull_pipelines.pr_url = "$PULL_PR_URL"`, `status = "pr_raised"`. Add label `rkc-pull-pr-raised`.
 
 If PipelineRun already exists: set `status = "done"`.
 
-### Step 8f: integrate-component-with-odh-operator (step key: `operator`)
+### Step 8f: integrate-component-with-bundle (step key: `bundle`)
+
+**Execute if** `bundle` is in `UNBLOCKED_STEPS`.
+
+> **For ODH:** `depends_on: ["onboarder_workflow"]` — onboarder_workflow must complete before bundle.
+> **For RHOAI:** `depends_on: ["okc"]` — okc must merge before bundle is unblocked.
+
+Follow `integrate-component-with-bundle` through **Step 10** (Raise PR). Capture `$PR_URL`.
+Record: `steps.bundle.pr_url = "$PR_URL"`, `status = "pr_raised"`. Add label `bundle-pr-raised`.
+
+### Step 8g: integrate-component-with-odh-operator (step key: `operator`)
 
 **Execute if** `operator` is in `UNBLOCKED_STEPS`.
+
+> `depends_on: ["bundle"]` — the bundle PR must merge (or be marked done) before operator is unblocked.
 
 > **CRITICAL**: The operator repo URL **must** be resolved by `resolve_operator_url.sh`
 > in the child skill's Step 3d. If `ODH_OPERATOR_REPO_URL` is set in the environment,
@@ -325,13 +347,6 @@ If `IS_OPERATOR == true`: follow through to Step 9 (Raise PR). Capture `$PR_URL`
 Record: `steps.operator.pr_url = "$PR_URL"`, `status = "pr_raised"`. Add label `operator-pr-raised`.
 
 **Pass `--existing-pr-url`** if `steps.operator.pr_url` is already set — child will skip straight to returning the URL.
-
-### Step 8g: integrate-component-with-bundle (step key: `bundle`)
-
-**Execute if** `bundle` is in `UNBLOCKED_STEPS`.
-
-Follow `integrate-component-with-bundle` through **Step 10** (Raise PR). Capture `$PR_URL`.
-Record: `steps.bundle.pr_url = "$PR_URL"`, `status = "pr_raised"`. Add label `bundle-pr-raised`.
 
 ### Step 8h: update-rhoai-product-listing (step key: `product_listing`, RHOAI only)
 
