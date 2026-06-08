@@ -178,24 +178,102 @@ All created tickets receive the `conforma-exception-create-ai-skill` and `confor
 
 **Linking rules**: Only create Jira links between tickets that the script explicitly creates or that the user explicitly provides via `--link-to`, `--rhoaieng-url`, or `--psx-url`. Do NOT auto-infer or auto-create links to other tickets found in descriptions, comments, or conversation context. If a potential relationship is noticed, suggest it to the user and wait for confirmation before linking.
 
-**Before running**, gather the following from the user (ask early -- these are needed for PSX/OCPEXCEPT ticket creation). Present each item explicitly and wait for confirmation. Do NOT proceed until all items are confirmed.
+**Before running**, gather the following from the user using structured questionnaires. Present questions as **multiple-choice** selections (using AskQuestion tool in Cursor, or structured options in Claude Code) wherever possible. Do NOT present questions as plain text expecting free-form answers unless the answer genuinely requires free text input. Batch related questions together to minimize back-and-forth. Do NOT proceed until all items are confirmed.
 
-1. **Conforma rule confirmation**: The conforma rule/violation details MUST be present in the RHOAIENG Jira ticket. If they're not, ask the user to add them to the Jira first -- do NOT proceed without them. Once present, extract the rule and **show it back to the user** for confirmation. Signing key IDs can be truncated or confused between vendors -- always highlight discrepancies (e.g. same key used by multiple vendors). Example: "I see signing key `28da432daac8baea` in the Jira. Confirm the rule is `rpm_signature.allowed:28da432daac8baea`?"
-2. **RHOAIENG ticket type check**: If the user provides an existing `--rhoaieng-url`, verify its issue type. The exception process expects a **Blocker Bug** (cloned from RHOAIENG-62569). If the provided ticket is an Epic, Story, or other type, warn the user and ask whether to: (a) create a proper Blocker Bug and link to the existing ticket, or (b) use it as-is (non-standard). Record the decision.
-3. **Component name lookup and confirmation**: Look up Konflux componentNames from ReleasePlanAdmission files based on the container image name in the Jira. **Show the resolved names to the user** and ask for confirmation. Never use a container image name (e.g. `-rhel9`) in an MR without the user noticing and confirming the translation.
-4. **Vendor tag**: Ask what vendor/distinguisher tag to prepend to ticket titles (e.g. `AMD`, `Intel`, `FIPS`). Pass via `--vendor-tag`.
-5. **Tracking ticket**: Is there an existing tracking ticket (Feature, Epic, RHAISTRAT item, etc.) to link to? Pass via `--link-to`.
-6. **Related PSX (existing)**: Is there a pre-existing PSX ticket that should be linked as "Related" only (not used as the exception ticket itself)? Pass via `--related-psx`. When presenting this option, always include the ticket title alongside the key so the user can identify it (e.g. "PSX-1038: (Mellanox) request to extend exception for rpm signing key"). This creates a Jira "Related" link but still creates a new PSX ticket for the current exception.
-7. **Summary context**: A brief description of the exception for ticket titles (e.g. "long-standing Intel RPM signing key exception"). Pass via `--summary-context`.
-8. **Multi-version handling**: If multiple RHOAI versions are involved, ask whether to create one PSX/RHOAIENG ticket per version (the default, recommended) or a single consolidated ticket. Per-version is standard. Consolidation is only for cases with many versions+components that would create excessive tickets.
-9. **Authorized Party**: Who is the senior manager accepting the risk for this exception? This is required for the PSX workflow. Pass via `--authorized-party`. The Authorized Party must be a Senior Manager or above who can approve the acceptance of risk (see [Understanding Acceptance of Risk](https://redhat.atlassian.net/wiki/spaces/PRODSEC/pages/289208726/Understanding+Acceptance+of+Risk+as+an+Authorized+Party)). If the user is unsure, suggest they check with their management chain.
-10. **PSX template details** (needed to fill the PSRD Exception form after ticket creation):
-    - **Scope**: What specific components/images are affected? How many instances?
-    - **Risk acceptance**: What is the risk being accepted? Why is it acceptable?
-    - **Remediation plan**: How and when will the violation be permanently fixed?
-    - **Impact if denied**: What breaks if the exception is not approved?
+**Questionnaire presentation rules:**
+- Use the `AskQuestion` tool (Cursor) or equivalent structured prompts (Claude Code) for all questions that have a finite set of valid answers
+- Group questions into logical batches (e.g., batch 1: rule/ticket/version basics; batch 2: components; batch 3: PSX details)
+- For questions with known options, always present them as selectable choices (never ask the user to type "a" or "b")
+- For questions requiring free text (dates, names, URLs), present them as individual prompts with clear examples
+- After each batch, summarize confirmed answers before moving to the next batch
+- If a question's options depend on earlier answers (e.g., component names depend on version), resolve dependencies first then present options
+
+**Batch 1 — Rule and ticket basics:**
+
+1. **Conforma rule confirmation**: Extract the rule from the RHOAIENG Jira ticket and present as a confirmation choice. Example options:
+   - "Yes, the rule is `rpm_signature.allowed:8a3872bf3228467c`"
+   - "No, the rule is different (let me specify)"
+
+2. **RHOAIENG ticket type check**: If the ticket is not a Blocker Bug, present options:
+   - "Create a proper Blocker Bug and link to this Epic/Story"
+   - "Use this ticket as-is (non-standard)"
+
+3. **RHOAI versions**: Present all versions found in the ticket as multi-select. Example:
+   - [ ] rhoai-2.25
+   - [ ] rhoai-3.3
+   - [ ] rhoai-3.4
+   - [ ] rhoai-3.5-ea.1
+
+4. **Multi-version handling** (if multiple versions selected):
+   - "One PSX + RHOAIENG ticket per version (recommended, standard)"
+   - "Single consolidated ticket covering all versions"
+
+5. **Justification**:
+   - "1 — Violation not fixed in time before code-freeze, planned for next release"
+   - "2 — Can't be fixed in this release (already code-frozen/released)"
+
+**Batch 2 — Components and identifiers:**
+
+6. **Component name lookup and confirmation**: Look up Konflux componentNames from ReleasePlanAdmission files, then present the resolved names for confirmation. Example:
+   - "Confirm these are the correct Konflux component names for rhoai-3.3: `odh-vllm-cpu-v3-3`, `odh-vllm-gaudi-v3-3`"
+   - "Yes, correct"
+   - "No, let me specify different names"
+
+   Never use a container image name (e.g. `-rhel9`) in an MR without the user confirming the translation.
+
+7. **Vendor tag**: Present common options plus free text:
+   - "Fedora/EPEL"
+   - "AMD"
+   - "Intel"
+   - "Mellanox"
+   - "FIPS"
+   - "Other (let me specify)"
+   - "None / skip"
+
+8. **Tracking ticket**: Present options:
+   - "Yes, link to: [ticket key from Jira context if found]"
+   - "Yes, let me provide a ticket key"
+   - "No tracking ticket"
+
+9. **Related PSX (existing)**: Auto-discover by searching Jira: `project = PSX AND text ~ '<signing_key_or_rule>'`. If found, present the result(s) for confirmation:
+   - "Found PSX-XXXX: <title> [status]. Link as Related?"
+   - "Yes, link as Related"
+   - "No, skip"
+
+   If no results found, silently skip (do not ask the user). This removes a manual lookup step.
+
+10. **Summary context**: Free text prompt with example:
+    - Example: "long-standing Fedora/EPEL RPM signing key exception"
+
+**Batch 3 — Approval and PSX details:**
+
+11. **Authorized Party**: Free text prompt:
+    - "Who is the senior manager accepting risk? (e.g., Lindani Phiri, Jay Koehler)"
+
+12. **Effective-until date**: When multiple versions are involved, present per-version dates based on end-of-support/EUS deadlines. Always confirm with the user before using.
+
+    Default end-of-support dates (use as starting point, confirm with user):
+
+    | RHOAI Version | End of Support / EUS | Default effectiveUntil |
+    |---|---|---|
+    | rhoai-2.25 | 2027-04-19 | 2027-04-26 (+7 days) |
+    | rhoai-3.3 | 2026-09-28 | 2026-10-05 (+7 days) |
+    | rhoai-3.4 | 2026-08-05 | 2026-08-12 (+7 days) |
+    | rhoai-3.5-ea.1 | 2026-06-12 | 2026-06-19 (+7 days) |
+
+    The skill should ask/query: "What are the end-of-support / end-of-EUS dates for each release?" and present the known defaults for confirmation. Script adds +7 days buffer automatically, so the dates above already include that buffer.
+
+    Present as: "Confirm per-version effectiveUntil dates (end-of-support + 7 days buffer):" with each version as a confirmation item.
+
+13. **PSX template details** (needed to fill the PSRD Exception form after ticket creation). Present as individual prompts:
+    - **Scope**: "What specific components/images are affected? How many instances?"
+    - **Risk acceptance**: "What is the risk being accepted? Why is it acceptable?"
+    - **Remediation plan**: "How and when will the violation be permanently fixed?"
+    - **Impact if denied**: "What breaks if the exception is not approved?"
 
     These details MUST come from the user or be explicitly present in the RHOAIENG Jira. If not clearly available, ask the user -- do NOT fabricate or generalize.
+
+**After all batches**: Present a final summary of all confirmed values and ask for a single "Proceed" / "Edit something" confirmation before executing.
 
 ## Component Version Reconciliation
 
