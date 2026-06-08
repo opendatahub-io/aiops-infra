@@ -8,7 +8,7 @@ See [SKILL.md](SKILL.md) for full agent usage documentation.
 
 ## Additional prerequisites
 
-- **VPN access** to `gitlab.cee.redhat.com`
+- **VPN access** to the internal GitLab instance (`$GITLAB_HOST`)
 
 ### Container fallback (advanced)
 

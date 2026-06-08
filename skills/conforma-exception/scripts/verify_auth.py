@@ -37,8 +37,8 @@ from cli_runner import (
     save_token,
 )
 
-GITLAB_HOST = "gitlab.cee.redhat.com"
-GITLAB_PROJECT = "releng/konflux-release-data"
+GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
+GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
 
 
 def _ensure_jira_env() -> None:
@@ -204,7 +204,7 @@ def check_glab_available() -> dict:
 
 
 def check_glab_auth() -> dict:
-    """Check glab authentication for gitlab.cee.redhat.com."""
+    """Check glab authentication for the configured GITLAB_HOST."""
     try:
         result = run_glab(
             ["auth", "status", "--hostname", GITLAB_HOST],

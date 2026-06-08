@@ -19,6 +19,7 @@ from __future__ import annotations
 import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
 import argparse
+import os
 import re
 import shutil
 import sys
@@ -203,7 +204,9 @@ def _render_table(exceptions: list[dict]) -> str:
 # ── Report rendering ─────────────────────────────────────────────────
 
 
-_GITLAB_REPO_URL = "https://gitlab.cee.redhat.com/releng/konflux-release-data"
+_GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
+_GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
+_GITLAB_REPO_URL = f"https://{_GITLAB_HOST}/{_GITLAB_PROJECT}" if _GITLAB_HOST else ""
 
 
 def _policy_file_link(rel_path: str) -> str:

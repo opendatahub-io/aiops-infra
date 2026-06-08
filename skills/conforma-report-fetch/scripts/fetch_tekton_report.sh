@@ -12,9 +12,15 @@
 set -euo pipefail
 
 # 1. Global Configuration
-readonly NAMESPACE="rhoai-tenant"
+readonly NAMESPACE="${KONFLUX_NAMESPACE:?Set KONFLUX_NAMESPACE to the target Konflux namespace}"
 readonly STEP_NAME="step-detailed-report"
-readonly DOMAIN="tekton-results-tekton-results.apps.stone-prod-p02.hjvn.p1.openshiftapps.com"
+if [ -n "${TEKTON_RESULTS_DOMAIN:-}" ]; then
+  readonly DOMAIN="$TEKTON_RESULTS_DOMAIN"
+elif [ -n "${KRD_CLUSTER_DOMAIN:-}" ]; then
+  readonly DOMAIN="tekton-results-tekton-results.apps.${KRD_CLUSTER_DOMAIN}.openshiftapps.com"
+else
+  echo "❌ Error: Set TEKTON_RESULTS_DOMAIN or KRD_CLUSTER_DOMAIN." >&2; exit 1
+fi
 readonly API_BASE="https://$DOMAIN/apis/results.tekton.dev/v1alpha2"
 
 # 2. Handover IO Initialization

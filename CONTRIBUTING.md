@@ -221,8 +221,23 @@ After `pre-commit install`, every commit runs:
 2. **ruff format** — format Python files
 3. **pytest unit** — run unit tests
 4. **check-test-coverage** — verify test files exist for any new/modified scripts
+5. **check-no-internal-refs** — scan all tracked files for hardcoded internal hostnames
 
 To bypass hooks in emergencies: `git commit --no-verify` (use sparingly).
+
+### No Internal References Rule
+
+This is a **public** repository. Hardcoded internal hostnames, cluster IDs, and
+infrastructure URLs must never be committed. The `check-no-internal-refs` hook
+scans for patterns like internal GitLab hostnames, Konflux cluster identifiers,
+and OpenShift domain names.
+
+**If the hook blocks your commit:**
+- Replace the hardcoded value with an environment variable (e.g. `$GITLAB_HOST`)
+- See `site-config.example.yaml` for the full list of configurable variables
+- See `tests/check_no_internal_refs.py` for the exact forbidden patterns
+
+The same check runs as a pytest test (`tests/unit/test_no_internal_refs.py`) in CI.
 
 ## CI Workflows
 
@@ -261,5 +276,6 @@ conforma-analyze:
 - [ ] New scripts have corresponding test files
 - [ ] Tests pass locally (`pytest tests/unit/`)
 - [ ] Linter passes (`ruff check .`)
+- [ ] No internal hostnames or infrastructure URLs (`python tests/check_no_internal_refs.py`)
 - [ ] SKILL.md updated if skill behavior changed
 - [ ] No secrets committed

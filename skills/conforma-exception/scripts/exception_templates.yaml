@@ -183,13 +183,13 @@ categories:
       Z-stream security fixes and GA releases cannot ship for affected components.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22rpm_signature.allowed%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=rpm_signature.allowed&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=rpm_signature.allowed&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/RHOAIENG-38427"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/18328"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/18328"
         note: "Habanalabs(Intel) RPM signing key exception for rhoai-2.25..rhoai-3.3"
       - jira: "https://redhat.atlassian.net/browse/PSX-1101"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/18291"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/18291"
         note: "Fedora/EPEL RPM signing key exception for rhoai-3.5-ea.1"
     reference_examples:
       - vendor: "Fedora/EPEL"
@@ -249,12 +249,12 @@ categories:
       Z-stream security fixes and GA releases cannot ship for affected components.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22hermetic_task%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=hermetic_task&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=hermetic_task&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/PSX-1102"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/18346"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/18346"
         note: "hermetic_task.hermetic exception for rhoai-2.25, rhoai-3.3, rhoai-3.4"
-      - mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/18362"
+      - mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/18362"
         note: "Extend hermetic_task.hermetic for rhoai-2.25, 3.3, 3.4 notebooks through EUS"
     reference_examples:
       - note: "Component in Dev Preview (hermetic not required until GA)"
@@ -305,12 +305,12 @@ categories:
       Z-stream security fixes and GA releases cannot ship for affected components.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22sbom_spdx.allowed_package_sources%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=sbom_spdx.allowed_package_sources&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=sbom_spdx.allowed_package_sources&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/RHOAIENG-59987"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/17545"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17545"
         note: "autorag rhoai 3.4 image sbom_spdx.allowed_package_sources exception"
-      - mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/17116"
+      - mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17116"
         note: "RHAI wheel index — package type generic but not pypi"
     reference_examples:
       - note: "ML model weights from HuggingFace (binary artifact, not buildable from source)"
@@ -359,7 +359,7 @@ categories:
       Components with non-compliant dependencies cannot ship.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22sbom_spdx.disallowed_package_attributes%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=sbom_spdx.disallowed_package_attributes&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=sbom_spdx.disallowed_package_attributes&state=all"
     example_tickets: []  # no RHOAI-specific examples found yet
 
   prefetch_registry_proxy:
@@ -403,7 +403,7 @@ categories:
       The release cannot proceed on schedule.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22prefetch_dependencies.package_registry_proxy_enabled%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=prefetch_dependencies.package_registry_proxy_enabled&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=prefetch_dependencies.package_registry_proxy_enabled&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/PSX-1087"
         note: "Allow rhoai-3.4.0 and rhoai-3.3.3 release without Nexus registry proxy"
@@ -450,10 +450,10 @@ categories:
       exception is granted.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22prefetch_dependencies.mode_not_permissive%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=prefetch_dependencies.mode_not_permissive&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=prefetch_dependencies.mode_not_permissive&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/RHOAIENG-56367"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/16085"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/16085"
         note: "Hermeto permissive prefetch mode for llama-stack-provider-trustyai-garak"
     reference_examples:
       - note: "Maturin/Cargo.lock inconsistency (known upstream bug)"
@@ -501,7 +501,7 @@ categories:
       Affected components cannot ship.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22rpm_repos.ids_known%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=rpm_repos.ids_known&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=rpm_repos.ids_known&state=all"
     example_tickets: []  # no RHOAI-specific examples found yet
 
   tasks_unsupported:
@@ -544,10 +544,10 @@ categories:
       Urgent z-stream or GA releases cannot proceed.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22tasks.unsupported%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=tasks.unsupported&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=tasks.unsupported&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/RHOAIENG-56614"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/16698"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/16698"
         note: "Expired konflux tasks: buildah-remote-oci-ta, tasks.unsupported:init"
 
   olm_unmapped_references:
@@ -591,13 +591,13 @@ categories:
       Operator updates cannot ship via OLM.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22olm.unmapped_references%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=olm.unmapped_references&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=olm.unmapped_references&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/RHOAIENG-60934"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/17634"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17634"
         note: "olm.unmapped_references violation for rhaii/vllm-gaudi-rhel9 (rhoai-3.4)"
       - jira: "https://redhat.atlassian.net/browse/RHOAIENG-33259"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/17326"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17326"
         note: "olm.unmapped_references blocking push to prod (rhoai-2.24)"
 
   cve_results:
@@ -640,7 +640,7 @@ categories:
       Release cannot proceed without CVE scan clearance.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22cve.cve_results_found%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=cve.cve_results_found&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=cve.cve_results_found&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/RHOAIENG-36999"
         note: "odh-llama-stack-core-v3-0 — Clair CVE scan results were not found"
@@ -686,10 +686,10 @@ categories:
       Affected releases cannot ship.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22fips-check%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=fips-check&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=fips-check&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/OCPEXCEPT-65"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/17844"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17844"
         note: "FIPS exception for RHOAI < 3.5 GA"
       - jira: "https://redhat.atlassian.net/browse/OCPEXCEPT-43"
         note: "FIPS exception for RHOAI llm-d routing for KServe"
@@ -722,10 +722,10 @@ categories:
       {versions}. The time-critical release cannot proceed.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22schedule.weekday_restriction%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=schedule.weekday_restriction&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=schedule.weekday_restriction&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
       - jira: "https://redhat.atlassian.net/browse/RHOAIENG-59732"
-        mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/17331"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17331"
         note: "Extend weekday exception to cover 2.25.5 dashboard issue"
 
   fbc_pruning_test:
@@ -757,11 +757,11 @@ categories:
       {versions}. Operator updates cannot ship via OLM.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22fbc-target-index-pruning-check%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?search=fbc-target-index-pruning-check&state=all"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=fbc-target-index-pruning-check&state=all"
     example_tickets:  # pre-skill (created before conforma-exception AI skill)
-      - mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/16166"
+      - mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/16166"
         note: "rhoai exception prod for test.no_failed_tests:fbc-target-index-pruning-check"
-      - mr: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/16131"
+      - mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/16131"
         note: "fbc-target-index-pruning-check exception for rhoai-3.4.ea1"
 
   # -----------------------------------------------------------------------
@@ -826,7 +826,7 @@ categories:
       Affected components cannot ship.
     find_examples:
       jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20ORDER%20BY%20created%20DESC"
-      gitlab_mr_search: "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests?state=all&sort=created_desc"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?state=all&sort=created_desc"
     example_tickets: []
     reference_docs:
       - url: "https://conforma.dev/docs/policy/release_policy.html"

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -31,8 +32,8 @@ import yaml
 
 
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
-KONFLUX_RELEASE_DATA_HOST = "gitlab.cee.redhat.com"
-KONFLUX_RELEASE_DATA_PROJECT = "releng/konflux-release-data"
+KONFLUX_RELEASE_DATA_HOST = os.environ.get("GITLAB_HOST", "")
+KONFLUX_RELEASE_DATA_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
 
 ACTION_LABELS = {
     "extend": "extend",

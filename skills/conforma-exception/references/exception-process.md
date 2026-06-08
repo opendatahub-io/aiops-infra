@@ -68,7 +68,7 @@ Still require a RHOAIENG blocker ticket (no PSX/OCPEXCEPT needed).
 
 ### Standing Exceptions
 
-Located under `config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/`.
+Located under `config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/`.
 These are K8s `EnterpriseContractPolicy` resources. Exceptions go under:
 
 ```yaml
@@ -114,8 +114,8 @@ From the [EC controller spec](https://github.com/enterprise-contract/enterprise-
 - [PSRD Exception Templates](https://redhat.atlassian.net/wiki/spaces/PRODSEC/pages/289256151/PSRD+Exception+Templates)
 - [SSE Exception Process Documentation](https://redhat.atlassian.net/wiki/spaces/PRODSEC/pages/289157851/Secure+Software+Engagements+SSE+Exception+Process+Documentation)
 - [Understanding Acceptance of Risk](https://redhat.atlassian.net/wiki/spaces/PRODSEC/pages/289208726/Understanding+Acceptance+of+Risk+as+an+Authorized+Party)
-- [Konflux Policy Exceptions](https://konflux.pages.redhat.com/docs/users/releasing/policy-exceptions.html)
-- [Konflux Release Troubleshooting](https://konflux.pages.redhat.com/docs/users/troubleshooting/releases.html)
+- Konflux Policy Exceptions (internal Konflux documentation — requires VPN)
+- Konflux Release Troubleshooting (internal Konflux documentation — requires VPN)
 - [Volatile Config (effectiveUntil)](https://conforma.dev/docs/policy/packages/release_volatile_config.html)
 - [Schedule Weekday Restriction](https://conforma.dev/docs/policy/packages/release_schedule.html)
 - [Conforma Release Policy — all enforced rules](https://conforma.dev/docs/policy/release_policy.html)

@@ -44,9 +44,10 @@ class TestDiscoverToken:
 
     def test_from_config_file(self, tmp_path, monkeypatch):
         monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.test.example.com")
         config_path = tmp_path / "config.yml"
         config_path.write_text(
-            "hosts:\n  gitlab.cee.redhat.com:\n    token: config-token\n",
+            "hosts:\n  gitlab.test.example.com:\n    token: config-token\n",
             encoding="utf-8",
         )
         with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", config_path):
@@ -59,7 +60,8 @@ class TestDiscoverToken:
 
 
 class TestVerifyAuth:
-    def test_success(self):
+    def test_success(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.test.example.com")
         gl = _mock_gl(user="alice")
         with patch.object(gitlab_ops, "get_client", return_value=gl):
             result = gitlab_ops.verify_auth()
@@ -67,7 +69,7 @@ class TestVerifyAuth:
         assert result == {
             "ok": True,
             "user": "alice",
-            "instance": "https://gitlab.cee.redhat.com",
+            "instance": "https://gitlab.test.example.com",
             "error": None,
         }
 

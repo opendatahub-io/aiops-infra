@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -23,8 +24,16 @@ from typing import NamedTuple
 # RPA = ReleasePlanAdmission (primary source, version-specific files)
 # PDS = ProjectDevelopmentStream source files (fallback, uses {{.versionName}} placeholders)
 #       These are the authoritative source; the auto-generated/ folder is derived from them.
-KRD_RPA_SUBPATH = "config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai"
-KRD_PDS_SUBPATH = "tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant"
+_KRD_CLUSTER_DOMAIN = os.environ.get("KRD_CLUSTER_DOMAIN", "")
+_KRD_CLUSTER_ID = os.environ.get("KRD_CLUSTER_ID", "")
+KRD_RPA_SUBPATH = os.environ.get(
+    "KRD_RPA_SUBPATH",
+    f"config/{_KRD_CLUSTER_DOMAIN}/product/ReleasePlanAdmission/rhoai" if _KRD_CLUSTER_DOMAIN else "",
+)
+KRD_PDS_SUBPATH = os.environ.get(
+    "KRD_PDS_SUBPATH",
+    f"tenants-config/cluster/{_KRD_CLUSTER_ID}/tenants/rhoai-tenant" if _KRD_CLUSTER_ID else "",
+)
 
 APPROVAL_THRESHOLD_VERSION = (3, 5, "ea", 1)
 
@@ -210,7 +219,7 @@ def lookup_component_names(
     from pathlib import Path
 
     if rpa_dir is None:
-        clone_root = Path.home() / "dev/gitlab/releng/konflux-release-data"
+        clone_root = Path(".work/konflux-release-data")
     else:
         rpa_dir_path = Path(rpa_dir)
         if rpa_dir_path.name == "rhoai" or KRD_RPA_SUBPATH.endswith(str(rpa_dir_path.relative_to(rpa_dir_path.anchor))):
@@ -269,7 +278,7 @@ def _search_pds_template(pds_path: Path, ver_slug: str, image_base: str, suffix:
     """Search ProjectDevelopmentStream source file for component names.
 
     Source PDS files live at:
-      tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/v<X>.<Y>/
+      tenants-config/cluster/<CLUSTER_ID>/tenants/<NAMESPACE>/v<X>.<Y>/
         ProjectDevelopmentStream-v<X>.<Y>.yaml
     They use {{.versionName}} as a placeholder which resolves to the
     hyphenated version suffix (e.g. 'v3-3'). We substitute it to derive

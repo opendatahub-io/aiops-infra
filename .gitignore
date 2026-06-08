@@ -5,3 +5,5 @@ tmp/
 .work/
 .venv/
 *.egg-info/
+.env
+site-config.yaml

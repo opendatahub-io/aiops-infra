@@ -19,11 +19,11 @@ Usage:
 
 Arguments:
   --gitlab-repo-url   Full HTTPS URL of the GitLab project to fork, e.g.:
-                      https://gitlab.cee.redhat.com/service/app-interface
+                      https://$GITLAB_HOST/service/app-interface
 
 Output (stdout):
   Single line — the full HTTPS URL of the fork, e.g.:
-  https://gitlab.cee.redhat.com/jdoe/app-interface
+  https://$GITLAB_HOST/jdoe/app-interface
 
 Exit codes:
   0  Success (fork exists or was created)
@@ -55,7 +55,7 @@ def require_env(name: str, hint: str) -> str:
 
 
 def parse_gitlab_base_url(repo_url: str) -> str:
-    """Extract scheme + host from a GitLab URL (e.g. https://gitlab.cee.redhat.com)."""
+    """Extract scheme + host from a GitLab URL (e.g. https://$GITLAB_HOST)."""
     parsed = urlparse(repo_url)
     if not parsed.scheme or not parsed.netloc:
         print(f"ERROR: Cannot parse GitLab URL: {repo_url}", file=sys.stderr)

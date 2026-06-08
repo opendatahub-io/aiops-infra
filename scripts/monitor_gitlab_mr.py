@@ -236,7 +236,7 @@ def main() -> None:
         "--mr-url",
         required=True,
         metavar="URL",
-        help="Full GitLab MR web URL (e.g. https://gitlab.cee.redhat.com/service/app-interface/-/merge_requests/42)",
+        help="Full GitLab MR web URL (e.g. https://$GITLAB_HOST/namespace/project/-/merge_requests/42)",
     )
     parser.add_argument(
         "--timeout",

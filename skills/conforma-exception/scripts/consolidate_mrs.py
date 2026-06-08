@@ -28,8 +28,8 @@ from pathlib import Path
 import gitlab_ops
 import jira_ops
 
-GITLAB_HOST = "gitlab.cee.redhat.com"
-GITLAB_PROJECT = "releng/konflux-release-data"
+GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
+GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
 GITLAB_PROJECT_ENCODED = "releng%2Fkonflux-release-data"
 
 

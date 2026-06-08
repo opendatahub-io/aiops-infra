@@ -72,7 +72,7 @@ class TestEnsureLinkDryRun:
 
 class TestLinkAllDryRun:
     def test_link_all_orchestrates_all_steps(self):
-        mr_url = "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/18281"
+        mr_url = "https://gitlab.example.com/releng/konflux-release-data/-/merge_requests/18281"
         rhoaieng_url = "https://redhat.atlassian.net/browse/RHOAIENG-62569"
         psx_url = "https://redhat.atlassian.net/browse/PSX-1042"
 

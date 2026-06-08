@@ -6,18 +6,20 @@
 # - Any other component -> registry-rhoai-{env}.yaml
 # - Self-service eligible -> exceptions/{policy}.yaml
 
-gitlab_project: releng/konflux-release-data
-gitlab_host: gitlab.cee.redhat.com
+gitlab_project: ${GITLAB_PROJECT}
+gitlab_host: ${GITLAB_HOST}
 default_branch: main
 
+# Paths below use ${KRD_CLUSTER_DOMAIN} which must be set at runtime.
+# Example: KRD_CLUSTER_DOMAIN=my-cluster.example.p1
 paths:
   standing_exceptions:
     registry:
-      prod: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/registry-rhoai-prod.yaml
-      stage: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/registry-rhoai-stage.yaml
+      prod: config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/registry-rhoai-prod.yaml
+      stage: config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/registry-rhoai-stage.yaml
     fbc:
-      prod: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/fbc-rhoai-prod.yaml
-      stage: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/fbc-rhoai-stage.yaml
+      prod: config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/fbc-rhoai-prod.yaml
+      stage: config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/fbc-rhoai-stage.yaml
 
   self_service:
     fbc:

@@ -91,11 +91,14 @@ See [README.md](README.md) for shared prerequisites. Tekton mode requires these 
 - **VPN**: Connected to the corporate VPN (required for internal Tekton Results API domain routing)
 - **`oc` CLI**: Installed and authenticated to the Konflux cluster:
   ```bash
-  oc login --server=https://api.stone-prod-p02.hjvn.p1.openshiftapps.com:6443
+  oc login --server=$KONFLUX_INTERNAL_API
   ```
 - **`jq`**: Installed (used for JSON parsing and handover assembly)
 - **`curl`**, **`awk`**, **`sed`**: Standard Unix tools (used for API requests and log extraction)
-- **Namespace access**: Read access to the `rhoai-tenant` namespace
+- **Namespace access**: Read access to the namespace specified by `KONFLUX_NAMESPACE`
+- **Environment variables** (via `site-config.yaml` or explicit export):
+  - `KRD_CLUSTER_DOMAIN` — Konflux cluster domain (Tekton route and API URL are derived from this)
+  - `KONFLUX_NAMESPACE` — target Konflux namespace
 
 ### Usage
 
@@ -117,6 +120,9 @@ skills/conforma-report-fetch/scripts/fetch_tekton_report.sh <pipelinerun-name> -
 | Variable | Description |
 |---|---|
 | `KONFLUX_TOKEN` | Optional. Bearer token for cluster auth. Falls back to `oc whoami -t` if unset. |
+| `KRD_CLUSTER_DOMAIN` | Required (unless `TEKTON_RESULTS_DOMAIN` is set). Cluster domain — Tekton route is derived automatically. |
+| `KONFLUX_NAMESPACE` | Required. Target Konflux namespace. |
+| `TEKTON_RESULTS_DOMAIN` | Optional. Overrides the Tekton Results hostname (derived from `KRD_CLUSTER_DOMAIN` by default). |
 
 ### Handover Output
 
@@ -124,7 +130,7 @@ skills/conforma-report-fetch/scripts/fetch_tekton_report.sh <pipelinerun-name> -
 {
   "metadata": {
     "pipeline_run": "conforma-registry-rhoai-prod-v3-4-future-abc123",
-    "namespace": "rhoai-tenant",
+    "namespace": "<KONFLUX_NAMESPACE>",
     "created_at": "2026-06-05T14:00:00Z",
     "policy_source": "github.com/conforma/config//default"
   },

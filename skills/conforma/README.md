@@ -39,10 +39,10 @@ gh auth login
 echo "YOUR_TOKEN" | acli jira auth login --site redhat.atlassian.net --email "$USER@redhat.com" --token
 ```
 
-3. **GitLab**: go to [gitlab.cee.redhat.com/-/user_settings/personal_access_tokens](https://gitlab.cee.redhat.com/-/user_settings/personal_access_tokens), create a token named `glab-cli` with `api` scope and 1 year expiration, then:
+3. **GitLab**: go to `https://$GITLAB_HOST/-/user_settings/personal_access_tokens`, create a token named `glab-cli` with `api` scope and 1 year expiration, then:
 
 ```bash
-glab auth login --hostname gitlab.cee.redhat.com --token "YOUR_TOKEN"
+glab auth login --hostname "$GITLAB_HOST" --token "YOUR_TOKEN"
 ```
 
 ### Additional requirements
@@ -53,7 +53,7 @@ Some skills require extra tools or access beyond the shared set above. See each 
 |-------|--------------------|
 | `conforma-analyze` | `GITHUB_TOKEN` with read access to `red-hat-data-services/conforma-reporter` (private) |
 | `conforma-report-fetch` | Tekton mode: `oc` CLI, `jq`, VPN access |
-| `conforma-exception` | VPN access to `gitlab.cee.redhat.com` |
+| `conforma-exception` | VPN access to internal GitLab (`$GITLAB_HOST`) |
 | `conforma-release-readiness` | Read access to `conforma-reporter` (private) |
 
 ## Skills in the suite

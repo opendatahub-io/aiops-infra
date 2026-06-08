@@ -2,8 +2,29 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import pytest
 
 import create_gitlab_mr as mod
+
+TEST_EC_POLICY_DIR = "config/test-cluster.example.p1/product/EnterpriseContractPolicy"
+
+
+@pytest.fixture(autouse=True)
+def _patch_ec_policy_dir():
+    with patch.object(mod, "_EC_POLICY_DIR", TEST_EC_POLICY_DIR):
+        with patch.object(
+            mod,
+            "POLICY_PATHS",
+            {
+                ("registry", "prod"): f"{TEST_EC_POLICY_DIR}/registry-rhoai-prod.yaml",
+                ("registry", "stage"): f"{TEST_EC_POLICY_DIR}/registry-rhoai-stage.yaml",
+                ("fbc", "prod"): f"{TEST_EC_POLICY_DIR}/fbc-rhoai-prod.yaml",
+                ("fbc", "stage"): f"{TEST_EC_POLICY_DIR}/fbc-rhoai-stage.yaml",
+            },
+        ):
+            yield
 
 
 SAMPLE_POLICY_CONTENT = """\

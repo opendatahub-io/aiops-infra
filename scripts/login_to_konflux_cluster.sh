@@ -4,13 +4,15 @@
 # Usage:
 #   login_to_konflux_cluster.sh [external|internal]
 #
-#   external (default) — stone-prd-rh01  (ODH builds)
-#   internal           — stone-prod-p02  (RHOAI builds)
+#   external (default) — external Konflux cluster (ODH builds)
+#   internal           — internal Konflux cluster (RHOAI builds)
 #
 # Environment:
-#   EXT_OC_TOKEN  — optional; token for the external Konflux cluster (stone-prd-rh01).
+#   KONFLUX_EXTERNAL_API — required; API URL for the external Konflux cluster.
+#   KONFLUX_INTERNAL_API — required; API URL for the internal Konflux cluster.
+#   EXT_OC_TOKEN  — optional; token for the external Konflux cluster.
 #                   Required only when no matching kubeconfig context is found.
-#   INT_OC_TOKEN  — optional; token for the internal Konflux cluster (stone-prod-p02).
+#   INT_OC_TOKEN  — optional; token for the internal Konflux cluster.
 #                   Required only when no matching kubeconfig context is found.
 #
 # Exit codes:
@@ -26,8 +28,8 @@ die()   { error "$*"; exit 1; }
 
 CLUSTER_INSTANCE="${1:-external}"
 
-EXTERNAL_API="https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com:6443"
-INTERNAL_API="https://api.stone-prod-p02.hjvn.p1.openshiftapps.com:6443"
+EXTERNAL_API="${KONFLUX_EXTERNAL_API:?Set KONFLUX_EXTERNAL_API to the external Konflux cluster API URL}"
+INTERNAL_API="${KONFLUX_INTERNAL_API:?Set KONFLUX_INTERNAL_API to the internal Konflux cluster API URL}"
 
 case "$CLUSTER_INSTANCE" in
   external) API_SERVER="$EXTERNAL_API" ;;

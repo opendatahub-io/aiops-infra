@@ -32,6 +32,7 @@ from __future__ import annotations
 import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -121,7 +122,12 @@ def _quote_strings_recursively(obj):
 # Policy file scanning: wraps _find_existing_exceptions with extra fields
 # ---------------------------------------------------------------------------
 
-_EC_POLICY_DIR = "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
+_KRD_CLUSTER_DOMAIN = os.environ.get("KRD_CLUSTER_DOMAIN", "")
+_EC_POLICY_DIR = (
+    f"config/{_KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy"
+    if _KRD_CLUSTER_DOMAIN
+    else os.environ.get("KRD_EC_POLICY_DIR", "")
+)
 
 
 def _get_policy_files(clone_dir: Path, environment: str) -> list[Path]:

@@ -163,8 +163,8 @@ def _extract_rule_from_summary(summary: str) -> str | None:
     return None
 
 
-GITLAB_HOST = "gitlab.cee.redhat.com"
-GITLAB_PROJECT = "releng/konflux-release-data"
+GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
+GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
 
 
 def _ensure_gitlab_env() -> None:
@@ -707,7 +707,15 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
     if not search_dir.exists():
         return {"checked": False, "reason": "No local clone available"}
 
-    policy_dir = search_dir / "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
+    _krd_domain = os.environ.get("KRD_CLUSTER_DOMAIN", "")
+    _ec_dir = (
+        f"config/{_krd_domain}/product/EnterpriseContractPolicy"
+        if _krd_domain
+        else os.environ.get("KRD_EC_POLICY_DIR", "")
+    )
+    if not _ec_dir:
+        return {"checked": False, "reason": "KRD_CLUSTER_DOMAIN or KRD_EC_POLICY_DIR env var not set"}
+    policy_dir = search_dir / _ec_dir
     if not policy_dir.exists():
         return {"checked": False, "reason": f"Policy dir not found: {policy_dir}"}
 
@@ -1143,7 +1151,12 @@ def check_existing_exception_gate(
     repo_dir = None
     if clone_dir:
         candidate = Path(clone_dir)
-        policy_sub = "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
+        _krd_dom = os.environ.get("KRD_CLUSTER_DOMAIN", "")
+        policy_sub = (
+            f"config/{_krd_dom}/product/EnterpriseContractPolicy"
+            if _krd_dom
+            else os.environ.get("KRD_EC_POLICY_DIR", "")
+        )
         if (candidate / policy_sub).is_dir():
             repo_dir = candidate
         elif (candidate / "repo" / policy_sub).is_dir():

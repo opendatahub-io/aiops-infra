@@ -9,6 +9,6 @@ This skill is part of the conforma suite. Follow the install instructions in [co
 The Tekton JSON mode requires extra tools beyond the shared suite prerequisites:
 
 - **VPN**: Connected to the corporate VPN
-- **`oc` CLI**: Installed and authenticated to the Konflux cluster (`oc login --server=https://api.stone-prod-p02.hjvn.p1.openshiftapps.com:6443`)
+- **`oc` CLI**: Installed and authenticated to the Konflux cluster (`oc login --server=$KONFLUX_INTERNAL_API`)
 - **`jq`**: Installed (used for JSON parsing)
-- **Namespace access**: Read access to the `rhoai-tenant` namespace
+- **Environment variables**: `TEKTON_RESULTS_DOMAIN`, `KONFLUX_NAMESPACE` (see SKILL.md for details)

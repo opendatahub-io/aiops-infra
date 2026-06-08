@@ -14,7 +14,7 @@ import gitlab
 import yaml
 from gitlab.exceptions import GitlabAuthenticationError, GitlabError, GitlabGetError
 
-DEFAULT_INSTANCE_HOST = "gitlab.cee.redhat.com"
+DEFAULT_INSTANCE_HOST = os.environ.get("GITLAB_HOST") or os.environ.get("GL_HOST") or ""
 GLAB_CONFIG_PATH = Path.home() / ".config" / "glab-cli" / "config.yml"
 
 

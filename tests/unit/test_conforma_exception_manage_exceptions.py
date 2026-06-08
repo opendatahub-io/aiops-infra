@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 import manage_exceptions as mod
 
 
-EC_POLICY_DIR = Path("config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy")
+EC_POLICY_DIR = Path("config/test-cluster.example.p1/product/EnterpriseContractPolicy")
+
+
+@pytest.fixture(autouse=True)
+def _patch_ec_policy_dir():
+    with patch.object(mod, "_EC_POLICY_DIR", str(EC_POLICY_DIR)):
+        yield
+
 
 SAMPLE_POLICY_YAML = """\
 apiVersion: enterprisecontract.io/v1alpha1

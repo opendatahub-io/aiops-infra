@@ -9,7 +9,7 @@ user-invocable: true
 
 End-to-end automation for RHOAI Conforma exception management: check existing exceptions, create new ones, extend effectiveUntil dates, validate inputs, create required Jira tickets, generate exception YAML, create GitLab Merge Requests, and cross-link all artifacts.
 
-An exception is a YAML entry added to a release policy file in the [konflux-release-data](https://gitlab.cee.redhat.com/releng/konflux-release-data) GitLab repository, using the [VolatileCriteria](https://conforma.dev/docs/policy/packages/release_volatile_config.html) schema. It tells the [Conforma](https://conforma.dev/docs/policy/release_policy.html) policy engine to waive a specific rule for listed components until a given date. Example:
+An exception is a YAML entry added to a release policy file in the `konflux-release-data` GitLab repository (hosted at `$GITLAB_HOST`), using the [VolatileCriteria](https://conforma.dev/docs/policy/packages/release_volatile_config.html) schema. It tells the [Conforma](https://conforma.dev/docs/policy/release_policy.html) policy engine to waive a specific rule for listed components until a given date. Example:
 
 ```yaml
 # https://redhat.atlassian.net/browse/RHOAIENG-12345
@@ -56,7 +56,7 @@ Local clones on a dev workstation may be on a feature branch, days out of date, 
 ```bash
 # GOOD — fetch a file from GitLab
 glab api "projects/releng%2Fkonflux-release-data/repository/files/path%2Fto%2Ffile.yaml/raw?ref=main" \
-  --hostname gitlab.cee.redhat.com
+  --hostname $GITLAB_HOST
 
 # BAD — using a local clone
 cd ~/dev/gitlab/releng/konflux-release-data && git show origin/main:path/to/file.yaml
@@ -336,8 +336,8 @@ All intermediate files go inside `$RUN_DIR`. Example layout for a single run:
 if [ -d .work/konflux-release-data/.git ]; then
   git -C .work/konflux-release-data fetch origin main && git -C .work/konflux-release-data reset --hard origin/main
 else
-  GITLAB_TOKEN=$(glab config get token --host gitlab.cee.redhat.com)
-  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@gitlab.cee.redhat.com/releng/konflux-release-data.git" .work/konflux-release-data
+  GITLAB_TOKEN=$(glab config get token --host "$GITLAB_HOST")
+  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data
 fi
 ```
 
@@ -650,7 +650,7 @@ Component names are validated against `--rhoai-version`:
 All Konflux component names include a version suffix (e.g. `-v2-25`, `-v3-3`, `-v3-5-ea-1`). Names ending in `-rhel9` or `-ubi9` without a version suffix are container image names produced by those components -- they must NOT be used in `componentNames` fields in exception GitLab Merge Requests. The validation script rejects container image names and suggests the correct Konflux component name format.
 
 To find correct component names, check the ReleasePlanAdmission files:
-`config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-vX-Y-components-prod.yaml`
+`config/${KRD_CLUSTER_DOMAIN}/product/ReleasePlanAdmission/rhoai/rhoai-onprem-vX-Y-components-prod.yaml`
 
 ## Dry-Run Mode
 
@@ -752,8 +752,8 @@ When the user asks to see current Conforma exceptions (e.g. "show me current exc
 if [ -d .work/konflux-release-data/.git ]; then
   git -C .work/konflux-release-data fetch origin main && git -C .work/konflux-release-data reset --hard origin/main
 else
-  GITLAB_TOKEN=$(glab config get token --host gitlab.cee.redhat.com)
-  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@gitlab.cee.redhat.com/releng/konflux-release-data.git" .work/konflux-release-data
+  GITLAB_TOKEN=$(glab config get token --host "$GITLAB_HOST")
+  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data
 fi
 ```
 

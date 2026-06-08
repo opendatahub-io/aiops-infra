@@ -15,6 +15,7 @@ import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 import argparse
 import getpass
 import json
+import os
 import platform
 import re
 import subprocess
@@ -24,8 +25,8 @@ from pathlib import Path
 
 import gitlab_ops
 
-GITLAB_HOST = "gitlab.cee.redhat.com"
-GITLAB_PROJECT = "releng/konflux-release-data"
+GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
+GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
 DEFAULT_BRANCH = "main"
 PROVENANCE_REPO = "opendatahub-io/aiops-infra"
 PROVENANCE_SKILL = "conforma-exception-ai-skill"
@@ -402,7 +403,12 @@ def _get_authenticated_repo_url(project: str = GITLAB_PROJECT) -> str:
     return f"https://{GITLAB_HOST}/{project}.git"
 
 
-_EC_POLICY_DIR = "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
+_KRD_CLUSTER_DOMAIN = os.environ.get("KRD_CLUSTER_DOMAIN", "")
+_EC_POLICY_DIR = (
+    f"config/{_KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy"
+    if _KRD_CLUSTER_DOMAIN
+    else os.environ.get("KRD_EC_POLICY_DIR", "")
+)
 
 POLICY_PATHS = {
     ("registry", "prod"): f"{_EC_POLICY_DIR}/registry-rhoai-prod.yaml",

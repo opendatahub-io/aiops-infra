@@ -109,6 +109,16 @@ def _try_pip_install(repo_root: Path) -> None:
         pass
 
 
+def _load_site_config(root: Path) -> None:
+    """Load site config to populate infra env vars if available."""
+    try:
+        import site_config
+
+        site_config.load()
+    except Exception:
+        pass
+
+
 def _bootstrap() -> Path:
     """One-time bootstrap: find root, ensure deps, add scripts/ to path."""
     global _REPO_ROOT, _BOOTSTRAPPED
@@ -123,6 +133,8 @@ def _bootstrap() -> Path:
     scripts_dir = str(root / "scripts")
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
+
+    _load_site_config(root)
 
     _BOOTSTRAPPED = True
     return root

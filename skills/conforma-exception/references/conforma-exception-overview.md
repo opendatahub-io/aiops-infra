@@ -2,7 +2,7 @@
 
 A **Conforma exception** is a policy waiver in the [Conforma](https://conforma.dev/docs/policy/release_policy.html) release policy engine used by Red Hat's Konflux CI/CD platform. It tells the policy engine to **skip enforcement of a specific rule** for listed components until a given expiry date.
 
-Concretely, an exception is a YAML entry added to a Conforma Policy file in the [konflux-release-data](https://gitlab.cee.redhat.com/releng/konflux-release-data) GitLab repository, following the [VolatileCriteria](https://conforma.dev/docs/policy/packages/release_volatile_config.html) schema:
+Concretely, an exception is a YAML entry added to a Conforma Policy file in the `konflux-release-data` GitLab repository (hosted on the internal GitLab instance at `$GITLAB_HOST`), following the [VolatileCriteria](https://conforma.dev/docs/policy/packages/release_volatile_config.html) schema:
 
 ```yaml
 # https://redhat.atlassian.net/browse/RHOAIENG-12345
