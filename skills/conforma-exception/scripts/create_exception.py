@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main orchestrator for the conforma-exception-create skill.
+"""Main orchestrator for the conforma-exception skill.
 
 Orchestrates the full exception lifecycle:
   validate -> path detection -> auth -> Jira(s) -> approval -> MR -> link

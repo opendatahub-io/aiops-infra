@@ -1,13 +1,13 @@
 ---
-name: conforma-exception-create
-description: Create Jira tickets and a GitLab MR to add a Conforma exception/waiver policy when a violation cannot or should not be fixed. Handles RHOAIENG, PSX/OCPEXCEPT tickets, and exception MR creation with validation and dry-run support.
+name: conforma-exception
+description: Manage RHOAI Conforma exceptions end-to-end — create, extend, check, and reconcile policy exceptions. Handles Jira tickets (RHOAIENG, PSX/OCPEXCEPT), GitLab MRs in konflux-release-data, deduplication of existing exceptions, and cross-linking of all artifacts.
 allowed-tools: Bash(python3:*,acli:*,glab:*,git:*,docker:*,podman:*)
 user-invocable: true
 ---
 
-# Conforma Exception Create
+# Conforma Exception
 
-End-to-end automation for RHOAI Conforma exception requests: validates inputs, creates required Jira tickets, generates the exception YAML, creates a GitLab MR, and cross-links all artifacts.
+End-to-end automation for RHOAI Conforma exception management: check existing exceptions, create new ones, extend effectiveUntil dates, validate inputs, create required Jira tickets, generate exception YAML, create GitLab MRs, and cross-link all artifacts.
 
 ## Prerequisites
 
@@ -75,7 +75,7 @@ For versions >= rhoai-3.5-ea.1, senior manager approval on the RHOAIENG ticket i
 
 The agent MUST NEVER:
 - Decide link types (enforced by `link_artifacts.py`)
-- Decide MR split strategy (enforced by `preflight_check.py` → `hard_rules.mr_strategy`)
+- Split MRs per version (hard rule: `one_mr_per_rule_all_versions` — always one consolidated MR)
 - Decide ticket handling (enforced by duplicate detection in `preflight_check.py`)
 - Infer rules, components, dates, or any other values (resolved by `preflight_check.py`)
 - Create links without the script's idempotency checks
@@ -189,10 +189,13 @@ python3 scripts/create_exception.py \
 | `--psx-url` | *(creates new)* | Existing PSX/OCPEXCEPT ticket URL |
 | `--related-psx` | none | Pre-existing PSX ticket to link as "Related" only (a new PSX is still created) |
 | `--link-to` | none | Tracking ticket key to link all tickets to (e.g. `RHAISTRAT-576`) |
-| `--summary-context` | none | Brief description for ticket titles (appended after rule and version) |
+| `--summary-context` | none | Brief description for ticket titles (auto-filled by `--template` if set) |
 | `--vendor-tag` | none | Vendor/distinguisher tag prepended to titles (e.g. `AMD`, `Intel`, `FIPS`) |
+| `--template` | none | Template category ID from `exception_templates.yaml` (e.g., `rpm_signature_thirdparty`) |
+| `--template-variant` | none | Template variant ID (e.g., `fedora_epel`, `habanalabs`). Required with `--template` |
 | `--spreadsheet-url` | none | Tracking spreadsheet URL (added as YAML comment in MR and commit message) |
 | `--authorized-party` | none | Senior manager accepting risk (Authorized Party in PSX workflow) |
+| `--watchers` | none | Comma-separated display names (user-approved) to add as PSX watchers |
 | `--fips` | false | Routes to OCPEXCEPT instead of PSX |
 | `--self-service` | false | Forces Path C |
 | `--image-ref` | none | SHA digest (only for `schedule.weekday_restriction`) |
@@ -207,10 +210,10 @@ python3 scripts/create_exception.py \
 3. **RHOAIENG ticket** (`create_jira_ticket.py --project RHOAIENG`): template-based create from RHOAIENG-62569 (skipped if `--rhoaieng-url` provided)
 4. **Approval reminder**: for rhoai-3.5-ea.1+, reminds user to get senior manager approval
 5. **PSX/OCPEXCEPT ticket** (`create_jira_ticket.py --project PSX|OCPEXCEPT`): Paths A/B only (skipped if `--psx-url` provided or Path C)
-6. **GitLab MR** (`create_gitlab_mr.py`): clone from `main`, create branch, append exception YAML block (with PSX title as inline comment, spreadsheet URL as YAML comment), commit, push, create MR. Auto-fetches the PSX ticket title for the `reference:` line comment. Use `--update-mr <branch>` to recreate an existing MR branch from current `main` (avoids disconnected-history issues).
+6. **GitLab MR** (`create_gitlab_mr.py --version-specs-json`): Creates a **single consolidated MR** covering all RHOAI versions in one commit. Clones from `main`, creates branch, appends all version-specific exception YAML blocks to the same policy file, commits with a consolidated message listing all versions/components/dates, pushes, and creates one MR. The MR body has per-version sections for reviewability. Use `--update-mr <branch>` to recreate an existing MR branch from current `main` (avoids disconnected-history issues).
 7. **Link artifacts** (`link_artifacts.py`): comment MR URL on both Jira tickets, add provenance label, create Jira links between all tickets (including `--link-to` tracking ticket)
 
-All created tickets receive the `conforma-exception-create-ai-skill` and `conforma-violation` Jira labels and a provenance footer in the description.
+All created tickets receive the `conforma-exception-ai-skill` and `conforma-violation` Jira labels and a provenance footer in the description.
 
 **Linking rules**: Enforced deterministically by `link_artifacts.py`. The agent does not choose link types — the script applies them based on the relationship between tickets. Run `preflight_check.py` to see the `hard_rules` that govern linking behavior. Only create links between tickets that the script explicitly creates or that the user explicitly provides via `--link-to`, `--rhoaieng-url`, or `--psx-url`. Do NOT auto-infer links from descriptions/comments/conversation context.
 
@@ -240,26 +243,22 @@ All created tickets receive the `conforma-exception-create-ai-skill` and `confor
    - [ ] rhoai-3.4
    - [ ] rhoai-3.5-ea.1
 
-4. **Multi-version handling** (if multiple versions selected):
-   - "One PSX + RHOAIENG ticket per version (default, recommended)"
-   - "Single consolidated PSX + RHOAIENG ticket covering all versions (once-off deviation)"
-
-   MR split strategy is enforced by `preflight_check.py` → `hard_rules.mr_strategy`. The agent reads this value and follows it without modification.
-
-5. **Justification**:
+4. **Justification**:
    - "1 — Violation not fixed in time before code-freeze, planned for next release"
    - "2 — Can't be fixed in this release (already code-frozen/released)"
 
+   **Note**: All selected versions are handled in a **single consolidated MR** (hard rule: `one_mr_per_rule_all_versions`). The agent uses `--version-specs-json` to pass all versions to `create_gitlab_mr.py` in one call.
+
 **Batch 2 — Components and identifiers:**
 
-6. **Component name lookup and confirmation**: Look up Konflux componentNames from ReleasePlanAdmission files, then present the resolved names for confirmation. Example:
+5. **Component name lookup and confirmation**: Look up Konflux componentNames from ReleasePlanAdmission files, then present the resolved names for confirmation. Example:
    - "Confirm these are the correct Konflux component names for rhoai-3.3: `odh-vllm-cpu-v3-3`, `odh-vllm-gaudi-v3-3`"
    - "Yes, correct"
    - "No, let me specify different names"
 
    Never use a container image name (e.g. `-rhel9`) in an MR without the user confirming the translation.
 
-7. **Vendor tag**: Present common options plus free text:
+6. **Vendor tag**: Present common options plus free text:
    - "Fedora/EPEL"
    - "AMD"
    - "Intel"
@@ -268,35 +267,51 @@ All created tickets receive the `conforma-exception-create-ai-skill` and `confor
    - "Other (let me specify)"
    - "None / skip"
 
-8. **Tracking ticket**: Present options:
+7. **Tracking ticket**: Present options:
    - "Yes, link to: [ticket key from Jira context if found]"
    - "Yes, let me provide a ticket key"
    - "No tracking ticket"
 
-9. **Related PSX (existing)**: Auto-discover by searching Jira: `project = PSX AND text ~ '<signing_key_or_rule>'`. If found, present the result(s) for confirmation:
+8. **Related PSX (existing)**: Auto-discover by searching Jira: `project = PSX AND text ~ '<signing_key_or_rule>'`. If found, present the result(s) for confirmation:
    - "Found PSX-XXXX: <title> [status]. Link as Related?"
    - "Yes, link as Related"
    - "No, skip"
 
    If no results found, silently skip (do not ask the user). This removes a manual lookup step.
 
-10. **Summary context**: Free text prompt with example:
-    - Example: "long-standing Fedora/EPEL RPM signing key exception"
+9. **Exception template selection**: The script auto-detects the template category from the rule (via `match_template_category()`). Present the detected category and its variants for the user to confirm:
+    - "Detected category: Third-party RPM signing key. Select variant:"
+    - "Fedora/EPEL RPM signing key"
+    - "AMD RPM signing key"
+    - "Habanalabs (Intel) RPM signing key"
+    - "Other (let me specify custom text)"
+
+    The template fills all PSX text fields (scope, risk, remediation, impact, summary context) deterministically from `exception_templates.yaml`. The agent passes `--template <category_id> --template-variant <variant_id>` to `create_jira_ticket.py`. Explicit `--psx-scope`, `--psx-risk`, etc. flags override template values if provided.
+
+    If the user selects "Other / custom", fall back to individual free-text prompts for each field.
 
 **Batch 3 — Approval and PSX details:**
+
+10. **PSX ticket visibility / watchers**: PSX tickets are restricted by default. The preflight script dynamically discovers the user's Jira groups and their members via `discover_user_groups()`. Present the discovered list as a **suggestion**:
+    - "Found you in group(s): [group names]. Suggested watchers: [member list]. Add all as watchers?"
+    - "Yes, add all suggested watchers"
+    - "Let me pick from the list (remove some)"
+    - "No additional watchers"
+
+    The discovered members are **always a suggestion** — never auto-applied. The user must confirm or edit the list before watchers are added. Pass the confirmed names via `--watchers 'Name1,Name2,Name3'` to `create_jira_ticket.py`. If Jira API is unavailable, the script reports the failure and the user must provide watcher names manually. The watcher addition is idempotent (skips users already watching).
 
 11. **Authorized Party**: Free text prompt:
     - "Who is the senior manager accepting risk? (e.g., Lindani Phiri, Jay Koehler)"
 
 12. **Effective-until date**: Resolved by `preflight_check.py` from its `DEFAULT_EOS_DATES` table. The script outputs per-version dates in `effective_until` and flags any versions without defaults in `user_confirmation_required`. Present the script's output for user confirmation.
 
-13. **PSX template details** (needed to fill the PSRD Exception form after ticket creation). Present as individual prompts:
-    - **Scope**: "What specific components/images are affected? How many instances?"
-    - **Risk acceptance**: "What is the risk being accepted? Why is it acceptable?"
-    - **Remediation plan**: "How and when will the violation be permanently fixed?"
-    - **Impact if denied**: "What breaks if the exception is not approved?"
+13. **Template review** (confirm the resolved text): After template resolution, present the filled-in scope/risk/remediation/impact text for user confirmation:
+    - "Here is the pre-filled PSX text from the template. Confirm or edit:"
+    - Show each field with its resolved value
+    - "Confirm all"
+    - "Edit one or more fields"
 
-    These details MUST come from the user or be explicitly present in the RHOAIENG Jira. If not clearly available, ask the user -- do NOT fabricate or generalize.
+    The resolved text is deterministic (from `exception_templates.yaml`) and NOT generated by the LLM. The user may edit individual fields if the template doesn't perfectly match their case, but the default is to use the template as-is.
 
 **After all batches**: Present a final summary of all confirmed values and ask for a single "Proceed" / "Edit something" confirmation before executing.
 
@@ -329,7 +344,7 @@ Every ticket creation or reconciliation ends with a **verification phase** that 
 
 | Field | Check |
 |-------|-------|
-| Labels | Contains both `conforma-exception-create-ai-skill` and `conforma-violation` |
+| Labels | Contains both `conforma-exception-ai-skill` and `conforma-violation` |
 | Issue links | Includes all expected targets (RHOAIENG, tracking ticket) |
 | Description | ADF with >= 15 panel/paragraph nodes (PSX/OCPEXCEPT) |
 | Authorized Party | `customfield_10938` is set (PSX/OCPEXCEPT) |
@@ -368,24 +383,29 @@ Handled deterministically by `create_gitlab_mr.py` → `apply_exception_to_polic
 
 ## Commit Message Structure
 
-MR commits follow a structured multi-line format with provenance:
+Consolidated MR commits list all versions in a single message:
 
 ```text
-Add conforma exception: <rule> (<rhoai-version>)
+Add conforma exception: <rule> (<version-1>, <version-2>, ...)
 
 Exception details:
   Rule: <rule>
-  RHOAI version: <rhoai-version>
-  Effective until: <date>
-  Components: <component-list>
   Policy file: <path>
+
+  <version-1>:
+    Components: <component-list>
+    Effective until: <date>
+
+  <version-2>:
+    Components: <component-list>
+    Effective until: <date>
 
 RHOAIENG: <url>
 Reference: <psx-url>
 Spreadsheet: <url>
 
 ---
-Generated by: conforma-exception-create-ai-skill
+Generated by: conforma-exception-ai-skill
 Source: https://github.com/opendatahub-io/ai-helpers
 User: <user>@<hostname>
 ```

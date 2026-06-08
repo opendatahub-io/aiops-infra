@@ -4,7 +4,7 @@
 For each Jira ticket (RHOAIENG, PSX, OCPEXCEPT):
   1. Adds a remote/web link to the GitLab MR (if JIRA_API_TOKEN is set)
   2. Adds a comment with the GitLab MR URL and provenance footer
-  3. Adds the conforma-exception-create-ai-skill label
+  3. Adds the conforma-exception-ai-skill label
 
 This ensures even pre-existing tickets (passed via URL) get marked.
 Requires JIRA_API_TOKEN and JIRA_EMAIL env vars for remote links.
@@ -25,7 +25,7 @@ from pathlib import Path
 from cli_runner import run_acli
 
 PROVENANCE_REPO = "opendatahub-io/ai-helpers"
-PROVENANCE_LABEL = "conforma-exception-create-ai-skill"
+PROVENANCE_LABEL = "conforma-exception-ai-skill"
 VIOLATION_LABEL = "conforma-violation"
 
 
@@ -114,7 +114,7 @@ def build_provenance_footer() -> str:
     """Standard provenance footer for comments."""
     return (
         "---\n"
-        f"Created by 'conforma-exception-create' skill from {PROVENANCE_REPO}\n"
+        f"Created by 'conforma-exception' skill from {PROVENANCE_REPO}\n"
         f"User: {getpass.getuser()}@{platform.node()}"
     )
 

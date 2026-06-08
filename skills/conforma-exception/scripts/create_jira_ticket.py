@@ -7,7 +7,7 @@ Supports three projects via --project flag:
   OCPEXCEPT - Task for FIPS-related exceptions
 
 All tickets receive:
-  - A provenance label: conforma-exception-create-ai-skill
+  - A provenance label: conforma-exception-ai-skill
   - A provenance footer in the description
 
 Usage:
@@ -38,11 +38,92 @@ from cli_runner import run_acli
 
 TEMPLATE_TICKET = "RHOAIENG-62569"
 PROVENANCE_REPO = "opendatahub-io/ai-helpers"
-PROVENANCE_LABEL = "conforma-exception-create-ai-skill"
+PROVENANCE_LABEL = "conforma-exception-ai-skill"
 VIOLATION_LABEL = "conforma-violation"
 VALID_PROJECTS = ("RHOAIENG", "PSX", "OCPEXCEPT")
 
+PSX_MANDATORY_WATCHERS = ["Jay Koehler", "Lindani LD Phiri"]
+
 MAX_VERIFY_RETRIES = 2
+
+_TEMPLATES_FILE = Path(__file__).parent / "exception_templates.yaml"
+
+
+# ---------------------------------------------------------------------------
+# Exception template loader
+# ---------------------------------------------------------------------------
+
+
+def _load_templates() -> dict:
+    """Load exception_templates.yaml and return the parsed dict."""
+    import yaml
+
+    if not _TEMPLATES_FILE.is_file():
+        raise FileNotFoundError(f"Template file not found: {_TEMPLATES_FILE}")
+    with open(_TEMPLATES_FILE) as f:
+        return yaml.safe_load(f)
+
+
+def list_template_categories() -> list[dict]:
+    """Return a list of available template categories with their variants."""
+    data = _load_templates()
+    result = []
+    for cat_id, cat in data.get("categories", {}).items():
+        variants = []
+        for var_id, var in cat.get("variants", {}).items():
+            variants.append({"id": var_id, "display_name": var["display_name"]})
+        result.append({
+            "id": cat_id,
+            "display_name": cat["display_name"],
+            "matches_rules": cat.get("matches_rules", []),
+            "variants": variants,
+        })
+    return result
+
+
+def match_template_category(rule: str) -> str | None:
+    """Auto-detect the best template category for a given rule value."""
+    import fnmatch
+
+    data = _load_templates()
+    for cat_id, cat in data.get("categories", {}).items():
+        for pattern in cat.get("matches_rules", []):
+            if fnmatch.fnmatch(rule, pattern):
+                return cat_id
+    return None
+
+
+def resolve_template(
+    category_id: str,
+    variant_id: str,
+    variables: dict[str, str],
+) -> dict[str, str]:
+    """Resolve a template category+variant with the given variables.
+
+    Returns a dict with keys: summary_context, scope, risk, remediation, impact.
+    All template placeholders ({rule}, {components}, etc.) are filled in.
+    """
+    data = _load_templates()
+    categories = data.get("categories", {})
+    if category_id not in categories:
+        raise ValueError(f"Unknown template category: {category_id}")
+    cat = categories[category_id]
+    variants = cat.get("variants", {})
+    if variant_id not in variants:
+        raise ValueError(
+            f"Unknown variant '{variant_id}' in category '{category_id}'. "
+            f"Available: {list(variants.keys())}"
+        )
+    variant = variants[variant_id]
+
+    result = {}
+    for field in ("summary_context", "scope", "risk", "remediation", "impact"):
+        template_str = variant.get(field, "")
+        try:
+            result[field] = template_str.format_map(variables)
+        except KeyError as e:
+            result[field] = template_str
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +201,137 @@ def _jira_rest_put(path: str, payload: dict) -> dict:
         return {"ok": False, "status": e.code, "error": body}
     except Exception as e:
         return {"ok": False, "status": 0, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Watcher management
+# ---------------------------------------------------------------------------
+
+
+def _search_jira_user(display_name: str) -> str | None:
+    """Search Jira for a user by display name, return accountId or None."""
+    import urllib.request
+
+    creds = _jira_auth()
+    if not creds:
+        return None
+    _, auth = creds
+
+    search_url = (
+        f"https://redhat.atlassian.net/rest/api/3/user/search"
+        f"?query={urllib.request.quote(display_name)}&maxResults=5"
+    )
+    req = urllib.request.Request(search_url, headers={
+        "Authorization": f"Basic {auth}",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            users = json.loads(resp.read())
+    except Exception:
+        return None
+
+    for user in users:
+        if user.get("displayName", "").lower() == display_name.lower():
+            return user.get("accountId")
+    if users:
+        return users[0].get("accountId")
+    return None
+
+
+def _get_existing_watchers(ticket_key: str) -> set[str]:
+    """Get set of accountIds already watching the ticket."""
+    import urllib.request
+
+    creds = _jira_auth()
+    if not creds:
+        return set()
+    _, auth = creds
+
+    url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}/watchers"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Basic {auth}",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except Exception:
+        return set()
+
+    return {w.get("accountId", "") for w in data.get("watchers", [])}
+
+
+def add_watchers_to_ticket(ticket_key: str, display_names: list[str]) -> dict:
+    """Add watchers to a Jira ticket by display name. Idempotent.
+
+    Resolves each display name to an accountId, checks if already watching,
+    and only adds those not yet watching.
+
+    Returns:
+        {
+            "action": "add_watchers",
+            "ticket_key": str,
+            "added": [str],
+            "already_watching": [str],
+            "not_found": [str],
+            "errors": [str],
+        }
+    """
+    import urllib.error
+    import urllib.request
+
+    creds = _jira_auth()
+    if not creds:
+        return {
+            "action": "add_watchers", "ticket_key": ticket_key,
+            "added": [], "already_watching": [], "not_found": [],
+            "errors": ["JIRA auth not configured"],
+        }
+    _, auth = creds
+
+    existing_watchers = _get_existing_watchers(ticket_key)
+    added = []
+    already_watching = []
+    not_found = []
+    errors = []
+
+    for name in display_names:
+        account_id = _search_jira_user(name)
+        if not account_id:
+            not_found.append(name)
+            continue
+
+        if account_id in existing_watchers:
+            already_watching.append(name)
+            continue
+
+        url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}/watchers"
+        data = json.dumps(account_id).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={
+            "Authorization": f"Basic {auth}",
+            "Content-Type": "application/json",
+        }, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status in (200, 204):
+                    added.append(name)
+                    existing_watchers.add(account_id)
+                else:
+                    errors.append(f"{name}: HTTP {resp.status}")
+        except urllib.error.HTTPError as e:
+            errors.append(f"{name}: HTTP {e.code}")
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+
+    return {
+        "action": "add_watchers",
+        "ticket_key": ticket_key,
+        "added": added,
+        "already_watching": already_watching,
+        "not_found": not_found,
+        "errors": errors,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +450,7 @@ def build_provenance_footer() -> str:
     """Standard provenance footer for all tickets and comments."""
     return (
         "---\n"
-        f"Created by 'conforma-exception-create' skill from {PROVENANCE_REPO}\n"
+        f"Created by 'conforma-exception' skill from {PROVENANCE_REPO}\n"
         f"User: {getpass.getuser()}@{platform.node()}"
     )
 
@@ -583,6 +795,7 @@ def create_ticket(
     psx_remediation: str | None = None,
     psx_impact: str | None = None,
     authorized_party: str | None = None,
+    watcher_names: list[str] | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Create a Jira ticket in the specified project."""
@@ -715,6 +928,17 @@ def create_ticket(
         else:
             apply_result = {"operations": [], "verification": None}
 
+        # --- Post-creation: add watchers for PSX tickets ---
+        watcher_result = None
+        if ticket_key and project in ("PSX", "OCPEXCEPT"):
+            all_watchers = list(PSX_MANDATORY_WATCHERS)
+            if watcher_names:
+                for name in watcher_names:
+                    if name not in all_watchers:
+                        all_watchers.append(name)
+            watcher_result = add_watchers_to_ticket(ticket_key, all_watchers)
+            apply_result.setdefault("operations", []).append(watcher_result)
+
         return {
             "status": "created",
             "project": project,
@@ -727,6 +951,7 @@ def create_ticket(
             "authorized_party_set": apply_result.get(
                 "authorized_party_set", False
             ),
+            "watchers": watcher_result,
             "verification": apply_result.get("verification"),
             "operations": apply_result.get("operations", []),
             "raw_output": output,
@@ -1241,14 +1466,34 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Vendor/distinguisher tag prepended to title, e.g. AMD, NVIDIA, FIPS",
     )
-    parser.add_argument("--psx-scope", default=None, help="PSX template: scope details")
-    parser.add_argument("--psx-risk", default=None, help="PSX template: risk acceptance")
-    parser.add_argument("--psx-remediation", default=None, help="PSX template: fix plan")
-    parser.add_argument("--psx-impact", default=None, help="PSX template: impact if denied")
+    parser.add_argument("--psx-scope", default=None, help="PSX template: scope details (overrides --template)")
+    parser.add_argument("--psx-risk", default=None, help="PSX template: risk acceptance (overrides --template)")
+    parser.add_argument("--psx-remediation", default=None, help="PSX template: fix plan (overrides --template)")
+    parser.add_argument("--psx-impact", default=None, help="PSX template: impact if denied (overrides --template)")
+    parser.add_argument(
+        "--template",
+        default=None,
+        help="Template category ID from exception_templates.yaml (e.g., rpm_signature_thirdparty)",
+    )
+    parser.add_argument(
+        "--template-variant",
+        default=None,
+        help="Template variant ID (e.g., fedora_epel, amd, habanalabs). Required if --template is set.",
+    )
     parser.add_argument(
         "--authorized-party",
         default=None,
         help="Senior manager accepting risk (Authorized Party in PSX workflow)",
+    )
+    parser.add_argument(
+        "--watchers",
+        default=None,
+        help=(
+            "Comma-separated display names to add as watchers on the PSX ticket. "
+            "These should come from the user-approved list suggested by "
+            "preflight_check.py's discover_user_groups(). "
+            "Example: --watchers 'Alex Fan,Chris Kodama,Jakub Stetina'"
+        ),
     )
     parser.add_argument(
         "--reconcile",
@@ -1263,6 +1508,40 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     components = [c.strip() for c in args.components.split(",")]
+
+    # --- Resolve template if provided ---
+    if args.template:
+        if not args.template_variant:
+            print(
+                json.dumps({"status": "failed", "error": "--template-variant is required when --template is set"}),
+            )
+            return 2
+        versions_str = args.rhoai_version or ""
+        versions_list = [v.strip() for v in versions_str.split(",") if v.strip()]
+        rule_key = args.rule.split(":", 1)[1] if ":" in args.rule else args.rule
+        template_vars = {
+            "rule": args.rule,
+            "rule_key": rule_key,
+            "components": ", ".join(components),
+            "component_count": str(len(components)),
+            "versions": ", ".join(versions_list) if versions_list else versions_str,
+            "version_count": str(len(versions_list)) if versions_list else "1",
+            "vendor": args.vendor_tag or "",
+            "rhoaieng_url": args.rhoaieng_url or "",
+            "psx_url": args.psx_url or "",
+            "effective_until": args.effective_until or "",
+        }
+        resolved = resolve_template(args.template, args.template_variant, template_vars)
+        if not args.summary_context:
+            args.summary_context = resolved.get("summary_context")
+        if not args.psx_scope:
+            args.psx_scope = resolved.get("scope")
+        if not args.psx_risk:
+            args.psx_risk = resolved.get("risk")
+        if not args.psx_remediation:
+            args.psx_remediation = resolved.get("remediation")
+        if not args.psx_impact:
+            args.psx_impact = resolved.get("impact")
 
     if args.reconcile:
         result = reconcile_ticket(
@@ -1287,6 +1566,10 @@ def main() -> int:
         print(json.dumps(result, indent=2))
         return 0 if result["status"] == "reconciled" else 1
 
+    watcher_names: list[str] | None = None
+    if args.watchers:
+        watcher_names = [n.strip() for n in args.watchers.split(",") if n.strip()]
+
     result = create_ticket(
         project=args.project,
         rule=args.rule,
@@ -1304,6 +1587,7 @@ def main() -> int:
         psx_remediation=args.psx_remediation,
         psx_impact=args.psx_impact,
         authorized_party=args.authorized_party,
+        watcher_names=watcher_names,
         dry_run=args.dry_run,
     )
     print(json.dumps(result, indent=2))
