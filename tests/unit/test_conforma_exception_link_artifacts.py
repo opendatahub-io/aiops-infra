@@ -1,4 +1,5 @@
 """Tests for conforma-exception link_artifacts.py."""
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -8,8 +9,9 @@ import link_artifacts as la
 
 class TestBuildProvenanceFooter:
     def test_includes_repo_and_user(self):
-        with patch("link_artifacts.getpass.getuser", return_value="testuser"), patch(
-            "link_artifacts.platform.node", return_value="testhost"
+        with (
+            patch("link_artifacts.getpass.getuser", return_value="testuser"),
+            patch("link_artifacts.platform.node", return_value="testhost"),
         ):
             footer = la.build_provenance_footer()
         assert "---" in footer
@@ -46,8 +48,9 @@ class TestAddLabelDryRun:
 class TestCommentOnTicketDryRun:
     def test_dry_run_includes_mr_url_and_provenance(self):
         mr_url = "https://gitlab.example.com/mr/99"
-        with patch("link_artifacts.getpass.getuser", return_value="user"), patch(
-            "link_artifacts.platform.node", return_value="host"
+        with (
+            patch("link_artifacts.getpass.getuser", return_value="user"),
+            patch("link_artifacts.platform.node", return_value="host"),
         ):
             result = la.comment_on_ticket("RHOAIENG-789", mr_url, dry_run=True)
         assert result["status"] == "dry_run"
@@ -99,11 +102,7 @@ class TestLinkAllDryRun:
 
         link_ops = [r for r in dry_run_results if "link_type" in r]
         assert any(
-            r["from"] == "RHOAIENG-62569" and r["to"] == "PSX-1042" and r["link_type"] == "Blocks"
-            for r in link_ops
+            r["from"] == "RHOAIENG-62569" and r["to"] == "PSX-1042" and r["link_type"] == "Blocks" for r in link_ops
         )
-        assert any(
-            r["from"] == "RHOAIENG-62569" and r["to"] == "RHAISTRAT-576"
-            for r in link_ops
-        )
+        assert any(r["from"] == "RHOAIENG-62569" and r["to"] == "RHAISTRAT-576" for r in link_ops)
         assert any(r["from"] == "PSX-1042" and r["to"] == "PSX-999" for r in link_ops)

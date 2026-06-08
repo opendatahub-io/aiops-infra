@@ -144,21 +144,23 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--src-url",     required=True, metavar="URL",    help="Fork URL (source project)")
-    parser.add_argument("--src-branch",  required=True, metavar="BRANCH", help="Source branch in the fork")
-    parser.add_argument("--dest-url",    required=True, metavar="URL",    help="Target project URL (e.g. app-interface)")
-    parser.add_argument("--dest-branch", default=None,  metavar="BRANCH", help="Target branch (default: project's default_branch)")
-    parser.add_argument("--title",       required=True, metavar="TEXT",   help="MR title")
-    parser.add_argument("--description", default="",    metavar="TEXT",   help="MR description (optional)")
+    parser.add_argument("--src-url", required=True, metavar="URL", help="Fork URL (source project)")
+    parser.add_argument("--src-branch", required=True, metavar="BRANCH", help="Source branch in the fork")
+    parser.add_argument("--dest-url", required=True, metavar="URL", help="Target project URL (e.g. app-interface)")
+    parser.add_argument(
+        "--dest-branch", default=None, metavar="BRANCH", help="Target branch (default: project's default_branch)"
+    )
+    parser.add_argument("--title", required=True, metavar="TEXT", help="MR title")
+    parser.add_argument("--description", default="", metavar="TEXT", help="MR description (optional)")
     args = parser.parse_args()
 
     _gitlab_user = require_env("GITLAB_USER", "export GITLAB_USER=yourusername")
     gitlab_token = require_env("GITLAB_TOKEN", "export GITLAB_TOKEN=yourtoken")
 
-    src_base  = parse_gitlab_base_url(args.src_url)
+    src_base = parse_gitlab_base_url(args.src_url)
     dest_base = parse_gitlab_base_url(args.dest_url)
     if src_base != dest_base:
-        print(f"ERROR: --src-url and --dest-url must be on the same GitLab instance.", file=sys.stderr)
+        print("ERROR: --src-url and --dest-url must be on the same GitLab instance.", file=sys.stderr)
         print(f"  src:  {src_base}", file=sys.stderr)
         print(f"  dest: {dest_base}", file=sys.stderr)
         sys.exit(1)
@@ -166,7 +168,7 @@ def main() -> None:
     print(f"Connecting to {dest_base}...", file=sys.stderr)
     gl = get_gitlab_client(dest_base, gitlab_token)
 
-    src_path  = parse_project_path(args.src_url)
+    src_path = parse_project_path(args.src_url)
     dest_path = parse_project_path(args.dest_url)
 
     print(f"Fetching source project (fork):   {src_path}", file=sys.stderr)
@@ -201,7 +203,11 @@ def main() -> None:
         forked_from = getattr(fork_project, "forked_from_project", None)
         forked_from_id = forked_from["id"] if isinstance(forked_from, dict) else getattr(forked_from, "id", None)
         if forked_from_id != target_project.id:
-            actual_parent = forked_from.get("path_with_namespace", forked_from_id) if isinstance(forked_from, dict) else forked_from_id
+            actual_parent = (
+                forked_from.get("path_with_namespace", forked_from_id)
+                if isinstance(forked_from, dict)
+                else forked_from_id
+            )
             print(f"ERROR: Source project '{src_path}' is not a fork of target project '{dest_path}'.", file=sys.stderr)
             print(f"  Source project's fork parent: {actual_parent}", file=sys.stderr)
             print(f"  Expected fork parent: {dest_path} (id={target_project.id})", file=sys.stderr)
@@ -216,11 +222,11 @@ def main() -> None:
     # source_project_id, which matches the GitLab REST API design.
     if is_cross_project:
         mr_data = {
-            "source_branch":        args.src_branch,
-            "target_project_id":    target_project.id,
-            "target_branch":        dest_branch,
-            "title":                args.title,
-            "description":          args.description,
+            "source_branch": args.src_branch,
+            "target_project_id": target_project.id,
+            "target_branch": dest_branch,
+            "title": args.title,
+            "description": args.description,
             "remove_source_branch": True,
         }
         creating_project = fork_project
@@ -228,10 +234,10 @@ def main() -> None:
         print(f"  fork_project_id={fork_project.id}  target_project_id={target_project.id}", file=sys.stderr)
     else:
         mr_data = {
-            "source_branch":        args.src_branch,
-            "target_branch":        dest_branch,
-            "title":                args.title,
-            "description":          args.description,
+            "source_branch": args.src_branch,
+            "target_branch": dest_branch,
+            "title": args.title,
+            "description": args.description,
             "remove_source_branch": True,
         }
         creating_project = target_project
@@ -275,15 +281,15 @@ def main() -> None:
         errors.append(f"target_branch: expected '{dest_branch}', got '{actual_tgt_branch}'")
 
     if errors:
-        print(f"  ERROR: MR was created but does not match expected parameters:", file=sys.stderr)
+        print("  ERROR: MR was created but does not match expected parameters:", file=sys.stderr)
         for e in errors:
             print(f"    - {e}", file=sys.stderr)
         print(f"  MR URL (likely broken): {mr.web_url}", file=sys.stderr)
-        print(f"  Closing the misconfigured MR...", file=sys.stderr)
+        print("  Closing the misconfigured MR...", file=sys.stderr)
         try:
             mr.state_event = "close"
             mr.save()
-            print(f"  MR closed.", file=sys.stderr)
+            print("  MR closed.", file=sys.stderr)
         except Exception as close_exc:
             print(f"  WARNING: Could not auto-close MR: {close_exc}", file=sys.stderr)
         sys.exit(1)

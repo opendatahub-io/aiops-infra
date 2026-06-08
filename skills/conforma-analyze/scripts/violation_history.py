@@ -66,7 +66,9 @@ def _get_github_token() -> str:
         return _github_token_cache
     result = subprocess.run(
         ["gh", "auth", "token"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     _github_token_cache = result.stdout.strip() if result.returncode == 0 else ""
     return _github_token_cache
@@ -80,9 +82,10 @@ def _find_csv_path(ref: str) -> str | None:
     for csv_path in CSV_PATHS:
         url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{ref}/{csv_path}"
         result = subprocess.run(
-            ["curl", "-fsSL", "-o", "/dev/null", "-w", "%{http_code}",
-             "-H", f"Authorization: token {token}", url],
-            capture_output=True, text=True, timeout=30,
+            ["curl", "-fsSL", "-o", "/dev/null", "-w", "%{http_code}", "-H", f"Authorization: token {token}", url],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.stdout.strip() == "200":
             return csv_path
@@ -96,13 +99,12 @@ def _fetch_commits(ref: str, csv_path: str, max_commits: int) -> list[dict]:
     per_page = min(max_commits, 100)
 
     while len(all_commits) < max_commits:
-        api_path = (
-            f"repos/{CONFORMA_REPORTER_REPO}/commits"
-            f"?sha={ref}&path={csv_path}&per_page={per_page}&page={page}"
-        )
+        api_path = f"repos/{CONFORMA_REPORTER_REPO}/commits?sha={ref}&path={csv_path}&per_page={per_page}&page={page}"
         result = subprocess.run(
             ["gh", "api", api_path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             break
@@ -112,11 +114,13 @@ def _fetch_commits(ref: str, csv_path: str, max_commits: int) -> list[dict]:
             break
 
         for c in commits:
-            all_commits.append({
-                "sha": c["sha"],
-                "date": c["commit"]["committer"]["date"],
-                "message": c["commit"]["message"].split("\n", 1)[0][:120],
-            })
+            all_commits.append(
+                {
+                    "sha": c["sha"],
+                    "date": c["commit"]["committer"]["date"],
+                    "message": c["commit"]["message"].split("\n", 1)[0][:120],
+                }
+            )
 
         if len(commits) < per_page:
             break
@@ -133,7 +137,8 @@ def _fetch_csv_content(sha: str, csv_path: str) -> str | None:
     url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{sha}/{csv_path}"
     result = subprocess.run(
         ["curl", "-fsSL", "-H", f"Authorization: token {token}", url],
-        capture_output=True, timeout=120,
+        capture_output=True,
+        timeout=120,
     )
     if result.returncode != 0:
         return None
@@ -187,19 +192,21 @@ def trace_history(
         print(f"Probing CSV path on {release}...", file=sys.stderr)
         csv_path = _find_csv_path(release)
         if not csv_path:
-            return {"error": f"No violations CSV found on branch {release}",
-                    "release": release, "code": code}
+            return {"error": f"No violations CSV found on branch {release}", "release": release, "code": code}
         print(f"  Resolved: {csv_path}", file=sys.stderr)
 
     # 2 — fetch commit list
     print(f"Fetching commit history (max {max_commits})...", file=sys.stderr)
     commits = _fetch_commits(release, csv_path, max_commits)
     if not commits:
-        return {"error": f"No commits found for {csv_path} on {release}",
-                "release": release, "code": code, "csv_path": csv_path}
+        return {
+            "error": f"No commits found for {csv_path} on {release}",
+            "release": release,
+            "code": code,
+            "csv_path": csv_path,
+        }
     print(
-        f"  {len(commits)} commits  "
-        f"({commits[-1]['date'][:10]} → {commits[0]['date'][:10]})",
+        f"  {len(commits)} commits  ({commits[-1]['date'][:10]} → {commits[0]['date'][:10]})",
         file=sys.stderr,
     )
 
@@ -209,7 +216,8 @@ def trace_history(
         sha_short = commit["sha"][:12]
         print(
             f"  [{i + 1}/{len(commits)}] {sha_short} {commit['date'][:10]}",
-            file=sys.stderr, end="",
+            file=sys.stderr,
+            end="",
         )
 
         content = _fetch_csv_content(commit["sha"], csv_path)
@@ -229,8 +237,7 @@ def trace_history(
 
         if result["present"]:
             print(
-                f"  PRESENT  {result['count']} rows  "
-                f"{len(result['components'])} components",
+                f"  PRESENT  {result['count']} rows  {len(result['components'])} components",
                 file=sys.stderr,
             )
             if until_found:
@@ -240,8 +247,7 @@ def trace_history(
             print("  absent", file=sys.stderr)
 
     if not timeline:
-        return {"error": "Could not fetch any commit content",
-                "release": release, "code": code, "csv_path": csv_path}
+        return {"error": "Could not fetch any commit content", "release": release, "code": code, "csv_path": csv_path}
 
     # 4 — derive summary fields
     currently_present = timeline[0]["present"]
@@ -341,9 +347,7 @@ def format_text(data: dict) -> str:
     if data["currently_present"]:
         cs = data.get("current_status", {})
         lines.append(
-            f"  STATUS: CURRENTLY PRESENT  "
-            f"({cs.get('count', '?')} rows, "
-            f"{len(cs.get('components', []))} components)"
+            f"  STATUS: CURRENTLY PRESENT  ({cs.get('count', '?')} rows, {len(cs.get('components', []))} components)"
         )
         if cs.get("components"):
             for comp in cs["components"]:
@@ -370,10 +374,7 @@ def format_text(data: dict) -> str:
 
     ps = data.get("presence_summary", {})
     lines.append("")
-    lines.append(
-        f"  Present in {ps.get('present_in', 0)}/{ps.get('total', 0)} "
-        f"checked commits"
-    )
+    lines.append(f"  Present in {ps.get('present_in', 0)}/{ps.get('total', 0)} checked commits")
 
     tl = data.get("timeline")
     if tl:
@@ -384,44 +385,49 @@ def format_text(data: dict) -> str:
         for entry in tl:
             marker = "██" if entry["present"] else "··"
             count_str = f"  {entry['count']} rows" if entry["present"] else ""
-            lines.append(
-                f"  {marker}  {entry['date'][:10]}  {entry['sha']}{count_str}"
-            )
+            lines.append(f"  {marker}  {entry['date'][:10]}  {entry['sha']}{count_str}")
 
     lines.append("")
     return "\n".join(lines)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Trace violation history in conforma-reporter CSV"
-    )
+    parser = argparse.ArgumentParser(description="Trace violation history in conforma-reporter CSV")
     parser.add_argument(
-        "--release", required=True,
+        "--release",
+        required=True,
         help="Release branch (e.g. rhoai-3.5-ea.1)",
     )
     parser.add_argument(
-        "--code", required=True,
+        "--code",
+        required=True,
         help="Exact violation code (e.g. prefetch_dependencies.mode_not_permissive)",
     )
     parser.add_argument(
-        "--component", default=None,
+        "--component",
+        default=None,
         help="Optional component name filter",
     )
     parser.add_argument(
-        "--max-commits", type=int, default=100,
+        "--max-commits",
+        type=int,
+        default=100,
         help="Max commits to check (default: 100)",
     )
     parser.add_argument(
-        "--csv-path", default=None,
+        "--csv-path",
+        default=None,
         help="Override CSV path within the repo (default: auto-detect)",
     )
     parser.add_argument(
-        "--until-found", action="store_true",
+        "--until-found",
+        action="store_true",
         help="Stop after finding the first commit where the violation is present",
     )
     parser.add_argument(
-        "--format", choices=["json", "text"], default="json",
+        "--format",
+        choices=["json", "text"],
+        default="json",
         help="Output format (default: json)",
     )
     args = parser.parse_args()

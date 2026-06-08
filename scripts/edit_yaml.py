@@ -16,6 +16,7 @@ Subcommands:
   insert-simple-map-entry <file> --map-key <dot.path.0.nested> --key <k> --value <v>
   append-renovate-repo    <file> --renovate-config <cfg> --name <entry>
 """
+
 import argparse
 import sys
 from pathlib import Path
@@ -25,6 +26,7 @@ from ruamel.yaml import YAML
 def _detect_formatting(path: Path) -> dict:
     """Detect explicit_start and sequence indent from an existing YAML file."""
     import re
+
     raw = path.read_text()
     lines = raw.splitlines()
     info: dict = {"explicit_start": False, "map_indent": 2, "seq_indent": 2, "seq_offset": 0}
@@ -60,7 +62,7 @@ def _detect_formatting(path: Path) -> dict:
             continue
         # Check sequence item first (e.g. "    - repo_mappings:") so it
         # isn't misidentified as a mapping key by the pattern below.
-        m_seq = re.match(r'^( *)- ', line)
+        m_seq = re.match(r"^( *)- ", line)
         if m_seq:
             if parent_col is not None:
                 dash_col = len(m_seq.group(1))
@@ -70,7 +72,7 @@ def _detect_formatting(path: Path) -> dict:
                     best_offset = offset
                 parent_col = None
             continue
-        m_key = re.match(r'^( *)\S[^#]*:\s*$', line)
+        m_key = re.match(r"^( *)\S[^#]*:\s*$", line)
         if m_key:
             parent_col = len(m_key.group(1))
 
@@ -102,6 +104,7 @@ def _load(path: Path, yaml: YAML):
 
 def _save(path: Path, data, yaml: YAML):
     import io
+
     buf = io.BytesIO()
     yaml.dump(data, buf)
     output = buf.getvalue().decode("utf-8")
@@ -113,19 +116,19 @@ def _save(path: Path, data, yaml: YAML):
     if path.exists():
         orig = path.read_text()
         orig_lines = orig.splitlines()
-        first_orig = next((l for l in orig_lines if l.strip() and not l.strip().startswith("#")), "")
+        first_orig = next((ln for ln in orig_lines if ln.strip() and not ln.strip().startswith("#")), "")
         out_lines = output.splitlines(True)
-        first_out = next((l for l in out_lines if l.strip() and not l.strip().startswith("#")), "")
+        first_out = next((ln for ln in out_lines if ln.strip() and not ln.strip().startswith("#")), "")
 
-        if first_orig.startswith("- ") and first_out != first_orig[:len(first_out.rstrip())] + "\n":
+        if first_orig.startswith("- ") and first_out != first_orig[: len(first_out.rstrip())] + "\n":
             import re
-            m = re.match(r'^(\s+)', first_out)
+
+            m = re.match(r"^(\s+)", first_out)
             if m:
                 extra = m.group(1)
-                output = "\n".join(
-                    l[len(extra):] if l.startswith(extra) else l
-                    for l in output.splitlines()
-                ) + "\n"
+                output = (
+                    "\n".join(ln[len(extra) :] if ln.startswith(extra) else ln for ln in output.splitlines()) + "\n"
+                )
 
     path.write_text(output)
 
@@ -310,9 +313,8 @@ def cmd_append_renovate_repo(args):
 
     # Match quote style of existing entries
     from ruamel.yaml.scalarstring import DoubleQuotedScalarString
-    existing_quoted = any(
-        isinstance(r.get("name"), DoubleQuotedScalarString) for r in repos if isinstance(r, dict)
-    )
+
+    existing_quoted = any(isinstance(r.get("name"), DoubleQuotedScalarString) for r in repos if isinstance(r, dict))
     name_val = DoubleQuotedScalarString(args.name) if existing_quoted else args.name
 
     # ruamel.yaml stores the blank-line separator between top-level groups
@@ -323,6 +325,7 @@ def cmd_append_renovate_repo(args):
     # Fix: steal trailing blank-line tokens from the old last entry and
     # move them to the new entry after appending.
     from ruamel.yaml.comments import CommentedMap
+
     old_last = repos[-1] if repos else None
     trailing_comment = None
     if old_last is not None and hasattr(old_last, "ca"):
@@ -407,14 +410,14 @@ def main():
     args = parser.parse_args()
 
     dispatch = {
-        "append-items-array":      cmd_append_items_array,
-        "append-yaml-doc":         cmd_append_yaml_doc,
-        "insert-map-key":          cmd_insert_map_key,
-        "append-array-entry":      cmd_append_array_entry,
-        "insert-list-item":        cmd_insert_list_item,
-        "append-rpa-component":    cmd_append_rpa_component,
+        "append-items-array": cmd_append_items_array,
+        "append-yaml-doc": cmd_append_yaml_doc,
+        "insert-map-key": cmd_insert_map_key,
+        "append-array-entry": cmd_append_array_entry,
+        "insert-list-item": cmd_insert_list_item,
+        "append-rpa-component": cmd_append_rpa_component,
         "insert-simple-map-entry": cmd_insert_simple_map_entry,
-        "append-renovate-repo":    cmd_append_renovate_repo,
+        "append-renovate-repo": cmd_append_renovate_repo,
     }
     dispatch[args.command](args)
 

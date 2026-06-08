@@ -1,4 +1,5 @@
 """Tests for conforma-exception manage_exceptions.py."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,9 +7,7 @@ from pathlib import Path
 import manage_exceptions as mod
 
 
-EC_POLICY_DIR = Path(
-    "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
-)
+EC_POLICY_DIR = Path("config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy")
 
 SAMPLE_POLICY_YAML = """\
 apiVersion: enterprisecontract.io/v1alpha1
@@ -104,9 +103,11 @@ class TestAnnotateExpiry:
         assert active_entry["expires_in_days"] > 0
 
     def test_skips_unparseable_dates(self):
-        annotated = mod.annotate_expiry([
-            _make_exception("bad.date", "invalid"),
-        ])
+        annotated = mod.annotate_expiry(
+            [
+                _make_exception("bad.date", "invalid"),
+            ]
+        )
         assert annotated == []
 
 
@@ -135,9 +136,7 @@ class TestAssessException:
             "is_unscoped": False,
             "is_expired": True,
         }
-        result = mod.assess_exception(
-            exc, self._violations(), ["rhoai-3.4", "rhoai-3.5"]
-        )
+        result = mod.assess_exception(exc, self._violations(), ["rhoai-3.4", "rhoai-3.5"])
         assert result["classification"] == "still_needed"
         assert result["match_type"] == "exact"
         assert result["recommended_action"] == "extend"
@@ -175,9 +174,7 @@ class TestAssessException:
                 },
             },
         }
-        result = mod.assess_exception(
-            exc, violations, ["rhoai-3.4", "rhoai-3.5"]
-        )
+        result = mod.assess_exception(exc, violations, ["rhoai-3.4", "rhoai-3.5"])
         assert result["classification"] == "partially_needed"
         assert result["recommended_action"] == "narrow_and_extend"
         assert set(result["evidence"]["still_violating_components"]) == {"odh-dashboard-v3-4"}
@@ -190,9 +187,7 @@ class TestAssessException:
             "is_unscoped": True,
             "is_expired": False,
         }
-        result = mod.assess_exception(
-            exc, self._violations(), ["rhoai-3.4", "rhoai-3.5"]
-        )
+        result = mod.assess_exception(exc, self._violations(), ["rhoai-3.4", "rhoai-3.5"])
         assert result["classification"] == "still_needed"
         assert result["recommended_action"] == "keep"
 
@@ -245,9 +240,7 @@ class TestScanAllExceptions:
         assert "RHOAIENG-200" in hermetic["comment_header_lines"][0]
         assert hermetic["file"].endswith("registry-rhoai-prod.yaml")
 
-        unscoped = next(
-            e for e in exceptions if e["rule"] == "rpm_signature.allowed:deadbeef"
-        )
+        unscoped = next(e for e in exceptions if e["rule"] == "rpm_signature.allowed:deadbeef")
         assert unscoped["is_unscoped"] is True
         assert unscoped["has_component_names"] is False
 

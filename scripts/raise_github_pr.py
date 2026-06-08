@@ -148,21 +148,23 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--src-url",     required=True,  metavar="URL",    help="Fork/source repo URL")
-    parser.add_argument("--src-branch",  required=True,  metavar="BRANCH", help="Source branch in the fork")
-    parser.add_argument("--dest-url",    required=True,  metavar="URL",    help="Target repo URL")
-    parser.add_argument("--dest-branch", default=None,   metavar="BRANCH", help="Target branch (default: repo's default_branch)")
-    parser.add_argument("--title",       required=True,  metavar="TEXT",   help="PR title")
-    parser.add_argument("--description", default="",     metavar="TEXT",   help="PR body (optional)")
+    parser.add_argument("--src-url", required=True, metavar="URL", help="Fork/source repo URL")
+    parser.add_argument("--src-branch", required=True, metavar="BRANCH", help="Source branch in the fork")
+    parser.add_argument("--dest-url", required=True, metavar="URL", help="Target repo URL")
+    parser.add_argument(
+        "--dest-branch", default=None, metavar="BRANCH", help="Target branch (default: repo's default_branch)"
+    )
+    parser.add_argument("--title", required=True, metavar="TEXT", help="PR title")
+    parser.add_argument("--description", default="", metavar="TEXT", help="PR body (optional)")
     args = parser.parse_args()
 
     _github_user = require_env("GITHUB_USER", "export GITHUB_USER=yourusername")
     github_token = require_env("GITHUB_TOKEN", "export GITHUB_TOKEN=yourtoken")
 
-    src_owner, src_repo_name   = parse_repo_path(args.src_url)
+    src_owner, src_repo_name = parse_repo_path(args.src_url)
     dest_owner, dest_repo_name = parse_repo_path(args.dest_url)
 
-    print(f"Connecting to GitHub...", file=sys.stderr)
+    print("Connecting to GitHub...", file=sys.stderr)
     g = get_github_client(github_token)
 
     print(f"Fetching source repo (fork):  {src_owner}/{src_repo_name}", file=sys.stderr)
@@ -177,7 +179,7 @@ def main() -> None:
     # head_filter: GitHub's get_pulls API always requires "owner:branch" format.
     # head_for_create: create_pull uses "owner:branch" for cross-repo, plain branch for same-repo.
     is_cross_repo = src_owner.lower() != dest_owner.lower()
-    head_filter    = f"{src_owner}:{args.src_branch}"
+    head_filter = f"{src_owner}:{args.src_branch}"
     head_for_create = head_filter if is_cross_repo else args.src_branch
 
     # ── Idempotency check ──────────────────────────────────────────────────────

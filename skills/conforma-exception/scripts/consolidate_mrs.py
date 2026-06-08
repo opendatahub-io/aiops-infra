@@ -23,7 +23,6 @@ import json
 import os
 import re
 import sys
-import urllib.request
 from pathlib import Path
 
 import gitlab_ops
@@ -41,7 +40,9 @@ def _fetch_jira_title(ticket_key: str) -> str | None:
     try:
         result = subprocess.run(
             ["acli", "jira", "workitem", "view", ticket_key],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():
@@ -87,12 +88,10 @@ def _gitlab_api_put(path: str, payload: dict, token: str) -> dict:
 # Step 1: Discover open MRs for a PSX ticket
 # ---------------------------------------------------------------------------
 
+
 def find_open_mrs(psx_key: str, token: str) -> list[dict]:
     """Find all open MRs in konflux-release-data referencing the PSX ticket."""
-    path = (
-        f"projects/{GITLAB_PROJECT_ENCODED}/merge_requests"
-        f"?state=opened&search={psx_key}&in=title,description"
-    )
+    path = f"projects/{GITLAB_PROJECT_ENCODED}/merge_requests?state=opened&search={psx_key}&in=title,description"
     mrs = _gitlab_api_get(path, token)
     matched = []
     for mr in mrs:
@@ -105,6 +104,7 @@ def find_open_mrs(psx_key: str, token: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Step 2: Extract version-specs from MR diffs
 # ---------------------------------------------------------------------------
+
 
 def extract_version_specs_from_mr(mr_iid: int, token: str) -> dict | None:
     """Parse the diff of a single MR to extract version, components, and effectiveUntil.
@@ -154,6 +154,7 @@ def extract_version_specs_from_mr(mr_iid: int, token: str) -> dict | None:
 # Step 3: Close old MRs
 # ---------------------------------------------------------------------------
 
+
 def close_mr_with_comment(mr_iid: int, consolidated_mr_iid: int, token: str) -> dict:
     """Close an MR with a comment pointing to the consolidated one."""
     comment = (
@@ -177,6 +178,7 @@ def close_mr_with_comment(mr_iid: int, consolidated_mr_iid: int, token: str) -> 
 # Step 4: Update Jira (remote links + comment)
 # ---------------------------------------------------------------------------
 
+
 def _comment_via_acli(ticket_key: str, comment_text: str) -> dict:
     """Add a comment via acli (works for restricted projects where REST API fails)."""
     import subprocess
@@ -185,16 +187,20 @@ def _comment_via_acli(ticket_key: str, comment_text: str) -> dict:
     work_dir = Path(__file__).resolve().parent.parent / ".work"
     work_dir.mkdir(parents=True, exist_ok=True)
     tmp = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".txt", prefix="consolidate-comment-",
-        delete=False, dir=work_dir,
+        mode="w",
+        suffix=".txt",
+        prefix="consolidate-comment-",
+        delete=False,
+        dir=work_dir,
     )
     try:
         tmp.write(comment_text)
         tmp.close()
         result = subprocess.run(
-            ["acli", "jira", "workitem", "comment", "create",
-             "--key", ticket_key, "--body-file", tmp.name],
-            capture_output=True, text=True, timeout=30,
+            ["acli", "jira", "workitem", "comment", "create", "--key", ticket_key, "--body-file", tmp.name],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             return {
@@ -281,17 +287,19 @@ def update_jira_links(
 
     rest_api = _check_jira_rest_api()
     if not rest_api["available"]:
-        results.append({
-            "status": "rest_api_unavailable",
-            "detail": rest_api["detail"],
-            "skipped_operations": ["delete_old_remote_links", "add_consolidated_remote_link"],
-            "manual_action_required": (
-                f"Remove old MR web links and add the consolidated MR link "
-                f"manually in Jira UI: https://redhat.atlassian.net/browse/{ticket_key}"
-            ),
-            "old_mr_urls": old_mr_urls,
-            "consolidated_mr_url": consolidated_mr_url,
-        })
+        results.append(
+            {
+                "status": "rest_api_unavailable",
+                "detail": rest_api["detail"],
+                "skipped_operations": ["delete_old_remote_links", "add_consolidated_remote_link"],
+                "manual_action_required": (
+                    f"Remove old MR web links and add the consolidated MR link "
+                    f"manually in Jira UI: https://redhat.atlassian.net/browse/{ticket_key}"
+                ),
+                "old_mr_urls": old_mr_urls,
+                "consolidated_mr_url": consolidated_mr_url,
+            }
+        )
     else:
         existing_links = _get_existing_remote_links(ticket_key)
         for link in existing_links:
@@ -300,9 +308,7 @@ def update_jira_links(
             if link_url in old_mr_urls and link_id:
                 results.append(delete_remote_link(ticket_key, link_id, dry_run))
 
-        results.append(
-            add_remote_link(ticket_key, consolidated_mr_url, consolidated_mr_title, dry_run)
-        )
+        results.append(add_remote_link(ticket_key, consolidated_mr_url, consolidated_mr_title, dry_run))
 
     old_mr_iids = []
     for url in old_mr_urls:
@@ -311,6 +317,7 @@ def update_jira_links(
             old_mr_iids.append(f"!{m.group(1)}")
 
     from link_artifacts import build_provenance_footer
+
     comment_text = (
         f"Consolidated {len(old_mr_urls)} per-version MRs into one:\n\n"
         f"Consolidated MR: {consolidated_mr_url}\n\n"
@@ -341,6 +348,7 @@ def update_jira_links(
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
+
 
 def consolidate(
     psx_url: str,
@@ -411,12 +419,14 @@ def consolidate(
             continue
         check = validate_effective_until_date(ver, eu)
         if not check["valid"] and check["expected"]:
-            date_corrections.append({
-                "version": ver,
-                "was": check["provided"],
-                "corrected_to": check["expected"],
-                "detail": check["detail"],
-            })
+            date_corrections.append(
+                {
+                    "version": ver,
+                    "was": check["provided"],
+                    "corrected_to": check["expected"],
+                    "detail": check["detail"],
+                }
+            )
             spec["effective_until"] = f"{check['expected']}T00:00:00Z"
         spec.setdefault("effective_until_source", "eos")
 
@@ -425,11 +435,16 @@ def consolidate(
         import subprocess
 
         cmd = [
-            sys.executable, str(Path(__file__).resolve().parent / "create_gitlab_mr.py"),
-            "--rule", rule,
-            "--reference-url", psx_url,
-            "--environment", environment,
-            "--version-specs-json", json.dumps(version_specs),
+            sys.executable,
+            str(Path(__file__).resolve().parent / "create_gitlab_mr.py"),
+            "--rule",
+            rule,
+            "--reference-url",
+            psx_url,
+            "--environment",
+            environment,
+            "--version-specs-json",
+            json.dumps(version_specs),
         ]
         if rhoaieng_url:
             cmd.extend(["--rhoaieng-url", rhoaieng_url])
@@ -447,7 +462,10 @@ def consolidate(
             cmd.append("--dry-run")
 
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
             cwd=Path(__file__).resolve().parent,
         )
         if result.returncode != 0:
@@ -471,16 +489,21 @@ def consolidate(
             _build_mr_title_consolidated,
             _build_mr_body_consolidated,
             _update_mr_metadata,
-            get_target_file, detect_component_type,
+            get_target_file,
+            detect_component_type,
         )
+
         all_comps = [c for s in version_specs for c in s["components"]]
         comp_type = detect_component_type(all_comps)
         target_file = get_target_file(comp_type, environment, False)
         new_title = _build_mr_title_consolidated(rule, version_specs, vendor_tag)
         new_body = _build_mr_body_consolidated(
-            rule=rule, version_specs=version_specs,
-            rhoaieng_url=rhoaieng_url, reference_url=psx_url,
-            spreadsheet_url=spreadsheet_url, target_file=target_file,
+            rule=rule,
+            version_specs=version_specs,
+            rhoaieng_url=rhoaieng_url,
+            reference_url=psx_url,
+            spreadsheet_url=spreadsheet_url,
+            target_file=target_file,
         )
         _update_mr_metadata(mr_iid=consolidated_iid, title=new_title, description=new_body)
 
@@ -520,6 +543,7 @@ def consolidate(
     if consolidated_iid:
         try:
             from create_gitlab_mr import verify_mr_dates
+
             verification = verify_mr_dates(consolidated_iid)
         except Exception as exc:
             verification = {"valid": False, "errors": [{"detail": str(exc)}], "checked": 0}
@@ -543,15 +567,15 @@ def consolidate(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Consolidate per-version exception MRs into a single MR"
-    )
+    parser = argparse.ArgumentParser(description="Consolidate per-version exception MRs into a single MR")
     parser.add_argument(
-        "--psx-url", required=True,
+        "--psx-url",
+        required=True,
         help="PSX/OCPEXCEPT Jira ticket URL (e.g. https://redhat.atlassian.net/browse/PSX-1097)",
     )
     parser.add_argument(
-        "--rule", required=True,
+        "--rule",
+        required=True,
         help="Conforma rule (e.g. rpm_signature.allowed:9386b48a1a693c5c)",
     )
     parser.add_argument("--rhoaieng-url", default=None, help="RHOAIENG Jira ticket URL")
@@ -560,7 +584,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--spreadsheet-url", default=None, help="Tracking spreadsheet URL")
     parser.add_argument("--template", default=None, help="Template category ID")
     parser.add_argument(
-        "--consolidated-mr-url", default=None,
+        "--consolidated-mr-url",
+        default=None,
         help="Skip MR creation; use this existing consolidated MR URL instead",
     )
     parser.add_argument("--dry-run", action="store_true")

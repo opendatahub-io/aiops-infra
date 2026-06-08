@@ -1,7 +1,7 @@
 """Tests for conforma-exception create_gitlab_mr.py."""
+
 from __future__ import annotations
 
-from pathlib import Path
 
 import create_gitlab_mr as mod
 
@@ -127,9 +127,7 @@ class TestFindExistingExceptions:
         assert block["effective_until_value"] == "2026-12-01T00:00:00Z"
 
     def test_finds_old_style_unscoped_block(self):
-        blocks = mod._find_existing_exceptions(
-            SAMPLE_POLICY_CONTENT, "rpm_signature.allowed:abc123"
-        )
+        blocks = mod._find_existing_exceptions(SAMPLE_POLICY_CONTENT, "rpm_signature.allowed:abc123")
         assert len(blocks) == 1
         block = blocks[0]
         assert block["has_component_names"] is False

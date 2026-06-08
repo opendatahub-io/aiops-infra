@@ -1,4 +1,5 @@
 """Shared fixtures for aiops-infra tests."""
+
 from __future__ import annotations
 
 import sys
@@ -27,13 +28,14 @@ _add_skill_scripts("conforma-report-fetch")
 
 # ── Shared fixtures ──────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def tmp_csv(tmp_path):
     """Create a temporary CSV file with sample violation data."""
     csv_content = (
         "type,component_name,image,message,effective_on,code,title,description,solution\n"
         'violation,odh-model-server-v3-4,quay.io/img:sha,"Task is not hermetic",2026-01-01,'
-        'hermetic_task.hermetic,Hermetic build required,Must be hermetic,Enable hermetic builds\n'
+        "hermetic_task.hermetic,Hermetic build required,Must be hermetic,Enable hermetic builds\n"
         'violation,odh-modelmesh-v3-4,quay.io/img2:sha,"Task ""prefetch-dependencies"" '
         'is not trusted",2026-01-01,trusted_task.trusted,Task must be trusted,'
         "Untrusted task,Upgrade task\n"

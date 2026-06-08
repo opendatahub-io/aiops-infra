@@ -40,12 +40,8 @@ _JIRA_HOSTS = {
     "redhat.atlassian.net": True,
 }
 
-_JIRA_KEY_RE = re.compile(
-    r"((?:RHOAIENG|PSX|OCPEXCEPT|RHAIENG|RHAISTRAT|KONFLUX)-\d+)"
-)
-_GITHUB_ISSUE_RE = re.compile(
-    r"github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)"
-)
+_JIRA_KEY_RE = re.compile(r"((?:RHOAIENG|PSX|OCPEXCEPT|RHAIENG|RHAISTRAT|KONFLUX)-\d+)")
+_GITHUB_ISSUE_RE = re.compile(r"github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)")
 
 
 def _strip_quotes(s: str) -> str:
@@ -207,9 +203,7 @@ def _render_table(exceptions: list[dict]) -> str:
 # ── Report rendering ─────────────────────────────────────────────────
 
 
-_GITLAB_REPO_URL = (
-    "https://gitlab.cee.redhat.com/releng/konflux-release-data"
-)
+_GITLAB_REPO_URL = "https://gitlab.cee.redhat.com/releng/konflux-release-data"
 
 
 def _policy_file_link(rel_path: str) -> str:
@@ -271,9 +265,7 @@ def _render_report(
     parts.append(f"# RHOAI Conforma Exceptions — {env_label}")
     parts.append("")
     gen_time = now.strftime("%Y-%m-%d %H:%M UTC")
-    files = ", ".join(
-        _policy_file_link(f) for f in sorted(policy_files)
-    )
+    files = ", ".join(_policy_file_link(f) for f in sorted(policy_files))
     parts.append(f"> Generated: {gen_time} | Policy files: {files}")
     parts.append("")
     parts.append(
@@ -285,17 +277,13 @@ def _render_report(
 
     if expired:
         parts.append("")
-        parts.append(
-            f"## Expired ({len(expired)} — need cleanup or extension)"
-        )
+        parts.append(f"## Expired ({len(expired)} — need cleanup or extension)")
         parts.append("")
         parts.append(_render_table(expired))
 
     if expiring_soon:
         parts.append("")
-        parts.append(
-            f"## Expiring within {soon_days} days ({len(expiring_soon)})"
-        )
+        parts.append(f"## Expiring within {soon_days} days ({len(expiring_soon)})")
         parts.append("")
         parts.append(_render_table(expiring_soon))
 
@@ -315,11 +303,7 @@ def _render_report(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=(
-            "List current RHOAI Conforma exceptions as formatted Markdown"
-        )
-    )
+    parser = argparse.ArgumentParser(description=("List current RHOAI Conforma exceptions as formatted Markdown"))
     parser.add_argument(
         "--environment",
         default="prod",
@@ -335,10 +319,7 @@ def main() -> int:
         "--soon-days",
         type=int,
         default=_DEFAULT_SOON_DAYS,
-        help=(
-            f"Days threshold for the 'expiring soon' section "
-            f"(default: {_DEFAULT_SOON_DAYS})"
-        ),
+        help=(f"Days threshold for the 'expiring soon' section (default: {_DEFAULT_SOON_DAYS})"),
     )
     args = parser.parse_args()
 
@@ -353,13 +334,8 @@ def main() -> int:
     try:
         all_exceptions = scan_all_exceptions(repo_dir, args.environment)
         annotated = annotate_expiry(all_exceptions)
-        policy_files = [
-            str(p.relative_to(repo_dir))
-            for p in _get_policy_files(repo_dir, args.environment)
-        ]
-        report = _render_report(
-            annotated, args.environment, policy_files, args.soon_days
-        )
+        policy_files = [str(p.relative_to(repo_dir)) for p in _get_policy_files(repo_dir, args.environment)]
+        report = _render_report(annotated, args.environment, policy_files, args.soon_days)
         print(report)
         return 0
     finally:

@@ -64,6 +64,7 @@ def extract_full_rule_code(code: str, message: str) -> str:
 # Defensive YAML serialization
 # ---------------------------------------------------------------------------
 
+
 class _QuotedStr(str):
     """String subclass that forces YAML double-quoting."""
 
@@ -135,6 +136,7 @@ def _quote_strings_recursively(obj):
 # CSV parsing
 # ---------------------------------------------------------------------------
 
+
 def parse_csv_file(csv_path: Path, release: str) -> list[dict]:
     """Parse a single CSV file, returning violation records."""
     records = []
@@ -154,14 +156,16 @@ def parse_csv_file(csv_path: Path, release: str) -> list[dict]:
                 continue
 
             full_rule = extract_full_rule_code(code, message)
-            records.append({
-                "release": release,
-                "component_name": component,
-                "rule": full_rule,
-                "base_code": code,
-                "title": title,
-                "message": message,
-            })
+            records.append(
+                {
+                    "release": release,
+                    "component_name": component,
+                    "rule": full_rule,
+                    "base_code": code,
+                    "title": title,
+                    "message": message,
+                }
+            )
 
     return records
 
@@ -255,9 +259,7 @@ def build_violations_index(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Parse conforma violation CSVs into structured YAML"
-    )
+    parser = argparse.ArgumentParser(description="Parse conforma violation CSVs into structured YAML")
     parser.add_argument(
         "--reports-dir",
         required=True,
@@ -276,7 +278,7 @@ def main() -> int:
     parser.add_argument(
         "--report-dates-json",
         default=None,
-        help='JSON mapping release->ISO-8601 date when the report was last committed',
+        help="JSON mapping release->ISO-8601 date when the report was last committed",
     )
     args = parser.parse_args()
 
@@ -326,8 +328,7 @@ def main() -> int:
     total = len(all_records)
     rules = len(index["violation_data"]["violations_by_rule"])
     print(
-        f"\nDone. {total} violations, {rules} unique rules across "
-        f"{len(releases)} releases -> {output_path}",
+        f"\nDone. {total} violations, {rules} unique rules across {len(releases)} releases -> {output_path}",
         file=sys.stderr,
     )
 

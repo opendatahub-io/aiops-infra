@@ -44,7 +44,6 @@ import yaml
 
 from create_gitlab_mr import (
     DEFAULT_BRANCH,
-    POLICY_PATHS,
     WORK_DIR,
     _find_existing_exceptions,
     _get_authenticated_repo_url,
@@ -55,6 +54,7 @@ from create_gitlab_mr import (
 # ---------------------------------------------------------------------------
 # Defensive YAML serialization (self-contained copy, no cross-skill imports)
 # ---------------------------------------------------------------------------
+
 
 class _QuotedStr(str):
     """String subclass that forces YAML double-quoting."""
@@ -129,10 +129,7 @@ def _get_policy_files(clone_dir: Path, environment: str) -> list[Path]:
     policy_dir = clone_dir / _EC_POLICY_DIR
     if not policy_dir.is_dir():
         return []
-    return sorted(
-        p for p in policy_dir.glob(f"*rhoai*{environment}*.yaml")
-        if p.is_file()
-    )
+    return sorted(p for p in policy_dir.glob(f"*rhoai*{environment}*.yaml") if p.is_file())
 
 
 def _extract_comment_header(lines: list[str], block_start: int, indent: str) -> list[str]:
@@ -160,9 +157,7 @@ def _extract_reference(lines: list[str], block_start: int, block_end: int) -> st
     return None
 
 
-def scan_all_exceptions(
-    clone_dir: Path, environment: str
-) -> list[dict]:
+def scan_all_exceptions(clone_dir: Path, environment: str) -> list[dict]:
     """Scan all policy files for exception blocks, returning enriched metadata."""
     policy_files = _get_policy_files(clone_dir, environment)
     all_exceptions: list[dict] = []
@@ -263,6 +258,7 @@ def annotate_expiry(exceptions: list[dict]) -> list[dict]:
 # Clone handling
 # ---------------------------------------------------------------------------
 
+
 def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
     """Clone konflux-release-data or use existing clone.
 
@@ -284,8 +280,17 @@ def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
 
     policy_dir = str(Path(_EC_POLICY_DIR).parent)
     _run_git(
-        ["git", "clone", "--depth=1", "--branch", DEFAULT_BRANCH,
-         "--filter=blob:none", "--sparse", repo_url, str(dest)],
+        [
+            "git",
+            "clone",
+            "--depth=1",
+            "--branch",
+            DEFAULT_BRANCH,
+            "--filter=blob:none",
+            "--sparse",
+            repo_url,
+            str(dest),
+        ],
         timeout=300,
     )
     _run_git(["git", "sparse-checkout", "set", policy_dir], cwd=dest)
@@ -297,6 +302,7 @@ def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
 # Assessment logic
 # ---------------------------------------------------------------------------
 
+
 def _load_violations(violations_path: Path) -> dict:
     """Load the violations YAML produced by conforma-analyze."""
     with open(violations_path, encoding="utf-8") as f:
@@ -306,9 +312,7 @@ def _load_violations(violations_path: Path) -> dict:
     return data
 
 
-def _match_rule_in_violations(
-    rule: str, violations_by_rule: dict
-) -> tuple[str, dict | None]:
+def _match_rule_in_violations(rule: str, violations_by_rule: dict) -> tuple[str, dict | None]:
     """Match an exception rule against the violations index.
 
     Returns (match_type, violations_entry) where match_type is
@@ -392,9 +396,7 @@ def assess_exception(
         "resolved_in_releases": resolved_releases,
         "report_urls": {r: urls.get(r, "") for r in still_violating_releases if urls.get(r)},
     }
-    result["recommended_action"] = _recommend_action(
-        classification, exc["is_unscoped"], is_expired
-    )
+    result["recommended_action"] = _recommend_action(classification, exc["is_unscoped"], is_expired)
 
     return result
 
@@ -418,6 +420,7 @@ def _recommend_action(classification: str, is_unscoped: bool, is_expired: bool =
 # CLI entry points
 # ---------------------------------------------------------------------------
 
+
 def cmd_find_expired(args: argparse.Namespace) -> int:
     """List all expired exceptions to stdout."""
     clone_dir_arg = Path(args.clone_dir) if args.clone_dir else None
@@ -437,19 +440,13 @@ def cmd_find_expired(args: argparse.Namespace) -> int:
             "expired_exceptions": expired,
             "summary": {
                 "total_expired": len(expired),
-                "total_with_component_names": sum(
-                    1 for e in expired if e["has_component_names"]
-                ),
+                "total_with_component_names": sum(1 for e in expired if e["has_component_names"]),
                 "total_unscoped": sum(1 for e in expired if e["is_unscoped"]),
             },
         }
 
         now_str = output["generated_at"]
-        comment = (
-            f"# Expired exceptions report\n"
-            f"# Generated: {now_str}\n"
-            f"# Environment: {args.environment}"
-        )
+        comment = f"# Expired exceptions report\n# Generated: {now_str}\n# Environment: {args.environment}"
         print(_safe_yaml_dump(output, comment))
         return 0
 
@@ -492,9 +489,7 @@ def _cmd_assess(args: argparse.Namespace, *, expired_only: bool) -> int:
 
         assessed = []
         for exc in target:
-            assessed.append(
-                assess_exception(exc, violations_by_rule, releases_checked, report_urls)
-            )
+            assessed.append(assess_exception(exc, violations_by_rule, releases_checked, report_urls))
 
         total_expired = sum(1 for a in assessed if a.get("is_expired", True))
         total_active = sum(1 for a in assessed if not a.get("is_expired", True))
@@ -587,18 +582,14 @@ def cmd_find_all(args: argparse.Namespace) -> int:
                 "total": len(annotated),
                 "total_expired": total_expired,
                 "total_active": total_active,
-                "total_with_component_names": sum(
-                    1 for e in annotated if e["has_component_names"]
-                ),
+                "total_with_component_names": sum(1 for e in annotated if e["has_component_names"]),
                 "total_unscoped": sum(1 for e in annotated if e["is_unscoped"]),
             },
         }
 
         now_str = output["generated_at"]
         comment = (
-            f"# All exceptions report (expired + active)\n"
-            f"# Generated: {now_str}\n"
-            f"# Environment: {args.environment}"
+            f"# All exceptions report (expired + active)\n# Generated: {now_str}\n# Environment: {args.environment}"
         )
         print(_safe_yaml_dump(output, comment))
         return 0
@@ -614,9 +605,7 @@ def cmd_assess_all(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Manage conforma exceptions: find and assess"
-    )
+    parser = argparse.ArgumentParser(description="Manage conforma exceptions: find and assess")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--find-expired",

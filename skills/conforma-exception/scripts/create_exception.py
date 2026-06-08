@@ -74,7 +74,6 @@ def _summarise_workflow(steps: list[dict]) -> str:
     """Build a human-readable workflow summary from template steps."""
     plan_parts: list[str] = []
     approval_parts: list[str] = []
-    has_self_service = False
 
     step_labels = {
         "rhoaieng_resolution_plan_jira": "Resolution plan (team)",
@@ -92,7 +91,6 @@ def _summarise_workflow(steps: list[dict]) -> str:
             label = f"{project} Jira"
         elif sid == "exception_merge_request" and s.get("self_service"):
             label = "GitLab Merge Request (self-service)"
-            has_self_service = True
         else:
             label = step_labels.get(sid, sid)
 
@@ -221,7 +219,7 @@ def main() -> int:
         "--list-exception-types",
         action="store_true",
         help="List known exception types as JSON and exit. Shows only the 7 most "
-             "common RHOAI types by default. Combine with --all to include all.",
+        "common RHOAI types by default. Combine with --all to include all.",
     )
     parser.add_argument(
         "--all",
@@ -250,9 +248,12 @@ def main() -> int:
     parser.add_argument("--exception-scope", default=None, help="Exception scope (overrides template)")
     parser.add_argument("--exception-risk", default=None, help="Exception risk acceptance (overrides template)")
     parser.add_argument("--exception-remediation", default=None, help="Exception remediation plan (overrides template)")
-    parser.add_argument("--exception-impact", default=None, help="Exception impact if not approved (overrides template)")
-    parser.add_argument("--justification", default=None,
-                        help="Justification template ID (e.g., dev_preview, code_frozen)")
+    parser.add_argument(
+        "--exception-impact", default=None, help="Exception impact if not approved (overrides template)"
+    )
+    parser.add_argument(
+        "--justification", default=None, help="Justification template ID (e.g., dev_preview, code_frozen)"
+    )
     parser.add_argument(
         "--authorized-party",
         default=None,
@@ -278,8 +279,8 @@ def main() -> int:
         "--skip-approval-gate",
         action="store_true",
         help="Override the RHOAIENG approval gate and proceed with PSX/MR "
-             "creation even if the approval Jira is not yet approved. "
-             "NOT RECOMMENDED — use only when explicitly requested by user.",
+        "creation even if the approval Jira is not yet approved. "
+        "NOT RECOMMENDED — use only when explicitly requested by user.",
     )
     parser.add_argument("--output", default=None, help="Write result JSON to file")
     args = parser.parse_args()
@@ -328,7 +329,6 @@ def main() -> int:
     workflow_steps = validation["workflow_steps"]
     workflow_category = validation["workflow_category"]
     effective_until = validation["effective_until"]
-    requires_approval = validation["requires_approval"]
     is_self_service = validation["is_self_service"]
 
     for warning in validation.get("warnings", []):
@@ -389,12 +389,18 @@ def main() -> int:
 
         if step_id == "rhoaieng_resolution_plan_jira":
             jira_args = [
-                "--project", "RHOAIENG",
-                "--purpose", "remediation",
-                "--rule", args.rule,
-                "--components", args.components,
-                "--rhoai-version", args.rhoai_version,
-                "--effective-until", effective_until or "",
+                "--project",
+                "RHOAIENG",
+                "--purpose",
+                "remediation",
+                "--rule",
+                args.rule,
+                "--components",
+                args.components,
+                "--rhoai-version",
+                args.rhoai_version,
+                "--effective-until",
+                effective_until or "",
             ]
             if args.link_to:
                 jira_args.extend(["--link-to", args.link_to])
@@ -412,7 +418,9 @@ def main() -> int:
 
             if jira_result.get("status") == "failed":
                 print(json.dumps(result, indent=2))
-                print(f"\nFailed to create RHOAIENG resolution plan ticket: {jira_result.get('error')}", file=sys.stderr)
+                print(
+                    f"\nFailed to create RHOAIENG resolution plan ticket: {jira_result.get('error')}", file=sys.stderr
+                )
                 return 1
 
             remediation_plan_url = jira_result.get("ticket_url")
@@ -422,17 +430,24 @@ def main() -> int:
         elif step_id == "rhoaieng_approval_jira":
             if rhoaieng_url:
                 result["stages"]["rhoaieng_approval_jira"] = {
-                    "status": "provided", "ticket_url": rhoaieng_url,
+                    "status": "provided",
+                    "ticket_url": rhoaieng_url,
                 }
                 all_ticket_urls.append(rhoaieng_url)
             else:
                 jira_args = [
-                    "--project", "RHOAIENG",
-                    "--purpose", "approval",
-                    "--rule", args.rule,
-                    "--components", args.components,
-                    "--rhoai-version", args.rhoai_version,
-                    "--effective-until", effective_until or "",
+                    "--project",
+                    "RHOAIENG",
+                    "--purpose",
+                    "approval",
+                    "--rule",
+                    args.rule,
+                    "--components",
+                    args.components,
+                    "--rhoai-version",
+                    args.rhoai_version,
+                    "--effective-until",
+                    effective_until or "",
                 ]
                 if remediation_plan_url:
                     jira_args.extend(["--remediation-plan-url", remediation_plan_url])
@@ -480,8 +495,8 @@ def main() -> int:
                         f"{'=' * 70}\n\n"
                         f"Ticket: {rhoaieng_url}\n"
                         f"Status: {approval['status']}"
-                        + (f" (resolution: {approval['resolution']})"
-                           if approval['resolution'] else "") + "\n\n"
+                        + (f" (resolution: {approval['resolution']})" if approval["resolution"] else "")
+                        + "\n\n"
                         f"The RHOAIENG approval Jira ticket must be approved\n"
                         f"(Closed/Resolved) BEFORE creating the PSX/OCPEXCEPT\n"
                         f"Jira ticket and GitLab Merge Request.\n\n"
@@ -514,19 +529,26 @@ def main() -> int:
         elif step_id == "psx_exception_jira":
             if psx_url:
                 result["stages"]["psx_exception_jira"] = {
-                    "status": "provided", "ticket_url": psx_url,
+                    "status": "provided",
+                    "ticket_url": psx_url,
                 }
                 all_ticket_urls.append(psx_url)
                 continue
 
             psx_project = project or "PSX"
             jira_args = [
-                "--project", psx_project,
-                "--rule", args.rule,
-                "--components", args.components,
-                "--rhoai-version", args.rhoai_version,
-                "--effective-until", effective_until or "",
-                "--rhoaieng-url", rhoaieng_url or "",
+                "--project",
+                psx_project,
+                "--rule",
+                args.rule,
+                "--components",
+                args.components,
+                "--rhoai-version",
+                args.rhoai_version,
+                "--effective-until",
+                effective_until or "",
+                "--rhoaieng-url",
+                rhoaieng_url or "",
             ]
             if remediation_plan_url:
                 jira_args.extend(["--remediation-plan-url", remediation_plan_url])
@@ -560,12 +582,18 @@ def main() -> int:
             reference_url = psx_url or rhoaieng_url or ""
             reference_title = _get_reference_title(result, reference_url)
             mr_args = [
-                "--rule", args.rule,
-                "--components", args.components,
-                "--effective-until", effective_until or "",
-                "--reference-url", reference_url,
-                "--rhoai-version", args.rhoai_version,
-                "--environment", args.environment,
+                "--rule",
+                args.rule,
+                "--components",
+                args.components,
+                "--effective-until",
+                effective_until or "",
+                "--reference-url",
+                reference_url,
+                "--rhoai-version",
+                args.rhoai_version,
+                "--environment",
+                args.environment,
             ]
             if reference_title:
                 mr_args.extend(["--reference-title", reference_title])

@@ -16,6 +16,7 @@ import json
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import NamedTuple
 
 # Relative paths within a konflux-release-data clone for component name lookups.
@@ -136,9 +137,7 @@ def compute_effective_until(base_date_str: str, *, eos_buffer: bool = False) -> 
     try:
         base_date = datetime.strptime(base_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     except ValueError as exc:
-        raise ValueError(
-            f"--effective-until-date must be YYYY-MM-DD format, got: '{base_date_str}'"
-        ) from exc
+        raise ValueError(f"--effective-until-date must be YYYY-MM-DD format, got: '{base_date_str}'") from exc
 
     if base_date.date() <= datetime.now(timezone.utc).date():
         raise ValueError(f"--effective-until-date must be a future date, got: '{base_date_str}'")
@@ -249,9 +248,7 @@ def lookup_component_names(
     return results
 
 
-def _search_rpa_file(
-    rpa_path: "Path", ver_slug: str, image_base: str, suffix: str
-) -> list[str]:
+def _search_rpa_file(rpa_path: Path, ver_slug: str, image_base: str, suffix: str) -> list[str]:
     """Search ReleasePlanAdmission file for component names."""
     rpa_file = rpa_path / f"rhoai-onprem-{ver_slug}-components-prod.yaml"
     if not rpa_file.exists():
@@ -268,9 +265,7 @@ def _search_rpa_file(
     return matches
 
 
-def _search_pds_template(
-    pds_path: "Path", ver_slug: str, image_base: str, suffix: str
-) -> list[str]:
+def _search_pds_template(pds_path: Path, ver_slug: str, image_base: str, suffix: str) -> list[str]:
     """Search ProjectDevelopmentStream source file for component names.
 
     Source PDS files live at:
@@ -324,9 +319,7 @@ def check_rhoaieng_ticket_type(rhoaieng_url: str | None) -> dict | None:
     try:
         from cli_runner import run_acli
 
-        result = run_acli(
-            ["jira", "workitem", "view", ticket_key, "--json"], timeout=30
-        )
+        result = run_acli(["jira", "workitem", "view", ticket_key, "--json"], timeout=30)
         if result.returncode != 0:
             return {"warning": f"Cannot fetch {ticket_key}: {result.stderr.strip()}"}
 
@@ -486,6 +479,7 @@ def validate_all(args: argparse.Namespace) -> dict:
     rule_catalog_info = None
     if is_other_category:
         from create_jira_ticket import lookup_rule_in_catalog
+
         rule_catalog_info = lookup_rule_in_catalog(args.rule)
 
     result = {
@@ -526,10 +520,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate inputs for conforma-exception")
     parser.add_argument("--rhoai-version", required=True, help="e.g., rhoai-3.3")
     parser.add_argument("--rule", required=True, help="Policy rule to exempt")
+    parser.add_argument("--components", required=True, help="Comma-separated Konflux component names")
     parser.add_argument(
-        "--components", required=True, help="Comma-separated Konflux component names"
+        "--effective-until-date", help="Date YYYY-MM-DD (used as-is; +7 day buffer only applies to EOS-sourced dates)"
     )
-    parser.add_argument("--effective-until-date", help="Date YYYY-MM-DD (used as-is; +7 day buffer only applies to EOS-sourced dates)")
     parser.add_argument(
         "--environment",
         default="prod",
@@ -538,8 +532,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--rhoaieng-url", help="Existing RHOAIENG ticket URL")
     parser.add_argument("--psx-url", help="Existing PSX/OCPEXCEPT ticket URL")
-    parser.add_argument("--justification", default=None,
-                        help="Justification template ID (e.g., dev_preview, code_frozen)")
+    parser.add_argument(
+        "--justification", default=None, help="Justification template ID (e.g., dev_preview, code_frozen)"
+    )
     parser.add_argument("--dry-run", action="store_true", help="Preview without creating anything")
     parser.add_argument(
         "--lookup-components",
@@ -568,9 +563,7 @@ def main() -> int:
 
     if args.lookup_components:
         versions = (
-            [v.strip() for v in args.lookup_versions.split(",")]
-            if args.lookup_versions
-            else [args.rhoai_version]
+            [v.strip() for v in args.lookup_versions.split(",")] if args.lookup_versions else [args.rhoai_version]
         )
         found = lookup_component_names(args.lookup_components, versions, args.rpa_dir)
         print(json.dumps({"lookup_results": found}, indent=2))

@@ -179,7 +179,7 @@ def main() -> None:
 
     src_owner, repo_name = parse_repo_path(args.github_repo_url)
 
-    print(f"Connecting to GitHub...", file=sys.stderr)
+    print("Connecting to GitHub...", file=sys.stderr)
     g = get_github_client(github_token)
 
     print(f"Fetching source repository: {src_owner}/{repo_name}", file=sys.stderr)

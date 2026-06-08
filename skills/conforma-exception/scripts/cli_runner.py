@@ -112,6 +112,7 @@ def _resolve_env(var: str) -> str | None:
         if acli_email:
             return acli_email
         import getpass
+
         return f"{getpass.getuser()}@redhat.com"
     return None
 
@@ -166,8 +167,7 @@ def _install_acli_local() -> str:
 
     if str(_ACLI_LOCAL_BIN.parent) not in os.environ.get("PATH", ""):
         print(
-            f"Note: {_ACLI_LOCAL_BIN.parent} is not on PATH. "
-            f'Add it with: export PATH="$HOME/.local/bin:$PATH"',
+            f'Note: {_ACLI_LOCAL_BIN.parent} is not on PATH. Add it with: export PATH="$HOME/.local/bin:$PATH"',
             file=sys.stderr,
         )
 
@@ -279,8 +279,7 @@ def run_acli(
     runtime = _container_runtime()
     if not runtime:
         raise FileNotFoundError(
-            "'acli' not found on PATH, auto-install failed, and no container "
-            "runtime (docker/podman) is available."
+            "'acli' not found on PATH, auto-install failed, and no container runtime (docker/podman) is available."
         )
 
     image = os.environ.get("ACLI_IMAGE", _DEFAULT_ACLI_IMAGE)

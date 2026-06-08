@@ -20,6 +20,7 @@ Usage:
 Prints "added" or "already-present" to stdout.
 Exits 0 on success, 1 on error.
 """
+
 import argparse
 import sys
 from pathlib import Path
@@ -56,15 +57,15 @@ ENTRY_TEMPLATE = """\
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--yaml-file",          required=True)
-    parser.add_argument("--repository-name",    required=True)
+    parser.add_argument("--yaml-file", required=True)
+    parser.add_argument("--repository-name", required=True)
     parser.add_argument("--content-stream-tag", required=True)
-    parser.add_argument("--display-name",       required=True)
-    parser.add_argument("--short-description",  required=True)
-    parser.add_argument("--long-description",   required=True)
-    parser.add_argument("--release-category",
-                        choices=["Generally Available", "Tech Preview", "Beta"],
-                        default="Generally Available")
+    parser.add_argument("--display-name", required=True)
+    parser.add_argument("--short-description", required=True)
+    parser.add_argument("--long-description", required=True)
+    parser.add_argument(
+        "--release-category", choices=["Generally Available", "Tech Preview", "Beta"], default="Generally Available"
+    )
     args = parser.parse_args()
 
     yaml_path = Path(args.yaml_file)
@@ -102,7 +103,7 @@ def main():
         print(f"ERROR: Verification failed — '{marker}' not found after append", file=sys.stderr)
         sys.exit(1)
     if f"content_stream_tags: ['{args.content_stream_tag}']" not in verification:
-        print(f"ERROR: Verification failed — content_stream_tags not correct after append", file=sys.stderr)
+        print("ERROR: Verification failed — content_stream_tags not correct after append", file=sys.stderr)
         sys.exit(1)
 
     print("added")

@@ -73,7 +73,12 @@ def _exception_label(exc: dict) -> str:
     headers = exc.get("comment_header_lines", [])
     for line in headers:
         cleaned = line.lstrip("# ").strip()
-        if cleaned and not cleaned.startswith("http") and not cleaned.startswith("impacted") and not cleaned.startswith("dates "):
+        if (
+            cleaned
+            and not cleaned.startswith("http")
+            and not cleaned.startswith("impacted")
+            and not cleaned.startswith("dates ")
+        ):
             if len(cleaned) > 60:
                 cleaned = cleaned[:57] + "..."
             return cleaned
@@ -125,6 +130,7 @@ def _strip_version_suffix(name: str) -> str:
     E.g. 'odh-mlflow-v3-3' -> 'odh-mlflow', 'odh-dashboard-v3-5-ea-1' -> 'odh-dashboard'.
     """
     import re
+
     return re.sub(r"-v\d+[-.\d]*(-(ea|rc|beta)[-.\d]*)?$", "", name)
 
 
@@ -174,6 +180,7 @@ def _components_by_release(exc: dict) -> dict[str, list[str]]:
 # ---------------------------------------------------------------------------
 # Markdown report generation
 # ---------------------------------------------------------------------------
+
 
 def _effective_until_cell(exc: dict) -> str:
     """Format the effective-until column for the matrix row."""
@@ -259,9 +266,11 @@ def _append_matrix_table(
         if is_unscoped and action not in ("keep", "remove") and "modernize" not in action:
             action_text += " (unscoped, no componentNames)"
 
-        row = (f"| {exc_label} | {comp_cell} | `{rule}` | {eu_cell} | {ref_cell} | "
-               + " | ".join(rel_cells)
-               + f" | {action_text} |")
+        row = (
+            f"| {exc_label} | {comp_cell} | `{rule}` | {eu_cell} | {ref_cell} | "
+            + " | ".join(rel_cells)
+            + f" | {action_text} |"
+        )
         lines.append(row)
 
 
@@ -290,13 +299,11 @@ def generate_markdown(data: dict) -> str:
     total_active = total - total_expired
     can_remove = sum(1 for e in exceptions if e.get("classification") == "no_longer_needed")
     need_action = sum(
-        1 for e in exceptions
+        1
+        for e in exceptions
         if e.get("is_expired", True) and e.get("classification") in ("still_needed", "partially_needed")
     )
-    no_action = sum(
-        1 for e in exceptions
-        if e.get("recommended_action") == "keep"
-    )
+    no_action = sum(1 for e in exceptions if e.get("recommended_action") == "keep")
     need_modernize = sum(1 for e in exceptions if "modernize" in e.get("recommended_action", ""))
 
     lines: list[str] = []
@@ -349,9 +356,7 @@ def generate_markdown(data: dict) -> str:
 
     # --- Not checked ---
     if not_checked:
-        lines.append("> **Not checked:** "
-                     + "; ".join(f"{nc['release']}: {nc['error']}" for nc in not_checked)
-                     + ".")
+        lines.append("> **Not checked:** " + "; ".join(f"{nc['release']}: {nc['error']}" for nc in not_checked) + ".")
         lines.append("")
 
     # --- Removable exceptions table (shown first when present) ---
@@ -432,6 +437,7 @@ def generate_markdown(data: dict) -> str:
 # Action plan (JSON) -- machine-readable for the agent's action loop
 # ---------------------------------------------------------------------------
 
+
 def build_action_plan(data: dict) -> dict:
     """Build a machine-readable action plan from the assessment data.
 
@@ -442,8 +448,14 @@ def build_action_plan(data: dict) -> dict:
     exceptions = data.get("assessed_exceptions", [])
     generated_at = data.get("generated_at", "unknown")
 
-    ACTION_ORDER = {"remove": 0, "narrow": 1, "extend": 2, "narrow_and_extend": 3,
-                    "extend_and_modernize": 4, "modernize_and_narrow": 5}
+    ACTION_ORDER = {
+        "remove": 0,
+        "narrow": 1,
+        "extend": 2,
+        "narrow_and_extend": 3,
+        "extend_and_modernize": 4,
+        "modernize_and_narrow": 5,
+    }
 
     actions = []
     skipped = 0
@@ -455,19 +467,21 @@ def build_action_plan(data: dict) -> dict:
 
         versions = _components_by_release(exc)
 
-        actions.append({
-            "rule": exc.get("rule", ""),
-            "label": _exception_label(exc),
-            "action": action,
-            "classification": exc.get("classification", "unknown"),
-            "is_expired": exc.get("is_expired", True),
-            "policy_file": exc.get("file", ""),
-            "old_effective_until": exc.get("effective_until", ""),
-            "is_unscoped": exc.get("is_unscoped", False),
-            "reference": exc.get("reference", ""),
-            "versions": versions,
-            "resolved_in": exc.get("evidence", {}).get("resolved_in_releases", []),
-        })
+        actions.append(
+            {
+                "rule": exc.get("rule", ""),
+                "label": _exception_label(exc),
+                "action": action,
+                "classification": exc.get("classification", "unknown"),
+                "is_expired": exc.get("is_expired", True),
+                "policy_file": exc.get("file", ""),
+                "old_effective_until": exc.get("effective_until", ""),
+                "is_unscoped": exc.get("is_unscoped", False),
+                "reference": exc.get("reference", ""),
+                "versions": versions,
+                "resolved_in": exc.get("evidence", {}).get("resolved_in_releases", []),
+            }
+        )
 
     actions.sort(key=lambda a: ACTION_ORDER.get(a["action"], 99))
 
@@ -480,9 +494,7 @@ def build_action_plan(data: dict) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Generate a markdown report from assessed exceptions"
-    )
+    parser = argparse.ArgumentParser(description="Generate a markdown report from assessed exceptions")
     parser.add_argument(
         "--assessed-input",
         required=True,

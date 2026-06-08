@@ -74,10 +74,13 @@ def _jira_rest_get(path: str, fields: str | None = None) -> dict | None:
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}fields={fields}"
 
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Basic {auth}",
-        "Accept": "application/json",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/json",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return json.loads(resp.read())
@@ -96,11 +99,16 @@ def _jira_rest_put(path: str, payload: dict) -> dict:
 
     url = f"https://redhat.atlassian.net/rest/api/3/{path}"
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={
-        "Authorization": f"Basic {auth}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }, method="PUT")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="PUT",
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return {"ok": resp.status in (200, 204), "status": resp.status, "error": ""}
@@ -146,10 +154,13 @@ def _get_existing_remote_links(ticket_key: str) -> list[dict]:
     _, auth = creds
 
     jira_url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}/remotelink"
-    req = urllib.request.Request(jira_url, headers={
-        "Authorization": f"Basic {auth}",
-        "Accept": "application/json",
-    })
+    req = urllib.request.Request(
+        jira_url,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/json",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return json.loads(resp.read())
@@ -250,15 +261,12 @@ def add_label(ticket_key: str, dry_run: bool = False) -> dict:
         }
 
     all_labels = list(set(existing + required_labels))
-    put_result = _jira_rest_put(
-        f"issue/{ticket_key}", {"fields": {"labels": all_labels}}
-    )
+    put_result = _jira_rest_put(f"issue/{ticket_key}", {"fields": {"labels": all_labels}})
 
     if not put_result["ok"]:
         all_labels_str = ",".join(all_labels)
         result = run_acli(
-            ["jira", "workitem", "edit", "--key", ticket_key,
-             "--labels", all_labels_str, "--yes"],
+            ["jira", "workitem", "edit", "--key", ticket_key, "--labels", all_labels_str, "--yes"],
             timeout=30,
         )
         if result.returncode != 0:
@@ -283,10 +291,13 @@ def _get_existing_comments(ticket_key: str) -> list[str]:
     _, auth = creds
 
     url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}/comment"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Basic {auth}",
-        "Accept": "application/json",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/json",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             data = json.loads(resp.read())
@@ -359,9 +370,7 @@ def comment_on_ticket(ticket_key: str, mr_url: str, dry_run: bool = False) -> di
         Path(tmp.name).unlink(missing_ok=True)
 
 
-def ensure_link(
-    from_key: str, to_key: str, link_type: str = "Related", dry_run: bool = False
-) -> dict:
+def ensure_link(from_key: str, to_key: str, link_type: str = "Related", dry_run: bool = False) -> dict:
     """Ensure a link exists between two Jira tickets, with post-creation verification.
 
     Semantics: from_key <link_type> to_key.
@@ -385,6 +394,7 @@ def ensure_link(
     link_result = jira_ops.link_issues(from_key, to_key, link_type=link_type)
     if link_result.get("ok"):
         import time
+
         time.sleep(1)
         verified = _verify_link_exists(from_key, to_key)
         return {
@@ -407,9 +417,17 @@ def ensure_link(
 
     result = run_acli(
         [
-            "jira", "workitem", "link", "create",
-            "--out", acli_out, "--in", acli_in,
-            "--type", link_type, "--yes",
+            "jira",
+            "workitem",
+            "link",
+            "create",
+            "--out",
+            acli_out,
+            "--in",
+            acli_in,
+            "--type",
+            link_type,
+            "--yes",
         ],
         timeout=30,
     )
@@ -426,6 +444,7 @@ def ensure_link(
         }
 
     import time
+
     time.sleep(1)
     verified = _verify_link_exists(from_key, to_key)
     return {
@@ -436,9 +455,7 @@ def ensure_link(
     }
 
 
-def delete_link(
-    ticket_key: str, target_key: str, link_type: str | None = None, dry_run: bool = False
-) -> dict:
+def delete_link(ticket_key: str, target_key: str, link_type: str | None = None, dry_run: bool = False) -> dict:
     """Delete a link between two Jira tickets by finding its ID via REST API.
 
     acli link delete requires --id (numeric), not --out/--in/--type.
@@ -469,8 +486,10 @@ def delete_link(
         )
         if result.returncode == 0:
             return {
-                "status": "deleted", "link_id": str(link_id),
-                "from": ticket_key, "to": target_key,
+                "status": "deleted",
+                "link_id": str(link_id),
+                "from": ticket_key,
+                "to": target_key,
             }
         return {"status": "failed", "error": result.stderr.strip() or result.stdout.strip()}
 
@@ -576,15 +595,11 @@ def _extract_key(url: str) -> str | None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Link MR URL to Jira tickets and add provenance label"
-    )
+    parser = argparse.ArgumentParser(description="Link MR URL to Jira tickets and add provenance label")
     parser.add_argument("--mr-url", required=True)
     parser.add_argument("--rhoaieng-url", default=None)
     parser.add_argument("--psx-url", default=None)
-    parser.add_argument(
-        "--link-to", default=None, help="Tracking ticket key to link all tickets to"
-    )
+    parser.add_argument("--link-to", default=None, help="Tracking ticket key to link all tickets to")
     parser.add_argument(
         "--related-psx",
         default=None,

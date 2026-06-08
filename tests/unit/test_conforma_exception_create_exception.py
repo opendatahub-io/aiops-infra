@@ -1,8 +1,8 @@
 """Tests for conforma-exception create_exception.py."""
+
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -55,9 +55,12 @@ class TestListExceptionTypes:
         mock_file.__enter__ = MagicMock(return_value=mock_file)
         mock_file.__exit__ = MagicMock(return_value=False)
 
-        with patch("builtins.open", return_value=mock_file), patch(
-            "yaml.safe_load",
-            side_effect=[MOCK_TEMPLATES, MOCK_CATALOG],
+        with (
+            patch("builtins.open", return_value=mock_file),
+            patch(
+                "yaml.safe_load",
+                side_effect=[MOCK_TEMPLATES, MOCK_CATALOG],
+            ),
         ):
             result = ce.list_exception_types(show_all=False)
 
@@ -79,9 +82,12 @@ class TestListExceptionTypes:
         mock_file.__enter__ = MagicMock(return_value=mock_file)
         mock_file.__exit__ = MagicMock(return_value=False)
 
-        with patch("builtins.open", return_value=mock_file), patch(
-            "yaml.safe_load",
-            side_effect=[MOCK_TEMPLATES, MOCK_CATALOG],
+        with (
+            patch("builtins.open", return_value=mock_file),
+            patch(
+                "yaml.safe_load",
+                side_effect=[MOCK_TEMPLATES, MOCK_CATALOG],
+            ),
         ):
             result = ce.list_exception_types(show_all=True)
 
@@ -98,9 +104,11 @@ class TestListExceptionTypes:
         mock_file.__enter__ = MagicMock(return_value=mock_file)
         mock_file.__exit__ = MagicMock(return_value=False)
 
-        with patch("builtins.open", return_value=mock_file), patch(
-            "yaml.safe_load", return_value=MOCK_TEMPLATES
-        ), patch("pathlib.Path.is_file", return_value=False):
+        with (
+            patch("builtins.open", return_value=mock_file),
+            patch("yaml.safe_load", return_value=MOCK_TEMPLATES),
+            patch("pathlib.Path.is_file", return_value=False),
+        ):
             result = ce.list_exception_types()
 
         assert result["total_catalog_rules"] == 0

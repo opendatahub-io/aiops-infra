@@ -136,11 +136,7 @@ def search(
 
     if version:
         v = version if version.startswith("rhoai-") else f"rhoai-{version}"
-        mrs = [
-            mr for mr in mrs
-            if v in mr["title"]
-            or v in mr.get("parsed", {}).get("versions", [])
-        ]
+        mrs = [mr for mr in mrs if v in mr["title"] or v in mr.get("parsed", {}).get("versions", [])]
 
     if author:
         mrs = [mr for mr in mrs if mr["author"] == author]
@@ -208,10 +204,7 @@ def format_markdown(mrs: list[dict]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=(
-            "Search for open conforma exception MRs in "
-            "konflux-release-data (GitLab)"
-        )
+        description=("Search for open conforma exception MRs in konflux-release-data (GitLab)")
     )
     parser.add_argument(
         "--rule",
@@ -244,18 +237,20 @@ def main() -> int:
     mrs = search(rule=args.rule, version=args.version, author=args.author)
 
     if args.fmt == "json":
-        print(json.dumps(
-            {
-                "filters": {
-                    "rule": args.rule,
-                    "version": args.version,
-                    "author": args.author,
+        print(
+            json.dumps(
+                {
+                    "filters": {
+                        "rule": args.rule,
+                        "version": args.version,
+                        "author": args.author,
+                    },
+                    "count": len(mrs),
+                    "merge_requests": mrs,
                 },
-                "count": len(mrs),
-                "merge_requests": mrs,
-            },
-            indent=2,
-        ))
+                indent=2,
+            )
+        )
     elif args.fmt == "markdown":
         print(format_markdown(mrs))
     else:

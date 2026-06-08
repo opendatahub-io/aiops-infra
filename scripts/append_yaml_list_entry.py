@@ -15,8 +15,8 @@ Example:
         --list-key repositories \
         --value "registry.access.redhat.com/rhoai/my-component-rhel9"
 """
+
 import argparse
-import sys
 
 
 def main():

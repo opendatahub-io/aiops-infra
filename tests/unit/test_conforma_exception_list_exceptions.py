@@ -1,4 +1,5 @@
 """Tests for conforma-exception list_exceptions.py formatting helpers."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -6,7 +7,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -72,7 +72,7 @@ class TestFormatComponent:
         assert list_exceptions._format_component(exc) == "odh-mlflow"
 
     def test_image_url_with_package_from_rule(self):
-        rule = 'sbom.package_sources:pkg:generic/my-package?version=1.0'
+        rule = "sbom.package_sources:pkg:generic/my-package?version=1.0"
         exc = {
             "has_component_names": False,
             "rule": rule,

@@ -1,10 +1,8 @@
 """Tests for conforma-exception cli_runner.py."""
+
 from __future__ import annotations
 
-import os
 import stat
-import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -38,34 +36,46 @@ class TestResolveMethod:
             assert cli_runner.resolve_method("acli") == "native"
 
     def test_glab_native_on_path(self):
-        with patch.object(cli_runner, "_find_acli", return_value=None), \
-             patch.object(cli_runner.shutil, "which", return_value="/usr/bin/glab"):
+        with (
+            patch.object(cli_runner, "_find_acli", return_value=None),
+            patch.object(cli_runner.shutil, "which", return_value="/usr/bin/glab"),
+        ):
             assert cli_runner.resolve_method("glab") == "native"
 
     def test_docker_fallback(self):
-        with patch.object(cli_runner, "_find_acli", return_value=None), \
-             patch.object(cli_runner.shutil, "which", side_effect=lambda b: "/usr/bin/docker" if b == "docker" else None), \
-             patch.object(cli_runner, "_container_runtime", return_value="docker"):
+        with (
+            patch.object(cli_runner, "_find_acli", return_value=None),
+            patch.object(
+                cli_runner.shutil, "which", side_effect=lambda b: "/usr/bin/docker" if b == "docker" else None
+            ),
+            patch.object(cli_runner, "_container_runtime", return_value="docker"),
+        ):
             assert cli_runner.resolve_method("acli") == "docker"
 
     def test_podman_fallback(self):
-        with patch.object(cli_runner, "_find_acli", return_value=None), \
-             patch.object(cli_runner.shutil, "which", return_value=None), \
-             patch.object(cli_runner, "_container_runtime", return_value="podman"):
+        with (
+            patch.object(cli_runner, "_find_acli", return_value=None),
+            patch.object(cli_runner.shutil, "which", return_value=None),
+            patch.object(cli_runner, "_container_runtime", return_value="podman"),
+        ):
             assert cli_runner.resolve_method("glab") == "podman"
 
     def test_unavailable(self):
-        with patch.object(cli_runner, "_find_acli", return_value=None), \
-             patch.object(cli_runner.shutil, "which", return_value=None), \
-             patch.object(cli_runner, "_container_runtime", return_value=None):
+        with (
+            patch.object(cli_runner, "_find_acli", return_value=None),
+            patch.object(cli_runner.shutil, "which", return_value=None),
+            patch.object(cli_runner, "_container_runtime", return_value=None),
+        ):
             assert cli_runner.resolve_method("acli") == "unavailable"
 
 
 class TestRunAcli:
     def test_runs_native_binary(self):
         mock_result = MagicMock(returncode=0, stdout="ok", stderr="")
-        with patch.object(cli_runner, "_find_acli", return_value="/usr/bin/acli"), \
-             patch.object(cli_runner.subprocess, "run", return_value=mock_result) as mock_run:
+        with (
+            patch.object(cli_runner, "_find_acli", return_value="/usr/bin/acli"),
+            patch.object(cli_runner.subprocess, "run", return_value=mock_result) as mock_run,
+        ):
             result = cli_runner.run_acli(["jira", "auth", "status"])
 
         assert result is mock_result
@@ -79,11 +89,13 @@ class TestRunAcli:
 
     def test_container_fallback_when_native_missing(self):
         mock_result = MagicMock(returncode=0, stdout="ok", stderr="")
-        with patch.object(cli_runner, "_find_acli", return_value=None), \
-             patch.object(cli_runner, "_install_acli_local", side_effect=RuntimeError("no network")), \
-             patch.object(cli_runner, "_container_runtime", return_value="docker"), \
-             patch.object(cli_runner, "_build_container_cmd", return_value=["docker", "run", "acli"]) as mock_build, \
-             patch.object(cli_runner.subprocess, "run", return_value=mock_result) as mock_run:
+        with (
+            patch.object(cli_runner, "_find_acli", return_value=None),
+            patch.object(cli_runner, "_install_acli_local", side_effect=RuntimeError("no network")),
+            patch.object(cli_runner, "_container_runtime", return_value="docker"),
+            patch.object(cli_runner, "_build_container_cmd", return_value=["docker", "run", "acli"]) as mock_build,
+            patch.object(cli_runner.subprocess, "run", return_value=mock_result) as mock_run,
+        ):
             result = cli_runner.run_acli(["jira", "workitem", "view", "ABC-1"])
 
         assert result is mock_result
@@ -96,9 +108,11 @@ class TestRunAcli:
         )
 
     def test_raises_when_unavailable(self):
-        with patch.object(cli_runner, "_find_acli", return_value=None), \
-             patch.object(cli_runner, "_install_acli_local", side_effect=RuntimeError("fail")), \
-             patch.object(cli_runner, "_container_runtime", return_value=None):
+        with (
+            patch.object(cli_runner, "_find_acli", return_value=None),
+            patch.object(cli_runner, "_install_acli_local", side_effect=RuntimeError("fail")),
+            patch.object(cli_runner, "_container_runtime", return_value=None),
+        ):
             with pytest.raises(FileNotFoundError, match="acli"):
                 cli_runner.run_acli(["jira", "auth", "status"])
 
@@ -106,8 +120,10 @@ class TestRunAcli:
 class TestRunGlab:
     def test_runs_native_glab(self):
         mock_result = MagicMock(returncode=0, stdout="ok", stderr="")
-        with patch.object(cli_runner.shutil, "which", return_value="/usr/bin/glab"), \
-             patch.object(cli_runner.subprocess, "run", return_value=mock_result) as mock_run:
+        with (
+            patch.object(cli_runner.shutil, "which", return_value="/usr/bin/glab"),
+            patch.object(cli_runner.subprocess, "run", return_value=mock_result) as mock_run,
+        ):
             result = cli_runner.run_glab(["auth", "status"])
 
         assert result is mock_result
@@ -121,18 +137,22 @@ class TestRunGlab:
 
     def test_container_fallback(self):
         mock_result = MagicMock(returncode=0, stdout="ok", stderr="")
-        with patch.object(cli_runner.shutil, "which", return_value=None), \
-             patch.object(cli_runner, "_container_runtime", return_value="podman"), \
-             patch.object(cli_runner, "_build_container_cmd", return_value=["podman", "run", "glab"]) as mock_build, \
-             patch.object(cli_runner.subprocess, "run", return_value=mock_result):
+        with (
+            patch.object(cli_runner.shutil, "which", return_value=None),
+            patch.object(cli_runner, "_container_runtime", return_value="podman"),
+            patch.object(cli_runner, "_build_container_cmd", return_value=["podman", "run", "glab"]) as mock_build,
+            patch.object(cli_runner.subprocess, "run", return_value=mock_result),
+        ):
             result = cli_runner.run_glab(["api", "projects"])
 
         mock_build.assert_called_once()
         assert result is mock_result
 
     def test_raises_when_unavailable(self):
-        with patch.object(cli_runner.shutil, "which", return_value=None), \
-             patch.object(cli_runner, "_container_runtime", return_value=None):
+        with (
+            patch.object(cli_runner.shutil, "which", return_value=None),
+            patch.object(cli_runner, "_container_runtime", return_value=None),
+        ):
             with pytest.raises(FileNotFoundError, match="glab"):
                 cli_runner.run_glab(["auth", "status"])
 
@@ -156,17 +176,21 @@ class TestResolveEnv:
         monkeypatch.delenv("JIRA_EMAIL", raising=False)
         missing_token = tmp_path / "no_jira_email"
         monkeypatch.setitem(cli_runner._TOKEN_FILES, "JIRA_EMAIL", missing_token)
-        with patch.object(cli_runner, "_migrate_old_config_dir"), \
-             patch.object(cli_runner, "_get_email_from_acli_config", return_value="user@redhat.com"):
+        with (
+            patch.object(cli_runner, "_migrate_old_config_dir"),
+            patch.object(cli_runner, "_get_email_from_acli_config", return_value="user@redhat.com"),
+        ):
             assert cli_runner._resolve_env("JIRA_EMAIL") == "user@redhat.com"
 
     def test_jira_email_fallback_to_getuser(self, tmp_path, monkeypatch):
         monkeypatch.delenv("JIRA_EMAIL", raising=False)
         missing_token = tmp_path / "no_jira_email"
         monkeypatch.setitem(cli_runner._TOKEN_FILES, "JIRA_EMAIL", missing_token)
-        with patch.object(cli_runner, "_migrate_old_config_dir"), \
-             patch.object(cli_runner, "_get_email_from_acli_config", return_value=None), \
-             patch("getpass.getuser", return_value="jdoe"):
+        with (
+            patch.object(cli_runner, "_migrate_old_config_dir"),
+            patch.object(cli_runner, "_get_email_from_acli_config", return_value=None),
+            patch("getpass.getuser", return_value="jdoe"),
+        ):
             assert cli_runner._resolve_env("JIRA_EMAIL") == "jdoe@redhat.com"
 
     def test_returns_none_for_unknown_var(self, monkeypatch):

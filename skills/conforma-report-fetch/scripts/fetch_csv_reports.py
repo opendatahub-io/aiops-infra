@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -86,8 +85,7 @@ def _download_file_raw(csv_path: str, ref: str, output_file: Path) -> dict | Non
 
     url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{ref}/{csv_path}"
     result = subprocess.run(
-        ["curl", "-fsSL", "-H", f"Authorization: token {token}",
-         "-o", str(output_file), url],
+        ["curl", "-fsSL", "-H", f"Authorization: token {token}", "-o", str(output_file), url],
         capture_output=True,
         text=True,
         timeout=120,
@@ -106,10 +104,7 @@ def _download_file_raw(csv_path: str, ref: str, output_file: Path) -> dict | Non
 
 def _fetch_last_commit_date(release: str, csv_path: str) -> str:
     """Get the ISO-8601 date of the last commit that touched the CSV file."""
-    api_path = (
-        f"repos/{CONFORMA_REPORTER_REPO}/commits"
-        f"?path={csv_path}&sha={release}&per_page=1"
-    )
+    api_path = f"repos/{CONFORMA_REPORTER_REPO}/commits?path={csv_path}&sha={release}&per_page=1"
     result = subprocess.run(
         ["gh", "api", api_path, "--jq", ".[0].commit.committer.date"],
         capture_output=True,
@@ -169,22 +164,26 @@ def copy_local_csvs(local_dir: Path, releases: list[str], output_dir: Path) -> l
                 break
 
         if not found:
-            results.append({
-                "release": release,
-                "status": "failed",
-                "error": f"No CSV found for {release} in {local_dir}",
-                "path": None,
-            })
+            results.append(
+                {
+                    "release": release,
+                    "status": "failed",
+                    "error": f"No CSV found for {release} in {local_dir}",
+                    "path": None,
+                }
+            )
             continue
 
         output_file = output_dir / f"{release}.csv"
         shutil.copy2(found, output_file)
-        results.append({
-            "release": release,
-            "status": "copied",
-            "path": str(output_file),
-            "size_bytes": output_file.stat().st_size,
-        })
+        results.append(
+            {
+                "release": release,
+                "status": "copied",
+                "path": str(output_file),
+                "size_bytes": output_file.stat().st_size,
+            }
+        )
 
     return results
 
@@ -255,9 +254,7 @@ def _create_timestamped_output_dir() -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Fetch conforma violation reports per release"
-    )
+    parser = argparse.ArgumentParser(description="Fetch conforma violation reports per release")
     parser.add_argument(
         "--releases",
         default=None,

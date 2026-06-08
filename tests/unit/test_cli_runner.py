@@ -1,4 +1,5 @@
 """Tests for scripts/cli_runner.py."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -71,8 +72,10 @@ class TestRunWithRetry:
             _completed(returncode=1, stderr="temporary"),
             _completed(stdout="ok"),
         ]
-        with patch.object(cli_runner.subprocess, "run", side_effect=responses), \
-             patch.object(cli_runner.time, "sleep") as mock_sleep:
+        with (
+            patch.object(cli_runner.subprocess, "run", side_effect=responses),
+            patch.object(cli_runner.time, "sleep") as mock_sleep,
+        ):
             result = cli_runner.run_with_retry(["flaky"], max_retries=3, delay=1)
 
         assert result == {
@@ -84,11 +87,14 @@ class TestRunWithRetry:
         mock_sleep.assert_called_once_with(1)
 
     def test_exhausts_retries(self):
-        with patch.object(
-            cli_runner.subprocess,
-            "run",
-            return_value=_completed(returncode=1, stderr="still failing"),
-        ), patch.object(cli_runner.time, "sleep"):
+        with (
+            patch.object(
+                cli_runner.subprocess,
+                "run",
+                return_value=_completed(returncode=1, stderr="still failing"),
+            ),
+            patch.object(cli_runner.time, "sleep"),
+        ):
             result = cli_runner.run_with_retry(["flaky"], max_retries=3, delay=0)
 
         assert result["returncode"] == 1

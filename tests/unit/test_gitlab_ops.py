@@ -1,7 +1,7 @@
 """Tests for scripts/gitlab_ops.py."""
+
 from __future__ import annotations
 
-import subprocess
 from unittest.mock import MagicMock, patch
 
 from gitlab.exceptions import GitlabAuthenticationError, GitlabError, GitlabGetError
@@ -46,9 +46,7 @@ class TestDiscoverToken:
         monkeypatch.delenv("GITLAB_TOKEN", raising=False)
         config_path = tmp_path / "config.yml"
         config_path.write_text(
-            "hosts:\n"
-            "  gitlab.cee.redhat.com:\n"
-            "    token: config-token\n",
+            "hosts:\n  gitlab.cee.redhat.com:\n    token: config-token\n",
             encoding="utf-8",
         )
         with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", config_path):
@@ -194,8 +192,10 @@ class TestCloneRepo:
         project = _mock_project(default_branch="develop")
         gl = _mock_gl(project=project)
 
-        with patch.object(gitlab_ops, "get_client", return_value=gl), \
-             patch.object(gitlab_ops.subprocess, "run", return_value=_completed()) as mock_run:
+        with (
+            patch.object(gitlab_ops, "get_client", return_value=gl),
+            patch.object(gitlab_ops.subprocess, "run", return_value=_completed()) as mock_run,
+        ):
             result = gitlab_ops.clone_repo("group/repo", str(target_dir))
 
         assert result == {"path": str(target_dir.resolve()), "branch": "develop"}
@@ -210,12 +210,14 @@ class TestCloneRepo:
         target_dir = tmp_path / "repo"
         gl = _mock_gl()
 
-        with patch.object(gitlab_ops, "get_client", return_value=gl), \
-             patch.object(
-                 gitlab_ops.subprocess,
-                 "run",
-                 return_value=_completed(returncode=1, stderr="fatal: repo not found"),
-             ):
+        with (
+            patch.object(gitlab_ops, "get_client", return_value=gl),
+            patch.object(
+                gitlab_ops.subprocess,
+                "run",
+                return_value=_completed(returncode=1, stderr="fatal: repo not found"),
+            ),
+        ):
             result = gitlab_ops.clone_repo("group/repo", str(target_dir))
 
         assert "error" in result

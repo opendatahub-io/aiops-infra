@@ -1,4 +1,5 @@
 """Tests for scripts/yaml_ops.py."""
+
 from __future__ import annotations
 
 import pytest
@@ -49,9 +50,7 @@ class TestDumpPreservingComments:
     def test_merges_overlay_into_existing_file(self, tmp_path):
         yaml_file = tmp_path / "existing.yaml"
         yaml_file.write_text(
-            "name: original\n"
-            "settings:\n"
-            "  enabled: true\n",
+            "name: original\nsettings:\n  enabled: true\n",
             encoding="utf-8",
         )
 

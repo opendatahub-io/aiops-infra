@@ -1,4 +1,5 @@
 """Tests for conforma-exception create_jira_ticket.py template helpers."""
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -57,9 +58,7 @@ class TestMatchTemplateCategory:
         assert cjt.match_template_category("hermetic_task.hermetic") == "hermetic_build"
 
     def test_matches_glob_pattern(self):
-        assert cjt.match_template_category("sbom_spdx.allowed_package_sources:foo") == (
-            "sbom_package_sources"
-        )
+        assert cjt.match_template_category("sbom_spdx.allowed_package_sources:foo") == ("sbom_package_sources")
 
     def test_unknown_rule_falls_back_to_other(self):
         assert cjt.match_template_category("totally.unknown.rule.xyz") == "other"
@@ -138,8 +137,9 @@ class TestBuildExceptionLabel:
 
 class TestBuildProvenanceFooter:
     def test_includes_repo_and_user(self):
-        with patch("create_jira_ticket.getpass.getuser", return_value="testuser"), patch(
-            "create_jira_ticket.platform.node", return_value="testhost"
+        with (
+            patch("create_jira_ticket.getpass.getuser", return_value="testuser"),
+            patch("create_jira_ticket.platform.node", return_value="testhost"),
         ):
             footer = cjt.build_provenance_footer()
         assert "---" in footer

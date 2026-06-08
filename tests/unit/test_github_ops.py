@@ -1,4 +1,5 @@
 """Tests for scripts/github_ops.py."""
+
 from __future__ import annotations
 
 import json
@@ -97,8 +98,10 @@ class TestGetFile:
             "sha": "abc123",
         }
 
-        with patch.object(github_ops, "get_token", return_value="token"), \
-             patch.object(github_ops.requests, "get", return_value=response):
+        with (
+            patch.object(github_ops, "get_token", return_value="token"),
+            patch.object(github_ops.requests, "get", return_value=response),
+        ):
             result = github_ops.get_file("org/repo", "README.md", ref="main")
 
         assert result == {"content": "hello", "sha": "abc123"}
@@ -106,8 +109,10 @@ class TestGetFile:
     def test_not_found(self):
         response = MagicMock(status_code=404)
 
-        with patch.object(github_ops, "get_token", return_value="token"), \
-             patch.object(github_ops.requests, "get", return_value=response):
+        with (
+            patch.object(github_ops, "get_token", return_value="token"),
+            patch.object(github_ops.requests, "get", return_value=response),
+        ):
             result = github_ops.get_file("org/repo", "missing.txt")
 
         assert "error" in result

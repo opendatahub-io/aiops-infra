@@ -1,11 +1,9 @@
 """Tests for conforma-report-fetch fetch_csv_reports.py."""
+
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 import fetch_csv_reports
 
@@ -121,11 +119,7 @@ class TestFetchSupportedReleases:
     def test_parses_yaml_response(self):
         fetch_csv_reports._github_token_cache = "token123"
         yaml_content = (
-            "supported:\n"
-            "  - rhoai-3.4:\n"
-            "      branch: rhoai-3.4\n"
-            "  - rhoai-3.5:\n"
-            "      branch: rhoai-3.5-ea.1\n"
+            "supported:\n  - rhoai-3.4:\n      branch: rhoai-3.4\n  - rhoai-3.5:\n      branch: rhoai-3.5-ea.1\n"
         )
         mock_result = MagicMock(returncode=0, stdout=yaml_content.encode("utf-8"))
         with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
@@ -172,8 +166,10 @@ class TestFetchCsvForRelease:
             return {"error": "not found"}
 
         mock_date = MagicMock(returncode=0, stdout="2026-06-01T00:00:00Z\n")
-        with patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download), \
-             patch("fetch_csv_reports.subprocess.run", return_value=mock_date):
+        with (
+            patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download),
+            patch("fetch_csv_reports.subprocess.run", return_value=mock_date),
+        ):
             result = fetch_csv_reports.fetch_csv_for_release("rhoai-3.4", tmp_path)
         assert result["status"] == "fetched"
         assert result["path"] is not None

@@ -1,4 +1,5 @@
 """Tests for conforma-exception add_jira_watchers.py."""
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -46,8 +47,10 @@ class TestResolveWatchers:
 
 class TestAddWatchersToTicket:
     def test_standard_api_adds_watcher(self):
-        with patch.object(add_jira_watchers, "_get_standard_watchers", return_value=set()), \
-             patch.object(add_jira_watchers, "_jira_post", return_value={"ok": True, "status": 204, "error": ""}):
+        with (
+            patch.object(add_jira_watchers, "_get_standard_watchers", return_value=set()),
+            patch.object(add_jira_watchers, "_jira_post", return_value={"ok": True, "status": 204, "error": ""}),
+        ):
             result = add_jira_watchers.add_watchers_to_ticket(
                 "RHOAIENG-12345",
                 [WATCHER_ACCOUNT],
@@ -76,8 +79,10 @@ class TestAddWatchersToTicket:
                 "assignee": {"displayName": "Assignee"},
             }
         }
-        with patch.object(add_jira_watchers, "_jira_get", return_value=issue), \
-             patch.object(add_jira_watchers, "_jira_put", return_value={"ok": True, "status": 204, "error": ""}):
+        with (
+            patch.object(add_jira_watchers, "_jira_get", return_value=issue),
+            patch.object(add_jira_watchers, "_jira_put", return_value={"ok": True, "status": 204, "error": ""}),
+        ):
             result = add_jira_watchers.add_watchers_to_ticket(
                 "PSX-1040",
                 [WATCHER_ACCOUNT],
@@ -88,8 +93,10 @@ class TestAddWatchersToTicket:
         assert result["added"] == ["Jane Doe"]
 
     def test_dry_run_standard_api(self):
-        with patch.object(add_jira_watchers, "_get_standard_watchers", return_value=set()), \
-             patch.object(add_jira_watchers, "_jira_post") as mock_post:
+        with (
+            patch.object(add_jira_watchers, "_get_standard_watchers", return_value=set()),
+            patch.object(add_jira_watchers, "_jira_post") as mock_post,
+        ):
             result = add_jira_watchers.add_watchers_to_ticket(
                 "RHOAIENG-99999",
                 [WATCHER_ACCOUNT],
@@ -111,11 +118,14 @@ class TestAddWatchersToTickets:
             "already_present": [],
             "errors": [],
         }
-        with patch.object(
-            add_jira_watchers,
-            "resolve_watchers",
-            return_value={"resolved": [WATCHER_ACCOUNT], "not_found": []},
-        ), patch.object(add_jira_watchers, "add_watchers_to_ticket", return_value=ticket_result) as mock_add:
+        with (
+            patch.object(
+                add_jira_watchers,
+                "resolve_watchers",
+                return_value={"resolved": [WATCHER_ACCOUNT], "not_found": []},
+            ),
+            patch.object(add_jira_watchers, "add_watchers_to_ticket", return_value=ticket_result) as mock_add,
+        ):
             result = add_jira_watchers.add_watchers_to_tickets(
                 ["RHOAIENG-1", "RHOAIENG-2"],
                 ["Jane Doe"],
@@ -152,29 +162,33 @@ class TestAddWatchersToTickets:
         assert "No watcher names" in result["error"]
 
     def test_auto_discover_merges_team_members(self):
-        with patch.object(
-            add_jira_watchers,
-            "discover_team",
-            return_value={
-                "members": [{"displayName": "Team Member", "accountId": "team1"}],
-                "caller": {"displayName": "Me"},
-                "groups_checked": [],
-                "errors": [],
-            },
-        ), patch.object(
-            add_jira_watchers,
-            "resolve_watchers",
-            return_value={
-                "resolved": [
-                    WATCHER_ACCOUNT,
-                    {"accountId": "team1", "displayName": "Team Member", "emailAddress": ""},
-                ],
-                "not_found": [],
-            },
-        ), patch.object(
-            add_jira_watchers,
-            "add_watchers_to_ticket",
-            return_value={"status": "updated", "added": ["Jane Doe", "Team Member"]},
+        with (
+            patch.object(
+                add_jira_watchers,
+                "discover_team",
+                return_value={
+                    "members": [{"displayName": "Team Member", "accountId": "team1"}],
+                    "caller": {"displayName": "Me"},
+                    "groups_checked": [],
+                    "errors": [],
+                },
+            ),
+            patch.object(
+                add_jira_watchers,
+                "resolve_watchers",
+                return_value={
+                    "resolved": [
+                        WATCHER_ACCOUNT,
+                        {"accountId": "team1", "displayName": "Team Member", "emailAddress": ""},
+                    ],
+                    "not_found": [],
+                },
+            ),
+            patch.object(
+                add_jira_watchers,
+                "add_watchers_to_ticket",
+                return_value={"status": "updated", "added": ["Jane Doe", "Team Member"]},
+            ),
         ):
             result = add_jira_watchers.add_watchers_to_tickets(
                 ["RHOAIENG-1"],

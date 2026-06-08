@@ -1,4 +1,5 @@
 """Tests for conforma-exception validate_inputs.py."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

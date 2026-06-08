@@ -1,11 +1,10 @@
 """Tests for conforma-exception consolidate_mrs.py GitLab helpers."""
+
 from __future__ import annotations
 
 import importlib
-import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 consolidate_mrs = importlib.import_module("consolidate_mrs")
 

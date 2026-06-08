@@ -1,4 +1,5 @@
 """Tests for conforma-release-readiness check_readiness.py."""
+
 from __future__ import annotations
 
 import importlib.util

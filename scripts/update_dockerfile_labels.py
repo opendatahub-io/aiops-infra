@@ -20,6 +20,7 @@ some labels already exist with the correct value.
 Exit 0: all labels are correct (file unchanged) or were successfully added.
 Exit 1: unrecoverable error.
 """
+
 import argparse
 import re
 import sys
@@ -47,9 +48,9 @@ def _parse_labels(content: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="Update mandatory RHOAI Dockerfile labels")
     parser.add_argument("dockerfile")
-    parser.add_argument("--name",      required=True, help="Expected value for 'name' label")
+    parser.add_argument("--name", required=True, help="Expected value for 'name' label")
     parser.add_argument("--component", required=True, help="Expected value for 'com.redhat.component'")
-    parser.add_argument("--default",   required=True, help="Expected value for summary/description/etc.")
+    parser.add_argument("--default", required=True, help="Expected value for summary/description/etc.")
     args = parser.parse_args()
 
     path = Path(args.dockerfile)
@@ -58,13 +59,13 @@ def main():
         sys.exit(1)
 
     expected = {
-        "name":                 args.name,
+        "name": args.name,
         "com.redhat.component": args.component,
-        "summary":              args.default,
-        "description":          args.default,
-        "maintainer":           args.default,
-        "io.k8s.display-name":  args.default,
-        "io.k8s.description":   args.default,
+        "summary": args.default,
+        "description": args.default,
+        "maintainer": args.default,
+        "io.k8s.display-name": args.default,
+        "io.k8s.description": args.default,
     }
 
     content = path.read_text()
@@ -85,7 +86,7 @@ def main():
     lines = content.splitlines(keepends=True)
     last_from = -1
     for i, line in enumerate(lines):
-        if re.match(r'^FROM\s', line):
+        if re.match(r"^FROM\s", line):
             last_from = i
 
     if last_from >= 0:

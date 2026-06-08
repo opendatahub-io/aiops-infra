@@ -10,6 +10,7 @@ Usage:
     python3 scripts/search_docs.py --query "hermetic build"
     python3 scripts/search_docs.py --query "rpm signing key" --format json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,10 +26,7 @@ SKILLS_DIR = Path(__file__).resolve().parent.parent.parent
 
 def _discover_conforma_dirs() -> list[Path]:
     """Find all conforma* skill directories (includes the router)."""
-    return sorted(
-        p for p in SKILLS_DIR.iterdir()
-        if p.is_dir() and p.name.startswith("conforma")
-    )
+    return sorted(p for p in SKILLS_DIR.iterdir() if p.is_dir() and p.name.startswith("conforma"))
 
 
 def _strip_frontmatter_and_code_blocks(text: str) -> str:
@@ -72,11 +70,13 @@ def _load_markdown_docs() -> list[dict]:
             for md_file in sorted(d.glob("*.md")):
                 content = md_file.read_text(encoding="utf-8")
                 skill_name = d.parent.name
-                docs.append({
-                    "source": f"{skill_name}/{subdir}/{md_file.name}",
-                    "title": md_file.stem.replace("-", " ").title(),
-                    "content": content,
-                })
+                docs.append(
+                    {
+                        "source": f"{skill_name}/{subdir}/{md_file.name}",
+                        "title": md_file.stem.replace("-", " ").title(),
+                        "content": content,
+                    }
+                )
     return docs
 
 
@@ -90,21 +90,25 @@ def _load_yaml_docs() -> list[dict]:
                     continue
                 content = yaml_file.read_text(encoding="utf-8")
                 skill_name = d.parent.name
-                docs.append({
-                    "source": f"{skill_name}/{subdir}/{yaml_file.name}",
-                    "title": yaml_file.stem.replace("-", " ").title(),
-                    "content": content,
-                })
+                docs.append(
+                    {
+                        "source": f"{skill_name}/{subdir}/{yaml_file.name}",
+                        "title": yaml_file.stem.replace("-", " ").title(),
+                        "content": content,
+                    }
+                )
     for subdir in ["references", "docs"]:
         for d in _collect_dirs(subdir):
             for yml_file in sorted(d.glob("*.yml")):
                 content = yml_file.read_text(encoding="utf-8")
                 skill_name = d.parent.name
-                docs.append({
-                    "source": f"{skill_name}/{subdir}/{yml_file.name}",
-                    "title": yml_file.stem.replace("-", " ").title(),
-                    "content": content,
-                })
+                docs.append(
+                    {
+                        "source": f"{skill_name}/{subdir}/{yml_file.name}",
+                        "title": yml_file.stem.replace("-", " ").title(),
+                        "content": content,
+                    }
+                )
     return docs
 
 
@@ -116,11 +120,13 @@ def _load_skill_docs() -> list[dict]:
         if skill_md.is_file():
             raw = skill_md.read_text(encoding="utf-8")
             content = _strip_frontmatter_and_code_blocks(raw)
-            docs.append({
-                "source": f"{skill_dir.name}/SKILL.md",
-                "title": skill_dir.name.replace("-", " ").title(),
-                "content": content,
-            })
+            docs.append(
+                {
+                    "source": f"{skill_dir.name}/SKILL.md",
+                    "title": skill_dir.name.replace("-", " ").title(),
+                    "content": content,
+                }
+            )
     return docs
 
 
@@ -146,51 +152,59 @@ def search(query: str, max_results: int = 10) -> list[dict]:
         searchable = " ".join(str(v) for v in rule.values() if v)
         score = _score_match(searchable, query_terms)
         if score > 0:
-            results.append({
-                "type": "policy_rule",
-                "score": score,
-                "code": rule.get("code", rule.get("name", "")),
-                "title": rule.get("title", rule.get("name", "")),
-                "description": rule.get("description", ""),
-                "solution": rule.get("solution", ""),
-                "source": "conforma-release-policy-rules.yaml",
-            })
+            results.append(
+                {
+                    "type": "policy_rule",
+                    "score": score,
+                    "code": rule.get("code", rule.get("name", "")),
+                    "title": rule.get("title", rule.get("name", "")),
+                    "description": rule.get("description", ""),
+                    "solution": rule.get("solution", ""),
+                    "source": "conforma-release-policy-rules.yaml",
+                }
+            )
 
     for doc in _load_markdown_docs():
         score = _score_match(doc["content"], query_terms)
         if score > 0:
             snippet = _extract_snippet(doc["content"], query_terms)
-            results.append({
-                "type": "documentation",
-                "score": score,
-                "title": doc["title"],
-                "snippet": snippet,
-                "source": doc["source"],
-            })
+            results.append(
+                {
+                    "type": "documentation",
+                    "score": score,
+                    "title": doc["title"],
+                    "snippet": snippet,
+                    "source": doc["source"],
+                }
+            )
 
     for doc in _load_yaml_docs():
         score = _score_match(doc["content"], query_terms)
         if score > 0:
             snippet = _extract_snippet(doc["content"], query_terms)
-            results.append({
-                "type": "reference_data",
-                "score": score,
-                "title": doc["title"],
-                "snippet": snippet,
-                "source": doc["source"],
-            })
+            results.append(
+                {
+                    "type": "reference_data",
+                    "score": score,
+                    "title": doc["title"],
+                    "snippet": snippet,
+                    "source": doc["source"],
+                }
+            )
 
     for doc in _load_skill_docs():
         score = _score_match(doc["content"], query_terms)
         if score > 0:
             snippet = _extract_snippet(doc["content"], query_terms)
-            results.append({
-                "type": "skill_doc",
-                "score": score,
-                "title": doc["title"],
-                "snippet": snippet,
-                "source": doc["source"],
-            })
+            results.append(
+                {
+                    "type": "skill_doc",
+                    "score": score,
+                    "title": doc["title"],
+                    "snippet": snippet,
+                    "source": doc["source"],
+                }
+            )
 
     results.sort(key=lambda r: r["score"], reverse=True)
     return results[:max_results]
@@ -215,9 +229,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Search conforma documentation")
     parser.add_argument("--query", required=True, help="Search query")
     parser.add_argument("--max-results", type=int, default=10, help="Max results")
-    parser.add_argument(
-        "--format", choices=["json", "text"], default="text", help="Output format"
-    )
+    parser.add_argument("--format", choices=["json", "text"], default="text", help="Output format")
     args = parser.parse_args()
 
     results = search(args.query, args.max_results)

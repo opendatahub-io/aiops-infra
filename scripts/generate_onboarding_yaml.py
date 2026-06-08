@@ -40,10 +40,9 @@ def main():
     lines.append(f"  dockerfile_path: {args.dockerfile_path}")
 
     dockerfile_name = args.dockerfile_path.split("/")[-1]
-    if product == "RHOAI" and not "Dockerfile.konflux" in dockerfile_name:
+    if product == "RHOAI" and "Dockerfile.konflux" not in dockerfile_name:
         print(
-            f"ERROR: For RHOAI, the Dockerfile name must contain 'Dockerfile.konflux' "
-            f"(got '{dockerfile_name}')",
+            f"ERROR: For RHOAI, the Dockerfile name must contain 'Dockerfile.konflux' (got '{dockerfile_name}')",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -70,7 +69,7 @@ def main():
         for arch in archs:
             lines.append(f"    - {arch}")
         lines.append(f"  target_rhoai_version: {args.target_rhoai_version}")
-        lines.append(f"  release_category: \"{args.release_category}\"")
+        lines.append(f'  release_category: "{args.release_category}"')
         lines.append(f"  long_description: {args.long_description or ''}")
         lines.append(f"  short_description: {args.short_description or ''}")
 
@@ -78,7 +77,10 @@ def main():
 
     if args.is_operator:
         if not args.operator_manifest_src_path or not args.operator_manifest_dest_path:
-            print("ERROR: --operator-manifest-src-path and --operator-manifest-dest-path are required when --is-operator", file=sys.stderr)
+            print(
+                "ERROR: --operator-manifest-src-path and --operator-manifest-dest-path are required when --is-operator",
+                file=sys.stderr,
+            )
             sys.exit(1)
         lines.append(f"  operator_manifest_src_path: {args.operator_manifest_src_path}")
         lines.append(f"  operator_manifest_dest_path: {args.operator_manifest_dest_path}")

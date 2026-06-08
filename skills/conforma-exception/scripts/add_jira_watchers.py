@@ -77,10 +77,13 @@ def _jira_get(path: str) -> dict | list | None:
     _, auth = creds
 
     url = f"{JIRA_BASE}/rest/api/3/{path}"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Basic {auth}",
-        "Accept": "application/json",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/json",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return json.loads(resp.read())
@@ -100,11 +103,16 @@ def _jira_put(path: str, payload: dict) -> dict:
 
     url = f"{JIRA_BASE}/rest/api/3/{path}"
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={
-        "Authorization": f"Basic {auth}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }, method="PUT")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="PUT",
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return {"ok": resp.status in (200, 204), "status": resp.status, "error": ""}
@@ -131,11 +139,16 @@ def _jira_post(path: str, payload: str | dict) -> dict:
 
     url = f"{JIRA_BASE}/rest/api/3/{path}"
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={
-        "Authorization": f"Basic {auth}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }, method="POST")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return {"ok": resp.status in (200, 204), "status": resp.status, "error": ""}
@@ -196,9 +209,7 @@ def _add_via_custom_field(
         "errors": [],
     }
 
-    issue = _jira_get(
-        f"issue/{ticket_key}?fields={ADDITIONAL_WATCHERS_FIELD},reporter,assignee"
-    )
+    issue = _jira_get(f"issue/{ticket_key}?fields={ADDITIONAL_WATCHERS_FIELD},reporter,assignee")
     if issue is None:
         result["errors"].append("Cannot read ticket (auth failure or ticket not found)")
         result["status"] = "error"
@@ -209,18 +220,12 @@ def _add_via_custom_field(
     current_ids = {w["accountId"] for w in current}
 
     reporter = fields.get("reporter", {}).get("displayName", "unknown")
-    assignee = (
-        fields.get("assignee", {}).get("displayName", "unassigned")
-        if fields.get("assignee")
-        else "unassigned"
-    )
+    assignee = fields.get("assignee", {}).get("displayName", "unassigned") if fields.get("assignee") else "unassigned"
     result["reporter"] = reporter
     result["assignee"] = assignee
 
     to_add = [a for a in watcher_accounts if a["accountId"] not in current_ids]
-    result["already_present"] = [
-        a["displayName"] for a in watcher_accounts if a["accountId"] in current_ids
-    ]
+    result["already_present"] = [a["displayName"] for a in watcher_accounts if a["accountId"] in current_ids]
 
     if not to_add:
         result["status"] = "no_change"
@@ -231,9 +236,7 @@ def _add_via_custom_field(
         result["would_add"] = [a["displayName"] for a in to_add]
         return result
 
-    new_watchers = [{"accountId": uid} for uid in current_ids] + [
-        {"accountId": a["accountId"]} for a in to_add
-    ]
+    new_watchers = [{"accountId": uid} for uid in current_ids] + [{"accountId": a["accountId"]} for a in to_add]
     put_result = _jira_put(
         f"issue/{ticket_key}",
         {"fields": {ADDITIONAL_WATCHERS_FIELD: new_watchers}},
@@ -292,9 +295,7 @@ def _add_via_standard_api(
         return result
 
     to_add = [a for a in watcher_accounts if a["accountId"] not in existing]
-    result["already_present"] = [
-        a["displayName"] for a in watcher_accounts if a["accountId"] in existing
-    ]
+    result["already_present"] = [a["displayName"] for a in watcher_accounts if a["accountId"] in existing]
 
     if not to_add:
         result["status"] = "no_change"
@@ -315,13 +316,9 @@ def _add_via_standard_api(
         else:
             error_body = post_result["error"]
             if "does not have permission" in error_body:
-                result["errors"].append(
-                    f"{account['displayName']}: user lacks view permission on this ticket"
-                )
+                result["errors"].append(f"{account['displayName']}: user lacks view permission on this ticket")
             else:
-                result["errors"].append(
-                    f"{account['displayName']}: HTTP {post_result['status']}: {error_body}"
-                )
+                result["errors"].append(f"{account['displayName']}: HTTP {post_result['status']}: {error_body}")
 
     result["status"] = "updated" if result["added"] else "error"
     return result
@@ -361,7 +358,9 @@ def discover_team() -> dict:
     creds = _jira_auth()
     if not creds:
         return {
-            "caller": None, "groups_checked": [], "members": [],
+            "caller": None,
+            "groups_checked": [],
+            "members": [],
             "errors": ["JIRA_API_TOKEN/EMAIL not configured"],
         }
     _, auth = creds
@@ -387,10 +386,7 @@ def discover_team() -> dict:
 
     # Step 2: caller's groups
     try:
-        groups_url = (
-            f"{JIRA_BASE}/rest/api/3/user/groups"
-            f"?accountId={urllib.parse.quote(caller_id)}"
-        )
+        groups_url = f"{JIRA_BASE}/rest/api/3/user/groups?accountId={urllib.parse.quote(caller_id)}"
         req = urllib.request.Request(groups_url, headers=headers)
         with urllib.request.urlopen(req, timeout=15) as resp:
             groups = json.loads(resp.read())
@@ -411,9 +407,7 @@ def discover_team() -> dict:
     for gname in group_names:
         try:
             probe_url = (
-                f"{JIRA_BASE}/rest/api/3/group/member"
-                f"?groupname={urllib.parse.quote(gname)}"
-                f"&startAt=0&maxResults=1"
+                f"{JIRA_BASE}/rest/api/3/group/member?groupname={urllib.parse.quote(gname)}&startAt=0&maxResults=1"
             )
             req = urllib.request.Request(probe_url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -452,10 +446,12 @@ def discover_team() -> dict:
                 aid = m.get("accountId", "")
                 if aid and aid != caller_id and aid not in seen_ids:
                     seen_ids.add(aid)
-                    members.append({
-                        "displayName": m.get("displayName", ""),
-                        "accountId": aid,
-                    })
+                    members.append(
+                        {
+                            "displayName": m.get("displayName", ""),
+                            "accountId": aid,
+                        }
+                    )
 
             if data.get("isLast", True):
                 break
@@ -622,10 +618,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     ticket_keys = [k.strip() for k in args.tickets.split(",") if k.strip()]
-    display_names = (
-        [n.strip() for n in args.watchers.split(",") if n.strip()]
-        if args.watchers else None
-    )
+    display_names = [n.strip() for n in args.watchers.split(",") if n.strip()] if args.watchers else None
 
     if not ticket_keys:
         print(json.dumps({"status": "error", "error": "No ticket keys provided"}, indent=2))
@@ -635,7 +628,10 @@ def main() -> int:
         return 1
 
     result = add_watchers_to_tickets(
-        ticket_keys, display_names, auto_discover=args.auto_discover, dry_run=args.dry_run,
+        ticket_keys,
+        display_names,
+        auto_discover=args.auto_discover,
+        dry_run=args.dry_run,
     )
     print(json.dumps(result, indent=2))
     return 0 if result.get("summary", {}).get("errors", 0) == 0 else 1

@@ -79,12 +79,14 @@ def list_template_categories() -> list[dict]:
     data = _load_templates()
     result = []
     for cat_id, cat in data.get("categories", {}).items():
-        result.append({
-            "id": cat_id,
-            "display_name": cat["display_name"],
-            "matches_rules": cat.get("matches_rules", []),
-            "applicable_justifications": cat.get("applicable_justifications", []),
-        })
+        result.append(
+            {
+                "id": cat_id,
+                "display_name": cat["display_name"],
+                "matches_rules": cat.get("matches_rules", []),
+                "applicable_justifications": cat.get("applicable_justifications", []),
+            }
+        )
     return result
 
 
@@ -93,10 +95,12 @@ def list_justifications() -> list[dict]:
     data = _load_templates()
     result = []
     for j_id, j in data.get("justifications", {}).items():
-        result.append({
-            "id": j_id,
-            "display_name": j.get("display_name", j_id),
-        })
+        result.append(
+            {
+                "id": j_id,
+                "display_name": j.get("display_name", j_id),
+            }
+        )
     return result
 
 
@@ -239,9 +243,7 @@ def _jira_auth() -> tuple[str, str] | None:
     return email, auth
 
 
-def _jira_rest_get(
-    path: str, fields: str | None = None
-) -> dict | None:
+def _jira_rest_get(path: str, fields: str | None = None) -> dict | None:
     """GET a Jira REST API endpoint. Returns parsed JSON or None on failure."""
     import urllib.request
 
@@ -255,10 +257,13 @@ def _jira_rest_get(
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}fields={fields}"
 
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Basic {auth}",
-        "Accept": "application/json",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/json",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return json.loads(resp.read())
@@ -278,11 +283,16 @@ def _jira_rest_put(path: str, payload: dict) -> dict:
 
     url = f"https://redhat.atlassian.net/rest/api/3/{path}"
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={
-        "Authorization": f"Basic {auth}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }, method="PUT")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="PUT",
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return {"ok": resp.status in (200, 204), "status": resp.status, "error": ""}
@@ -338,21 +348,29 @@ def _verify_ticket_state(
     if expected_summary:
         actual = fields.get("summary", "")
         ok = expected_summary in actual or actual == expected_summary
-        checks.append({
-            "field": "summary", "expected": expected_summary,
-            "actual": actual, "ok": ok,
-        })
+        checks.append(
+            {
+                "field": "summary",
+                "expected": expected_summary,
+                "actual": actual,
+                "ok": ok,
+            }
+        )
         if not ok:
             unmet.append(f"summary mismatch: expected contains '{expected_summary}'")
 
     if expected_labels:
         actual_labels = fields.get("labels", [])
-        missing = [l for l in expected_labels if l not in actual_labels]
+        missing = [lb for lb in expected_labels if lb not in actual_labels]
         ok = len(missing) == 0
-        checks.append({
-            "field": "labels", "expected": expected_labels,
-            "actual": actual_labels, "ok": ok,
-        })
+        checks.append(
+            {
+                "field": "labels",
+                "expected": expected_labels,
+                "actual": actual_labels,
+                "ok": ok,
+            }
+        )
         if not ok:
             unmet.append(f"labels missing: {missing}")
 
@@ -366,12 +384,16 @@ def _verify_ticket_state(
             k = link.get("outwardIssue", {}).get("key", "")
             if k:
                 actual_keys.add(k)
-        missing_links = [l for l in expected_links if l not in actual_keys]
+        missing_links = [lk for lk in expected_links if lk not in actual_keys]
         ok = len(missing_links) == 0
-        checks.append({
-            "field": "issuelinks", "expected": expected_links,
-            "actual": list(actual_keys), "ok": ok,
-        })
+        checks.append(
+            {
+                "field": "issuelinks",
+                "expected": expected_links,
+                "actual": list(actual_keys),
+                "ok": ok,
+            }
+        )
         if not ok:
             unmet.append(f"links missing: {missing_links}")
 
@@ -379,26 +401,28 @@ def _verify_ticket_state(
         desc = fields.get("description", {})
         node_count = len(desc.get("content", [])) if isinstance(desc, dict) else 0
         ok = node_count >= expected_description_min_nodes
-        checks.append({
-            "field": "description_nodes",
-            "expected": f">= {expected_description_min_nodes}",
-            "actual": node_count, "ok": ok,
-        })
+        checks.append(
+            {
+                "field": "description_nodes",
+                "expected": f">= {expected_description_min_nodes}",
+                "actual": node_count,
+                "ok": ok,
+            }
+        )
         if not ok:
-            unmet.append(
-                f"description has {node_count} nodes, "
-                f"expected >= {expected_description_min_nodes}"
-            )
+            unmet.append(f"description has {node_count} nodes, expected >= {expected_description_min_nodes}")
 
     if expected_authorized_party:
         ap = fields.get("customfield_10938")
         ok = ap is not None and ap != ""
-        checks.append({
-            "field": "customfield_10938",
-            "expected": "set",
-            "actual": ap.get("displayName", "") if isinstance(ap, dict) else str(ap),
-            "ok": ok,
-        })
+        checks.append(
+            {
+                "field": "customfield_10938",
+                "expected": "set",
+                "actual": ap.get("displayName", "") if isinstance(ap, dict) else str(ap),
+                "ok": ok,
+            }
+        )
         if not ok:
             unmet.append("authorized_party (customfield_10938) not set")
 
@@ -582,8 +606,8 @@ def _build_psx_filled_adf(
     components_text = ", ".join(components)
     scope = exception_scope or f"Affected RHOAI container components: {components_text}"
     risk = exception_risk or (
-        f"The affected RHOAI versions have already been released or are in "
-        f"code-freeze, therefore the violation cannot be fixed retroactively."
+        "The affected RHOAI versions have already been released or are in "
+        "code-freeze, therefore the violation cannot be fixed retroactively."
     )
     remediation = exception_remediation or (
         f"Grant Conforma exception for {rule} for affected "
@@ -601,9 +625,7 @@ def _build_psx_filled_adf(
         return {
             "type": "panel",
             "attrs": {"panelType": "info"},
-            "content": [
-                {"type": "paragraph", "content": [{"type": "text", "text": text}]}
-            ],
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
         }
 
     def _para(text: str) -> dict:
@@ -639,10 +661,7 @@ def _build_psx_filled_adf(
         ),
         _para(reason_text),
         _spacer(),
-        _panel(
-            "Risk if we approve the exception?\n"
-            "What risk is being accepted by approving this exception?"
-        ),
+        _panel("Risk if we approve the exception?\nWhat risk is being accepted by approving this exception?"),
         _para(risk),
         _spacer(),
         _panel(
@@ -651,10 +670,7 @@ def _build_psx_filled_adf(
         ),
         _para(impact),
         _spacer(),
-        _panel(
-            "Proposed remediation\n"
-            "Provide a detailed description of the proposed plan to complete this work."
-        ),
+        _panel("Proposed remediation\nProvide a detailed description of the proposed plan to complete this work."),
         _para(remediation),
         _spacer(),
         _panel("SME / Validator Notes (ProdSec Only) (Optional)"),
@@ -691,7 +707,8 @@ def _set_authorized_party_field(ticket_key: str, authorized_party: str) -> dict:
         creds = _jira_auth()
         if not creds:
             return {
-                "ok": False, "action": "set_authorized_party",
+                "ok": False,
+                "action": "set_authorized_party",
                 "error": "JIRA auth not configured",
             }
         _, auth = creds
@@ -700,16 +717,20 @@ def _set_authorized_party_field(ticket_key: str, authorized_party: str) -> dict:
             f"https://redhat.atlassian.net/rest/api/3/user/search"
             f"?query={urllib.request.quote(authorized_party)}&maxResults=5"
         )
-        req = urllib.request.Request(search_url, headers={
-            "Authorization": f"Basic {auth}",
-            "Accept": "application/json",
-        })
+        req = urllib.request.Request(
+            search_url,
+            headers={
+                "Authorization": f"Basic {auth}",
+                "Accept": "application/json",
+            },
+        )
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 users = json.loads(resp.read())
         except Exception as e:
             return {
-                "ok": False, "action": "set_authorized_party",
+                "ok": False,
+                "action": "set_authorized_party",
                 "error": f"user search failed: {e}",
             }
 
@@ -724,7 +745,8 @@ def _set_authorized_party_field(ticket_key: str, authorized_party: str) -> dict:
 
     if not account_id:
         return {
-            "ok": False, "action": "set_authorized_party",
+            "ok": False,
+            "action": "set_authorized_party",
             "error": f"user '{authorized_party}' not found (0 results)",
         }
 
@@ -774,14 +796,18 @@ def _fill_psx_template(
         ap_set = ap_result.get("ok", False)
 
     adf = _build_psx_filled_adf(
-        rule, components, rhoai_version, effective_until,
-        rhoaieng_url, exception_scope=exception_scope, exception_risk=exception_risk,
-        exception_remediation=exception_remediation, exception_impact=exception_impact,
+        rule,
+        components,
+        rhoai_version,
+        effective_until,
+        rhoaieng_url,
+        exception_scope=exception_scope,
+        exception_risk=exception_risk,
+        exception_remediation=exception_remediation,
+        exception_impact=exception_impact,
     )
 
-    desc_result = _jira_rest_put(
-        f"issue/{ticket_key}", {"fields": {"description": adf}}
-    )
+    desc_result = _jira_rest_put(f"issue/{ticket_key}", {"fields": {"description": adf}})
 
     return {
         "action": "fill_psx_template",
@@ -841,8 +867,13 @@ def create_ticket(
         exception_label = build_exception_label(rule, components)
         labels.append(exception_label)
         description_adf = _build_rhoaieng_remediation_description(
-            rule, components, rhoai_version, effective_until, rhoaieng_url,
-            exception_scope=exception_scope, exception_remediation=exception_remediation,
+            rule,
+            components,
+            rhoai_version,
+            effective_until,
+            rhoaieng_url,
+            exception_scope=exception_scope,
+            exception_remediation=exception_remediation,
         )
         issue_json: dict = {
             "projectKey": project,
@@ -858,8 +889,13 @@ def create_ticket(
         exception_label = build_exception_label(rule, components)
         labels.append(exception_label)
         description_adf = _build_rhoaieng_description(
-            rule, components, rhoai_version, effective_until, psx_url,
-            exception_scope=exception_scope, exception_risk=exception_risk,
+            rule,
+            components,
+            rhoai_version,
+            effective_until,
+            psx_url,
+            exception_scope=exception_scope,
+            exception_risk=exception_risk,
             exception_remediation=exception_remediation,
         )
         issue_json = {
@@ -920,7 +956,10 @@ def create_ticket(
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     tmp = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", prefix=f"{project.lower()}-create-", delete=False,
+        mode="w",
+        suffix=".json",
+        prefix=f"{project.lower()}-create-",
+        delete=False,
         dir=WORK_DIR,
     )
     try:
@@ -995,9 +1034,7 @@ def create_ticket(
             "labels": labels,
             "linked_to": apply_result.get("linked_to", []),
             "description_filled": apply_result.get("description_filled", False),
-            "authorized_party_set": apply_result.get(
-                "authorized_party_set", False
-            ),
+            "authorized_party_set": apply_result.get("authorized_party_set", False),
             "watchers": watcher_result,
             "verification": apply_result.get("verification"),
             "operations": apply_result.get("operations", []),
@@ -1019,9 +1056,7 @@ def _set_labels_rest(ticket_key: str, labels: list[str]) -> dict:
     existing = data.get("fields", {}).get("labels", [])
     all_labels = list(set(existing + labels))
 
-    result = _jira_rest_put(
-        f"issue/{ticket_key}", {"fields": {"labels": all_labels}}
-    )
+    result = _jira_rest_put(f"issue/{ticket_key}", {"fields": {"labels": all_labels}})
     return {
         "ok": result["ok"],
         "action": "set_labels",
@@ -1044,19 +1079,18 @@ def _enforce_labels(ticket_key: str, required_labels: list[str]) -> dict:
     missing = [lbl for lbl in required_labels if lbl not in existing]
     if not missing:
         return {
-            "ok": True, "action": "enforce_labels",
-            "ticket_key": ticket_key, "already_present": True,
+            "ok": True,
+            "action": "enforce_labels",
+            "ticket_key": ticket_key,
+            "already_present": True,
         }
 
     all_labels = list(set(existing + required_labels))
-    put_result = _jira_rest_put(
-        f"issue/{ticket_key}", {"fields": {"labels": all_labels}}
-    )
+    put_result = _jira_rest_put(f"issue/{ticket_key}", {"fields": {"labels": all_labels}})
 
     if not put_result["ok"]:
         edit_result = run_acli(
-            ["jira", "workitem", "edit", "--key", ticket_key,
-             "--labels", ",".join(all_labels), "--yes"],
+            ["jira", "workitem", "edit", "--key", ticket_key, "--labels", ",".join(all_labels), "--yes"],
             timeout=30,
         )
         return {
@@ -1068,8 +1102,10 @@ def _enforce_labels(ticket_key: str, required_labels: list[str]) -> dict:
         }
 
     return {
-        "ok": True, "action": "enforce_labels",
-        "ticket_key": ticket_key, "method": "rest_api",
+        "ok": True,
+        "action": "enforce_labels",
+        "ticket_key": ticket_key,
+        "method": "rest_api",
         "labels_set": all_labels,
     }
 
@@ -1128,30 +1164,44 @@ def _apply_and_verify(
     if link_target:
         expected_links.append(link_target)
         ok = _link_tickets(ticket_key, link_target)
-        operations.append({
-            "action": "link_create", "from": ticket_key,
-            "to": link_target, "ok": ok,
-        })
+        operations.append(
+            {
+                "action": "link_create",
+                "from": ticket_key,
+                "to": link_target,
+                "ok": ok,
+            }
+        )
         if ok:
             linked_to.append(link_target)
 
     if link_to:
         expected_links.append(link_to)
         ok = _link_tickets(ticket_key, link_to)
-        operations.append({
-            "action": "link_create", "from": ticket_key,
-            "to": link_to, "ok": ok,
-        })
+        operations.append(
+            {
+                "action": "link_create",
+                "from": ticket_key,
+                "to": link_to,
+                "ok": ok,
+            }
+        )
         if ok:
             linked_to.append(link_to)
 
     # --- Step 3: Fill PSX/OCPEXCEPT description + authorized party ---
     if project in ("PSX", "OCPEXCEPT"):
         desc_result = _fill_psx_template(
-            ticket_key, rule, components,
-            rhoai_version, effective_until, rhoaieng_url or "",
-            exception_scope=exception_scope, exception_risk=exception_risk,
-            exception_remediation=exception_remediation, exception_impact=exception_impact,
+            ticket_key,
+            rule,
+            components,
+            rhoai_version,
+            effective_until,
+            rhoaieng_url or "",
+            exception_scope=exception_scope,
+            exception_risk=exception_risk,
+            exception_remediation=exception_remediation,
+            exception_impact=exception_impact,
             authorized_party=authorized_party,
         )
         description_filled = desc_result.get("ok", False)
@@ -1178,40 +1228,52 @@ def _apply_and_verify(
                     for lk in expected_links:
                         if not _verify_link_exists(ticket_key, lk):
                             ok = _link_tickets(ticket_key, lk)
-                            operations.append({
-                                "action": "link_retry", "to": lk,
-                                "ok": ok, "retry": attempt + 1,
-                            })
+                            operations.append(
+                                {
+                                    "action": "link_retry",
+                                    "to": lk,
+                                    "ok": ok,
+                                    "retry": attempt + 1,
+                                }
+                            )
                 elif "authorized_party" in issue and authorized_party:
                     _set_authorized_party_field(ticket_key, authorized_party)
-                    operations.append({
-                        "action": "set_authorized_party_retry",
-                        "retry": attempt + 1,
-                    })
+                    operations.append(
+                        {
+                            "action": "set_authorized_party_retry",
+                            "retry": attempt + 1,
+                        }
+                    )
                 elif "description" in issue and project in ("PSX", "OCPEXCEPT"):
                     desc_r = _fill_psx_template(
-                        ticket_key, rule, components,
-                        rhoai_version, effective_until, rhoaieng_url or "",
-                        exception_scope=exception_scope, exception_risk=exception_risk,
+                        ticket_key,
+                        rule,
+                        components,
+                        rhoai_version,
+                        effective_until,
+                        rhoaieng_url or "",
+                        exception_scope=exception_scope,
+                        exception_risk=exception_risk,
                         exception_remediation=exception_remediation,
                         exception_impact=exception_impact,
                         authorized_party=authorized_party,
                     )
-                    operations.append({
-                        "action": "fill_description_retry",
-                        "ok": desc_r.get("ok", False),
-                        "retry": attempt + 1,
-                    })
+                    operations.append(
+                        {
+                            "action": "fill_description_retry",
+                            "ok": desc_r.get("ok", False),
+                            "retry": attempt + 1,
+                        }
+                    )
 
             import time
+
             time.sleep(2)
             verification = _verify_ticket_state(
                 ticket_key,
                 expected_labels=labels,
                 expected_links=expected_links if expected_links else None,
-                expected_description_min_nodes=(
-                    15 if project in ("PSX", "OCPEXCEPT") else None
-                ),
+                expected_description_min_nodes=(15 if project in ("PSX", "OCPEXCEPT") else None),
                 expected_authorized_party=bool(authorized_party),
             )
             if verification["verified"]:
@@ -1251,9 +1313,17 @@ def _link_tickets(from_key: str, to_key: str, link_type: str = "Related") -> boo
 
     result = run_acli(
         [
-            "jira", "workitem", "link", "create",
-            "--out", from_key, "--in", to_key,
-            "--type", link_type, "--yes",
+            "jira",
+            "workitem",
+            "link",
+            "create",
+            "--out",
+            from_key,
+            "--in",
+            to_key,
+            "--type",
+            link_type,
+            "--yes",
         ],
         timeout=30,
     )
@@ -1284,10 +1354,13 @@ def _delete_link(ticket_key: str, target_key: str, link_type: str | None = None)
 
     auth = base64.b64encode(f"{email}:{token}".encode()).decode()
     url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}?fields=issuelinks"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Basic {auth}",
-        "Accept": "application/json",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/json",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read())
@@ -1364,10 +1437,13 @@ def reconcile_ticket(
     fields = data.get("fields", {})
     operations: list[dict] = []
 
-    # Build expected summary for reference
-    summary = _build_summary(
-        project, rule, components, rhoai_version,
-        summary_context, vendor_tag,
+    _build_summary(
+        project,
+        rule,
+        components,
+        rhoai_version,
+        summary_context,
+        vendor_tag,
     )
 
     # Determine expected labels
@@ -1377,7 +1453,7 @@ def reconcile_ticket(
 
     # --- Reconcile labels ---
     existing_labels = fields.get("labels", [])
-    missing_labels = [l for l in labels if l not in existing_labels]
+    missing_labels = [lb for lb in labels if lb not in existing_labels]
     if missing_labels:
         r = _enforce_labels(ticket_key, labels)
         operations.append(r)
@@ -1402,10 +1478,14 @@ def reconcile_ticket(
         for target in expected_links:
             if target not in actual_keys:
                 ok = _link_tickets(ticket_key, target)
-                operations.append({
-                    "action": "link_create", "from": ticket_key,
-                    "to": target, "ok": ok,
-                })
+                operations.append(
+                    {
+                        "action": "link_create",
+                        "from": ticket_key,
+                        "to": target,
+                        "ok": ok,
+                    }
+                )
 
     # --- Reconcile description (PSX/OCPEXCEPT only) ---
     description_filled = False
@@ -1414,10 +1494,16 @@ def reconcile_ticket(
         node_count = len(desc.get("content", [])) if isinstance(desc, dict) else 0
         if node_count < 15:
             desc_result = _fill_psx_template(
-                ticket_key, rule, components,
-                rhoai_version, effective_until, rhoaieng_url or "",
-                exception_scope=exception_scope, exception_risk=exception_risk,
-                exception_remediation=exception_remediation, exception_impact=exception_impact,
+                ticket_key,
+                rule,
+                components,
+                rhoai_version,
+                effective_until,
+                rhoaieng_url or "",
+                exception_scope=exception_scope,
+                exception_risk=exception_risk,
+                exception_remediation=exception_remediation,
+                exception_impact=exception_impact,
                 authorized_party=authorized_party,
             )
             description_filled = desc_result.get("ok", False)
@@ -1457,8 +1543,11 @@ def reconcile_ticket(
 
 
 def _build_summary(
-    project: str, rule: str, components: list[str],
-    rhoai_version: str, summary_context: str | None,
+    project: str,
+    rule: str,
+    components: list[str],
+    rhoai_version: str,
+    summary_context: str | None,
     vendor_tag: str | None,
 ) -> str:
     """Build the expected summary string for a ticket."""
@@ -1483,15 +1572,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--rule", required=True)
     parser.add_argument("--components", required=True, help="Comma-separated")
-    parser.add_argument("--justification", default=None,
-                        help="Justification template ID (e.g., dev_preview, code_frozen)")
+    parser.add_argument(
+        "--justification", default=None, help="Justification template ID (e.g., dev_preview, code_frozen)"
+    )
     parser.add_argument("--rhoai-version", required=True)
     parser.add_argument("--effective-until", required=True)
+    parser.add_argument("--rhoaieng-url", default=None, help="RHOAIENG approval ticket URL (for PSX/OCPEXCEPT)")
     parser.add_argument(
-        "--rhoaieng-url", default=None, help="RHOAIENG approval ticket URL (for PSX/OCPEXCEPT)"
-    )
-    parser.add_argument(
-        "--remediation-plan-url", default=None,
+        "--remediation-plan-url",
+        default=None,
         help="RHOAIENG resolution plan ticket URL (referenced in justification text)",
     )
     parser.add_argument("--psx-url", default=None, help="PSX ticket URL (for RHOAIENG back-ref)")
@@ -1578,7 +1667,8 @@ def main() -> int:
             "effective_until": args.effective_until or "",
         }
         resolved = resolve_template(
-            args.template, template_vars,
+            args.template,
+            template_vars,
             justification_id=args.justification,
         )
         if not args.summary_context:

@@ -1,4 +1,5 @@
 """Tests for conforma-exception generate_report.py."""
+
 from __future__ import annotations
 
 import generate_report

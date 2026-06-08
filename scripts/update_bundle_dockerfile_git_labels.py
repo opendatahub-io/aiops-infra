@@ -31,6 +31,7 @@ Status messages go to stderr.
 Exit 0: success (modified or already up-to-date).
 Exit 1: unrecoverable error.
 """
+
 import argparse
 import sys
 from pathlib import Path
@@ -47,7 +48,7 @@ def update_arg_declarations(lines: list[str], url_label: str, commit_label: str)
         print(f"ARG {url_label} already present — skipping ARG declarations.", file=sys.stderr)
         return lines, False
 
-    last_arg = max((i for i, l in enumerate(lines) if l.startswith("ARG ")), default=None)
+    last_arg = max((i for i, ln in enumerate(lines) if ln.startswith("ARG ")), default=None)
     new_args = [f"ARG {url_label}=\n", f"ARG {commit_label}=\n"]
     if last_arg is not None:
         for j, a in enumerate(new_args):
@@ -59,7 +60,7 @@ def update_arg_declarations(lines: list[str], url_label: str, commit_label: str)
 
 def update_label_entries(lines: list[str], component: str, url_label: str, commit_label: str) -> tuple[list[str], bool]:
     url_prefix = f"{component}.git.url="
-    if any(url_prefix in l for l in lines):
+    if any(url_prefix in ln for ln in lines):
         print(f"{component}.git.url label already present — skipping LABEL entries.", file=sys.stderr)
         return lines, False
 
@@ -100,7 +101,7 @@ def main():
     url_label, commit_label = derive_label_vars(args.component_name)
 
     lines = path.read_text().splitlines(keepends=True)
-    lines, arg_changed   = update_arg_declarations(lines, url_label, commit_label)
+    lines, arg_changed = update_arg_declarations(lines, url_label, commit_label)
     lines, label_changed = update_label_entries(lines, args.component_name, url_label, commit_label)
 
     if arg_changed or label_changed:

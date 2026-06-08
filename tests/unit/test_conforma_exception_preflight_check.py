@@ -1,4 +1,5 @@
 """Tests for conforma-exception preflight_check.py."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -46,11 +47,13 @@ class TestEvaluateDecision:
         result = mod.evaluate_decision(
             existing_exceptions={
                 "checked": True,
-                "permanent_exclusions": [{
-                    "file": "config/.../registry-rhoai-prod.yaml",
-                    "line": 10,
-                    "type": "permanent_global_exclusion",
-                }],
+                "permanent_exclusions": [
+                    {
+                        "file": "config/.../registry-rhoai-prod.yaml",
+                        "line": 10,
+                        "type": "permanent_global_exclusion",
+                    }
+                ],
                 "existing_exceptions": [],
             },
             components_per_version={"rhoai-3.4": ["odh-dashboard-v3-4"]},
@@ -65,12 +68,14 @@ class TestEvaluateDecision:
             existing_exceptions={
                 "checked": True,
                 "permanent_exclusions": [],
-                "existing_exceptions": [{
-                    "file": "registry-rhoai-prod.yaml",
-                    "has_componentNames": True,
-                    "componentNames": ["odh-dashboard-v3-4", "odh-model-v3-4"],
-                    "effectiveUntil": None,
-                }],
+                "existing_exceptions": [
+                    {
+                        "file": "registry-rhoai-prod.yaml",
+                        "has_componentNames": True,
+                        "componentNames": ["odh-dashboard-v3-4", "odh-model-v3-4"],
+                        "effectiveUntil": None,
+                    }
+                ],
             },
             components_per_version={"rhoai-3.4": ["odh-dashboard-v3-4"]},
             environment="prod",
@@ -83,12 +88,14 @@ class TestEvaluateDecision:
             existing_exceptions={
                 "checked": True,
                 "permanent_exclusions": [],
-                "existing_exceptions": [{
-                    "file": "registry-rhoai-prod.yaml",
-                    "has_componentNames": True,
-                    "componentNames": ["odh-dashboard-v3-4"],
-                    "effectiveUntil": "2026-12-01T00:00:00Z",
-                }],
+                "existing_exceptions": [
+                    {
+                        "file": "registry-rhoai-prod.yaml",
+                        "has_componentNames": True,
+                        "componentNames": ["odh-dashboard-v3-4"],
+                        "effectiveUntil": "2026-12-01T00:00:00Z",
+                    }
+                ],
             },
             components_per_version={"rhoai-3.4": ["odh-dashboard-v3-4"]},
             environment="prod",
@@ -101,12 +108,14 @@ class TestEvaluateDecision:
             existing_exceptions={
                 "checked": True,
                 "permanent_exclusions": [],
-                "existing_exceptions": [{
-                    "file": "registry-rhoai-prod.yaml",
-                    "has_componentNames": False,
-                    "componentNames": [],
-                    "effectiveUntil": "2026-12-01T00:00:00Z",
-                }],
+                "existing_exceptions": [
+                    {
+                        "file": "registry-rhoai-prod.yaml",
+                        "has_componentNames": False,
+                        "componentNames": [],
+                        "effectiveUntil": "2026-12-01T00:00:00Z",
+                    }
+                ],
             },
             components_per_version={"rhoai-3.4": ["odh-dashboard-v3-4"]},
             environment="prod",
@@ -119,12 +128,14 @@ class TestEvaluateDecision:
             existing_exceptions={
                 "checked": True,
                 "permanent_exclusions": [],
-                "existing_exceptions": [{
-                    "file": "registry-rhoai-prod.yaml",
-                    "has_componentNames": True,
-                    "componentNames": ["odh-other-v3-4"],
-                    "effectiveUntil": "2026-12-01T00:00:00Z",
-                }],
+                "existing_exceptions": [
+                    {
+                        "file": "registry-rhoai-prod.yaml",
+                        "has_componentNames": True,
+                        "componentNames": ["odh-other-v3-4"],
+                        "effectiveUntil": "2026-12-01T00:00:00Z",
+                    }
+                ],
             },
             components_per_version={"rhoai-3.4": ["odh-dashboard-v3-4"]},
             environment="prod",
@@ -136,10 +147,12 @@ class TestEvaluateDecision:
         result = mod.evaluate_decision(
             existing_exceptions={
                 "checked": True,
-                "permanent_exclusions": [{
-                    "file": "config/.../registry-rhoai-stage.yaml",
-                    "line": 5,
-                }],
+                "permanent_exclusions": [
+                    {
+                        "file": "config/.../registry-rhoai-stage.yaml",
+                        "line": 5,
+                    }
+                ],
                 "existing_exceptions": [],
             },
             components_per_version={"rhoai-3.4": ["odh-dashboard-v3-4"]},
@@ -161,10 +174,15 @@ class TestAnalyzeMrComponentCoverage:
             "+              - odh-dashboard-v3-4\n"
             "+              - odh-model-v3-4\n"
         )
-        mod._mr_cache.store(42, [{
-            "new_path": "config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml",
-            "diff": diff,
-        }])
+        mod._mr_cache.store(
+            42,
+            [
+                {
+                    "new_path": "config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml",
+                    "diff": diff,
+                }
+            ],
+        )
 
         result = mod.analyze_mr_component_coverage(
             mr_iid=42,
@@ -184,10 +202,15 @@ class TestAnalyzeMrComponentCoverage:
             "+            componentNames:\n"
             "+              - odh-dashboard-v3-4\n"
         )
-        mod._mr_cache.store(7, [{
-            "new_path": "config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml",
-            "diff": diff,
-        }])
+        mod._mr_cache.store(
+            7,
+            [
+                {
+                    "new_path": "config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml",
+                    "diff": diff,
+                }
+            ],
+        )
 
         result = mod.analyze_mr_component_coverage(
             mr_iid=7,

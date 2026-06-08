@@ -73,9 +73,7 @@ def is_external_image(ref: str) -> bool:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(
-        description="Verify all Dockerfile FROM instructions use @sha256 digests"
-    )
+    p = argparse.ArgumentParser(description="Verify all Dockerfile FROM instructions use @sha256 digests")
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--dockerfile-url", metavar="URL", help="HTTP(S) URL of the Dockerfile")
     src.add_argument("--dockerfile-path", metavar="PATH", help="Local filesystem path")
@@ -116,8 +114,7 @@ def main() -> None:
         sys.exit(1)
 
     skipped = sum(
-        1 for _, ref in froms
-        if ref.lower() == "scratch" or ref.startswith("$") or not is_external_image(ref)
+        1 for _, ref in froms if ref.lower() == "scratch" or ref.startswith("$") or not is_external_image(ref)
     )
     checked = len(froms) - skipped
     print(f"OK: All {checked} checkable FROM instruction(s) use @sha256 digests.")

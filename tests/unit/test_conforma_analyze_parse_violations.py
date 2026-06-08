@@ -1,9 +1,7 @@
 """Tests for conforma-analyze parse_violations.py."""
+
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
 
 import parse_violations
 
@@ -91,9 +89,7 @@ class TestParseCsvFile:
 
     def test_empty_csv(self, tmp_path):
         csv_file = tmp_path / "empty.csv"
-        csv_file.write_text(
-            "type,component_name,image,message,effective_on,code,title,description,solution\n"
-        )
+        csv_file.write_text("type,component_name,image,message,effective_on,code,title,description,solution\n")
         records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
         assert records == []
 

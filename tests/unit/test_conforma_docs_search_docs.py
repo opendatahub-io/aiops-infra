@@ -1,12 +1,11 @@
 """Tests for conforma-docs search_docs.py."""
+
 from __future__ import annotations
 
 import importlib.util
 import textwrap
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _spec = importlib.util.spec_from_file_location(
@@ -173,9 +172,7 @@ class TestLoadSkillDocs:
     def test_skill_doc_has_no_frontmatter(self):
         docs = search_docs._load_skill_docs()
         for doc in docs:
-            assert "allowed-tools:" not in doc["content"], (
-                f"{doc['source']} still has frontmatter in indexed content"
-            )
+            assert "allowed-tools:" not in doc["content"], f"{doc['source']} still has frontmatter in indexed content"
 
     def test_source_includes_skill_name(self):
         docs = search_docs._load_skill_docs()
@@ -192,10 +189,7 @@ class TestLoadYamlDocs:
     def test_includes_other_yaml(self):
         docs = search_docs._load_yaml_docs()
         if docs:
-            assert all(
-                d["source"].endswith(".yaml") or d["source"].endswith(".yml")
-                for d in docs
-            )
+            assert all(d["source"].endswith(".yaml") or d["source"].endswith(".yml") for d in docs)
 
 
 class TestLoadMarkdownDocs:

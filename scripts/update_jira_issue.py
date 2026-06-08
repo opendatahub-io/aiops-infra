@@ -234,7 +234,7 @@ def add_comment(jira: JIRA, issue, comment: str) -> None:
     try:
         jira.add_comment(issue, comment)
         preview = comment[:80] + ("…" if len(comment) > 80 else "")
-        print(f"  Comment posted: \"{preview}\"", file=sys.stderr)
+        print(f'  Comment posted: "{preview}"', file=sys.stderr)
     except JIRAError as e:
         print(f"ERROR: Failed to post comment: {getattr(e, 'text', e)}", file=sys.stderr)
         sys.exit(1)
@@ -259,8 +259,7 @@ def attach_file(jira: JIRA, issue, file_path: Path) -> None:
                 deleted += 1
             except JIRAError as e:
                 print(
-                    f"ERROR: Failed to delete attachment '{att.filename}' (id={att.id}): "
-                    f"{getattr(e, 'text', e)}",
+                    f"ERROR: Failed to delete attachment '{att.filename}' (id={att.id}): {getattr(e, 'text', e)}",
                     file=sys.stderr,
                 )
                 sys.exit(1)
@@ -382,8 +381,14 @@ def main() -> None:
         parser.error('--clone-from can only be used when jira_url is "new"')
 
     action_flags = [
-        args.set_title, args.link_related, args.set_reporter_to_current,
-        args.add_label, args.remove_label, args.comment, args.status, args.attach,
+        args.set_title,
+        args.link_related,
+        args.set_reporter_to_current,
+        args.add_label,
+        args.remove_label,
+        args.comment,
+        args.status,
+        args.attach,
     ]
     if not clone_mode and not any(action_flags):
         parser.error(

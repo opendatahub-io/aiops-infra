@@ -1,4 +1,5 @@
 """Tests for scripts/jira_ops.py."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -98,9 +99,7 @@ class TestUpdateIssue:
             result = jira_ops.update_issue("ABC-2", summary="Updated", labels=["onboarding"])
 
         assert result == {"key": "ABC-2", "updated": ["summary", "labels"]}
-        issue.update.assert_called_once_with(
-            fields={"summary": "Updated", "labels": ["onboarding"]}
-        )
+        issue.update.assert_called_once_with(fields={"summary": "Updated", "labels": ["onboarding"]})
 
     def test_no_fields(self):
         result = jira_ops.update_issue("ABC-2")

@@ -32,7 +32,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-
 @dataclass
 class ViolationRecord:
     type: str
@@ -67,18 +66,20 @@ def load_csv(csv_path: Path, release: str = "") -> list[ViolationRecord]:
     with open(csv_path, encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            records.append(ViolationRecord(
-                type=row.get("type", "").strip(),
-                component_name=row.get("component_name", "").strip(),
-                image=row.get("image", "").strip(),
-                message=row.get("message", "").strip(),
-                effective_on=row.get("effective_on", "").strip(),
-                code=row.get("code", "").strip(),
-                title=row.get("title", "").strip(),
-                description=row.get("description", "").strip(),
-                solution=row.get("solution", "").strip(),
-                release=release or csv_path.stem,
-            ))
+            records.append(
+                ViolationRecord(
+                    type=row.get("type", "").strip(),
+                    component_name=row.get("component_name", "").strip(),
+                    image=row.get("image", "").strip(),
+                    message=row.get("message", "").strip(),
+                    effective_on=row.get("effective_on", "").strip(),
+                    code=row.get("code", "").strip(),
+                    title=row.get("title", "").strip(),
+                    description=row.get("description", "").strip(),
+                    solution=row.get("solution", "").strip(),
+                    release=release or csv_path.stem,
+                )
+            )
     return [r for r in records if r.type == "violation"]
 
 
@@ -112,10 +113,12 @@ def extract_rpm_signature_details(records: list[ViolationRecord]) -> list[dict]:
             key = (r.component_name, r.message)
             if key not in seen:
                 seen.add(key)
-                details.append({
-                    "component": r.component_name,
-                    "message": r.message,
-                })
+                details.append(
+                    {
+                        "component": r.component_name,
+                        "message": r.message,
+                    }
+                )
     return details
 
 
@@ -134,11 +137,13 @@ def compute_component_patterns(records: list[ViolationRecord]) -> list[dict]:
 
     patterns = []
     for combo, count in combos.most_common():
-        patterns.append({
-            "codes": list(combo),
-            "count": count,
-            "components": sorted(combo_components[combo]),
-        })
+        patterns.append(
+            {
+                "codes": list(combo),
+                "count": count,
+                "components": sorted(combo_components[combo]),
+            }
+        )
     return patterns
 
 
@@ -181,61 +186,60 @@ def generate_priority_recommendations(
             solution += f" ({upgrade_sha})"
         solution += " and set enable-package-registry-proxy=true"
 
-        recommendations.append({
-            "priority": 1,
-            "action": "Upgrade prefetch-dependencies task",
-            "violations_resolved": prefetch_count,
-            "percent_of_total": round(prefetch_count / total * 100, 1),
-            "solution": solution,
-            "affected_components": len(set(
-                r.component_name for r in records if r.code in prefetch_codes
-            )),
-        })
+        recommendations.append(
+            {
+                "priority": 1,
+                "action": "Upgrade prefetch-dependencies task",
+                "violations_resolved": prefetch_count,
+                "percent_of_total": round(prefetch_count / total * 100, 1),
+                "solution": solution,
+                "affected_components": len(set(r.component_name for r in records if r.code in prefetch_codes)),
+            }
+        )
 
     rpm_count = code_counts.get("rpm_signature.allowed", 0)
     if rpm_count > 0:
-        rpm_components = sorted(set(
-            r.component_name for r in records if r.code == "rpm_signature.allowed"
-        ))
-        recommendations.append({
-            "priority": 2,
-            "action": "Fix RPM signing key compliance",
-            "violations_resolved": rpm_count,
-            "percent_of_total": round(rpm_count / total * 100, 1),
-            "solution": "Ensure RPMs use the allowed signing key or get the additional key approved",
-            "affected_components": len(rpm_components),
-        })
+        rpm_components = sorted(set(r.component_name for r in records if r.code == "rpm_signature.allowed"))
+        recommendations.append(
+            {
+                "priority": 2,
+                "action": "Fix RPM signing key compliance",
+                "violations_resolved": rpm_count,
+                "percent_of_total": round(rpm_count / total * 100, 1),
+                "solution": "Ensure RPMs use the allowed signing key or get the additional key approved",
+                "affected_components": len(rpm_components),
+            }
+        )
 
     hermetic_count = code_counts.get("hermetic_task.hermetic", 0)
     if hermetic_count > 0:
-        comps = sorted(set(
-            r.component_name for r in records if r.code == "hermetic_task.hermetic"
-        ))
-        recommendations.append({
-            "priority": 3,
-            "action": "Enable hermetic builds",
-            "violations_resolved": hermetic_count,
-            "percent_of_total": round(hermetic_count / total * 100, 1),
-            "solution": "Set HERMETIC=true on the task",
-            "affected_components": len(comps),
-            "components": comps,
-        })
+        comps = sorted(set(r.component_name for r in records if r.code == "hermetic_task.hermetic"))
+        recommendations.append(
+            {
+                "priority": 3,
+                "action": "Enable hermetic builds",
+                "violations_resolved": hermetic_count,
+                "percent_of_total": round(hermetic_count / total * 100, 1),
+                "solution": "Set HERMETIC=true on the task",
+                "affected_components": len(comps),
+                "components": comps,
+            }
+        )
 
     permissive_count = code_counts.get("prefetch_dependencies.mode_not_permissive", 0)
     if permissive_count > 0:
-        comps = sorted(set(
-            r.component_name for r in records
-            if r.code == "prefetch_dependencies.mode_not_permissive"
-        ))
-        recommendations.append({
-            "priority": 4,
-            "action": "Fix permissive prefetch mode",
-            "violations_resolved": permissive_count,
-            "percent_of_total": round(permissive_count / total * 100, 1),
-            "solution": "Change prefetch-dependencies mode from 'permissive' to a secure value",
-            "affected_components": len(comps),
-            "components": comps,
-        })
+        comps = sorted(set(r.component_name for r in records if r.code == "prefetch_dependencies.mode_not_permissive"))
+        recommendations.append(
+            {
+                "priority": 4,
+                "action": "Fix permissive prefetch mode",
+                "violations_resolved": permissive_count,
+                "percent_of_total": round(permissive_count / total * 100, 1),
+                "solution": "Change prefetch-dependencies mode from 'permissive' to a secure value",
+                "affected_components": len(comps),
+                "components": comps,
+            }
+        )
 
     return recommendations
 
@@ -273,9 +277,7 @@ def analyze(records: list[ViolationRecord]) -> AnalysisResult:
     result.rpm_signature_details = extract_rpm_signature_details(records)
     result.component_patterns = compute_component_patterns(records)
     result.effective_dates = compute_effective_dates(records)
-    result.priority_recommendations = generate_priority_recommendations(
-        records, code_counts, result.untrusted_tasks
-    )
+    result.priority_recommendations = generate_priority_recommendations(records, code_counts, result.untrusted_tasks)
 
     return result
 
@@ -342,8 +344,7 @@ def format_text(result: AnalysisResult) -> str:
     lines.append("-" * 80)
     for rec in result.priority_recommendations:
         lines.append(f"\n  #{rec['priority']}: {rec['action']}")
-        lines.append(f"    Resolves: {rec['violations_resolved']} violations"
-                     f" ({rec['percent_of_total']}% of total)")
+        lines.append(f"    Resolves: {rec['violations_resolved']} violations ({rec['percent_of_total']}% of total)")
         lines.append(f"    Components: {rec['affected_components']}")
         lines.append(f"    Solution: {rec['solution']}")
     lines.append("")
@@ -370,10 +371,7 @@ def format_markdown(result: AnalysisResult) -> str:
     lines.append("|------|-------|---|------------|-------|")
     for code, info in result.violations_by_code.items():
         pct = info["count"] / result.total_violations * 100
-        lines.append(
-            f"| `{code}` | {info['count']} | {pct:.1f}% "
-            f"| {info['affected_components']} | {info['title']} |"
-        )
+        lines.append(f"| `{code}` | {info['count']} | {pct:.1f}% | {info['affected_components']} | {info['title']} |")
     lines.append("")
 
     if result.untrusted_tasks:
@@ -416,13 +414,11 @@ def format_markdown(result: AnalysisResult) -> str:
     for rec in result.priority_recommendations:
         lines.append(f"### #{rec['priority']}: {rec['action']}")
         lines.append("")
-        lines.append(f"- **Resolves:** {rec['violations_resolved']} violations"
-                     f" ({rec['percent_of_total']}% of total)")
+        lines.append(f"- **Resolves:** {rec['violations_resolved']} violations ({rec['percent_of_total']}% of total)")
         lines.append(f"- **Components affected:** {rec['affected_components']}")
         lines.append(f"- **Solution:** {rec['solution']}")
         if "components" in rec:
-            lines.append(f"- **Specific components:** "
-                         + ", ".join(f"`{c}`" for c in rec["components"]))
+            lines.append("- **Specific components:** " + ", ".join(f"`{c}`" for c in rec["components"]))
         lines.append("")
 
     return "\n".join(lines)
@@ -448,9 +444,7 @@ def format_json(result: AnalysisResult) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Analyze conforma violation reports"
-    )
+    parser = argparse.ArgumentParser(description="Analyze conforma violation reports")
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
         "--csv",

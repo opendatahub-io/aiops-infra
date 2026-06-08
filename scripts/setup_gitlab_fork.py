@@ -32,7 +32,6 @@ Exit codes:
 
 import argparse
 import os
-import re
 import sys
 import time
 import warnings
@@ -245,9 +244,13 @@ def main() -> None:
             return
         if parent_id is not None:
             forked_from = getattr(candidate, "forked_from_project", {})
-            stale_parent = forked_from.get("path_with_namespace", parent_id) if isinstance(forked_from, dict) else parent_id
-            print(f"ERROR: {gitlab_user}/{project_name} is forked from '{stale_parent}', "
-                  f"not '{project_path}'.", file=sys.stderr)
+            stale_parent = (
+                forked_from.get("path_with_namespace", parent_id) if isinstance(forked_from, dict) else parent_id
+            )
+            print(
+                f"ERROR: {gitlab_user}/{project_name} is forked from '{stale_parent}', not '{project_path}'.",
+                file=sys.stderr,
+            )
         else:
             print(f"ERROR: {gitlab_user}/{project_name} already exists but is not a fork.", file=sys.stderr)
         print(f"  Manually delete or rename it on {base_url} and retry.", file=sys.stderr)

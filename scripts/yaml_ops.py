@@ -52,9 +52,7 @@ def load_multi_doc(path: str | Path) -> list[dict]:
             if document is None:
                 continue
             if not isinstance(document, dict):
-                raise ValueError(
-                    f"Expected mapping documents in {file_path}, got {type(document).__name__}"
-                )
+                raise ValueError(f"Expected mapping documents in {file_path}, got {type(document).__name__}")
             documents.append(_to_plain(document))
     return documents
 
@@ -96,11 +94,7 @@ def merge(base: dict, overlay: dict) -> dict:
     """Deep merge two dicts. Returns merged result."""
     result = copy.deepcopy(base)
     for key, value in overlay.items():
-        if (
-            key in result
-            and isinstance(result[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = merge(result[key], value)
         else:
             result[key] = copy.deepcopy(value)

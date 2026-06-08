@@ -1,7 +1,7 @@
 """Tests for conforma-analyze analyze_csv_report.py."""
+
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
@@ -13,31 +13,51 @@ def sample_records():
     """Create a list of ViolationRecords for testing."""
     return [
         analyze_csv_report.ViolationRecord(
-            type="violation", component_name="comp-a", image="img:sha",
+            type="violation",
+            component_name="comp-a",
+            image="img:sha",
             message='Task "prefetch-dependencies" is not trusted',
-            effective_on="2026-01-01", code="trusted_task.trusted",
-            title="Task must be trusted", description="desc", solution="Upgrade task",
+            effective_on="2026-01-01",
+            code="trusted_task.trusted",
+            title="Task must be trusted",
+            description="desc",
+            solution="Upgrade task",
             release="rhoai-3.4",
         ),
         analyze_csv_report.ViolationRecord(
-            type="violation", component_name="comp-a", image="img:sha",
-            message="Task is not hermetic", effective_on="2026-01-01",
-            code="hermetic_task.hermetic", title="Hermetic build required",
-            description="desc", solution="Enable hermetic builds",
+            type="violation",
+            component_name="comp-a",
+            image="img:sha",
+            message="Task is not hermetic",
+            effective_on="2026-01-01",
+            code="hermetic_task.hermetic",
+            title="Hermetic build required",
+            description="desc",
+            solution="Enable hermetic builds",
             release="rhoai-3.4",
         ),
         analyze_csv_report.ViolationRecord(
-            type="violation", component_name="comp-b", image="img:sha",
-            message='RPM not signed with key 1234567890abcdef',
-            effective_on="2026-02-01", code="rpm_signature.allowed",
-            title="RPM signing required", description="desc", solution="Sign RPMs",
+            type="violation",
+            component_name="comp-b",
+            image="img:sha",
+            message="RPM not signed with key 1234567890abcdef",
+            effective_on="2026-02-01",
+            code="rpm_signature.allowed",
+            title="RPM signing required",
+            description="desc",
+            solution="Sign RPMs",
             release="rhoai-3.4",
         ),
         analyze_csv_report.ViolationRecord(
-            type="violation", component_name="comp-c", image="img:sha",
+            type="violation",
+            component_name="comp-c",
+            image="img:sha",
             message='Task "prefetch-dependencies" is not trusted',
-            effective_on="2026-01-01", code="trusted_task.trusted",
-            title="Task must be trusted", description="desc", solution="Upgrade task",
+            effective_on="2026-01-01",
+            code="trusted_task.trusted",
+            title="Task must be trusted",
+            description="desc",
+            solution="Upgrade task",
             release="rhoai-3.4",
         ),
     ]
@@ -77,9 +97,14 @@ class TestExtractUntrustedTasks:
     def test_no_trusted_task_violations(self):
         records = [
             analyze_csv_report.ViolationRecord(
-                type="violation", component_name="comp", image="img",
-                message="not hermetic", effective_on="2026-01-01",
-                code="hermetic_task.hermetic", title="t", description="d",
+                type="violation",
+                component_name="comp",
+                image="img",
+                message="not hermetic",
+                effective_on="2026-01-01",
+                code="hermetic_task.hermetic",
+                title="t",
+                description="d",
                 solution="s",
             ),
         ]
@@ -96,14 +121,26 @@ class TestExtractRpmSignatureDetails:
     def test_deduplicates(self):
         records = [
             analyze_csv_report.ViolationRecord(
-                type="violation", component_name="comp-a", image="img",
-                message="key 1234", effective_on="", code="rpm_signature.allowed",
-                title="t", description="d", solution="s",
+                type="violation",
+                component_name="comp-a",
+                image="img",
+                message="key 1234",
+                effective_on="",
+                code="rpm_signature.allowed",
+                title="t",
+                description="d",
+                solution="s",
             ),
             analyze_csv_report.ViolationRecord(
-                type="violation", component_name="comp-a", image="img",
-                message="key 1234", effective_on="", code="rpm_signature.allowed",
-                title="t", description="d", solution="s",
+                type="violation",
+                component_name="comp-a",
+                image="img",
+                message="key 1234",
+                effective_on="",
+                code="rpm_signature.allowed",
+                title="t",
+                description="d",
+                solution="s",
             ),
         ]
         details = analyze_csv_report.extract_rpm_signature_details(records)
@@ -122,14 +159,26 @@ class TestComputeComponentPatterns:
     def test_groups_same_code_combos(self):
         records = [
             analyze_csv_report.ViolationRecord(
-                type="violation", component_name="comp-a", image="img",
-                message="msg", effective_on="", code="code.one",
-                title="t", description="d", solution="s",
+                type="violation",
+                component_name="comp-a",
+                image="img",
+                message="msg",
+                effective_on="",
+                code="code.one",
+                title="t",
+                description="d",
+                solution="s",
             ),
             analyze_csv_report.ViolationRecord(
-                type="violation", component_name="comp-b", image="img",
-                message="msg", effective_on="", code="code.one",
-                title="t", description="d", solution="s",
+                type="violation",
+                component_name="comp-b",
+                image="img",
+                message="msg",
+                effective_on="",
+                code="code.one",
+                title="t",
+                description="d",
+                solution="s",
             ),
         ]
         patterns = analyze_csv_report.compute_component_patterns(records)

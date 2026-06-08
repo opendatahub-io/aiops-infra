@@ -8,6 +8,7 @@ Usage:
       --release rhoai-3.5 \\
       --violations-input .work/conforma-analyze.yaml
 """
+
 from __future__ import annotations
 
 import argparse
@@ -54,17 +55,17 @@ def check_readiness(
         releases = info.get("releases", {})
         components = releases.get(release, [])
         if components:
-            release_violations.append({
-                "rule": rule,
-                "base_code": info.get("base_code", rule.split(":")[0]),
-                "components": components,
-                "title": info.get("title", ""),
-            })
+            release_violations.append(
+                {
+                    "rule": rule,
+                    "base_code": info.get("base_code", rule.split(":")[0]),
+                    "components": components,
+                    "title": info.get("title", ""),
+                }
+            )
 
     active_exceptions = [e for e in exceptions if not e.get("is_expired", True)]
-    expiring_soon = [
-        e for e in active_exceptions if e.get("expires_in_days", 999) <= soon_days
-    ]
+    expiring_soon = [e for e in active_exceptions if e.get("expires_in_days", 999) <= soon_days]
 
     covered: list[dict] = []
     blocking: list[dict] = []
@@ -146,7 +147,7 @@ def main() -> int:
             for v in result["blocking_violations"]:
                 print(f"    - {v['rule']}: {', '.join(v['components'][:5])}")
         if result["expiring_soon"]:
-            print(f"\n  EXPIRING SOON:")
+            print("\n  EXPIRING SOON:")
             for e in result["expiring_soon"]:
                 print(f"    - {e['rule']}: {e['expires_in_days']}d remaining")
         print()

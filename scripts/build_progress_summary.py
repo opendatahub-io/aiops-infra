@@ -16,6 +16,7 @@ Usage:
 
 Output (stdout): Jira wiki markup comment body ready to post.
 """
+
 import argparse
 import json
 import sys
@@ -24,28 +25,28 @@ from pathlib import Path
 # Ordered step definitions for display
 # (step_key, label, rhoai_only, url_field)
 STEPS_ODH = [
-    ("validate",          "Validate Jira",                   None),
-    ("quay",              "Create Quay repo",                "mr_url"),
-    ("krd",               "Onboard to Konflux release data", "mr_url"),
-    ("okc",               "Add to ODH Konflux central",      "pr_url"),
-    ("onboarder_workflow","Trigger ODH onboarder workflow",   "pr_url"),
-    ("operator",          "Integrate with ODH Operator",     "pr_url"),
-    ("bundle",            "Integrate with bundle",           "pr_url"),
+    ("validate", "Validate Jira", None),
+    ("quay", "Create Quay repo", "mr_url"),
+    ("krd", "Onboard to Konflux release data", "mr_url"),
+    ("okc", "Add to ODH Konflux central", "pr_url"),
+    ("onboarder_workflow", "Trigger ODH onboarder workflow", "pr_url"),
+    ("operator", "Integrate with ODH Operator", "pr_url"),
+    ("bundle", "Integrate with bundle", "pr_url"),
 ]
 
 STEPS_RHOAI = [
-    ("validate",          "Validate Jira",                          None),
-    ("quay",              "Create Quay repo",                       "mr_url"),
-    ("krd",               "Onboard to Konflux release data",        "mr_url"),
-    ("okc",               "Add to RHOAI Konflux central",           "pr_url"),
-    ("pull_pipelines",    "Add pull pipelines (RHOAI Konflux)",     "pr_url"),
-    ("operator",          "Integrate with ODH Operator",            "pr_url"),
-    ("bundle",            "Integrate with bundle",                  "pr_url"),
-    ("delivery_repo",     "Create RHOAI delivery repo",             "mr_url"),
-    ("product_listing",   "Update RHOAI product listing",          "mr_url"),
-    ("auto_merge",        "Setup auto-merge",                       "pr_url"),
-    ("renovate",          "Enable Renovate",                        "pr_url"),
-    ("renovate_sync",     "Sync Renovate configs (workflow)",       "run_url"),
+    ("validate", "Validate Jira", None),
+    ("quay", "Create Quay repo", "mr_url"),
+    ("krd", "Onboard to Konflux release data", "mr_url"),
+    ("okc", "Add to RHOAI Konflux central", "pr_url"),
+    ("pull_pipelines", "Add pull pipelines (RHOAI Konflux)", "pr_url"),
+    ("operator", "Integrate with ODH Operator", "pr_url"),
+    ("bundle", "Integrate with bundle", "pr_url"),
+    ("delivery_repo", "Create RHOAI delivery repo", "mr_url"),
+    ("product_listing", "Update RHOAI product listing", "mr_url"),
+    ("auto_merge", "Setup auto-merge", "pr_url"),
+    ("renovate", "Enable Renovate", "pr_url"),
+    ("renovate_sync", "Sync Renovate configs (workflow)", "run_url"),
 ]
 
 # Which steps are "blocking" (i.e. have a PR/MR that must merge to progress).
@@ -56,7 +57,7 @@ _DEPENDENCY_ODH: dict[str, str] = {
 }
 _DEPENDENCY_RHOAI: dict[str, str] = {
     "delivery_repo": "product_listing",
-    "renovate":      "renovate_sync",
+    "renovate": "renovate_sync",
 }
 
 
@@ -68,13 +69,13 @@ def _dependency_map(product_context: str) -> dict[str, str]:
 
 def status_emoji(status: str) -> str:
     return {
-        "done":      "✅ done",
-        "merged":    "✅ merged",
+        "done": "✅ done",
+        "merged": "✅ merged",
         "pr_raised": "🔄 PR raised",
         "mr_raised": "🔄 MR raised",
-        "pending":   "⏳ pending",
-        "skipped":   "⏭️ skipped",
-        "closed":    "❌ closed",
+        "pending": "⏳ pending",
+        "skipped": "⏭️ skipped",
+        "closed": "❌ closed",
     }.get(status, status)
 
 
@@ -202,13 +203,13 @@ def build_pending_summary(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--state",         required=True)
+    parser.add_argument("--state", required=True)
     parser.add_argument("--component-name", required=True)
     parser.add_argument("--product-context", required=True, choices=["ODH", "RHOAI"])
-    parser.add_argument("--mode",          required=True, choices=["full", "changes-only", "pending-only"])
-    parser.add_argument("--newly-merged",  default="", help="Comma-separated step keys")
-    parser.add_argument("--assignee",      default="", help="Jira assignee display name for tagging")
-    parser.add_argument("--idle-days",     type=int, default=0, help="Days since last status change")
+    parser.add_argument("--mode", required=True, choices=["full", "changes-only", "pending-only"])
+    parser.add_argument("--newly-merged", default="", help="Comma-separated step keys")
+    parser.add_argument("--assignee", default="", help="Jira assignee display name for tagging")
+    parser.add_argument("--idle-days", type=int, default=0, help="Days since last status change")
     args = parser.parse_args()
 
     state_path = Path(args.state)

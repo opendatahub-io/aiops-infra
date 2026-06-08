@@ -11,6 +11,7 @@ Usage (as pre-commit hook — see .pre-commit-config.yaml):
 Manual run:
     python tests/check_test_coverage.py scripts/gitlab_ops.py skills/conforma-analyze/scripts/parse_violations.py
 """
+
 from __future__ import annotations
 
 import sys
