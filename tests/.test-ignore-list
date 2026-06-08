@@ -1,0 +1,25 @@
+# Legacy onboarding scripts exempt from mandatory test requirement.
+# New scripts MUST NOT be added here.
+# conforma-* scripts are NOT listed — they must have tests.
+# --- repo-root onboarding scripts ---
+scripts/append_delivery_repo_entry.py
+scripts/append_yaml_list_entry.py
+scripts/build_progress_summary.py
+scripts/check_dockerfile_digests.py
+scripts/download_jira_attachment.py
+scripts/edit_yaml.py
+scripts/fetch_jira_details.py
+scripts/generate_onboarding_yaml.py
+scripts/monitor_github_pr.py
+scripts/monitor_gitlab_mr.py
+scripts/raise_github_pr.py
+scripts/raise_gitlab_mr.py
+scripts/run_github_workflow.py
+scripts/setup_github_fork.py
+scripts/setup_gitlab_fork.py
+scripts/sync_state_from_jira.py
+scripts/update_bundle_dockerfile_git_labels.py
+scripts/update_dockerfile_labels.py
+scripts/update_jira_issue.py
+scripts/update_onboarding_jira.py
+scripts/validate_yaml_schema.py

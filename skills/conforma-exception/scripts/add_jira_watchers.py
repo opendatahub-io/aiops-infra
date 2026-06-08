@@ -21,10 +21,14 @@ Usage:
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import json
+import os
 import sys
 
+import jira_ops
 from cli_runner import _resolve_env
 
 JIRA_BASE = "https://redhat.atlassian.net"
@@ -32,6 +36,18 @@ JIRA_BASE = "https://redhat.atlassian.net"
 # PSX and OCPEXCEPT use a custom multi-user picker instead of standard watchers.
 CUSTOM_FIELD_PROJECTS = {"PSX", "OCPEXCEPT"}
 ADDITIONAL_WATCHERS_FIELD = "customfield_10705"
+
+
+def _ensure_jira_env() -> None:
+    """Bridge conforma token discovery to env vars for jira_ops."""
+    if not os.environ.get("JIRA_API_TOKEN"):
+        token = _resolve_env("JIRA_API_TOKEN")
+        if token:
+            os.environ["JIRA_API_TOKEN"] = token
+    if not os.environ.get("JIRA_EMAIL"):
+        email = _resolve_env("JIRA_EMAIL")
+        if email:
+            os.environ["JIRA_EMAIL"] = email
 
 
 # ---------------------------------------------------------------------------
@@ -138,36 +154,19 @@ def _search_user(display_name: str) -> dict | None:
     """Search Jira for a user by display name (exact match).
 
     Returns {"accountId", "displayName", "emailAddress"} or None.
+    Delegates to jira_ops.search_user() with conforma credential bridging.
     """
-    import urllib.parse
-    import urllib.request
-
-    creds = _jira_auth()
-    if not creds:
-        return None
-    _, auth = creds
-
-    url = (
-        f"{JIRA_BASE}/rest/api/3/user/search"
-        f"?query={urllib.parse.quote(display_name)}&maxResults=10"
-    )
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Basic {auth}",
-        "Accept": "application/json",
-    })
+    _ensure_jira_env()
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            users = json.loads(resp.read())
+        result = jira_ops.search_user(display_name)
     except Exception:
         return None
-
-    for user in users:
-        if user.get("displayName", "").lower() == display_name.lower():
-            return {
-                "accountId": user["accountId"],
-                "displayName": user["displayName"],
-                "emailAddress": user.get("emailAddress", ""),
-            }
+    if result.get("found"):
+        return {
+            "accountId": result["account_id"],
+            "displayName": result["display_name"],
+            "emailAddress": "",
+        }
     return None
 
 

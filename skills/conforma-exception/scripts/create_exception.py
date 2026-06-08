@@ -28,6 +28,8 @@ Usage:
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import json
 import subprocess
 import sys

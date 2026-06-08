@@ -16,6 +16,8 @@ Usage:
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import re
 import shutil
@@ -23,8 +25,6 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from manage_exceptions import (
     _clone_repo,

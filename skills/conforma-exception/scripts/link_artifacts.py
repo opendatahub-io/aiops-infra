@@ -12,9 +12,12 @@ Requires JIRA_API_TOKEN and JIRA_EMAIL env vars for remote links.
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import getpass
 import json
+import os
 import platform
 import re
 import sys
@@ -22,7 +25,8 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from cli_runner import run_acli
+import jira_ops
+from cli_runner import _resolve_env, run_acli
 
 PROVENANCE_REPO = "opendatahub-io/aiops-infra"
 PROVENANCE_LABEL = "conforma-exception-ai-skill"
@@ -30,6 +34,18 @@ VIOLATION_LABEL = "conforma-violation"
 
 _SKILL_DIR = Path(__file__).resolve().parent.parent
 WORK_DIR = _SKILL_DIR / ".work"
+
+
+def _ensure_jira_env() -> None:
+    """Bridge conforma token discovery to env vars for jira_ops."""
+    if not os.environ.get("JIRA_API_TOKEN"):
+        token = _resolve_env("JIRA_API_TOKEN")
+        if token:
+            os.environ["JIRA_API_TOKEN"] = token
+    if not os.environ.get("JIRA_EMAIL"):
+        email = _resolve_env("JIRA_EMAIL")
+        if email:
+            os.environ["JIRA_EMAIL"] = email
 
 
 def _jira_auth() -> tuple[str, str] | None:
@@ -352,9 +368,7 @@ def ensure_link(
       - ensure_link("A", "B", "Blocks") → A blocks B
       - ensure_link("A", "B", "Related") → A relates to B
 
-    acli semantics for "Blocks": --in = blocker, --out = blocked issue.
-    So "A blocks B" requires: --out B --in A --type Blocks.
-    For "Related": direction doesn't matter, use --out/--in as-is.
+    Uses jira_ops.link_issues() (python-jira library) with acli fallback.
     """
     if dry_run:
         return {
@@ -367,6 +381,23 @@ def ensure_link(
     if _verify_link_exists(from_key, to_key):
         return {"status": "link_exists", "from": from_key, "to": to_key, "verified": True}
 
+    _ensure_jira_env()
+    link_result = jira_ops.link_issues(from_key, to_key, link_type=link_type)
+    if link_result.get("ok"):
+        import time
+        time.sleep(1)
+        verified = _verify_link_exists(from_key, to_key)
+        return {
+            "status": "linked" if verified else "link_unverified",
+            "from": from_key,
+            "to": to_key,
+            "verified": verified,
+        }
+
+    error = link_result.get("error", "")
+    if "already exists" in error.lower():
+        return {"status": "link_exists", "from": from_key, "to": to_key, "verified": True}
+
     if link_type == "Blocks":
         acli_out = to_key
         acli_in = from_key
@@ -376,29 +407,21 @@ def ensure_link(
 
     result = run_acli(
         [
-            "jira",
-            "workitem",
-            "link",
-            "create",
-            "--out",
-            acli_out,
-            "--in",
-            acli_in,
-            "--type",
-            link_type,
-            "--yes",
+            "jira", "workitem", "link", "create",
+            "--out", acli_out, "--in", acli_in,
+            "--type", link_type, "--yes",
         ],
         timeout=30,
     )
     if result.returncode != 0:
-        error = result.stderr.strip() or result.stdout.strip()
-        if "already exists" in error.lower():
+        acli_error = result.stderr.strip() or result.stdout.strip()
+        if "already exists" in acli_error.lower():
             return {"status": "link_exists", "from": from_key, "to": to_key, "verified": True}
         return {
             "status": "link_failed",
             "from": from_key,
             "to": to_key,
-            "error": error,
+            "error": acli_error,
             "verified": False,
         }
 

@@ -16,12 +16,16 @@ All operations are idempotent and deterministic from the provided parameters.
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import json
 import re
 import sys
 import urllib.request
 from pathlib import Path
+
+import gitlab_ops
 
 GITLAB_HOST = "gitlab.cee.redhat.com"
 GITLAB_PROJECT = "releng/konflux-release-data"
@@ -47,48 +51,34 @@ def _fetch_jira_title(ticket_key: str) -> str | None:
 
 
 def _get_gitlab_token() -> str:
-    import subprocess
-    result = subprocess.run(
-        ["glab", "config", "get", "token", "--host", GITLAB_HOST],
-        capture_output=True, text=True, timeout=10,
-    )
-    if result.returncode != 0 or not result.stdout.strip():
-        raise RuntimeError("Cannot resolve glab token for " + GITLAB_HOST)
-    return result.stdout.strip()
+    """Retrieve GitLab token via shared gitlab_ops (env + glab config)."""
+    from cli_runner import _resolve_env
+
+    token = gitlab_ops.discover_token(GITLAB_HOST)
+    if token:
+        return token
+    token = _resolve_env("GITLAB_TOKEN")
+    if token:
+        return token
+    raise RuntimeError("Cannot resolve GitLab token for " + GITLAB_HOST)
 
 
 def _gitlab_api_get(path: str, token: str) -> dict | list:
-    url = f"https://{GITLAB_HOST}/api/v4/{path}"
-    req = urllib.request.Request(url, headers={
-        "PRIVATE-TOKEN": token,
-        "Accept": "application/json",
-    })
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
+    """GET from GitLab API using python-gitlab's HTTP layer."""
+    gl = gitlab_ops.get_client(instance_url=GITLAB_HOST, token=token)
+    return gl.http_get(f"/api/v4/{path}")
 
 
 def _gitlab_api_post(path: str, payload: dict, token: str) -> dict:
-    url = f"https://{GITLAB_HOST}/api/v4/{path}"
-    data = json.dumps(payload).encode()
-    req = urllib.request.Request(url, data=data, method="POST", headers={
-        "PRIVATE-TOKEN": token,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    })
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
+    """POST to GitLab API using python-gitlab's HTTP layer."""
+    gl = gitlab_ops.get_client(instance_url=GITLAB_HOST, token=token)
+    return gl.http_post(f"/api/v4/{path}", post_data=payload)
 
 
 def _gitlab_api_put(path: str, payload: dict, token: str) -> dict:
-    url = f"https://{GITLAB_HOST}/api/v4/{path}"
-    data = json.dumps(payload).encode()
-    req = urllib.request.Request(url, data=data, method="PUT", headers={
-        "PRIVATE-TOKEN": token,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    })
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
+    """PUT to GitLab API using python-gitlab's HTTP layer."""
+    gl = gitlab_ops.get_client(instance_url=GITLAB_HOST, token=token)
+    return gl.http_put(f"/api/v4/{path}", post_data=payload)
 
 
 # ---------------------------------------------------------------------------

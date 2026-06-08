@@ -10,6 +10,8 @@ Workflow:
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import getpass
 import json
@@ -19,6 +21,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import gitlab_ops
 
 GITLAB_HOST = "gitlab.cee.redhat.com"
 GITLAB_PROJECT = "releng/konflux-release-data"
@@ -365,16 +369,19 @@ def _build_mr_body_consolidated(
 
 
 def _get_gitlab_token() -> str | None:
-    """Retrieve the glab auth token for GITLAB_HOST."""
-    result = subprocess.run(
-        ["glab", "config", "get", "token", "--host", GITLAB_HOST],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip()
-    return None
+    """Retrieve the GitLab auth token for GITLAB_HOST.
+
+    Resolution order (via gitlab_ops.discover_token):
+      1. GITLAB_TOKEN environment variable
+      2. ~/.config/glab-cli/config.yml (host-specific token)
+    Falls back to conforma-specific token file if shared ops can't find one.
+    """
+    from cli_runner import _resolve_env
+
+    token = gitlab_ops.discover_token(GITLAB_HOST)
+    if token:
+        return token
+    return _resolve_env("GITLAB_TOKEN")
 
 
 def _get_authenticated_repo_url(project: str = GITLAB_PROJECT) -> str:

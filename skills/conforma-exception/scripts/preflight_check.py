@@ -23,15 +23,18 @@ Usage:
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+import gitlab_ops
 
 _SKILL_DIR = Path(__file__).resolve().parent.parent
 WORK_DIR = _SKILL_DIR / ".work"
@@ -163,22 +166,53 @@ GITLAB_HOST = "gitlab.cee.redhat.com"
 GITLAB_PROJECT = "releng/konflux-release-data"
 
 
-def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
-    """Issue a GET request to list open MRs matching a search term.
+def _ensure_gitlab_env() -> None:
+    """Bridge conforma token discovery to env vars for gitlab_ops."""
+    from cli_runner import _resolve_env
 
-    Uses --method GET with URL query parameters. The -f flag must NOT be used
-    for GET listing endpoints because glab sends -f values as POST form data,
-    which turns the request into a 'create MR' POST and returns HTTP 400.
+    if not os.environ.get("GITLAB_TOKEN"):
+        token = _resolve_env("GITLAB_TOKEN")
+        if token:
+            os.environ["GITLAB_TOKEN"] = token
+
+
+def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
+    """List open MRs matching a search term via python-gitlab.
+
+    Falls back to glab CLI if the library call fails.
     """
+    _ensure_gitlab_env()
+    try:
+        gl = gitlab_ops.get_client(instance_url=GITLAB_HOST)
+        project = gl.projects.get(GITLAB_PROJECT)
+        mrs = project.mergerequests.list(
+            state="opened", search=search_term, per_page=20, get_all=False,
+        )
+        return [
+            {
+                "iid": mr.iid,
+                "title": mr.title,
+                "description": mr.description or "",
+                "web_url": mr.web_url,
+                "source_branch": mr.source_branch,
+                "target_branch": mr.target_branch,
+                "state": mr.state,
+                "author": getattr(mr.author, "username", "") if hasattr(mr, "author") and mr.author else "",
+            }
+            for mr in mrs
+        ]
+    except Exception:
+        pass
+
     from cli_runner import run_glab
 
     encoded = urllib.parse.quote(search_term)
-    project = GITLAB_PROJECT.replace("/", "%2F")
+    project_encoded = GITLAB_PROJECT.replace("/", "%2F")
     try:
         result = run_glab(
             [
                 "api", "--hostname", GITLAB_HOST, "--method", "GET",
-                f"projects/{project}/merge_requests"
+                f"projects/{project_encoded}/merge_requests"
                 f"?state=opened&search={encoded}&per_page=20",
             ],
             timeout=timeout,
@@ -190,11 +224,11 @@ def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
         return []
 
     try:
-        mrs = json.loads(result.stdout)
+        mrs_data = json.loads(result.stdout)
     except (ValueError, TypeError):
         return []
 
-    return [mr for mr in mrs if isinstance(mr, dict)]
+    return [mr for mr in mrs_data if isinstance(mr, dict)]
 
 
 def search_open_exception_mrs(rule: str) -> list[dict]:

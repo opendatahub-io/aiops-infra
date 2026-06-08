@@ -28,17 +28,21 @@ Usage:
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import getpass
 import json
+import os
 import platform
 import re
 import sys
 import tempfile
 from pathlib import Path
 
+import jira_ops
 from add_jira_watchers import add_watchers_to_tickets as _add_jira_watchers
-from cli_runner import run_acli
+from cli_runner import _resolve_env, run_acli
 
 TEMPLATE_TICKET = "RHOAIENG-62569"
 PROVENANCE_REPO = "opendatahub-io/aiops-infra"
@@ -202,6 +206,23 @@ def resolve_template(
 
 
 # ---------------------------------------------------------------------------
+# Credential bridging
+# ---------------------------------------------------------------------------
+
+
+def _ensure_jira_env() -> None:
+    """Bridge conforma token discovery to env vars for jira_ops."""
+    if not os.environ.get("JIRA_API_TOKEN"):
+        token = _resolve_env("JIRA_API_TOKEN")
+        if token:
+            os.environ["JIRA_API_TOKEN"] = token
+    if not os.environ.get("JIRA_EMAIL"):
+        email = _resolve_env("JIRA_EMAIL")
+        if email:
+            os.environ["JIRA_EMAIL"] = email
+
+
+# ---------------------------------------------------------------------------
 # REST API helpers
 # ---------------------------------------------------------------------------
 
@@ -209,8 +230,6 @@ def resolve_template(
 def _jira_auth() -> tuple[str, str] | None:
     """Return (email, base64-encoded auth header value) or None if not configured."""
     import base64
-
-    from cli_runner import _resolve_env
 
     token = _resolve_env("JIRA_API_TOKEN") or ""
     email = _resolve_env("JIRA_EMAIL") or ""
@@ -650,49 +669,59 @@ def _build_psx_filled_adf(
 def _set_authorized_party_field(ticket_key: str, authorized_party: str) -> dict:
     """Set the Authorized Party user picker field (customfield_10938) via REST API.
 
-    Searches for the user by display name, then sets the field.
+    Searches for the user via jira_ops.search_user(), then sets the field.
+    Falls back to raw REST user search if jira_ops fails.
     Returns structured dict with operation details.
     """
-    import urllib.request
-
-    creds = _jira_auth()
-    if not creds:
-        return {
-            "ok": False, "action": "set_authorized_party",
-            "error": "JIRA auth not configured",
-        }
-    _, auth = creds
-
-    headers = {
-        "Authorization": f"Basic {auth}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-
-    search_url = (
-        f"https://redhat.atlassian.net/rest/api/3/user/search"
-        f"?query={urllib.request.quote(authorized_party)}&maxResults=5"
-    )
-    req = urllib.request.Request(search_url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            users = json.loads(resp.read())
-    except Exception as e:
-        return {
-            "ok": False, "action": "set_authorized_party",
-            "error": f"user search failed: {e}",
-        }
-
+    _ensure_jira_env()
     account_id = None
     matched_name = None
-    for user in users:
-        if user.get("displayName", "").lower() == authorized_party.lower():
-            account_id = user["accountId"]
-            matched_name = user.get("displayName", "")
-            break
-    if not account_id and users:
-        account_id = users[0]["accountId"]
-        matched_name = users[0].get("displayName", "")
+
+    try:
+        result = jira_ops.search_user(authorized_party)
+        if result.get("found"):
+            account_id = result["account_id"]
+            matched_name = result["display_name"]
+    except Exception:
+        pass
+
+    if not account_id:
+        import urllib.request
+
+        creds = _jira_auth()
+        if not creds:
+            return {
+                "ok": False, "action": "set_authorized_party",
+                "error": "JIRA auth not configured",
+            }
+        _, auth = creds
+
+        search_url = (
+            f"https://redhat.atlassian.net/rest/api/3/user/search"
+            f"?query={urllib.request.quote(authorized_party)}&maxResults=5"
+        )
+        req = urllib.request.Request(search_url, headers={
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/json",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                users = json.loads(resp.read())
+        except Exception as e:
+            return {
+                "ok": False, "action": "set_authorized_party",
+                "error": f"user search failed: {e}",
+            }
+
+        for user in users:
+            if user.get("displayName", "").lower() == authorized_party.lower():
+                account_id = user["accountId"]
+                matched_name = user.get("displayName", "")
+                break
+        if not account_id and users:
+            account_id = users[0]["accountId"]
+            matched_name = users[0].get("displayName", "")
+
     if not account_id:
         return {
             "ok": False, "action": "set_authorized_party",
@@ -1213,24 +1242,18 @@ def _resolve_link_target(project: str, rhoaieng_url: str | None, psx_url: str | 
 def _link_tickets(from_key: str, to_key: str, link_type: str = "Related") -> bool:
     """Create a link between two Jira tickets. Returns True on success.
 
-    acli semantics note: --out is the INWARD issue in Jira's link model.
-    So `--out A --in B --type Blocks` results in "A is blocked by B" on A,
-    and "B blocks A" on B. This is counter-intuitive but verified empirically.
-    To make "A blocks B": use --out B --in A --type Blocks.
+    Uses jira_ops.link_issues() (python-jira library) with acli fallback.
     """
+    _ensure_jira_env()
+    link_result = jira_ops.link_issues(from_key, to_key, link_type=link_type)
+    if link_result.get("ok"):
+        return True
+
     result = run_acli(
         [
-            "jira",
-            "workitem",
-            "link",
-            "create",
-            "--out",
-            from_key,
-            "--in",
-            to_key,
-            "--type",
-            link_type,
-            "--yes",
+            "jira", "workitem", "link", "create",
+            "--out", from_key, "--in", to_key,
+            "--type", link_type, "--yes",
         ],
         timeout=30,
     )

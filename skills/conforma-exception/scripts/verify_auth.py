@@ -13,11 +13,16 @@ Can be run standalone for debugging:
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import json
 import os
 import subprocess
 import sys
+
+import gitlab_ops
+import jira_ops
 
 from cli_runner import (
     _ACLI_CONFIG_CANDIDATES,
@@ -35,6 +40,26 @@ from cli_runner import (
 
 GITLAB_HOST = "gitlab.cee.redhat.com"
 GITLAB_PROJECT = "releng/konflux-release-data"
+
+
+def _ensure_jira_env() -> None:
+    """Bridge conforma token discovery to env vars for jira_ops."""
+    if not os.environ.get("JIRA_API_TOKEN"):
+        token = _resolve_env("JIRA_API_TOKEN")
+        if token:
+            os.environ["JIRA_API_TOKEN"] = token
+    if not os.environ.get("JIRA_EMAIL"):
+        email = _resolve_env("JIRA_EMAIL")
+        if email:
+            os.environ["JIRA_EMAIL"] = email
+
+
+def _ensure_gitlab_env() -> None:
+    """Bridge conforma token discovery to env vars for gitlab_ops."""
+    if not os.environ.get("GITLAB_TOKEN"):
+        token = _resolve_env("GITLAB_TOKEN")
+        if token:
+            os.environ["GITLAB_TOKEN"] = token
 
 
 def _acli_auth_fix() -> str:
@@ -344,8 +369,56 @@ def _setup_jira_rest_api(checks: list[dict]) -> None:
     )
 
 
+def _check_jira_library_auth() -> dict:
+    """Cross-check Jira auth using the jira Python library (shared jira_ops)."""
+    _ensure_jira_env()
+    try:
+        result = jira_ops.verify_auth()
+        if result.get("ok"):
+            return {
+                "check": "jira_library_auth",
+                "passed": True,
+                "detail": f"python-jira authenticated as {result.get('user', 'unknown')}",
+            }
+        return {
+            "check": "jira_library_auth",
+            "passed": False,
+            "detail": result.get("error", "unknown error"),
+        }
+    except Exception as exc:
+        return {
+            "check": "jira_library_auth",
+            "passed": False,
+            "detail": str(exc),
+        }
+
+
+def _check_gitlab_library_auth() -> dict:
+    """Cross-check GitLab auth using python-gitlab (shared gitlab_ops)."""
+    _ensure_gitlab_env()
+    try:
+        result = gitlab_ops.verify_auth(instance_url=GITLAB_HOST)
+        if result.get("ok"):
+            return {
+                "check": "gitlab_library_auth",
+                "passed": True,
+                "detail": f"python-gitlab authenticated as {result.get('user', 'unknown')} on {GITLAB_HOST}",
+            }
+        return {
+            "check": "gitlab_library_auth",
+            "passed": False,
+            "detail": result.get("error", "unknown error"),
+        }
+    except Exception as exc:
+        return {
+            "check": "gitlab_library_auth",
+            "passed": False,
+            "detail": str(exc),
+        }
+
+
 def run_checks() -> dict:
-    """Run all auth checks (acli for Jira, glab for GitLab)."""
+    """Run all auth checks (acli for Jira, glab for GitLab, library cross-checks)."""
     checks: list[dict] = []
 
     checks.append(check_acli_available())
@@ -359,6 +432,9 @@ def run_checks() -> dict:
         if checks[-1]["passed"]:
             _persist_token_if_needed("GITLAB_TOKEN", "glab", checks)
             checks.append(check_glab_push_access())
+
+    checks.append(_check_jira_library_auth())
+    checks.append(_check_gitlab_library_auth())
 
     all_passed = all(c["passed"] for c in checks)
     return {

@@ -29,6 +29,8 @@ Usage:
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import re
 import shutil
@@ -39,8 +41,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from create_gitlab_mr import (
     DEFAULT_BRANCH,
