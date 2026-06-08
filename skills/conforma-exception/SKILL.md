@@ -75,10 +75,66 @@ If auto-install fails (restricted network, unsupported platform), the scripts fa
 
 Container mode requires API token authentication since `--web` OAuth cannot open the host browser from inside a container. See `verify_auth.py` output for container-specific auth instructions.
 
+## RHOAIENG Approval Gate (Hard Prerequisite)
+
+**The RHOAIENG approval Jira ticket MUST be approved (Closed/Resolved) BEFORE creating the PSX/OCPEXCEPT Jira ticket and GitLab Merge Request.** This is a hard gate enforced by the orchestrator.
+
+The orchestrator checks the RHOAIENG approval ticket status after creation (or when provided via `--rhoaieng-url`). If the ticket is not yet approved:
+
+1. **The orchestrator halts** — PSX/OCPEXCEPT Jira and GitLab MR creation are blocked
+2. **The user is instructed** to get Senior Management approval on the RHOAIENG ticket first
+3. **Re-run** with `--rhoaieng-url <approved-ticket-url>` after approval is granted
+
+Approval is detected by checking:
+- Ticket status is Closed/Resolved/Done **AND** resolution is Done/Fixed/Approved/Complete
+- **OR** a comment from a senior manager contains approval keywords (approved, LGTM, go ahead, etc.)
+
+### User override
+
+If the user explicitly requests to proceed without approval, the `--skip-approval-gate` flag bypasses the gate. The agent MUST:
+
+1. **Warn the user clearly** that RHOAIENG approval is a hard prerequisite and PSX/OCPEXCEPT reviewers may reject the exception if approval is missing
+2. **Ask for explicit confirmation** using the AskQuestion tool before passing `--skip-approval-gate`
+3. **Never pass `--skip-approval-gate` without the user's explicit request** — the agent must not decide to skip the gate on its own
+
+### Workflow behavior
+
+The approval gate sits between the `rhoaieng_approval_jira` and `psx_exception_jira` workflow steps:
+
+```
+rhoaieng_resolution_plan_jira → rhoaieng_approval_jira → [APPROVAL GATE] → psx_exception_jira → exception_merge_request
+```
+
+In self-service workflows (no PSX step), the gate sits before the MR step:
+
+```
+rhoaieng_approval_jira → [APPROVAL GATE] → exception_merge_request (self-service)
+```
+
+### Preflight output
+
+The `preflight_check.py` script includes an `rhoaieng_approval_status` field in its output:
+
+```json
+{
+  "rhoaieng_approval_status": {
+    "url": "https://redhat.atlassian.net/browse/RHOAIENG-12345",
+    "key": "RHOAIENG-12345",
+    "status": "Open",
+    "resolution": null,
+    "approved": false,
+    "reason": "RHOAIENG-12345 is Open. RHOAIENG approval is required before creating PSX Jira ticket and GitLab Merge Request.",
+    "approval_comment": null
+  }
+}
+```
+
+When `approved` is `false`, the agent MUST inform the user that they need to get approval first and MUST NOT proceed with PSX/MR creation unless the user explicitly overrides.
+
 ## Important: Human-in-the-Loop
 
 Exception GitLab Merge Requests bypass policy enforcement. Engineer approval is **MANDATORY** before creation.
-For versions >= rhoai-3.5-ea.1, Senior Management approval on the RHOAIENG Jira ticket is also required.
+The RHOAIENG approval Jira ticket must be approved before PSX/MR creation (see "RHOAIENG Approval Gate" above).
 
 ### No Agent Decisions Policy
 
@@ -146,9 +202,11 @@ Common workflow patterns:
 
 | Pattern | Steps | Example rules |
 |---------|-------|---------------|
-| Standard | Resolution plan (team) -> Senior Management approval (RHOAIENG Jira) -> PSX Jira -> GitLab Merge Request | `rpm_signature.allowed:*`, `hermetic_task.hermetic`, SBOM rules |
-| FIPS | Resolution plan (team) -> Senior Management approval (RHOAIENG Jira) -> OCPEXCEPT Jira -> GitLab Merge Request | `fips-check`, `fips_check` |
-| Self-service | Senior Management approval (RHOAIENG Jira) -> GitLab Merge Request (to `exceptions/` dir) | `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check` |
+| Standard | Resolution plan (team) -> Senior Management approval (RHOAIENG Jira) -> **[APPROVAL GATE]** -> PSX Jira -> GitLab Merge Request | `rpm_signature.allowed:*`, `hermetic_task.hermetic`, SBOM rules |
+| FIPS | Resolution plan (team) -> Senior Management approval (RHOAIENG Jira) -> **[APPROVAL GATE]** -> OCPEXCEPT Jira -> GitLab Merge Request | `fips-check`, `fips_check` |
+| Self-service | Senior Management approval (RHOAIENG Jira) -> **[APPROVAL GATE]** -> GitLab Merge Request (to `exceptions/` dir) | `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check` |
+
+**[APPROVAL GATE]** = Orchestrator checks that the RHOAIENG approval ticket is Closed/Resolved/Approved before proceeding. Halts if not approved. See "RHOAIENG Approval Gate" section above.
 
 To see the full list of supported rules and their workflows, inspect `exception_templates.yaml` directly.
 
@@ -294,6 +352,7 @@ The resolved exception text flows into all workflow artifacts: RHOAIENG Jira res
 | `--watchers` | none | Comma-separated display names (user-approved) to add as PSX watchers |
 | `--image-ref` | none | SHA digest (only for `schedule.weekday_restriction`) |
 | `--reconcile` | none | Existing ticket key to reconcile (idempotent re-run) |
+| `--skip-approval-gate` | false | Override the RHOAIENG approval gate -- proceed with PSX/MR creation even if approval Jira is not approved. **NOT RECOMMENDED.** Agent MUST ask for explicit user confirmation before using. |
 | `--dry-run` | false | Preview without creating anything |
 | `--output` | stdout | Write result JSON to file |
 
@@ -304,8 +363,9 @@ The resolved exception text flows into all workflow artifacts: RHOAIENG Jira res
 3. **Execute workflow steps** (from `exception_templates.yaml`): the orchestrator iterates through the matched category's `workflow` list and executes each step:
    - `rhoaieng_resolution_plan_jira` *(track: remediation_plan)*: Creates a Bug in RHOAIENG Jira assigned to the component team documenting the fix commitment. Created FIRST so its URL can be referenced in downstream justification text.
    - `rhoaieng_approval_jira` *(track: exception_approval)*: Creates a Blocker Bug in RHOAIENG Jira for Senior Management approval (skipped if `--rhoaieng-url` provided). Assigned to `default_assignee` from template if set. References the resolution plan URL in its description.
-   - `psx_exception_jira` *(track: exception_approval)*: Creates a PSX Jira (PSRD Exception) or OCPEXCEPT Jira (Task) ticket (skipped if `--psx-url` provided). Project determined by template. References the resolution plan URL in justification.
-   - `exception_merge_request` *(track: exception_approval)*: Creates the exception GitLab Merge Request. If `self_service: true` in template, targets `exceptions/` dir.
+   - **APPROVAL GATE**: After the RHOAIENG approval step, the orchestrator checks whether the approval ticket is Closed/Resolved with an approved resolution or has an approval comment. **If not approved, the orchestrator halts here.** The user must get Senior Management approval and re-run. Use `--skip-approval-gate` to override (requires explicit user confirmation).
+   - `psx_exception_jira` *(track: exception_approval)*: Creates a PSX Jira (PSRD Exception) or OCPEXCEPT Jira (Task) ticket (skipped if `--psx-url` provided). Project determined by template. References the resolution plan URL in justification. **Blocked until RHOAIENG approval gate passes.**
+   - `exception_merge_request` *(track: exception_approval)*: Creates the exception GitLab Merge Request. If `self_service: true` in template, targets `exceptions/` dir. **Blocked until RHOAIENG approval gate passes.**
 4. **Link artifacts** (`link_artifacts.py`): comment GitLab Merge Request URL on Jira tickets, add provenance label, create Jira links between all tickets (including `--link-to` tracking ticket)
 
 All created tickets receive the `conforma-exception-ai-skill` and `conforma-violation` Jira labels and a provenance footer in the description.

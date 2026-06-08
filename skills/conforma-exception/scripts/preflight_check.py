@@ -230,6 +230,144 @@ def _check_permanent_exclusions(
                 })
 
 
+def check_rhoaieng_approval_status(url: str) -> dict:
+    """Check whether the RHOAIENG approval Jira ticket has been approved.
+
+    Fetches the ticket and inspects its status and resolution. An approved
+    ticket is one that is Closed/Resolved with a resolution indicating
+    approval (Done, Fixed, Approved, etc.) or has a comment from a known
+    senior manager confirming approval.
+
+    Returns:
+        {
+            "url": str,
+            "key": str,
+            "status": str,          # Jira status name
+            "resolution": str|None, # Jira resolution name
+            "approved": bool,       # deterministic verdict
+            "reason": str,          # human-readable explanation
+            "approval_comment": str|None,  # matching comment if found
+        }
+    """
+    ticket_key = _extract_ticket_key(url)
+    if not ticket_key:
+        return {
+            "url": url,
+            "key": None,
+            "status": "unknown",
+            "resolution": None,
+            "approved": False,
+            "reason": f"Cannot extract ticket key from: {url}",
+            "approval_comment": None,
+        }
+
+    result = _run_acli(["jira", "workitem", "view", ticket_key, "--json"], timeout=30)
+    if result.returncode != 0:
+        return {
+            "url": url,
+            "key": ticket_key,
+            "status": "unknown",
+            "resolution": None,
+            "approved": False,
+            "reason": f"Cannot fetch {ticket_key}: {result.stderr.strip()}",
+            "approval_comment": None,
+        }
+
+    data = json.loads(result.stdout)
+    fields = data.get("fields", {})
+    status_name = fields.get("status", {}).get("name", "Unknown")
+    status_category = (
+        fields.get("status", {}).get("statusCategory", {}).get("key", "")
+    )
+    resolution = fields.get("resolution")
+    resolution_name = resolution.get("name", "") if resolution else None
+
+    approved_statuses = {"done", "closed", "resolved"}
+    approved_resolutions = {"done", "fixed", "approved", "won't do", "complete", "completed"}
+
+    is_done = status_category == "done" or status_name.lower() in approved_statuses
+    has_approved_resolution = (
+        resolution_name is not None
+        and resolution_name.lower() in approved_resolutions
+    )
+
+    approval_comment = None
+    if not (is_done and has_approved_resolution):
+        approval_comment = _search_approval_comments(ticket_key)
+
+    approved = (is_done and has_approved_resolution) or approval_comment is not None
+
+    if approved and is_done:
+        reason = (
+            f"{ticket_key} is {status_name}"
+            + (f" (resolution: {resolution_name})" if resolution_name else "")
+            + ". Approval requirement satisfied."
+        )
+    elif approved and approval_comment:
+        reason = (
+            f"{ticket_key} is {status_name} (not yet closed) but has an "
+            f"approval comment. Approval requirement satisfied."
+        )
+    else:
+        reason = (
+            f"{ticket_key} is {status_name}"
+            + (f" (resolution: {resolution_name})" if resolution_name else "")
+            + ". RHOAIENG approval is required before creating PSX Jira "
+            + "ticket and GitLab Merge Request."
+        )
+
+    return {
+        "url": url,
+        "key": ticket_key,
+        "status": status_name,
+        "resolution": resolution_name,
+        "approved": approved,
+        "reason": reason,
+        "approval_comment": approval_comment,
+    }
+
+
+def _search_approval_comments(ticket_key: str) -> str | None:
+    """Search a ticket's comments for approval from a senior manager."""
+    result = _run_acli(
+        ["jira", "workitem", "comments", ticket_key, "--json"], timeout=30
+    )
+    if result.returncode != 0:
+        return None
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+    comments = data if isinstance(data, list) else data.get("comments", [])
+    approval_keywords = [
+        "approved", "approve", "lgtm", "go ahead",
+        "exception approved", "approval granted",
+    ]
+    for comment in comments:
+        body = ""
+        if isinstance(comment, dict):
+            body = comment.get("body", "") or ""
+            if isinstance(body, dict):
+                body = json.dumps(body)
+        elif isinstance(comment, str):
+            body = comment
+        body_lower = body.lower()
+        if any(kw in body_lower for kw in approval_keywords):
+            author = ""
+            if isinstance(comment, dict):
+                author = (
+                    comment.get("author", {}).get("displayName", "")
+                    if isinstance(comment.get("author"), dict)
+                    else ""
+                )
+            snippet = body[:200] + ("..." if len(body) > 200 else "")
+            return f"[{author}]: {snippet}"
+
+    return None
+
+
 def check_duplicate_psx_tickets(rule: str, rhoai_versions: list[str]) -> list[dict]:
     """Check if PSX tickets already exist for this exact rule+versions combo."""
     search_term = rule.split(":", 1)[1] if ":" in rule else rule
@@ -602,6 +740,7 @@ def run_preflight(
         "hard_rules": HARD_RULES,
         "decision": {},
         "rhoaieng": {},
+        "rhoaieng_approval_status": {},
         "rule": {},
         "versions": {},
         "components": {},
@@ -621,6 +760,17 @@ def run_preflight(
             f"Cannot fetch RHOAIENG ticket: {rhoaieng['error']}"
         )
         return output
+
+    # 1b. Check RHOAIENG approval status
+    approval_status = check_rhoaieng_approval_status(rhoaieng_url)
+    output["rhoaieng_approval_status"] = approval_status
+    if not approval_status["approved"]:
+        output["user_confirmation_required"].append(
+            f"RHOAIENG APPROVAL REQUIRED: {approval_status['reason']} "
+            f"PSX Jira and GitLab Merge Request creation will be blocked "
+            f"until this ticket is approved. Use --skip-approval-gate to "
+            f"override (not recommended)."
+        )
 
     # 2. Resolve rule
     if rule_override:

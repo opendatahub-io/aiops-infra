@@ -272,6 +272,13 @@ def main() -> int:
         help="Existing PSX ticket to link as Related only (not used as exception ticket)",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--skip-approval-gate",
+        action="store_true",
+        help="Override the RHOAIENG approval gate and proceed with PSX/MR "
+             "creation even if the approval Jira is not yet approved. "
+             "NOT RECOMMENDED — use only when explicitly requested by user.",
+    )
     parser.add_argument("--output", default=None, help="Write result JSON to file")
     args = parser.parse_args()
 
@@ -416,59 +423,91 @@ def main() -> int:
                     "status": "provided", "ticket_url": rhoaieng_url,
                 }
                 all_ticket_urls.append(rhoaieng_url)
-                continue
+            else:
+                jira_args = [
+                    "--project", "RHOAIENG",
+                    "--purpose", "approval",
+                    "--rule", args.rule,
+                    "--components", args.components,
+                    "--rhoai-version", args.rhoai_version,
+                    "--effective-until", effective_until or "",
+                ]
+                if remediation_plan_url:
+                    jira_args.extend(["--remediation-plan-url", remediation_plan_url])
+                if args.psx_url:
+                    jira_args.extend(["--psx-url", args.psx_url])
+                if args.link_to:
+                    jira_args.extend(["--link-to", args.link_to])
+                if args.summary_context:
+                    jira_args.extend(["--summary-context", args.summary_context])
+                if args.vendor_tag:
+                    jira_args.extend(["--vendor-tag", args.vendor_tag])
+                default_assignee = step.get("default_assignee")
+                if default_assignee:
+                    jira_args.extend(["--assignee", default_assignee])
+                _add_template_and_justification_args(jira_args)
+                _add_exception_overrides(jira_args)
+                if args.dry_run:
+                    jira_args.append("--dry-run")
 
-            jira_args = [
-                "--project", "RHOAIENG",
-                "--purpose", "approval",
-                "--rule", args.rule,
-                "--components", args.components,
-                "--rhoai-version", args.rhoai_version,
-                "--effective-until", effective_until or "",
-            ]
-            if remediation_plan_url:
-                jira_args.extend(["--remediation-plan-url", remediation_plan_url])
-            if args.psx_url:
-                jira_args.extend(["--psx-url", args.psx_url])
-            if args.link_to:
-                jira_args.extend(["--link-to", args.link_to])
-            if args.summary_context:
-                jira_args.extend(["--summary-context", args.summary_context])
-            if args.vendor_tag:
-                jira_args.extend(["--vendor-tag", args.vendor_tag])
-            default_assignee = step.get("default_assignee")
-            if default_assignee:
-                jira_args.extend(["--assignee", default_assignee])
-            _add_template_and_justification_args(jira_args)
-            _add_exception_overrides(jira_args)
-            if args.dry_run:
-                jira_args.append("--dry-run")
+                jira_result = run_script("create_jira_ticket.py", jira_args)
+                result["stages"]["rhoaieng_approval_jira"] = jira_result
 
-            jira_result = run_script("create_jira_ticket.py", jira_args)
-            result["stages"]["rhoaieng_approval_jira"] = jira_result
+                if jira_result.get("status") == "failed":
+                    print(json.dumps(result, indent=2))
+                    print(f"\nFailed to create RHOAIENG approval ticket: {jira_result.get('error')}", file=sys.stderr)
+                    return 1
 
-            if jira_result.get("status") == "failed":
-                print(json.dumps(result, indent=2))
-                print(f"\nFailed to create RHOAIENG approval ticket: {jira_result.get('error')}", file=sys.stderr)
-                return 1
+                rhoaieng_url = jira_result.get("ticket_url")
+                if rhoaieng_url:
+                    all_ticket_urls.append(rhoaieng_url)
 
-            rhoaieng_url = jira_result.get("ticket_url")
-            if rhoaieng_url:
-                all_ticket_urls.append(rhoaieng_url)
+            # --- RHOAIENG Approval Gate ---
+            # The approval Jira MUST be approved before creating PSX/MR.
+            # This gate runs whether the ticket was just created or pre-existing.
+            if not args.dry_run and rhoaieng_url:
+                from preflight_check import check_rhoaieng_approval_status
 
-            if requires_approval and not args.dry_run:
-                print(
-                    f"\n{'=' * 70}\n"
-                    f"RHOAIENG approval ticket created: {rhoaieng_url}\n\n"
-                    f"This version ({args.rhoai_version}) requires senior manager approval.\n"
-                    f"Before proceeding, get approval from one of:\n"
-                    f"  - Lindani Phiri\n"
-                    f"  - Jay Koehler\n"
-                    f"  - Sherard Griffin (or another member of Steven Huel's staff)\n\n"
-                    f"A comment on the ticket confirming approval is sufficient.\n"
-                    f"{'=' * 70}\n",
-                    file=sys.stderr,
-                )
+                approval = check_rhoaieng_approval_status(rhoaieng_url)
+                result["stages"]["rhoaieng_approval_check"] = approval
+
+                if not approval["approved"]:
+                    print(
+                        f"\n{'=' * 70}\n"
+                        f"RHOAIENG APPROVAL GATE — BLOCKED\n"
+                        f"{'=' * 70}\n\n"
+                        f"Ticket: {rhoaieng_url}\n"
+                        f"Status: {approval['status']}"
+                        + (f" (resolution: {approval['resolution']})"
+                           if approval['resolution'] else "") + "\n\n"
+                        f"The RHOAIENG approval Jira ticket must be approved\n"
+                        f"(Closed/Resolved) BEFORE creating the PSX/OCPEXCEPT\n"
+                        f"Jira ticket and GitLab Merge Request.\n\n"
+                        f"Required action:\n"
+                        f"  1. Get approval from Senior Management on {approval['key']}:\n"
+                        f"     - Lindani Phiri\n"
+                        f"     - Jay Koehler\n"
+                        f"     - Sherard Griffin (or another member of Steven Huel's staff)\n"
+                        f"  2. Wait for the ticket to be Closed/Resolved with approval\n"
+                        f"  3. Re-run this skill with --rhoaieng-url {rhoaieng_url}\n\n"
+                        f"To override this gate (NOT RECOMMENDED), re-run with\n"
+                        f"  --skip-approval-gate\n"
+                        f"{'=' * 70}\n",
+                        file=sys.stderr,
+                    )
+                    if not args.skip_approval_gate:
+                        print(json.dumps(result, indent=2))
+                        return 1
+                    print(
+                        f"\n{'!' * 70}\n"
+                        f"WARNING: --skip-approval-gate is set. Proceeding\n"
+                        f"WITHOUT RHOAIENG approval. The approval Jira\n"
+                        f"({approval['key']}) is still {approval['status']}.\n"
+                        f"PSX/OCPEXCEPT reviewers may reject the exception\n"
+                        f"if RHOAIENG approval is missing.\n"
+                        f"{'!' * 70}\n",
+                        file=sys.stderr,
+                    )
 
         elif step_id == "psx_exception_jira":
             if psx_url:
