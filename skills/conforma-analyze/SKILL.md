@@ -139,6 +139,12 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 
    > **Report**: [`prod/release_day/conforma-violations-report.csv`](https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.5-ea.1/prod/release_day/conforma-violations-report.csv) (generated 2026-06-03)
 
+   **Stale report warning**: Check the `created_at` timestamp returned by the fetch script (step 3) for each release. If the report is **more than 3 days old** relative to the current date, display a prominent warning to the user:
+
+   > ⚠️ **Stale report**: The report for `{release}` was generated on {created_at date} ({N} days ago). Consider re-running the [conforma-reporter workflow](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to get an up-to-date report, then re-run this analysis with the conforma AI skill.
+
+   This ensures the user is aware they may be looking at outdated violation data and can trigger a fresh scan before making decisions based on the results.
+
 6. **Cross-reference with exceptions, open MRs, open Jira, and Slack**: After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open merge requests, open Jira tickets, Slack threads, and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
 
    Read and follow [`skills/conforma-exception/references/coverage-check.md`](../conforma-exception/references/coverage-check.md). In particular, follow the **"Auth Availability — Inform the User"** section: check all auth sources (GitLab, Jira, Slack) before running, tell the user which sources are unavailable and how to fix them, then proceed with whatever sources are available. Never silently skip a data source.
