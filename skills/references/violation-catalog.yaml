@@ -44,9 +44,9 @@ violations:
       - "Build task was not invoked with the hermetic parameter set"
     fix_steps:
       - action: "Set hermetic=true in the component PipelineRun YAML (.tekton/ directory or konflux-central pipeline)"
-        reference: "Konflux docs: users/building/hermetic-builds.html"
+        reference: "https://konflux-ci.dev/docs/building/hermetic-builds/"
       - action: "Enable prefetch-dependencies for all packages (pip, RPMs, gomod)"
-        reference: "Konflux docs: users/building/prefetching-dependencies.html"
+        reference: "https://konflux-ci.dev/docs/building/prefetching-dependencies/"
       - action: "Rebuild the component in Konflux"
     exception_context:
       when_to_exception: >-
@@ -313,12 +313,12 @@ violations:
       - "RPM repo id check failed: An RPM component in the SBOM specified an unknown or disallowed repository_id"
     fix_steps:
       - action: "Fix the repository IDs in the component's repo file (e.g., ubi.repo) to include architecture"
-        reference: "Konflux docs: users/troubleshooting/releases.html#unknown-or-invalid-repository_id"
+        reference: "https://konflux-ci.dev/docs/troubleshooting/releases/#unknown-or-invalid-repository_id"
       - action: "Example: change [ubi-9-baseos-rpms] to [ubi-9-for-x86_64-baseos-rpms]"
       - action: "Check all allowed repo IDs"
         reference: "https://github.com/release-engineering/rhtap-ec-policy/blob/main/data/known_rpm_repositories.yml"
       - action: "Rebuild the rpms.lock.yaml file"
-        reference: "Konflux docs: users/building/prefetching-dependencies.html#rpm"
+        reference: "https://konflux-ci.dev/docs/building/prefetching-dependencies/#rpm"
       - action: "Commit/merge the changes and rebuild the component in Konflux"
 
   - id: tasks.required_untrusted_task_found

@@ -28,6 +28,7 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 | fix, remedy, resolve, patch, code change, troubleshoot, diagnose, why is this failing, how to fix | use the **conforma-remedy** skill |
 | docs, documentation, search docs, runbook, policy rules, what is conforma | use the **conforma-docs** skill |
 | ship, release, readiness, gate, can we ship, blocking, go/no-go | use the **conforma-release-readiness** skill |
+| catalog, component mapping, jira component, software catalog, which team owns | use the **software-catalog-query** skill |
 | gitlab auth, gitlab token, glab login, glab auth | use the **gitlab-auth** skill |
 | jira auth, acli auth, jira login, jira token | use the **jira-auth** skill |
 | github auth, gh auth, github token | use the **github-auth** skill |
@@ -56,3 +57,5 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 - "Fix the prefetch-dependencies violation in model-registry" → **conforma-remedy**
 - "Why is model-registry failing the hermetic check?" → **conforma-remedy**
 - "How do I fix the untrusted task violation?" → **conforma-remedy**
+- "What Jira component is odh-dashboard?" → **software-catalog-query**
+- "Which team owns the vllm component?" → **software-catalog-query**

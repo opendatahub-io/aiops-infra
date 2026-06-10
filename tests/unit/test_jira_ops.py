@@ -130,6 +130,74 @@ class TestAddWatchers:
         assert result == {"added": ["good-user"], "failed": ["bad-user"]}
 
 
+class TestSearchIssues:
+    def test_success(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.key = "PSX-100"
+        issue.fields.summary = "RPM signing key exception"
+        issue.fields.status = MagicMock(__str__=lambda self: "New")
+        issue.fields.issuetype = MagicMock(__str__=lambda self: "PSRD Exception")
+        issue.fields.assignee = None
+
+        result_set = MagicMock()
+        result_set.__iter__ = lambda self: iter([issue])
+        result_set.total = 1
+        client.search_issues.return_value = result_set
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues("project = PSX")
+
+        assert result["total"] == 1
+        assert len(result["issues"]) == 1
+        assert result["issues"][0]["key"] == "PSX-100"
+        assert result["issues"][0]["summary"] == "RPM signing key exception"
+        assert result["issues"][0]["assignee"] == "Unassigned"
+        assert result["issues"][0]["url"] == "https://redhat.atlassian.net/browse/PSX-100"
+
+    def test_custom_fields(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.key = "ABC-5"
+        issue.fields.summary = "Test"
+        issue.fields.status = MagicMock(__str__=lambda self: "Open")
+
+        result_set = MagicMock()
+        result_set.__iter__ = lambda self: iter([issue])
+        result_set.total = 1
+        client.search_issues.return_value = result_set
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues("project = ABC", fields=["key", "summary", "status"])
+
+        assert "type" not in result["issues"][0]
+        assert "assignee" not in result["issues"][0]
+        assert result["issues"][0]["status"] == "Open"
+
+    def test_error(self):
+        client = _mock_client()
+        client.search_issues.side_effect = JIRAError("Bad JQL")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues("invalid jql")
+
+        assert result["total"] == 0
+        assert result["issues"] == []
+        assert "error" in result
+
+    def test_empty_results(self):
+        client = _mock_client()
+        result_set = MagicMock()
+        result_set.__iter__ = lambda self: iter([])
+        result_set.total = 0
+        client.search_issues.return_value = result_set
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues("project = EMPTY")
+
+        assert result["total"] == 0
+        assert result["issues"] == []
+
+
 class TestSearchUser:
     def test_found(self):
         client = _mock_client()

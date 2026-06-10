@@ -45,6 +45,14 @@ When presenting violations to the user:
 python3 skills/conforma-exception/scripts/verify_auth.py
 ```
 
+**Component-maturity catalog** (required for RHOAIENG tickets): The Jira Component field is **mandatory** on all RHOAIENG tickets created by this skill. The catalog is auto-cloned by the orchestrator when needed. To set up manually:
+
+```bash
+python3 scripts/component_catalog_ops.py ensure-repo
+```
+
+Jira Component values are auto-resolved from the catalog by mapping Konflux component names to their corresponding Jira Component. If auto-resolution fails (component not found in the catalog), ticket creation is **blocked** and the agent must ask the user for the correct Jira Component name, then pass it via `--jira-components`. No RHOAIENG ticket is created without this field.
+
 ## Remote Data Access Policy
 
 When fetching data from remote repositories (GitLab, GitHub):
@@ -436,10 +444,30 @@ Every ticket creation or reconciliation ends with a **verification phase** that 
 | Issue links | Includes all expected targets (RHOAIENG, tracking ticket) |
 | Description | ADF with >= 15 panel/paragraph nodes (PSX/OCPEXCEPT) |
 | Authorized Party | `customfield_10938` is set (PSX/OCPEXCEPT) |
+| Jira Component | Set on RHOAIENG tickets (auto-resolved from component-maturity catalog) |
 
 If any check fails, the script **retries the failed operation** (up to 2 attempts) and re-verifies. If it still fails, the script exits non-zero with structured JSON listing exactly what expectations are unmet.
 
 All operations return structured dicts reporting what was attempted, what the actual state is, and what failed -- never silent True/False. This makes failures visible to both the agent and the user.
+
+## Jira Component Audit
+
+To bulk-audit and fix Jira Component fields on all RHOAIENG tickets created by this skill:
+
+```bash
+# Ensure catalog is fresh
+python3 scripts/component_catalog_ops.py ensure-repo
+
+# Audit: show what would change
+python3 scripts/component_catalog_ops.py audit-jira-components
+
+# Fix: update Jira tickets with resolved components
+python3 scripts/component_catalog_ops.py audit-jira-components --fix
+```
+
+The audit extracts component/image names from each ticket's labels (`Exception-<rule>:<component>`) and description text (regex patterns for `odh-*-rhel9`, `quay.io/rhoai/<name>` URLs), resolves them via the catalog, and proposes updates. Existing components are preserved (new ones are merged in).
+
+The `reconcile_ticket()` function uses the same extraction logic as a fallback when the `--components` arg doesn't resolve -- it parses the ticket's own content to find image names.
 
 ## Reconcile Mode
 
@@ -460,8 +488,8 @@ python3 skills/conforma-exception/scripts/create_jira_ticket.py --project PSX \
 
 Behavior:
 - Reads the ticket's current state via REST API
-- Computes what's missing (labels, links, description, authorized party)
-- Applies **only** the needed changes
+- Computes what's missing (labels, links, description, authorized party, Jira Component)
+- Applies **only** the needed changes (including Jira Component on RHOAIENG tickets)
 - Ends with full verification
 - Returns `"status": "reconciled"` if all checks pass, `"status": "partial"` if unmet expectations remain
 

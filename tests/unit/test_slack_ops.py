@@ -113,6 +113,7 @@ class TestSearchMessages:
                 "channel_id": "C123",
                 "channel_name": "conforma",
                 "ts": "1700000001.000100",
+                "text": "hermetic_task.hermetic violation for odh-ogx-core",
                 "data": {
                     "permalink": "https://redhat-internal.slack.com/archives/C123/p1700000001000100",
                     "username": "alice",
@@ -135,6 +136,7 @@ class TestSearchMessages:
         assert results[0]["permalink"] == "https://redhat-internal.slack.com/archives/C123/p1700000001000100"
         assert results[0]["user"] == "alice"
         assert results[0]["thread_ts"] == "1700000000.000000"
+        assert results[0]["text"] == "hermetic_task.hermetic violation for odh-ogx-core"
 
     def test_groups_by_thread(self, fake_slackdump_cache, mock_slackdump_binary):
         messages = [

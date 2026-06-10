@@ -25,6 +25,12 @@ When presenting violation data — whether standalone or when handing off to the
 gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name
 ```
 
+**Component-maturity catalog** (optional, for Jira Component enrichment): Clone the catalog repo to enable Jira Component lookups in analysis output. Not required for basic violation analysis, but recommended for enriched output:
+
+```bash
+python3 scripts/component_catalog_ops.py ensure-repo
+```
+
 ## Remote Data Access Policy
 
 When fetching data from remote repositories (GitLab, GitHub):
@@ -139,7 +145,7 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 
    Pass the violations YAML from step 4 as input. The coverage table is the primary deliverable; the statistical breakdown from step 5 can be presented as supplementary detail below it.
 
-7. **Enrich with violation catalog guidance**: After presenting the coverage table, read [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) and for each violation in the report:
+7. **Violation Resolution Guide**: After presenting the coverage table, read [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) and present a **"Violation Resolution Guide"** section with per-violation details. For each violation in the report:
 
    - Look up the violation by its `conforma_rule_codes` in the catalog
    - Check `known_false_alerts` — if the violation matches a known false alert AND the condition applies, flag it as "likely a false positive"
@@ -147,6 +153,7 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
    - Note the `classification.typical_owner` and `requires_rebuild` fields to give actionable context
    - For violations with `resolution_path: code_fix`, point the user to the `conforma-remedy` skill for detailed fix procedures
    - For violations with `resolution_path: mixed`, present both the fix path and the exception path
+   - Include the full `next_steps` detail (from the coverage check JSON output, not the abbreviated table version) as part of each violation's entry
 
 ## Violation History
 

@@ -447,12 +447,51 @@ def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
     return rule_to_mrs
 
 
-def prefetch_open_jira_tickets(rules: list[str]) -> dict[str, list[dict]]:
+def _build_release_version_patterns(releases: list[str]) -> list[str]:
+    """Build a list of version patterns to match against Jira ticket text.
+
+    From "rhoai-3.5-ea.1" generates patterns like:
+    - "rhoai-3.5-ea.1" (full branch name)
+    - "3.5-ea.1" (version without prefix)
+    - "v3-5-ea-1" (component suffix form, dots→dashes)
+    - "3.5-ea" (without patch for broader match)
+    - "v3.5" (short version form)
+    """
+    patterns: list[str] = []
+    for release in releases:
+        patterns.append(release.lower())
+        version = release.lower().removeprefix("rhoai-")
+        patterns.append(version)
+        patterns.append("v" + version.replace(".", "-"))
+        base_version = re.sub(r"\.\d+$", "", version) if version.count(".") > 1 else version
+        if base_version != version:
+            patterns.append(base_version)
+        short_ver = version.split("-")[0]
+        if short_ver != version:
+            patterns.append(f"v{short_ver}")
+    return list(dict.fromkeys(patterns))
+
+
+def _ticket_matches_release(ticket: dict, version_patterns: list[str]) -> bool:
+    """Check if a Jira ticket's summary references one of the target release versions."""
+    summary_lower = re.sub(r"\s+", "", ticket["summary"].lower())
+    for pattern in version_patterns:
+        pattern_nospace = re.sub(r"\s+", "", pattern)
+        if pattern_nospace in summary_lower:
+            return True
+    return False
+
+
+def prefetch_open_jira_tickets(rules: list[str], releases: list[str] | None = None) -> dict[str, list[dict]]:
     """Batch search for open Jira tickets (RHOAIENG, PSX, OCPEXCEPT) matching violations.
 
     Does one broad JQL query to find all open conforma-violation tickets,
-    then matches them to rules by summary text. Returns a mapping of
-    ``rule -> list[ticket_info]``.
+    then matches them to rules by summary text. When ``releases`` is provided,
+    further filters to only tickets whose summary references one of the target
+    RHOAI versions (checked via target_versions/affected_versions text patterns
+    in the ticket summary).
+
+    Returns a mapping of ``rule -> list[ticket_info]``.
     """
     all_tickets: list[dict] = []
 
@@ -468,19 +507,21 @@ def prefetch_open_jira_tickets(rules: list[str]) -> dict[str, list[dict]]:
     if result.returncode == 0:
         all_tickets = _parse_acli_table(result.stdout)
 
+    version_patterns = _build_release_version_patterns(releases) if releases else []
+
     rule_to_tickets: dict[str, list[dict]] = {r: [] for r in rules}
     for ticket in all_tickets:
         summary_nospace = re.sub(r"\s+", "", ticket["summary"].lower())
         for rule in rules:
             rule_nospace = re.sub(r"\s+", "", rule.lower())
-            if rule_nospace in summary_nospace:
-                rule_to_tickets[rule].append(ticket)
-                break
-            if ":" in rule:
+            matched = rule_nospace in summary_nospace
+            if not matched and ":" in rule:
                 suffix_nospace = re.sub(r"\s+", "", rule.split(":", 1)[1].lower())
-                if suffix_nospace in summary_nospace:
+                matched = suffix_nospace in summary_nospace
+            if matched:
+                if not version_patterns or _ticket_matches_release(ticket, version_patterns):
                     rule_to_tickets[rule].append(ticket)
-                    break
+                break
 
     unmatched = [r for r, tickets in rule_to_tickets.items() if not tickets]
     for rule in unmatched:
@@ -494,16 +535,61 @@ def prefetch_open_jira_tickets(rules: list[str]) -> dict[str, list[dict]]:
         if label_result.returncode == 0:
             for ticket in _parse_acli_table(label_result.stdout):
                 if ticket not in rule_to_tickets[rule]:
-                    rule_to_tickets[rule].append(ticket)
+                    if not version_patterns or _ticket_matches_release(ticket, version_patterns):
+                        rule_to_tickets[rule].append(ticket)
 
     return rule_to_tickets
 
 
-def prefetch_open_slack_threads(rules: list[str]) -> dict[str, list[dict]]:
+_VERSION_SUFFIX_RE = re.compile(r"-v\d+[-.\d\w]*$")
+
+
+def _component_search_stems(component: str) -> list[str]:
+    """Generate search stems for fuzzy component matching in Slack text.
+
+    Given ``odh-ogx-core-v3-5-ea-1``, returns::
+
+        ["odh-ogx-core-v3-5-ea-1", "odh-ogx-core", "ogx-core"]
+
+    The full name is kept for exact matches, the version-stripped form is
+    the most common way people reference components in Slack, and the
+    prefix-stripped form catches shorthand references.
+    """
+    stems = [component]
+    base = _VERSION_SUFFIX_RE.sub("", component)
+    if base != component:
+        stems.append(base)
+    if base.startswith("odh-"):
+        stems.append(base[4:])
+    elif base.startswith("rhoai-"):
+        stems.append(base[6:])
+    return stems
+
+
+def _thread_mentions_component(
+    text: str,
+    component_stems: list[str],
+) -> bool:
+    """Return True if *text* contains any of the component stems (case-insensitive)."""
+    if not text:
+        return False
+    text_lower = text.lower()
+    return any(stem.lower() in text_lower for stem in component_stems)
+
+
+def prefetch_open_slack_threads(
+    rules: list[str],
+    rule_to_components: dict[str, list[str]] | None = None,
+) -> dict[str, list[dict]]:
     """Search Slack for messages mentioning each violation rule (last 30 days).
 
     Per-rule search with suffix fallback (same pattern as MR search).
     Results are grouped by thread.  Returns ``rule -> list[thread_match]``.
+
+    When *rule_to_components* is provided, results are filtered to only
+    include threads whose message text mentions at least one affected
+    component (using stemmed/fuzzy matching).  The ``text`` field is
+    stripped from the output to keep the JSON compact.
     """
     rule_to_threads: dict[str, list[dict]] = {r: [] for r in rules}
 
@@ -516,12 +602,22 @@ def prefetch_open_slack_threads(rules: list[str]) -> dict[str, list[dict]]:
             if suffix and suffix != rule:
                 results.extend(slack_ops.search_messages(query=suffix, after_days=30))
 
+        components = (rule_to_components or {}).get(rule, [])
+        all_stems = []
+        for comp in components:
+            all_stems.extend(_component_search_stems(comp))
+
         for match in results:
             key = (match.get("channel_id", ""), match.get("thread_ts", ""))
             if key in seen:
                 continue
             seen.add(key)
-            rule_to_threads[rule].append(match)
+
+            if all_stems and not _thread_mentions_component(match.get("text", ""), all_stems):
+                continue
+
+            entry = {k: v for k, v in match.items() if k != "text"}
+            rule_to_threads[rule].append(entry)
 
     return rule_to_threads
 
@@ -1441,16 +1537,26 @@ def check_violations_coverage(
         return {"error": "No violations_by_rule found in input YAML"}
 
     all_rules = list(by_rule.keys())
+    releases = data.get("violation_data", {}).get("releases", [])
 
     # Prefetch all open MRs and their diffs in one batch
     prefetched_mrs = prefetch_open_mrs(all_rules)
 
     # Prefetch all open Jira tickets (RHOAIENG, PSX, OCPEXCEPT) in one batch
+    # Filter to only tickets referencing the same RHOAI version(s) as the report
     if require_jira:
         jira_auth = jira_ops.verify_auth()
         if not jira_auth["ok"]:
             return {"error": f"Jira auth failed: {jira_auth['error']}"}
-    prefetched_jira = prefetch_open_jira_tickets(all_rules) if require_jira else {}
+    prefetched_jira = prefetch_open_jira_tickets(all_rules, releases=releases) if require_jira else {}
+
+    # Build rule -> components mapping for component-aware Slack filtering
+    rule_to_components: dict[str, list[str]] = {}
+    for rule, info in by_rule.items():
+        comps: list[str] = []
+        for _release, release_comps in info.get("releases", {}).items():
+            comps.extend(release_comps)
+        rule_to_components[rule] = sorted(set(comps))
 
     # Prefetch Slack threads (per-rule search, last 30 days)
     slack_team_url = ""
@@ -1459,7 +1565,7 @@ def check_violations_coverage(
         if not slack_auth["ok"]:
             return {"error": f"Slack auth failed: {slack_auth['error']}"}
         slack_team_url = slack_auth.get("team_url", "")
-        prefetched_slack = prefetch_open_slack_threads(all_rules)
+        prefetched_slack = prefetch_open_slack_threads(all_rules, rule_to_components=rule_to_components)
     else:
         prefetched_slack = {}
 
@@ -1646,11 +1752,29 @@ def check_violations_coverage(
     }
 
 
+def _abbreviate_next_steps(next_steps: str) -> str:
+    """Shorten the next_steps text for table display.
+
+    Keeps only the first action phrase (before the first em-dash separator)
+    and appends a pointer to the Violation Resolution Guide section.
+    Does not truncate mid-way to avoid breaking markdown links.
+    """
+    if not next_steps:
+        return "see details below"
+    parts = next_steps.split(" — ")
+    first_part = parts[0]
+    if len(parts) > 1:
+        return first_part + " *(details below)*"
+    return first_part
+
+
 def _render_violations_markdown_table(results: list[dict], summary: dict, include_slack: bool = False) -> str:
     """Pre-render a markdown table from violations coverage results.
 
     Columns: #, Rule, Components, Open MRs, Open Jira, [Slack,] Next Steps.
     No Coverage column — next_steps is the single source of guidance.
+    The Next Steps column shows an abbreviated action with a pointer to the
+    Violation Resolution Guide section for full details.
     """
     lines = [
         f"**Summary**: {summary['total_violations']} unique rules — "
@@ -1671,12 +1795,15 @@ def _render_violations_markdown_table(results: list[dict], summary: dict, includ
         comps = v["display_components"]
         mr = v["open_mr_label"] or "—"
         jira = v["open_jira_label"] or "—"
-        ns = v["next_steps"]
+        ns = _abbreviate_next_steps(v["next_steps"])
         if include_slack:
             slack = v.get("open_slack_label") or "—"
             lines.append(f"| {i} | {rule} | {comps} | {mr} | {jira} | {slack} | {ns} |")
         else:
             lines.append(f"| {i} | {rule} | {comps} | {mr} | {jira} | {ns} |")
+
+    lines.append("")
+    lines.append("*See the **Violation Resolution Guide** section below for full resolution details per violation.*")
 
     return "\n".join(lines)
 

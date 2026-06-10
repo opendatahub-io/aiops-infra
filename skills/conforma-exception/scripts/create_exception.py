@@ -274,6 +274,14 @@ def main() -> int:
         default=None,
         help="Existing PSX ticket to link as Related only (not used as exception ticket)",
     )
+    parser.add_argument(
+        "--jira-components",
+        default=None,
+        help=(
+            "Comma-separated Jira Component names to set on RHOAIENG tickets. "
+            "Auto-resolved from the component-maturity catalog if not provided."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--skip-approval-gate",
@@ -377,6 +385,21 @@ def main() -> int:
         if args.exception_impact:
             script_args.extend(["--exception-impact", args.exception_impact])
 
+    # --- Ensure component-maturity catalog for Jira Component resolution ---
+    has_rhoaieng_step = any(s.get("project") == "RHOAIENG" for s in workflow_steps)
+    if has_rhoaieng_step and not args.jira_components:
+        try:
+            import component_catalog_ops
+
+            cat_result = component_catalog_ops.ensure_catalog_repo()
+            if not cat_result["ok"]:
+                print(
+                    f"WARNING: component-maturity catalog unavailable: {cat_result.get('error')}",
+                    file=sys.stderr,
+                )
+        except Exception as exc:
+            print(f"WARNING: component-maturity catalog setup failed: {exc}", file=sys.stderr)
+
     # --- Execute workflow steps ---
     rhoaieng_url = args.rhoaieng_url
     psx_url = args.psx_url
@@ -408,6 +431,8 @@ def main() -> int:
                 jira_args.extend(["--summary-context", args.summary_context])
             if args.vendor_tag:
                 jira_args.extend(["--vendor-tag", args.vendor_tag])
+            if args.jira_components:
+                jira_args.extend(["--jira-components", args.jira_components])
             _add_template_and_justification_args(jira_args)
             _add_exception_overrides(jira_args)
             if args.dry_run:
@@ -459,6 +484,8 @@ def main() -> int:
                     jira_args.extend(["--summary-context", args.summary_context])
                 if args.vendor_tag:
                     jira_args.extend(["--vendor-tag", args.vendor_tag])
+                if args.jira_components:
+                    jira_args.extend(["--jira-components", args.jira_components])
                 default_assignee = step.get("default_assignee")
                 if default_assignee:
                     jira_args.extend(["--assignee", default_assignee])

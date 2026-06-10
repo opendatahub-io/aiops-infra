@@ -207,7 +207,7 @@ def _parse_search_results(db_path: str, count: int) -> list[dict]:
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT CHANNEL_ID, CHANNEL_NAME, TS, DATA FROM SEARCH_MESSAGE ORDER BY TS DESC LIMIT ?",
+            "SELECT CHANNEL_ID, CHANNEL_NAME, TS, TXT, DATA FROM SEARCH_MESSAGE ORDER BY TS DESC LIMIT ?",
             (count * 3,),
         )
         rows = cursor.fetchall()
@@ -218,7 +218,7 @@ def _parse_search_results(db_path: str, count: int) -> list[dict]:
         return []
 
     seen_threads: dict[tuple[str, str], dict] = {}
-    for channel_id, channel_name, ts, data_json in rows:
+    for channel_id, channel_name, ts, txt, data_json in rows:
         try:
             data = json.loads(data_json) if data_json else {}
         except (json.JSONDecodeError, TypeError):
@@ -241,6 +241,7 @@ def _parse_search_results(db_path: str, count: int) -> list[dict]:
             "thread_reply_count": 0,
             "user": data.get("username", ""),
             "date": date_str,
+            "text": txt or data.get("text", ""),
         }
 
         if len(seen_threads) >= count:

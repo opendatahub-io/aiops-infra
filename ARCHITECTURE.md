@@ -64,6 +64,7 @@ flowchart TD
 | Skill | Purpose |
 |-------|---------|
 | `conforma` | Intent detection and routing to atomic skills. SKILL.md-only. |
+| `software-catalog-query` | Query the component-maturity catalog for component/image/Jira-component mappings. |
 
 ## Shared Scripts: Dual-Mode Design
 
@@ -78,6 +79,7 @@ Location: `scripts/` at repo root. These contain ONLY generic primitives — not
 | `github_ops.py` | `verify_auth`, `create_pr`, `get_file`, `get_repo`, `check_workflow_run` | `gh` CLI + `requests` |
 | `slack_ops.py` | `get_client`, `verify_auth`, `search_messages` | `slack_sdk` |
 | `yaml_ops.py` | `load`, `load_multi_doc`, `dump`, `dump_preserving_comments`, `merge` | `ruamel.yaml` |
+| `component_catalog_ops.py` | `ensure_catalog_repo`, `load_catalog`, `resolve_jira_component`, `resolve_jira_components`, `extract_components_from_ticket`, `audit_jira_components` | `subprocess` (query.py from `data-hub/component-maturity` GitLab repo) |
 | `cli_runner.py` | `run`, `run_with_retry`, `run_json` | `subprocess` |
 
 ### Primitive vs. domain-specific boundary

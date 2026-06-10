@@ -44,6 +44,11 @@ konflux:
   #   Tekton derived: tekton-results-tekton-results.apps.<domain>.openshiftapps.com
   cluster_domain: ""
 
+component_catalog:
+  # COMPONENT_CATALOG_PROJECT — GitLab project path for the component-maturity
+  # catalog (on $GITLAB_HOST). Provides component-name to Jira-component mapping.
+  gitlab_project: "data-hub/component-maturity"
+
 slack:
   # SLACK_WORKSPACE_URL — Slack workspace base URL (used to build search links)
   workspace_url: ""

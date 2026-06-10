@@ -63,6 +63,7 @@ _FIELD_MAP: list[tuple[str, str, bool]] = [
     ("konflux.internal_api", "KONFLUX_INTERNAL_API", False),
     ("konflux.namespace", "KONFLUX_NAMESPACE", False),
     ("konflux.cluster_domain", "KRD_CLUSTER_DOMAIN", True),
+    ("component_catalog.gitlab_project", "COMPONENT_CATALOG_PROJECT", False),
     ("slack.workspace_url", "SLACK_WORKSPACE_URL", False),
 ]
 

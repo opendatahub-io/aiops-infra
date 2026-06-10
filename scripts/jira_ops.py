@@ -90,18 +90,20 @@ def create_issue(
     summary: str,
     description: str,
     issue_type: str = "Task",
+    components: list[str] | None = None,
 ) -> dict:
     """Create issue. Returns {"key": str, "url": str}."""
     try:
         client = get_client()
-        issue = client.create_issue(
-            fields={
-                "project": {"key": project},
-                "summary": summary,
-                "description": description,
-                "issuetype": {"name": issue_type},
-            }
-        )
+        fields: dict = {
+            "project": {"key": project},
+            "summary": summary,
+            "description": description,
+            "issuetype": {"name": issue_type},
+        }
+        if components:
+            fields["components"] = [{"name": c} for c in components]
+        issue = client.create_issue(fields=fields)
         return {"key": issue.key, "url": _issue_url(client, issue.key)}
     except Exception as exc:
         return {"key": None, "url": None, "error": str(exc)}
@@ -184,6 +186,41 @@ def search_user(display_name: str) -> dict:
             "found": False,
             "error": str(exc),
         }
+
+
+def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = None) -> dict:
+    """Search issues via JQL. Returns {"issues": list[dict], "total": int}."""
+    default_fields = ["key", "summary", "status", "issuetype", "assignee"]
+    requested = fields if fields else default_fields
+    field_str = ",".join(requested)
+
+    try:
+        client = get_client()
+        issues = client.search_issues(jql, maxResults=max_results, fields=field_str)
+
+        results = []
+        for issue in issues:
+            entry: dict = {"key": issue.key, "url": _issue_url(client, issue.key)}
+            if "summary" in requested:
+                entry["summary"] = issue.fields.summary
+            if "status" in requested:
+                entry["status"] = str(issue.fields.status)
+            if "issuetype" in requested:
+                entry["type"] = str(issue.fields.issuetype)
+            if "assignee" in requested:
+                assignee = issue.fields.assignee
+                entry["assignee"] = str(assignee) if assignee else "Unassigned"
+            if "created" in requested:
+                entry["created"] = str(issue.fields.created)
+            if "labels" in requested:
+                entry["labels"] = issue.fields.labels
+            results.append(entry)
+
+        return {"issues": results, "total": issues.total}
+    except JIRAError as exc:
+        return {"issues": [], "total": 0, "error": str(exc)}
+    except Exception as exc:
+        return {"issues": [], "total": 0, "error": str(exc)}
 
 
 def link_issues(from_key: str, to_key: str, link_type: str = "Related") -> dict:
@@ -271,11 +308,21 @@ def main() -> None:
     create_issue_parser.add_argument("--summary", required=True)
     create_issue_parser.add_argument("--description", required=True)
     create_issue_parser.add_argument("--issue-type", default="Task")
+    create_issue_parser.add_argument("--components", default=None, help="Comma-separated Jira Component names")
 
     update_issue_parser = sub.add_parser("update-issue")
     update_issue_parser.add_argument("--key", required=True)
     update_issue_parser.add_argument("--summary")
     update_issue_parser.add_argument("--description")
+
+    search_parser = sub.add_parser("search")
+    search_parser.add_argument("--jql", required=True, help="JQL query string")
+    search_parser.add_argument("--max-results", type=int, default=50)
+    search_parser.add_argument(
+        "--fields",
+        default=None,
+        help="Comma-separated fields: key,summary,status,issuetype,assignee,created,labels",
+    )
 
     search_user_parser = sub.add_parser("search-user")
     search_user_parser.add_argument("--name", required=True)
@@ -296,9 +343,13 @@ def main() -> None:
     elif args.command == "get-issue":
         result = get_issue(args.key)
     elif args.command == "create-issue":
-        result = create_issue(args.project, args.summary, args.description, args.issue_type)
+        comp_list = [c.strip() for c in args.components.split(",")] if args.components else None
+        result = create_issue(args.project, args.summary, args.description, args.issue_type, components=comp_list)
     elif args.command == "update-issue":
         result = update_issue(args.key, summary=args.summary, description=args.description)
+    elif args.command == "search":
+        field_list = [f.strip() for f in args.fields.split(",")] if args.fields else None
+        result = search_issues(args.jql, max_results=args.max_results, fields=field_list)
     elif args.command == "search-user":
         result = search_user(args.name)
     elif args.command == "link-issues":

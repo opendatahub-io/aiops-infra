@@ -79,10 +79,13 @@ When `--require-slack false` is used, the `Slack` column is omitted and the tabl
 
 **Print `markdown_table` verbatim as the primary output to the user.** This is the main deliverable when analyzing a report.
 
+The `Next Steps` column is intentionally abbreviated — it shows only the primary action with a *(details below)* pointer to the **Violation Resolution Guide** section. Full resolution details (including all approval steps, MR actions, and linked Jira tickets) are in each violation's `next_steps` field in the JSON output and should be presented in the Violation Resolution Guide section that follows the table.
+
 Rules:
 - Do NOT reconstruct the table from individual JSON fields — always use the pre-rendered `markdown_table`
 - Do NOT include a Coverage column — the `coverage_label` field exists in the JSON for programmatic use but is misleading when shown to users (it implies exceptions are the default resolution). The `next_steps` column is the single source of guidance.
-- Statistical breakdowns (violation counts, signing keys, per-component patterns) from `analyze_csv_report.py` can be presented as supplementary detail below the main table if useful.
+- Present a **Violation Resolution Guide** section after the table with full per-violation details (from `next_steps` JSON field + violation catalog enrichment)
+- Statistical breakdowns (violation counts, signing keys, per-component patterns) from `analyze_csv_report.py` can be presented as supplementary detail below the Violation Resolution Guide if useful.
 
 ## Search Query Links
 

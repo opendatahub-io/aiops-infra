@@ -819,6 +819,39 @@ def _fill_psx_template(
     }
 
 
+def _set_jira_components(ticket_key: str, jira_components: list[str]) -> dict:
+    """Set the Jira Component field via REST PUT.
+
+    Returns {ok: bool, action: str, ...}.
+    """
+    payload = {"fields": {"components": [{"name": c} for c in jira_components]}}
+    put_result = _jira_rest_put(f"issue/{ticket_key}", payload)
+    return {
+        "action": "set_jira_components",
+        "ticket_key": ticket_key,
+        "components": jira_components,
+        "ok": put_result["ok"],
+        "error": put_result.get("error", ""),
+    }
+
+
+def _resolve_jira_components_from_catalog(
+    konflux_components: list[str],
+) -> tuple[list[str], list[str]]:
+    """Auto-resolve Konflux component names to Jira Component values.
+
+    Returns (resolved_jira_components, unmapped_konflux_names).
+    Raises RuntimeError if the catalog repo is not available.
+    """
+    import component_catalog_ops
+
+    catalog = component_catalog_ops.load_catalog()
+    mapping = component_catalog_ops.resolve_jira_components(konflux_components, catalog)
+    resolved = sorted(set(v for v in mapping.values() if v))
+    unmapped = [k for k, v in mapping.items() if v is None]
+    return resolved, unmapped
+
+
 def create_ticket(
     project: str,
     rule: str,
@@ -838,6 +871,7 @@ def create_ticket(
     watcher_names: list[str] | None = None,
     purpose: str = "approval",
     assignee: str | None = None,
+    jira_components: list[str] | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Create a Jira ticket in the specified project.
@@ -850,6 +884,40 @@ def create_ticket(
         return {
             "status": "failed",
             "error": f"Invalid project: {project}. Must be one of {VALID_PROJECTS}",
+            "project": project,
+            "ticket_key": None,
+            "ticket_url": None,
+        }
+
+    # --- Jira Component resolution (RHOAIENG only, mandatory) ---
+    jira_components_unmapped: list[str] = []
+    if project == "RHOAIENG" and not jira_components:
+        try:
+            jira_components, jira_components_unmapped = _resolve_jira_components_from_catalog(components)
+        except Exception as exc:
+            print(f"Warning: catalog resolution failed: {exc}", file=sys.stderr)
+
+        if jira_components_unmapped:
+            return {
+                "status": "failed",
+                "error": (
+                    f"Jira Component is required but could not be resolved for: "
+                    f"{', '.join(jira_components_unmapped)}. "
+                    f"Provide --jira-components explicitly."
+                ),
+                "project": project,
+                "ticket_key": None,
+                "ticket_url": None,
+                "jira_components_unmapped": jira_components_unmapped,
+            }
+
+    if project == "RHOAIENG" and not jira_components:
+        return {
+            "status": "failed",
+            "error": (
+                "Jira Component is required for RHOAIENG tickets. "
+                "Provide --jira-components or ensure the component-maturity catalog is available."
+            ),
             "project": project,
             "ticket_key": None,
             "ticket_url": None,
@@ -952,6 +1020,7 @@ def create_ticket(
             "summary": summary,
             "labels": labels,
             "issue_json": issue_json,
+            "jira_components_resolved": jira_components or [],
         }
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
@@ -1006,6 +1075,11 @@ def create_ticket(
         else:
             apply_result = {"operations": [], "verification": None}
 
+        # --- Post-creation: set Jira Component (RHOAIENG only) ---
+        if ticket_key and project == "RHOAIENG" and jira_components:
+            comp_result = _set_jira_components(ticket_key, jira_components)
+            apply_result.setdefault("operations", []).append(comp_result)
+
         # --- Post-creation: add watchers ---
         # For PSX/OCPEXCEPT, mandatory watchers are always prepended.
         # Team members should already be included in watcher_names by the
@@ -1032,6 +1106,7 @@ def create_ticket(
             "ticket_url": ticket_url,
             "summary": summary,
             "labels": labels,
+            "jira_components_resolved": jira_components or [],
             "linked_to": apply_result.get("linked_to", []),
             "description_filled": apply_result.get("description_filled", False),
             "authorized_party_set": apply_result.get("authorized_party_set", False),
@@ -1417,6 +1492,7 @@ def reconcile_ticket(
     exception_remediation: str | None = None,
     exception_impact: str | None = None,
     authorized_party: str | None = None,
+    jira_components: list[str] | None = None,
 ) -> dict:
     """Reconcile an existing ticket to match expected state.
 
@@ -1425,7 +1501,7 @@ def reconcile_ticket(
     """
     data = _jira_rest_get(
         f"issue/{ticket_key}",
-        fields="summary,labels,issuelinks,description,customfield_10938",
+        fields="summary,labels,issuelinks,description,customfield_10938,components",
     )
     if not data:
         return {
@@ -1510,6 +1586,35 @@ def reconcile_ticket(
             operations.append(desc_result)
         else:
             description_filled = True
+
+    # --- Reconcile Jira Components (RHOAIENG only) ---
+    if project == "RHOAIENG":
+        existing_components = [c.get("name", "") for c in fields.get("components", [])]
+        target_components = jira_components
+        if not target_components:
+            try:
+                target_components, _ = _resolve_jira_components_from_catalog(components)
+            except Exception:
+                target_components = []
+        if not target_components:
+            try:
+                import component_catalog_ops
+
+                extracted = component_catalog_ops.extract_components_from_ticket(
+                    fields.get("labels", []),
+                    fields.get("description"),
+                )
+                if extracted:
+                    catalog = component_catalog_ops.load_catalog()
+                    resolved_map = component_catalog_ops.resolve_jira_components(extracted, catalog)
+                    target_components = sorted(set(v for v in resolved_map.values() if v))
+            except Exception:
+                pass
+        if target_components:
+            merged = sorted(set(existing_components) | set(target_components))
+            if set(merged) != set(existing_components):
+                comp_result = _set_jira_components(ticket_key, merged)
+                operations.append(comp_result)
 
     # --- Reconcile authorized party ---
     authorized_party_set = False
@@ -1635,6 +1740,15 @@ def parse_args() -> argparse.Namespace:
         help="Jira display name to assign the ticket to",
     )
     parser.add_argument(
+        "--jira-components",
+        default=None,
+        help=(
+            "Comma-separated Jira Component names to set on the ticket. "
+            "Auto-resolved from the component-maturity catalog if not provided. "
+            "Required for RHOAIENG tickets."
+        ),
+    )
+    parser.add_argument(
         "--reconcile",
         default=None,
         metavar="TICKET_KEY",
@@ -1683,6 +1797,9 @@ def main() -> int:
             args.exception_impact = resolved.get("impact")
 
     if args.reconcile:
+        reconcile_jira_comp_list: list[str] | None = None
+        if args.jira_components:
+            reconcile_jira_comp_list = [c.strip() for c in args.jira_components.split(",") if c.strip()]
         result = reconcile_ticket(
             ticket_key=args.reconcile,
             project=args.project,
@@ -1700,6 +1817,7 @@ def main() -> int:
             exception_remediation=args.exception_remediation,
             exception_impact=args.exception_impact,
             authorized_party=args.authorized_party,
+            jira_components=reconcile_jira_comp_list,
         )
         print(json.dumps(result, indent=2))
         return 0 if result["status"] == "reconciled" else 1
@@ -1707,6 +1825,10 @@ def main() -> int:
     watcher_names: list[str] | None = None
     if args.watchers:
         watcher_names = [n.strip() for n in args.watchers.split(",") if n.strip()]
+
+    jira_comp_list: list[str] | None = None
+    if args.jira_components:
+        jira_comp_list = [c.strip() for c in args.jira_components.split(",") if c.strip()]
 
     result = create_ticket(
         project=args.project,
@@ -1727,6 +1849,7 @@ def main() -> int:
         watcher_names=watcher_names,
         purpose=args.purpose,
         assignee=args.assignee,
+        jira_components=jira_comp_list,
         dry_run=args.dry_run,
     )
     print(json.dumps(result, indent=2))

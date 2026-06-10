@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Manage conforma exceptions: find and assess exceptions.
+"""Manage conforma exceptions: find, assess, and search exceptions.
 
-Four modes:
-  --find-expired    List expired exceptions from policy files (stdout)
-  --find-all        List all exceptions (expired + active) from policy files
-  --assess-expired  Cross-reference expired exceptions against violations
-  --assess-all      Cross-reference all exceptions against violations
+Five modes:
+  --find-expired           List expired exceptions from policy files (stdout)
+  --find-all               List all exceptions (expired + active) from policy files
+  --assess-expired         Cross-reference expired exceptions against violations
+  --assess-all             Cross-reference all exceptions against violations
+  --search-by-component    Search for exceptions covering given component(s)
 
 Usage:
   # List expired exceptions (stdout)
@@ -25,6 +26,11 @@ Usage:
     --violations-input .work/conforma-violations.yaml \\
     --environment prod \\
     --output .work/assessed-exceptions.yaml
+
+  # Search exceptions by component name (fuzzy matching)
+  python3 scripts/manage_exceptions.py --search-by-component \\
+    --components nemo-guardrails mlflow \\
+    --environment prod
 """
 
 from __future__ import annotations
@@ -119,20 +125,93 @@ def _quote_strings_recursively(obj):
 
 
 # ---------------------------------------------------------------------------
+# Fuzzy component name matching
+# ---------------------------------------------------------------------------
+
+_VERSION_SUFFIX_RE = re.compile(r"-v\d+-\d+(?:-[a-z]+-\d+)?$")
+
+
+def _strip_version_suffix(name: str) -> str:
+    """Strip Konflux version suffix from a component name.
+
+    odh-dashboard-v3-4       -> odh-dashboard
+    odh-mlflow-v3-3          -> odh-mlflow
+    odh-vllm-cpu-v3-5-ea-1   -> odh-vllm-cpu
+    """
+    return _VERSION_SUFFIX_RE.sub("", name)
+
+
+def _extract_image_base(image_url: str) -> str:
+    """Extract the base name from an image URL (strip registry path and -rhel9/-ubi9).
+
+    quay.io/rhoai/odh-dashboard-rhel9       -> odh-dashboard
+    quay.io/rhoai/odh-mlmd-grpc-server-rhel9 -> odh-mlmd-grpc-server
+    """
+    name = image_url.rsplit("/", 1)[-1]
+    name = re.sub(r"-rhel\d+$", "", name)
+    name = re.sub(r"-ubi\d+$", "", name)
+    return name
+
+
+def _normalize_name(name: str) -> str:
+    """Normalize a name for fuzzy comparison by stripping hyphens/underscores and lowercasing."""
+    return re.sub(r"[-_]", "", name).lower()
+
+
+def _fuzzy_component_match(search_term: str, component_name: str) -> bool:
+    """Check if search_term fuzzy-matches component_name.
+
+    Handles underscore vs hyphen, missing separators, version suffixes,
+    and odh-/rhoai- prefixes.
+
+    >>> _fuzzy_component_match("mlflow", "odh-mlflow-v3-3")
+    True
+    >>> _fuzzy_component_match("nemo-guardrails", "odh-nemo_guardrails-v3-5-ea-1")
+    True
+    >>> _fuzzy_component_match("nemoguardrails", "odh-nemo-guardrails-v3-4")
+    True
+    """
+    base = _strip_version_suffix(component_name)
+    norm_search = _normalize_name(_strip_version_suffix(search_term))
+    norm_base = _normalize_name(base)
+
+    if norm_search == norm_base or norm_search in norm_base:
+        return True
+
+    for prefix in ("odh", "rhoai"):
+        if norm_base.startswith(prefix):
+            stripped = norm_base[len(prefix) :]
+            if norm_search == stripped or norm_search in stripped:
+                return True
+
+    return False
+
+
+def _fuzzy_image_match(search_term: str, image_url: str) -> bool:
+    """Check if search_term fuzzy-matches an imageUrl/imageRef base name."""
+    base = _extract_image_base(image_url)
+    return _fuzzy_component_match(search_term, base)
+
+
+# ---------------------------------------------------------------------------
 # Policy file scanning: wraps _find_existing_exceptions with extra fields
 # ---------------------------------------------------------------------------
 
-_KRD_CLUSTER_DOMAIN = os.environ.get("KRD_CLUSTER_DOMAIN", "")
-_EC_POLICY_DIR = (
-    f"config/{_KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy"
-    if _KRD_CLUSTER_DOMAIN
-    else os.environ.get("KRD_EC_POLICY_DIR", "")
-)
+
+def _get_ec_policy_dir() -> str:
+    """Resolve the EC policy directory path at call time (not import time)."""
+    domain = os.environ.get("KRD_CLUSTER_DOMAIN", "")
+    if domain:
+        return f"config/{domain}/product/EnterpriseContractPolicy"
+    return os.environ.get("KRD_EC_POLICY_DIR", "")
 
 
 def _get_policy_files(clone_dir: Path, environment: str) -> list[Path]:
     """Get all RHOAI policy files for the given environment."""
-    policy_dir = clone_dir / _EC_POLICY_DIR
+    ec_dir = _get_ec_policy_dir()
+    if not ec_dir:
+        return []
+    policy_dir = clone_dir / ec_dir
     if not policy_dir.is_dir():
         return []
     return sorted(p for p in policy_dir.glob(f"*rhoai*{environment}*.yaml") if p.is_file())
@@ -205,6 +284,293 @@ def scan_all_exceptions(clone_dir: Path, environment: str) -> list[dict]:
     return all_exceptions
 
 
+def scan_permanent_exclusions(clone_dir: Path, environment: str) -> list[dict]:
+    """Scan policy files for permanent exclusions under config.exclude.
+
+    These are simple rule-name strings (no componentNames, no effectiveUntil)
+    that apply to ALL components permanently.
+    """
+    policy_files = _get_policy_files(clone_dir, environment)
+    results: list[dict] = []
+
+    for policy_file in policy_files:
+        content = policy_file.read_text(encoding="utf-8")
+        rel_path = str(policy_file.relative_to(clone_dir))
+        lines = content.split("\n")
+
+        in_config_exclude = False
+        in_config_section = False
+        config_indent = ""
+        preceding_comments: list[str] = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+
+            if re.match(r"^\s+volatileConfig:\s*$", line):
+                in_config_section = False
+                in_config_exclude = False
+                config_indent = ""
+                continue
+
+            if re.match(r"^\s+config:\s*$", line):
+                config_indent = line[: len(line) - len(line.lstrip())]
+                in_config_section = True
+                continue
+
+            exclude_match = re.match(r"^(\s+)exclude:\s*$", line)
+            if exclude_match and in_config_section and config_indent:
+                indent_depth = len(exclude_match.group(1))
+                config_depth = len(config_indent)
+                if indent_depth > config_depth:
+                    in_config_exclude = True
+                    preceding_comments = []
+                    continue
+
+            if in_config_exclude:
+                if not stripped or (not stripped.startswith("-") and not stripped.startswith("#")):
+                    in_config_exclude = False
+                    preceding_comments = []
+                    continue
+                if stripped.startswith("#"):
+                    preceding_comments.append(stripped)
+                    continue
+                if stripped.startswith("- "):
+                    rule = stripped[2:].strip().strip('"').strip("'")
+                    reference = None
+                    for comment in preceding_comments:
+                        url_match = re.search(r"https?://\S+", comment)
+                        if url_match:
+                            reference = url_match.group(0)
+                    results.append(
+                        {
+                            "file": rel_path,
+                            "rule": rule,
+                            "type": "permanent",
+                            "scope": "permanent",
+                            "component_names": [],
+                            "effective_until": None,
+                            "reference": reference,
+                            "comment_header_lines": list(preceding_comments),
+                            "line": i + 1,
+                        }
+                    )
+                    preceding_comments = []
+
+    return results
+
+
+def scan_self_service_exceptions(clone_dir: Path, environment: str) -> list[dict]:
+    """Scan the self-service exceptions/ directory for RHOAI exception entries.
+
+    These files use a flat YAML list format and may use either imageUrl or imageRef.
+    """
+    exceptions_dir = clone_dir / "exceptions"
+    if not exceptions_dir.is_dir():
+        return []
+
+    results: list[dict] = []
+    for yaml_file in sorted(exceptions_dir.glob(f"*rhoai*{environment}*.yaml")):
+        if not yaml_file.is_file():
+            continue
+        rel_path = str(yaml_file.relative_to(clone_dir))
+        try:
+            data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            continue
+        if not isinstance(data, list):
+            continue
+
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            rule = entry.get("value", "")
+            if not rule:
+                continue
+
+            component_names = entry.get("componentNames", [])
+            image_url = entry.get("imageUrl") or entry.get("imageRef") or ""
+            effective_until = entry.get("effectiveUntil")
+            reference = entry.get("reference")
+
+            if isinstance(effective_until, str):
+                effective_until = effective_until.strip('"').strip("'")
+
+            has_components = bool(component_names)
+            has_image = bool(image_url) and not image_url.startswith("sha256:")
+
+            if has_components:
+                scope = "component"
+            elif has_image:
+                scope = "image"
+            else:
+                scope = "unscoped"
+
+            results.append(
+                {
+                    "file": rel_path,
+                    "rule": rule,
+                    "type": "self-service",
+                    "scope": scope,
+                    "has_component_names": has_components,
+                    "component_names": component_names if has_components else [],
+                    "image_url": image_url if has_image else "",
+                    "effective_until": effective_until,
+                    "reference": reference,
+                }
+            )
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Search exceptions by component name
+# ---------------------------------------------------------------------------
+
+
+def search_exceptions_for_components(
+    search_terms: list[str],
+    clone_dir: Path | None = None,
+    environment: str = "prod",
+    refresh: bool = True,
+) -> dict:
+    """Search all exception sources for entries covering the given component(s).
+
+    Scans three sources (prod-only by default):
+      1. volatileConfig.exclude (time-limited) from policy files
+      2. config.exclude (permanent) from policy files
+      3. Self-service exceptions from exceptions/ directory
+
+    Uses fuzzy matching: underscores/hyphens are interchangeable, version
+    suffixes and odh-/rhoai- prefixes are stripped for comparison.
+
+    Args:
+        search_terms: Component names or partial names to search for.
+        clone_dir: Path to existing konflux-release-data clone.
+                   If None, clones into a temp directory.
+        environment: Target environment filter (default: "prod").
+        refresh: If True and clone_dir exists, git fetch + reset before scanning.
+
+    Returns:
+        dict with "matches" list and "summary" metadata.
+    """
+    is_temp = False
+    try:
+        if clone_dir and clone_dir.is_dir():
+            repo_dir = clone_dir
+            ec_dir = _get_ec_policy_dir()
+            if ec_dir and not (clone_dir / ec_dir).is_dir():
+                alt = clone_dir / "repo"
+                if ec_dir and (alt / ec_dir).is_dir():
+                    repo_dir = alt
+            if refresh:
+                _refresh_clone(repo_dir)
+        else:
+            repo_dir, is_temp = _clone_repo(clone_dir)
+
+        volatile = scan_all_exceptions(repo_dir, environment)
+        permanent = scan_permanent_exclusions(repo_dir, environment)
+        self_service = scan_self_service_exceptions(repo_dir, environment)
+
+        matches: list[dict] = []
+
+        for exc in volatile:
+            comp_names = exc.get("component_names", [])
+            image_url = exc.get("image_url", "")
+            has_components = exc.get("has_component_names", False)
+
+            if has_components and comp_names:
+                matched_terms = [t for t in search_terms if any(_fuzzy_component_match(t, c) for c in comp_names)]
+                if matched_terms:
+                    matches.append(
+                        {
+                            **_volatile_to_result(exc),
+                            "scope": "component",
+                            "matched_search_terms": matched_terms,
+                        }
+                    )
+            elif image_url:
+                matched_terms = [t for t in search_terms if _fuzzy_image_match(t, image_url)]
+                if matched_terms:
+                    matches.append(
+                        {
+                            **_volatile_to_result(exc),
+                            "scope": "image",
+                            "matched_search_terms": matched_terms,
+                        }
+                    )
+            else:
+                matches.append(
+                    {
+                        **_volatile_to_result(exc),
+                        "scope": "unscoped",
+                        "matched_search_terms": list(search_terms),
+                    }
+                )
+
+        for exc in permanent:
+            matches.append(
+                {
+                    **exc,
+                    "matched_search_terms": list(search_terms),
+                }
+            )
+
+        for exc in self_service:
+            scope = exc.get("scope", "unscoped")
+            comp_names = exc.get("component_names", [])
+            image_url = exc.get("image_url", "")
+
+            if scope == "component" and comp_names:
+                matched_terms = [t for t in search_terms if any(_fuzzy_component_match(t, c) for c in comp_names)]
+                if matched_terms:
+                    matches.append({**exc, "matched_search_terms": matched_terms})
+            elif scope == "image" and image_url:
+                matched_terms = [t for t in search_terms if _fuzzy_image_match(t, image_url)]
+                if matched_terms:
+                    matches.append({**exc, "matched_search_terms": matched_terms})
+            else:
+                matches.append(
+                    {
+                        **exc,
+                        "matched_search_terms": list(search_terms),
+                    }
+                )
+
+        return {
+            "search_terms": search_terms,
+            "environment": environment,
+            "matches": matches,
+            "summary": {
+                "total_matches": len(matches),
+                "volatile": sum(1 for m in matches if m.get("type") == "volatile"),
+                "permanent": sum(1 for m in matches if m.get("type") == "permanent"),
+                "self_service": sum(1 for m in matches if m.get("type") == "self-service"),
+                "by_scope": {
+                    "component": sum(1 for m in matches if m.get("scope") == "component"),
+                    "image": sum(1 for m in matches if m.get("scope") == "image"),
+                    "unscoped": sum(1 for m in matches if m.get("scope") == "unscoped"),
+                    "permanent": sum(1 for m in matches if m.get("scope") == "permanent"),
+                },
+            },
+        }
+    finally:
+        if is_temp and clone_dir:
+            shutil.rmtree(clone_dir, ignore_errors=True)
+
+
+def _volatile_to_result(exc: dict) -> dict:
+    """Convert a volatile exception dict to a search result entry."""
+    return {
+        "file": exc["file"],
+        "rule": exc["rule"],
+        "type": "volatile",
+        "component_names": exc.get("component_names", []),
+        "image_url": exc.get("image_url", ""),
+        "effective_until": exc.get("effective_until"),
+        "reference": exc.get("reference"),
+        "comment_header_lines": exc.get("comment_header_lines", []),
+    }
+
+
 def _parse_effective_until(exc: dict) -> datetime | None:
     """Parse the effectiveUntil field into a timezone-aware datetime."""
     eu = exc.get("effective_until")
@@ -271,12 +637,12 @@ def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
     Returns (repo_dir, is_temp) where is_temp indicates whether caller
     should clean up.
     """
+    ec_policy_dir = _get_ec_policy_dir()
     if clone_dir and clone_dir.is_dir():
-        ec_dir = clone_dir / _EC_POLICY_DIR
-        if ec_dir.is_dir():
+        if ec_policy_dir and (clone_dir / ec_policy_dir).is_dir():
             return clone_dir, False
         alt = clone_dir / "repo"
-        if (alt / _EC_POLICY_DIR).is_dir():
+        if ec_policy_dir and (alt / ec_policy_dir).is_dir():
             return alt, False
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
@@ -284,7 +650,8 @@ def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
     dest = workdir / "repo"
     repo_url = _get_authenticated_repo_url()
 
-    policy_dir = str(Path(_EC_POLICY_DIR).parent)
+    policy_parent = str(Path(ec_policy_dir).parent) if ec_policy_dir else ""
+    sparse_paths = [p for p in [policy_parent, "exceptions"] if p]
     _run_git(
         [
             "git",
@@ -299,9 +666,16 @@ def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
         ],
         timeout=300,
     )
-    _run_git(["git", "sparse-checkout", "set", policy_dir], cwd=dest)
+    if sparse_paths:
+        _run_git(["git", "sparse-checkout", "set", *sparse_paths], cwd=dest)
 
     return dest, True
+
+
+def _refresh_clone(clone_dir: Path) -> None:
+    """Fetch latest main and hard-reset an existing clone."""
+    _run_git(["git", "fetch", "origin", DEFAULT_BRANCH], cwd=clone_dir, timeout=120)
+    _run_git(["git", "reset", "--hard", f"origin/{DEFAULT_BRANCH}"], cwd=clone_dir, timeout=30)
 
 
 # ---------------------------------------------------------------------------
@@ -610,8 +984,38 @@ def cmd_assess_all(args: argparse.Namespace) -> int:
     return _cmd_assess(args, expired_only=False)
 
 
+def cmd_search_by_component(args: argparse.Namespace) -> int:
+    """Search for exceptions covering given component(s)."""
+    import json as _json
+
+    clone_dir_arg = Path(args.clone_dir) if args.clone_dir else None
+    no_refresh = getattr(args, "no_refresh", False)
+
+    try:
+        result = search_exceptions_for_components(
+            search_terms=args.components,
+            clone_dir=clone_dir_arg,
+            environment=args.environment,
+            refresh=not no_refresh,
+        )
+    except subprocess.CalledProcessError as exc:
+        print(f"Error accessing repo: {exc.stderr or exc.stdout}", file=sys.stderr)
+        return 1
+
+    print(_json.dumps(result, indent=2, default=str))
+
+    summary = result["summary"]
+    print(
+        f"\nFound {summary['total_matches']} exception(s) for {result['search_terms']}: "
+        f"{summary['volatile']} volatile, {summary['permanent']} permanent, "
+        f"{summary['self_service']} self-service",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Manage conforma exceptions: find and assess")
+    parser = argparse.ArgumentParser(description="Manage conforma exceptions: find, assess, and search")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--find-expired",
@@ -633,7 +1037,18 @@ def main() -> int:
         action="store_true",
         help="Assess all exceptions (expired + active) against violations data",
     )
+    group.add_argument(
+        "--search-by-component",
+        action="store_true",
+        help="Search for exceptions covering given component name(s) (fuzzy matching)",
+    )
 
+    parser.add_argument(
+        "--components",
+        nargs="+",
+        default=None,
+        help="Component names to search for (required for --search-by-component)",
+    )
     parser.add_argument(
         "--violations-input",
         default=None,
@@ -655,11 +1070,20 @@ def main() -> int:
         default=None,
         help="Write assessed output to file (--assess-* only; default: stdout)",
     )
+    parser.add_argument(
+        "--no-refresh",
+        action="store_true",
+        default=False,
+        help="Skip git fetch+reset before searching (--search-by-component only)",
+    )
 
     args = parser.parse_args()
 
     if (args.assess_expired or args.assess_all) and not args.violations_input:
         parser.error("--violations-input is required when using --assess-expired or --assess-all")
+
+    if args.search_by_component and not args.components:
+        parser.error("--components is required when using --search-by-component")
 
     if args.find_expired:
         return cmd_find_expired(args)
@@ -667,6 +1091,8 @@ def main() -> int:
         return cmd_find_all(args)
     elif args.assess_expired:
         return cmd_assess_expired(args)
+    elif args.search_by_component:
+        return cmd_search_by_component(args)
     else:
         return cmd_assess_all(args)
 
