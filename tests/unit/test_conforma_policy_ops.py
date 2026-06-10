@@ -1,0 +1,65 @@
+"""Tests for conforma_policy_ops.py."""
+
+from __future__ import annotations
+
+import conforma_policy_ops as mod
+
+
+class TestCheckPermanentExclusions:
+    def test_finds_permanent_exclusion(self):
+        content = (
+            "exclude:\n"
+            "  - some.other.rule\n"
+            "  - hermetic_task.hermetic\n"
+            "  - another.rule\n"
+            "volatileCriteria:\n"
+            "  - value: test\n"
+        )
+        results: list[dict] = []
+        mod._check_permanent_exclusions(content, "hermetic_task.hermetic", "rhoai-prod.yaml", results)
+        assert len(results) == 1
+        assert results[0]["type"] == "permanent_global_exclusion"
+        assert results[0]["line"] == 3
+
+    def test_no_match_when_rule_not_in_exclude(self):
+        content = "exclude:\n  - some.other.rule\n"
+        results: list[dict] = []
+        mod._check_permanent_exclusions(content, "hermetic_task.hermetic", "rhoai-prod.yaml", results)
+        assert len(results) == 0
+
+    def test_ignores_comments(self):
+        content = "exclude:\n  # - hermetic_task.hermetic\n  - other.rule\n"
+        results: list[dict] = []
+        mod._check_permanent_exclusions(content, "hermetic_task.hermetic", "rhoai-prod.yaml", results)
+        assert len(results) == 0
+
+    def test_exits_section_on_non_list_item(self):
+        content = "exclude:\n  - some.rule\nvolatileCriteria:\n  - hermetic_task.hermetic\n"
+        results: list[dict] = []
+        mod._check_permanent_exclusions(content, "hermetic_task.hermetic", "rhoai-prod.yaml", results)
+        assert len(results) == 0
+
+
+class TestSearchExistingExceptions:
+    def test_returns_not_checked_when_no_dir(self, tmp_path):
+        result = mod.search_existing_exceptions("hermetic_task.hermetic", str(tmp_path / "nonexistent"))
+        assert result["checked"] is False
+
+    def test_returns_not_checked_when_no_env_vars(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("KRD_CLUSTER_DOMAIN", raising=False)
+        monkeypatch.delenv("KRD_EC_POLICY_DIR", raising=False)
+        result = mod.search_existing_exceptions("hermetic_task.hermetic", str(tmp_path))
+        assert result["checked"] is False
+        assert "KRD_CLUSTER_DOMAIN" in result["reason"]
+
+    def test_finds_permanent_exclusion_in_policy_file(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("KRD_CLUSTER_DOMAIN", raising=False)
+        monkeypatch.setenv("KRD_EC_POLICY_DIR", "policy")
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy_file = policy_dir / "registry-rhoai-prod.yaml"
+        policy_file.write_text("exclude:\n  - hermetic_task.hermetic\n")
+
+        result = mod.search_existing_exceptions("hermetic_task.hermetic", str(tmp_path))
+        assert result["checked"] is True
+        assert result["permanent_count"] == 1

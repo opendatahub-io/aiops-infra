@@ -8,7 +8,7 @@ For practical contributor guidance, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 1. **Skills that perform actions have Python scripts; routing and documentation skills may be SKILL.md-only.** Auth/troubleshooting skills reference shared scripts without owning them.
 2. **One skill, one domain.** Each `conforma-*` skill handles a single coherent area.
-3. **Shared operations live in `scripts/*_ops.py` (dual-mode).** Each file is both CLI-runnable (`argparse` + `if __name__ == "__main__"`) and importable. These contain ONLY generic primitives — domain-specific logic stays in skill scripts.
+3. **Shared operations live in `scripts/*_ops.py` (dual-mode).** Each file is both CLI-runnable (`argparse` + `if __name__ == "__main__"`) and importable. Generic primitives (e.g. `gitlab_ops.py`) handle any project; domain-specific shared modules (e.g. `conforma_mr_ops.py`) encapsulate cross-skill conforma logic that multiple skills need.
 4. **`*_ops.py` use Python libraries** (`python-gitlab`, `jira`, `ruamel.yaml`) — matching the approach of existing onboarding scripts. Conforma skills migrate from raw REST+subprocess to library-based calls when they start importing from `*_ops.py`.
 5. **Inter-skill data passes through YAML files in `.work/`.** Each skill writes a file with a distinctive top-level key matching the skill name. Files are individually readable AND composable into a single YAML.
 6. **The `conforma` skill is the single entry point** — routes 20+ intents to atomic skills.
@@ -31,7 +31,10 @@ flowchart TD
     readiness -->|"reads violations"| analyze
     readiness -->|"queries GitLab"| sharedScripts
     exception -->|"YAML handover"| analyze
+    analyze --> conformaOps["scripts/conforma_*_ops.py"]
+    exception --> conformaOps
     exception --> sharedScripts["scripts/*_ops.py"]
+    conformaOps --> sharedScripts
     remedy --> sharedScripts
     readiness --> sharedScripts
     docs --> sharedScripts
@@ -49,6 +52,17 @@ flowchart TD
 | `conforma-remedy` | Find and apply fixes to underlying violations | Planned |
 | `conforma-docs` | Full-text search across conforma documentation and runbooks | Planned |
 | `conforma-release-readiness` | "Can version X ship?" — detailed breakdown and verdict | Planned |
+
+### Per-function skills (SKILL.md only, reference repo-root scripts)
+
+| Skill | Script | Function |
+|-------|--------|----------|
+| `search-conforma-open-exception-mrs` | `conforma_mr_ops.py` | `search_open_exception_mrs` |
+| `analyze-mr-component-coverage` | `conforma_mr_ops.py` | `analyze_mr_component_coverage` |
+| `search-conforma-jira-tickets` | `conforma_jira_ops.py` | `prefetch_open_jira_tickets` |
+| `search-conforma-slack-threads` | `conforma_slack_ops.py` | `prefetch_open_slack_threads` |
+| `search-conforma-existing-exceptions` | `conforma_policy_ops.py` | `search_existing_exceptions` |
+| `check-exception-coverage` | `conforma_policy_ops.py` | `check_existing_exception_gate` |
 
 ### Troubleshooting skills (SKILL.md only, no local scripts)
 
@@ -80,16 +94,32 @@ Location: `scripts/` at repo root. These contain ONLY generic primitives — not
 | `slack_ops.py` | `get_client`, `verify_auth`, `search_messages` | `slack_sdk` |
 | `yaml_ops.py` | `load`, `load_multi_doc`, `dump`, `dump_preserving_comments`, `merge` | `ruamel.yaml` |
 | `component_catalog_ops.py` | `ensure_catalog_repo`, `load_catalog`, `resolve_jira_component`, `resolve_jira_components`, `extract_components_from_ticket`, `audit_jira_components` | `subprocess` (query.py from `data-hub/component-maturity` GitLab repo) |
-| `cli_runner.py` | `run`, `run_with_retry`, `run_json` | `subprocess` |
+| `cli_runner.py` | `run`, `run_with_retry`, `run_json`, `run_acli`, `run_glab`, `_resolve_env`, `save_token`, `resolve_method` | `subprocess` |
+
+### Domain-specific shared modules
+
+These `conforma_*_ops.py` modules encapsulate cross-skill conforma logic used by both `conforma-analyze` and `conforma-exception`. They follow the same dual-mode pattern as generic `*_ops.py` scripts.
+
+| Script | Functions | Depends on |
+|--------|-----------|------------|
+| `conforma_mr_ops.py` | `search_open_exception_mrs`, `analyze_mr_component_coverage`, `prefetch_open_mrs`, `image_url_covers_component` | `gitlab_ops` |
+| `conforma_jira_ops.py` | `prefetch_open_jira_tickets`, `_parse_acli_table`, `_extract_rule_from_summary`, `_build_release_version_patterns` | `cli_runner` |
+| `conforma_slack_ops.py` | `prefetch_open_slack_threads`, `_component_search_stems` | `slack_ops` |
+| `conforma_policy_ops.py` | `search_existing_exceptions`, `check_existing_exception_gate` | `conforma_mr_ops` |
 
 ### Primitive vs. domain-specific boundary
 
-**Primitive** (goes in `*_ops.py`):
+**Generic primitive** (goes in `*_ops.py`):
 - `gitlab_ops.create_mr(project, branch, title, description)` — creates any MR
 - `jira_ops.add_watchers(ticket_key, account_ids)` — adds watchers to any ticket
 - `jira_ops.create_issue(project, summary, description, issue_type)` — creates any ticket
 
-**Domain-specific** (stays in skill scripts):
+**Domain-specific shared** (goes in `conforma_*_ops.py`):
+- `conforma_mr_ops.search_open_exception_mrs(rule)` — searches konflux-release-data MRs
+- `conforma_policy_ops.check_existing_exception_gate(rule, components)` — coverage gate
+- `conforma_jira_ops.prefetch_open_jira_tickets(rules, releases)` — batch Jira search
+
+**Skill-local** (stays in skill scripts):
 - `create_gitlab_mr.py::apply_exception_to_policy_file()` — conforma-specific
 - `create_jira_ticket.py::_build_psx_description()` — conforma-specific template
 - `create_jira_ticket.py::reconcile_ticket()` — conforma workflow logic
@@ -205,6 +235,12 @@ aiops-infra/
     conforma-remedy/          # Fix violations in code
     conforma-docs/            # Documentation search
     conforma-release-readiness/ # Ship/no-ship verdict
+    search-conforma-open-exception-mrs/ # Per-function skill (SKILL.md only)
+    analyze-mr-component-coverage/     # Per-function skill (SKILL.md only)
+    search-conforma-jira-tickets/      # Per-function skill (SKILL.md only)
+    search-conforma-slack-threads/     # Per-function skill (SKILL.md only)
+    search-conforma-existing-exceptions/ # Per-function skill (SKILL.md only)
+    check-exception-coverage/          # Per-function skill (SKILL.md only)
     gitlab-auth/              # GitLab auth troubleshooting (SKILL.md only)
     jira-auth/                # Jira auth troubleshooting (SKILL.md only)
     github-auth/              # GitHub auth troubleshooting (SKILL.md only)

@@ -53,8 +53,8 @@ fi
 ## Running the Coverage Check
 
 ```bash
-python3 skills/conforma-exception/scripts/preflight_check.py \
-  --check-violations-coverage "$RUN_DIR/violations.yaml" \
+python3 skills/conforma-analyze/scripts/violations_coverage.py \
+  --violations-yaml "$RUN_DIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
   --environment prod
 ```
@@ -62,8 +62,8 @@ python3 skills/conforma-exception/scripts/preflight_check.py \
 To disable Slack search (e.g. in CI or environments without Slack access):
 
 ```bash
-python3 skills/conforma-exception/scripts/preflight_check.py \
-  --check-violations-coverage "$RUN_DIR/violations.yaml" \
+python3 skills/conforma-analyze/scripts/violations_coverage.py \
+  --violations-yaml "$RUN_DIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
   --environment prod \
   --require-slack false
@@ -79,7 +79,7 @@ When `--require-slack false` is used, the `Slack` column is omitted and the tabl
 
 **Print `markdown_table` verbatim as the primary output to the user.** This is the main deliverable when analyzing a report.
 
-The `Next Steps` column is intentionally abbreviated — it shows only the primary action with a *(details below)* pointer to the **Violation Resolution Guide** section. Full resolution details (including all approval steps, MR actions, and linked Jira tickets) are in each violation's `next_steps` field in the JSON output and should be presented in the Violation Resolution Guide section that follows the table.
+The `Next Steps` column always displays "see resolution guide below" — a static pointer to the **Violation Resolution Guide** section. Full resolution details (including all approval steps, MR actions, and linked Jira tickets) are assembled by the agent in the Violation Resolution Guide section that follows the table, using the structured JSON fields (`open_merge_requests`, `open_jira_tickets`, `open_slack_threads`, coverage status, and violation catalog data).
 
 Rules:
 - Do NOT reconstruct the table from individual JSON fields — always use the pre-rendered `markdown_table`

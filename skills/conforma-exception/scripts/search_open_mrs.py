@@ -41,7 +41,7 @@ import json  # noqa: E402
 import re  # noqa: E402
 from typing import Optional  # noqa: E402
 
-from preflight_check import _glab_get_mrs  # noqa: E402
+from conforma_mr_ops import _glab_get_mrs  # noqa: E402
 
 _TITLE_RE = re.compile(
     r"^\[(?P<vendor>[^\]]*)\]\s*\[RHOAI\]\s*Conforma exception:\s*"

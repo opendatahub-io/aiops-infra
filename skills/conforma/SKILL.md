@@ -29,6 +29,12 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 | docs, documentation, search docs, runbook, policy rules, what is conforma | use the **conforma-docs** skill |
 | ship, release, readiness, gate, can we ship, blocking, go/no-go | use the **conforma-release-readiness** skill |
 | catalog, component mapping, jira component, software catalog, which team owns | use the **software-catalog-query** skill |
+| search open MRs, find exception MRs, list MRs | use the **search-conforma-open-exception-mrs** skill |
+| MR coverage, does MR cover, MR components | use the **analyze-mr-component-coverage** skill |
+| search jira tickets, conforma-violation tickets, open tickets | use the **search-conforma-jira-tickets** skill |
+| search slack, slack threads, slack discussions | use the **search-conforma-slack-threads** skill |
+| search existing exceptions, policy exceptions, find exceptions | use the **search-conforma-existing-exceptions** skill |
+| check coverage, exception coverage, gate check | use the **check-exception-coverage** skill |
 | gitlab auth, gitlab token, glab login, glab auth | use the **gitlab-auth** skill |
 | jira auth, acli auth, jira login, jira token | use the **jira-auth** skill |
 | github auth, gh auth, github token | use the **github-auth** skill |

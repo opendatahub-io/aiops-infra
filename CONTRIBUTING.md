@@ -26,23 +26,28 @@ Is it a generic primitive (works for any project)?
 ├── YES → scripts/*_ops.py (dual-mode, repo root)
 │         Examples: create_mr(), verify_auth(), load_yaml()
 │
-└── NO → Is it specific to a skill's domain?
-    ├── YES → skills/<skill-name>/scripts/<script>.py
-    │         Examples: apply_exception_to_policy_file(), _build_psx_description()
+└── NO → Is it conforma-specific logic used by MULTIPLE skills?
+    ├── YES → scripts/conforma_*_ops.py (dual-mode, repo root)
+    │         Examples: search_open_exception_mrs(), prefetch_open_jira_tickets()
     │
-    └── NO → Is it a routing/documentation skill?
-        ├── YES → skills/<skill-name>/SKILL.md (no scripts/)
-        │         Examples: conforma entry-point, gitlab-auth
+    └── NO → Is it specific to a SINGLE skill's domain?
+        ├── YES → skills/<skill-name>/scripts/<script>.py
+        │         Examples: apply_exception_to_policy_file(), _build_psx_description()
         │
-        └── NO → scripts/<name>.py (standalone utility)
-                  Examples: existing onboarding scripts
+        └── NO → Is it a routing/documentation/per-function skill?
+            ├── YES → skills/<skill-name>/SKILL.md (no scripts/)
+            │         Examples: conforma entry-point, gitlab-auth, search-conforma-open-exception-mrs
+            │
+            └── NO → scripts/<name>.py (standalone utility)
+                      Examples: existing onboarding scripts
 ```
 
 ### Naming conventions
 
 | Location | Convention | Example |
 |----------|-----------|---------|
-| `scripts/` shared primitives | `*_ops.py` | `gitlab_ops.py`, `jira_ops.py` |
+| `scripts/` generic primitives | `*_ops.py` | `gitlab_ops.py`, `jira_ops.py` |
+| `scripts/` domain-specific shared | `conforma_*_ops.py` | `conforma_mr_ops.py`, `conforma_policy_ops.py` |
 | Skill-local scripts | Descriptive verb-noun | `create_gitlab_mr.py`, `parse_violations.py` |
 | Test files (repo-root scripts) | `test_<name>.py` | `test_gitlab_ops.py` |
 | Test files (skill scripts) | `test_<skill_underscored>_<name>.py` | `test_conforma_exception_create_gitlab_mr.py` |

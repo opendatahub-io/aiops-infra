@@ -149,6 +149,15 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 
    Read and follow [`skills/conforma-exception/references/coverage-check.md`](../conforma-exception/references/coverage-check.md). In particular, follow the **"Auth Availability — Inform the User"** section: check all auth sources (GitLab, Jira, Slack) before running, tell the user which sources are unavailable and how to fix them, then proceed with whatever sources are available. Never silently skip a data source.
 
+   Run the coverage check using the dedicated script in this skill:
+
+```bash
+python3 skills/conforma-analyze/scripts/violations_coverage.py \
+  --violations-yaml "$RUNDIR/violations.yaml" \
+  --clone-dir .work/konflux-release-data \
+  --environment prod
+```
+
    Pass the violations YAML from step 4 as input. The coverage table is the primary deliverable; the statistical breakdown from step 5 can be presented as supplementary detail below it.
 
 7. **Violation Resolution Guide**: After presenting the coverage table, read [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) and present a **"Violation Resolution Guide"** section with per-violation details. For each violation in the report:
