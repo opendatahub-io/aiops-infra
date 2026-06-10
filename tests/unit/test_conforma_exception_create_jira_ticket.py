@@ -122,6 +122,61 @@ class TestResolveTemplate:
             cjt.resolve_template("nonexistent_category", {})
 
 
+class TestBuildSummary:
+    def test_approval_includes_components(self):
+        result = cjt._build_summary(
+            "RHOAIENG",
+            "hermetic_task.hermetic",
+            ["odh-mlflow-v3-3"],
+            "rhoai-3.4",
+            None,
+            None,
+        )
+        assert result == "[Exception Approval] hermetic_task.hermetic - odh-mlflow-v3-3 - rhoai-3.4"
+
+    def test_remediation_uses_code_fix_tag(self):
+        result = cjt._build_summary(
+            "RHOAIENG",
+            "hermetic_task.hermetic",
+            ["odh-mlflow-v3-3"],
+            "rhoai-3.4",
+            None,
+            None,
+            purpose="remediation",
+        )
+        assert result == "[Code Fix] hermetic_task.hermetic - odh-mlflow-v3-3 - rhoai-3.4"
+
+    def test_multiple_components_truncated(self):
+        comps = ["odh-a-v3-4", "odh-b-v3-4", "odh-c-v3-4", "odh-d-v3-4", "odh-e-v3-4"]
+        result = cjt._build_summary("PSX", "rpm_signature.allowed", comps, "rhoai-3.4", None, None)
+        assert "odh-a-v3-4, odh-b-v3-4, odh-c-v3-4 (+2 more)" in result
+
+    def test_vendor_tag_prepended(self):
+        result = cjt._build_summary(
+            "PSX",
+            "rpm_signature.allowed:abc",
+            ["odh-vllm-cpu-v3-4"],
+            "rhoai-3.4",
+            "AMD RPM signing key exception",
+            "AMD",
+        )
+        assert result.startswith("[AMD] [Exception Approval]")
+        assert "odh-vllm-cpu-v3-4" in result
+        assert "AMD RPM signing key exception" in result
+
+    def test_summary_context_appended(self):
+        result = cjt._build_summary(
+            "RHOAIENG",
+            "hermetic_task.hermetic",
+            ["odh-mlflow-v3-3"],
+            "rhoai-3.4",
+            "hermetic build exception",
+            None,
+        )
+        assert result.endswith("hermetic build exception")
+        assert "odh-mlflow-v3-3" in result
+
+
 class TestBuildExceptionLabel:
     def test_uses_first_component(self):
         label = cjt.build_exception_label(

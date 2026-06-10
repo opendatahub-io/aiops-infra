@@ -455,7 +455,7 @@ def consolidate(
         if template:
             cmd.extend(["--template", template])
 
-        psx_title = _fetch_jira_title(psx_key) or f"[Conforma Exception] {rule}"
+        psx_title = _fetch_jira_title(psx_key) or f"[Exception Approval] {rule}"
         cmd.extend(["--reference-title", psx_title])
 
         if dry_run:

@@ -924,11 +924,14 @@ def create_ticket(
         }
 
     tag_prefix = f"[{vendor_tag}] " if vendor_tag else ""
-    purpose_tag = "[Remediation] " if purpose == "remediation" else "[Conforma Exception] "
+    purpose_tag = "[Code Fix] " if purpose == "remediation" else "[Exception Approval] "
+    comp_str = ", ".join(components[:3])
+    if len(components) > 3:
+        comp_str += f" (+{len(components) - 3} more)"
     if summary_context:
-        summary = f"{tag_prefix}{purpose_tag}{rule} - {rhoai_version} - {summary_context}"
+        summary = f"{tag_prefix}{purpose_tag}{rule} - {comp_str} - {rhoai_version} - {summary_context}"
     else:
-        summary = f"{tag_prefix}{purpose_tag}{rule} - {rhoai_version}"
+        summary = f"{tag_prefix}{purpose_tag}{rule} - {comp_str} - {rhoai_version}"
     labels = [PROVENANCE_LABEL, VIOLATION_LABEL]
 
     if project == "RHOAIENG" and purpose == "remediation":
@@ -1654,17 +1657,17 @@ def _build_summary(
     rhoai_version: str,
     summary_context: str | None,
     vendor_tag: str | None,
+    purpose: str = "approval",
 ) -> str:
     """Build the expected summary string for a ticket."""
+    tag_prefix = f"[{vendor_tag}] " if vendor_tag else ""
+    purpose_tag = "[Code Fix] " if purpose == "remediation" else "[Exception Approval] "
     comp_str = ", ".join(components[:3])
     if len(components) > 3:
         comp_str += f" (+{len(components) - 3} more)"
-    base = f"[Conforma Exception] {rule} - {rhoai_version} - {comp_str}"
     if summary_context:
-        base = f"{base} - {summary_context}"
-    if vendor_tag:
-        base = f"[{vendor_tag}] {base}"
-    return base
+        return f"{tag_prefix}{purpose_tag}{rule} - {comp_str} - {rhoai_version} - {summary_context}"
+    return f"{tag_prefix}{purpose_tag}{rule} - {comp_str} - {rhoai_version}"
 
 
 def parse_args() -> argparse.Namespace:

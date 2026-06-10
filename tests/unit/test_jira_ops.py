@@ -34,7 +34,7 @@ class TestVerifyAuth:
 
 
 class TestGetIssue:
-    def test_success(self):
+    def test_success_base_fields(self):
         client = _mock_client()
         issue = MagicMock()
         issue.key = "ABC-1"
@@ -54,6 +54,94 @@ class TestGetIssue:
             "issue_type": "Task",
             "assignee": "Bob",
         }
+        assert "description" not in result
+
+    def test_success_extra_fields(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.key = "ABC-1"
+        issue.fields.summary = "Test summary"
+        issue.fields.status.name = "Open"
+        issue.fields.issuetype.name = "Bug"
+        issue.fields.assignee = None
+        issue.fields.description = "Full description text"
+        issue.fields.labels = ["conforma-violation", "rhoai-3.4"]
+        issue.fields.created = "2026-06-03T11:07:36.157+0000"
+        issue.fields.creator = MagicMock(displayName="Alice")
+        issue.fields.reporter = MagicMock(displayName="Bob")
+        comp = MagicMock()
+        comp.name = "AI Hub"
+        issue.fields.components = [comp]
+        fv = MagicMock()
+        fv.name = "RHOAI 3.4"
+        issue.fields.fixVersions = [fv]
+        priority = MagicMock()
+        priority.name = "Critical"
+        issue.fields.priority = priority
+        resolution = MagicMock()
+        resolution.name = "Duplicate"
+        issue.fields.resolution = resolution
+        client.issue.return_value = issue
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.get_issue(
+                "ABC-1",
+                fields=[
+                    "description",
+                    "labels",
+                    "created",
+                    "creator",
+                    "reporter",
+                    "components",
+                    "fix_versions",
+                    "priority",
+                    "resolution",
+                    "url",
+                ],
+            )
+
+        assert result["key"] == "ABC-1"
+        assert result["description"] == "Full description text"
+        assert result["labels"] == ["conforma-violation", "rhoai-3.4"]
+        assert result["created"] == "2026-06-03T11:07:36.157+0000"
+        assert result["creator"] == "Alice"
+        assert result["reporter"] == "Bob"
+        assert result["components"] == ["AI Hub"]
+        assert result["fix_versions"] == ["RHOAI 3.4"]
+        assert result["priority"] == "Critical"
+        assert result["resolution"] == "Duplicate"
+        assert result["url"] == "https://redhat.atlassian.net/browse/ABC-1"
+
+    def test_extra_fields_with_nulls(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.key = "ABC-2"
+        issue.fields.summary = "Minimal"
+        issue.fields.status.name = "New"
+        issue.fields.issuetype.name = "Task"
+        issue.fields.assignee = None
+        issue.fields.description = None
+        issue.fields.creator = None
+        issue.fields.reporter = None
+        issue.fields.components = []
+        issue.fields.fixVersions = []
+        issue.fields.priority = None
+        issue.fields.resolution = None
+        client.issue.return_value = issue
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.get_issue(
+                "ABC-2",
+                fields=["description", "creator", "reporter", "components", "fix_versions", "priority", "resolution"],
+            )
+
+        assert result["description"] is None
+        assert result["creator"] is None
+        assert result["reporter"] is None
+        assert result["components"] == []
+        assert result["fix_versions"] == []
+        assert result["priority"] is None
+        assert result["resolution"] is None
 
     def test_error(self):
         client = _mock_client()
@@ -62,8 +150,35 @@ class TestGetIssue:
             result = jira_ops.get_issue("ABC-999")
 
         assert result["key"] == "ABC-999"
-        assert result["summary"] is None
         assert "error" in result
+
+
+class TestGetJiraClientAlias:
+    def test_alias_is_get_client(self):
+        assert jira_ops.get_jira_client is jira_ops.get_client
+
+
+class TestAddComment:
+    def test_success(self):
+        client = _mock_client()
+        comment = MagicMock(id="12345")
+        client.add_comment.return_value = comment
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.add_comment("ABC-1", "Closing as duplicate.")
+
+        assert result == {"key": "ABC-1", "comment_id": "12345", "ok": True}
+        client.add_comment.assert_called_once_with("ABC-1", "Closing as duplicate.")
+
+    def test_error(self):
+        client = _mock_client()
+        client.add_comment.side_effect = JIRAError("Permission denied")
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.add_comment("ABC-1", "test")
+
+        assert result["ok"] is False
+        assert "Permission denied" in result["error"]
 
 
 class TestCreateIssue:
@@ -239,11 +354,7 @@ class TestLinkIssues:
             "link_type": "Blocks",
             "ok": True,
         }
-        client.create_issue_link.assert_called_once_with(
-            type={"name": "Blocks"},
-            inwardIssue="ABC-1",
-            outwardIssue="ABC-2",
-        )
+        client.create_issue_link.assert_called_once_with("Blocks", "ABC-1", "ABC-2")
 
 
 class TestTransitionIssue:
@@ -264,8 +375,30 @@ class TestTransitionIssue:
             "ok": True,
             "from_status": "Open",
             "to_status": "In Progress",
+            "resolution": None,
         }
-        client.transition_issue.assert_called_once_with(issue, "21")
+        client.transition_issue.assert_called_once_with(issue, "21", fields=None)
+
+    def test_success_with_resolution(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.fields.status.name = "New"
+        client.issue.return_value = issue
+        client.transitions.return_value = [
+            {"id": "61", "name": "Closed", "to": {"name": "Closed"}},
+        ]
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.transition_issue("ABC-5", "Closed", resolution="Duplicate")
+
+        assert result == {
+            "key": "ABC-5",
+            "ok": True,
+            "from_status": "New",
+            "to_status": "Closed",
+            "resolution": "Duplicate",
+        }
+        client.transition_issue.assert_called_once_with(issue, "61", fields={"resolution": {"name": "Duplicate"}})
 
     def test_transition_not_found(self):
         client = _mock_client()

@@ -5,11 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
+from pathlib import Path
 
-from jira import JIRA
-from jira.exceptions import JIRAError
+_scripts_dir = str(Path(__file__).resolve().parent)
+if _scripts_dir not in sys.path:
+    sys.path.insert(0, _scripts_dir)
 
-import site_config
+from jira import JIRA  # noqa: E402
+from jira.exceptions import JIRAError  # noqa: E402
+
+import site_config  # noqa: E402
 
 site_config.load()
 
@@ -34,6 +40,9 @@ def get_client(url: str | None = None, email: str | None = None, token: str | No
     return JIRA(server=resolved_url, basic_auth=(resolved_email, resolved_token))
 
 
+get_jira_client = get_client
+
+
 def _issue_url(client: JIRA, issue_key: str) -> str:
     server = client._options.get("server", DEFAULT_JIRA_URL).rstrip("/")
     return f"{server}/browse/{issue_key}"
@@ -50,39 +59,74 @@ def verify_auth(url: str | None = None) -> dict:
         return {"ok": False, "user": None, "error": str(exc)}
 
 
-def get_issue(issue_key: str) -> dict:
-    """Get issue details."""
+def get_issue(issue_key: str, fields: list[str] | None = None) -> dict:
+    """Get issue details.
+
+    Args:
+        issue_key: Jira issue key (e.g. "RHOAIENG-123").
+        fields: Optional list of fields to return. Supported values:
+            key, summary, status, issue_type, assignee (always included),
+            description, labels, created, creator, reporter, components,
+            fix_versions, priority, resolution, url.
+            If None, returns the base set (key/summary/status/issue_type/assignee).
+    """
+    extra = set(fields or [])
     try:
         client = get_client()
         issue = client.issue(issue_key)
         assignee = None
         if issue.fields.assignee is not None:
             assignee = getattr(issue.fields.assignee, "displayName", None)
-        return {
+        result: dict = {
             "key": issue.key,
             "summary": issue.fields.summary,
             "status": issue.fields.status.name,
             "issue_type": issue.fields.issuetype.name,
             "assignee": assignee,
         }
+        if extra:
+            if "description" in extra:
+                result["description"] = issue.fields.description
+            if "labels" in extra:
+                result["labels"] = issue.fields.labels
+            if "created" in extra:
+                result["created"] = str(issue.fields.created)
+            if "creator" in extra:
+                result["creator"] = getattr(issue.fields.creator, "displayName", None) if issue.fields.creator else None
+            if "reporter" in extra:
+                result["reporter"] = (
+                    getattr(issue.fields.reporter, "displayName", None) if issue.fields.reporter else None
+                )
+            if "components" in extra:
+                result["components"] = [c.name for c in issue.fields.components] if issue.fields.components else []
+            if "fix_versions" in extra:
+                result["fix_versions"] = [v.name for v in issue.fields.fixVersions] if issue.fields.fixVersions else []
+            if "priority" in extra:
+                result["priority"] = issue.fields.priority.name if issue.fields.priority else None
+            if "resolution" in extra:
+                result["resolution"] = issue.fields.resolution.name if issue.fields.resolution else None
+            if "url" in extra:
+                result["url"] = _issue_url(client, issue.key)
+        return result
     except JIRAError as exc:
-        return {
-            "key": issue_key,
-            "summary": None,
-            "status": None,
-            "issue_type": None,
-            "assignee": None,
-            "error": str(exc),
-        }
+        return {"key": issue_key, "error": str(exc)}
     except Exception as exc:
-        return {
-            "key": issue_key,
-            "summary": None,
-            "status": None,
-            "issue_type": None,
-            "assignee": None,
-            "error": str(exc),
-        }
+        return {"key": issue_key, "error": str(exc)}
+
+
+def add_comment(issue_key: str, body: str) -> dict:
+    """Add a comment to an issue.
+
+    Returns {"key": str, "comment_id": str, "ok": True} on success.
+    """
+    try:
+        client = get_client()
+        comment = client.add_comment(issue_key, body)
+        return {"key": issue_key, "comment_id": comment.id, "ok": True}
+    except JIRAError as exc:
+        return {"key": issue_key, "ok": False, "error": str(exc)}
+    except Exception as exc:
+        return {"key": issue_key, "ok": False, "error": str(exc)}
 
 
 def create_issue(
@@ -227,11 +271,7 @@ def link_issues(from_key: str, to_key: str, link_type: str = "Related") -> dict:
     """Link two issues."""
     try:
         client = get_client()
-        client.create_issue_link(
-            type={"name": link_type},
-            inwardIssue=from_key,
-            outwardIssue=to_key,
-        )
+        client.create_issue_link(link_type, from_key, to_key)
         return {
             "from_key": from_key,
             "to_key": to_key,
@@ -256,8 +296,15 @@ def link_issues(from_key: str, to_key: str, link_type: str = "Related") -> dict:
         }
 
 
-def transition_issue(issue_key: str, transition_name: str) -> dict:
-    """Transition issue status."""
+def transition_issue(issue_key: str, transition_name: str, resolution: str | None = None) -> dict:
+    """Transition issue status.
+
+    Args:
+        issue_key: Jira issue key.
+        transition_name: Name of the transition or target status.
+        resolution: Optional resolution name (e.g. "Duplicate", "Done", "Won't Do").
+            Required by some transitions like "Closed".
+    """
     try:
         client = get_client()
         issue = client.issue(issue_key)
@@ -281,12 +328,17 @@ def transition_issue(issue_key: str, transition_name: str) -> dict:
                 "available_transitions": [transition["name"] for transition in transitions],
             }
 
-        client.transition_issue(issue, match["id"])
+        fields: dict = {}
+        if resolution:
+            fields["resolution"] = {"name": resolution}
+
+        client.transition_issue(issue, match["id"], fields=fields if fields else None)
         return {
             "key": issue_key,
             "ok": True,
             "from_status": current_status,
             "to_status": match["to"]["name"],
+            "resolution": resolution,
         }
     except JIRAError as exc:
         return {"key": issue_key, "ok": False, "error": str(exc)}
@@ -302,6 +354,15 @@ def main() -> None:
 
     get_issue_parser = sub.add_parser("get-issue")
     get_issue_parser.add_argument("--key", required=True)
+    get_issue_parser.add_argument(
+        "--fields",
+        default=None,
+        help="Comma-separated extra fields: description,labels,created,creator,reporter,components,fix_versions,priority,resolution,url",
+    )
+
+    add_comment_parser = sub.add_parser("add-comment")
+    add_comment_parser.add_argument("--key", required=True)
+    add_comment_parser.add_argument("--body", required=True)
 
     create_issue_parser = sub.add_parser("create-issue")
     create_issue_parser.add_argument("--project", required=True)
@@ -335,13 +396,19 @@ def main() -> None:
     transition_parser = sub.add_parser("transition")
     transition_parser.add_argument("--key", required=True)
     transition_parser.add_argument("--transition", required=True)
+    transition_parser.add_argument(
+        "--resolution", default=None, help="Resolution name (e.g. Duplicate, Done, Won't Do)"
+    )
 
     args = parser.parse_args()
 
     if args.command == "verify-auth":
         result = verify_auth()
     elif args.command == "get-issue":
-        result = get_issue(args.key)
+        field_list = [f.strip() for f in args.fields.split(",")] if args.fields else None
+        result = get_issue(args.key, fields=field_list)
+    elif args.command == "add-comment":
+        result = add_comment(args.key, args.body)
     elif args.command == "create-issue":
         comp_list = [c.strip() for c in args.components.split(",")] if args.components else None
         result = create_issue(args.project, args.summary, args.description, args.issue_type, components=comp_list)
@@ -355,7 +422,7 @@ def main() -> None:
     elif args.command == "link-issues":
         result = link_issues(args.from_key, args.to_key, args.link_type)
     elif args.command == "transition":
-        result = transition_issue(args.key, args.transition)
+        result = transition_issue(args.key, args.transition, resolution=args.resolution)
     else:
         parser.print_help()
         raise SystemExit(1)
