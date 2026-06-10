@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +13,30 @@ import conforma_mr_ops
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 WORK_DIR = _REPO_ROOT / "skills" / "conforma-exception" / ".work"
+
+
+def _refresh_workdir_clone(clone_dir: Path) -> None:
+    """Fetch latest main and hard-reset an existing .work/ clone.
+
+    Raises subprocess.CalledProcessError if fetch fails (e.g. VPN down,
+    host unreachable).  Callers must not silently fall back to stale data.
+    """
+    subprocess.run(
+        ["git", "fetch", "origin", "main"],
+        cwd=clone_dir,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "reset", "--hard", "origin/main"],
+        cwd=clone_dir,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
 
 
 def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
@@ -149,7 +174,8 @@ def check_existing_exception_gate(
         "uncovered_components": list(components),
     }
 
-    # Ensure clone exists
+    # Ensure clone exists and is fresh (fetch from remote).
+    # Policy: never use a stale clone — always fetch, abort if unreachable.
     repo_dir = None
     if clone_dir:
         candidate = Path(clone_dir)
@@ -164,6 +190,19 @@ def check_existing_exception_gate(
         elif (candidate / "repo" / policy_sub).is_dir():
             repo_dir = candidate / "repo"
 
+        if repo_dir is not None:
+            try:
+                _refresh_workdir_clone(repo_dir)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                return {
+                    **base_result,
+                    "status": "error",
+                    "reason": (
+                        f"git fetch failed for {repo_dir} — remote unreachable (VPN down?). "
+                        f"Refusing to use stale data. Error: {exc}"
+                    ),
+                }
+
     if not repo_dir:
         try:
             from manage_exceptions import _clone_repo
@@ -172,9 +211,9 @@ def check_existing_exception_gate(
         except Exception as exc:
             return {
                 **base_result,
-                "status": "passed",
+                "status": "error",
                 "reason": (
-                    f"Could not clone konflux-release-data ({exc}). Gate check skipped — proceeding with caution."
+                    f"Could not clone konflux-release-data ({exc}). Ensure VPN is connected and GitLab is reachable."
                 ),
             }
 
@@ -359,6 +398,12 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "search-exceptions":
+        if args.clone_dir and Path(args.clone_dir).is_dir():
+            try:
+                _refresh_workdir_clone(Path(args.clone_dir))
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                print(json.dumps({"checked": False, "reason": f"git fetch failed — remote unreachable: {exc}"}))
+                return 1
         result = search_existing_exceptions(args.rule, args.clone_dir)
         print(json.dumps(result, indent=2))
         return 0

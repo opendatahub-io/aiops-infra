@@ -67,6 +67,40 @@ class TestDownloadFileRaw:
         fetch_csv_reports._github_token_cache = None
 
 
+class TestFetchWarningsCsvForRelease:
+    def setup_method(self):
+        fetch_csv_reports._github_token_cache = "token123"
+
+    def test_all_paths_fail(self, tmp_path):
+        def mock_download(csv_path, ref, output_file):
+            return {"error": f"404 for {csv_path}"}
+
+        with patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download):
+            result = fetch_csv_reports.fetch_warnings_csv_for_release("rhoai-3.4", tmp_path)
+        assert result["status"] == "failed"
+        assert result["path"] is None
+
+    def test_first_path_succeeds(self, tmp_path):
+        def mock_download(csv_path, ref, output_file):
+            if "release_day" in csv_path and "warnings" in csv_path:
+                output_file.write_text("type,component_name\nwarning,comp-a\n")
+                return None
+            return {"error": "not found"}
+
+        mock_date = MagicMock(returncode=0, stdout="2026-06-01T00:00:00Z\n")
+        with (
+            patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download),
+            patch("fetch_csv_reports.subprocess.run", return_value=mock_date),
+        ):
+            result = fetch_csv_reports.fetch_warnings_csv_for_release("rhoai-3.4", tmp_path)
+        assert result["status"] == "fetched"
+        assert result["path"] is not None
+        assert result["path"].endswith("-warnings.csv")
+
+    def teardown_method(self):
+        fetch_csv_reports._github_token_cache = None
+
+
 class TestCopyLocalCsvs:
     def test_copy_named_csv(self, tmp_path):
         local_dir = tmp_path / "local"
@@ -77,7 +111,7 @@ class TestCopyLocalCsvs:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        results = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
+        results, warnings = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
         assert len(results) == 1
         assert results[0]["status"] == "copied"
         assert (output_dir / "rhoai-3.4.csv").exists()
@@ -92,7 +126,7 @@ class TestCopyLocalCsvs:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        results = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
+        results, warnings = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
         assert len(results) == 1
         assert results[0]["status"] == "copied"
 
@@ -102,9 +136,37 @@ class TestCopyLocalCsvs:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        results = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
+        results, warnings = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
         assert len(results) == 1
         assert results[0]["status"] == "failed"
+
+    def test_copies_warnings_csv(self, tmp_path):
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+        (local_dir / "rhoai-3.4.csv").write_text("type,component_name\nviolation,comp-a\n")
+        (local_dir / "rhoai-3.4-warnings.csv").write_text("type,component_name\nwarning,comp-b\n")
+
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        results, warnings = fetch_csv_reports.copy_local_csvs(local_dir, ["rhoai-3.4"], output_dir)
+        assert len(warnings) == 1
+        assert warnings[0]["status"] == "copied"
+        assert (output_dir / "rhoai-3.4-warnings.csv").exists()
+
+    def test_skip_warnings_when_disabled(self, tmp_path):
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+        (local_dir / "rhoai-3.4.csv").write_text("type,component_name\nviolation,comp-a\n")
+        (local_dir / "rhoai-3.4-warnings.csv").write_text("type,component_name\nwarning,comp-b\n")
+
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        results, warnings = fetch_csv_reports.copy_local_csvs(
+            local_dir, ["rhoai-3.4"], output_dir, include_warnings=False
+        )
+        assert len(warnings) == 0
 
 
 class TestFetchSupportedReleases:

@@ -18,6 +18,10 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for how to write scripts, add tests, str
 - Inter-skill data flows through YAML files in `.work/` (git-ignored)
 - The `conforma` skill is the single entry point for all conforma-related queries
 
+## Repository Clone Policy
+
+Never use a pre-existing local clone of a repo. Always clone fresh into `.work/` or use the existing `.work/` clone with `git fetch` first. If the fetch fails, **abort** — never silently use stale data. See [CONTRIBUTING.md](CONTRIBUTING.md#repository-clone-policy) for details.
+
 ## Script Failure Policy
 
 When a deterministic script or skill workflow fails (import errors, missing dependencies, auth failures, unexpected exceptions), the agent MUST:
@@ -29,6 +33,18 @@ When a deterministic script or skill workflow fails (import errors, missing depe
    - Proceed with AI-assisted manual exploration, with the explicit warning that results may be incomplete, inconsistent, or different from the established workflow output.
 
 The deterministic scripted path is always the default. Manual exploration is a last resort that requires explicit user consent.
+
+## Conforma Report Analysis Policy
+
+Conforma violation reports MUST ONLY be analyzed through the full deterministic `conforma-analyze` workflow (steps 1–7). The agent MUST NEVER:
+
+- Produce ad-hoc or "quick" summaries of report data outside the prescribed workflow
+- Run analysis scripts with shortcuts (`--csv` directly, `| head`, `| tail`, truncation)
+- Skip workflow steps (fetch → parse → analyze with ownership → coverage check → resolution guide)
+- Manually read, interpret, or summarize CSV file contents
+- Present partial analysis output as a stand-in for the complete workflow output
+
+If only report existence is asked, confirm existence and ask whether to run the full analysis. **This is a hard failure rule — no exceptions, no "just this once."**
 
 ## Repository Structure
 

@@ -51,6 +51,28 @@ def tmp_csv(tmp_path):
 
 
 @pytest.fixture
-def tmp_reports_dir(tmp_csv):
-    """A directory containing the sample CSV (named as a release)."""
+def tmp_warnings_csv(tmp_path):
+    """Create a temporary warnings CSV file with sample warning data."""
+    csv_content = (
+        "type,component_name,image,message,effective_on,code,title,description,solution\n"
+        'warning,odh-dashboard-v3-4,quay.io/img:sha,"Prefetch mode is permissive",'
+        "2026-06-25,prefetch_dependencies.mode_not_permissive,"
+        "Prefetch mode must not be permissive,Mode is permissive,Change mode\n"
+        'warning,odh-notebook-v3-4,quay.io/img2:sha,"Task is not hermetic",'
+        "2026-06-20,hermetic_task.hermetic,"
+        "Hermetic build required,Must be hermetic,Enable hermetic builds\n"
+        'warning,odh-training-v3-4,quay.io/img3:sha,"Some future rule",'
+        "2027-12-01,future_rule.check,"
+        "Future rule,This is far away,Fix later\n"
+        'warning,odh-serving-v3-4,quay.io/img4:sha,"Missing date warning",,'
+        "missing_date.rule,No date rule,Missing date,Add date\n"
+    )
+    csv_file = tmp_path / "rhoai-3.4-warnings.csv"
+    csv_file.write_text(csv_content)
+    return csv_file
+
+
+@pytest.fixture
+def tmp_reports_dir(tmp_csv, tmp_warnings_csv):
+    """A directory containing the sample violation and warnings CSVs."""
     return tmp_csv.parent

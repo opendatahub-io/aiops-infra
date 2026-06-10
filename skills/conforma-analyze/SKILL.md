@@ -9,6 +9,24 @@ user-invocable: true
 
 Fetch and expose Conforma violation report data for RHOAI releases. This skill retrieves CSV violation reports from the private [conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter) repository and parses them into a structured YAML index.
 
+## HARD RULE: No Custom Analysis
+
+**Every conforma report analysis MUST follow the complete deterministic workflow (steps 1–7) below. No exceptions.**
+
+Prohibited actions — the agent MUST NEVER:
+- Run `analyze_csv_report.py --csv <file>` directly to produce ad-hoc summaries
+- Truncate script output (e.g. `| head`, `| tail`, `2>&1 | head -N`)
+- Skip any workflow step (parse, analyze, coverage check, resolution guide)
+- Summarize or paraphrase CSV contents manually instead of running the scripts
+- Present partial results as a "quick summary" before completing all steps
+- Invent or compose analysis output that was not produced by the deterministic scripts
+
+If the user only asks "does a report exist?" — answer the existence question (branch check + fetch attempt) and then **ask** whether to run the full analysis. Never produce partial analysis output as a substitute for the full workflow.
+
+**Violation of this rule is a hard failure.** If you catch yourself about to do any of the above, STOP immediately and follow the workflow from step 1.
+
+---
+
 This skill knows about **violations** only. It has no knowledge of exceptions, policy files, Jira tickets, or GitLab Merge Requests. For exception management, see the `conforma-exception` skill. Output from this skill is consumed by `conforma-exception`'s `--assess-expired` mode -- see the "Managing Expired Exceptions" section in `conforma-exception`'s SKILL.md for the full cross-skill workflow.
 
 ## Violations-First Philosophy
@@ -25,9 +43,10 @@ When presenting violation data — whether standalone or when handing off to the
 gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name
 ```
 
-**Component-maturity catalog** (optional, for Jira Component enrichment): Clone the catalog repo to enable Jira Component lookups in analysis output. Not required for basic violation analysis, but recommended for enriched output:
+**Component-maturity catalog** (required for Jira Component enrichment): The parse step enriches every component with its owning Jira Component from the component-maturity catalog. This requires VPN and GitLab auth. The parse script will clone/refresh the catalog automatically and fail hard if the catalog is unreachable. Ensure VPN is active and `glab auth status` succeeds before running:
 
 ```bash
+glab auth status
 python3 scripts/component_catalog_ops.py ensure-repo
 ```
 
@@ -49,15 +68,19 @@ gh api "repos/org/repo/contents/path/to/file?ref=main" --jq '.content' | base64 
 cd ~/dev/github/org/repo && git show origin/main:path/to/file
 ```
 
-## Data Source
+## Data Sources
 
-Violation reports are fetched from:
+Reports are fetched from:
 - **Repo**: `red-hat-data-services/conforma-reporter` (private)
 - **Branch per release**: `rhoai-2.25`, `rhoai-3.3`, `rhoai-3.4`, etc.
-- **File**: `prod/release_day/conforma-violations-report.csv`
+- **Violations file**: `prod/release_day/conforma-violations-report.csv`
+- **Warnings file**: `prod/release_day/conforma-warnings-report.csv`
 - **Columns**: `type`, `component_name`, `image`, `message`, `effective_on`, `code`, `title`, `description`, `solution`
 
-Only rows with `type=violation` are included in the output. Warnings are excluded.
+Both files are fetched and analyzed by default:
+
+- **Violations CSV**: rows with `type=violation` — current policy violations.
+- **Warnings CSV**: rows with `type=warning` — policies not yet enforced. Once a warning's `effective_on` enforcement date passes, it becomes an enforced violation. Warnings enforced **within 3 weeks** (21 days) are surfaced as **warnings becoming violations**, giving teams time to act before enforcement begins.
 
 ## Workflow
 
@@ -75,14 +98,14 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
 
    If auto-detection fails (e.g. network issue, repo access), the script errors out and instructs the user to provide `--releases` manually.
 
-3. **Fetch reports**: CSV fetching is provided by the **`conforma-report-fetch`** skill. Create a timestamped output directory under this skill's `.work/` and pass it via `--output-dir` to keep all data local:
+3. **Fetch reports**: CSV fetching is provided by the **`conforma-report-fetch`** skill. Create a timestamped output directory under this skill's `.work/` and pass it via `--output-dir` to keep all data local. **Both violations and warnings CSVs are fetched by default**. **Save the fetch metadata** (source paths, timestamps) to a JSON file for use by later steps:
 
 ```bash
 mkdir -p .work
 RUNDIR=".work/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RUNDIR"
 python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
-  --output-dir "$RUNDIR"
+  --output-dir "$RUNDIR" > "$RUNDIR/fetch-metadata.json"
 ```
 
    Override with explicit releases only if needed for a one-off check:
@@ -90,12 +113,12 @@ python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
 ```bash
 python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
   --releases rhoai-2.25,rhoai-3.4 \
-  --output-dir "$RUNDIR"
+  --output-dir "$RUNDIR" > "$RUNDIR/fetch-metadata.json"
 ```
 
-   Some in-development/EA branches may not have a violations report CSV yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
+   The output directory will contain `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release. The `fetch-metadata.json` contains `source_path` and `created_at` per release — needed by steps 8-9. Some in-development/EA branches may not have report CSVs yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
 
-4. **Parse violations**: Run on the **same timestamped directory from step 3** to produce the structured YAML:
+4. **Parse violations and warnings**: Run on the **same timestamped directory from step 3** to produce the structured YAML. **Warnings CSVs are parsed by default** — any warning with an enforcement date within 21 days is included as a warning becoming a violation. The parse step also **enriches each component with its owning Jira Component** from the component-maturity catalog (requires VPN + GitLab auth). If the catalog is unreachable, the script fails hard — ensure VPN is active:
 
 ```bash
 python3 skills/conforma-analyze/scripts/parse_violations.py \
@@ -103,25 +126,47 @@ python3 skills/conforma-analyze/scripts/parse_violations.py \
   --output .work/20260604-123000/violations.yaml
 ```
 
-5. **Analyze and present**: Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data:
+   To customize the enforcement threshold:
 
 ```bash
-# Text summary (default):
-python3 skills/conforma-analyze/scripts/analyze_csv_report.py --reports-dir .work/20260604-123000
+python3 skills/conforma-analyze/scripts/parse_violations.py \
+  --reports-dir .work/20260604-123000 \
+  --output .work/20260604-123000/violations.yaml \
+  --upcoming-threshold-days 14
+```
 
-# Markdown report:
+   For CI/testing only (no catalog enrichment):
+
+```bash
+python3 skills/conforma-analyze/scripts/parse_violations.py \
+  --reports-dir .work/20260604-123000 \
+  --output .work/20260604-123000/violations.yaml \
+  --no-catalog
+```
+
+5. **Analyze and present**: Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` to include Jira Component ownership annotations from step 4:
+
+```bash
+# Text summary with ownership (default):
 python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
   --reports-dir .work/20260604-123000 \
+  --violations-yaml .work/20260604-123000/violations.yaml
+
+# Markdown report with ownership:
+python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
+  --reports-dir .work/20260604-123000 \
+  --violations-yaml .work/20260604-123000/violations.yaml \
   --format markdown \
   --output .work/20260604-123000/conforma-analysis.md
 
 # JSON (for programmatic consumption):
 python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
   --reports-dir .work/20260604-123000 \
+  --violations-yaml .work/20260604-123000/violations.yaml \
   --format json \
   --output .work/20260604-123000/conforma-analysis.json
 
-# Analyze a single CSV directly:
+# Analyze a single CSV directly (no ownership without --violations-yaml):
 python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
   --csv .work/20260604-123000/rhoai-3.5-ea.1.csv
 ```
@@ -131,7 +176,9 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
    - Root cause extraction (untrusted task names, signing keys)
    - Per-component violation patterns (code combinations)
    - Effective date enforcement deadlines
+   - **Warnings becoming violations** — policies nearing their enforcement date (within 21 days by default)
    - Prioritized remediation recommendations with resolution %
+   - **Jira Component ownership** — when `--violations-yaml` is provided, component names are annotated with their owning Jira Component (e.g. `odh-vllm-rhel9 (vLLM)`)
 
    Present the output to the user. For the `--format text` output, display it directly. For markdown, render it as the response.
 
@@ -149,26 +196,72 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 
    Read and follow [`skills/conforma-exception/references/coverage-check.md`](../conforma-exception/references/coverage-check.md). In particular, follow the **"Auth Availability — Inform the User"** section: check all auth sources (GitLab, Jira, Slack) before running, tell the user which sources are unavailable and how to fix them, then proceed with whatever sources are available. Never silently skip a data source.
 
-   Run the coverage check using the dedicated script in this skill:
+   Ensure the `.work/konflux-release-data` clone is fresh (fetch + reset), or let the script clone it. The script enforces the repo clone policy: it will `git fetch` any existing `--clone-dir` and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
+
+   **Save the output to a JSON file** for use by the resolution guide generator (step 8):
 
 ```bash
 python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
-  --environment prod
+  --environment prod > "$RUNDIR/coverage.json"
 ```
 
    Pass the violations YAML from step 4 as input. The coverage table is the primary deliverable; the statistical breakdown from step 5 can be presented as supplementary detail below it.
 
-7. **Violation Resolution Guide**: After presenting the coverage table, read [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) and present a **"Violation Resolution Guide"** section with per-violation details. For each violation in the report:
+   To display the coverage table to the user, extract it from the JSON:
 
-   - Look up the violation by its `conforma_rule_codes` in the catalog
-   - Check `known_false_alerts` — if the violation matches a known false alert AND the condition applies, flag it as "likely a false positive"
-   - Supplement the generic `next_steps` from the coverage check with type-specific guidance from the catalog's `fix_steps`
-   - Note the `classification.typical_owner` and `requires_rebuild` fields to give actionable context
-   - For violations with `resolution_path: code_fix`, point the user to the `conforma-remedy` skill for detailed fix procedures
-   - For violations with `resolution_path: mixed`, present both the fix path and the exception path
-   - Include the full `next_steps` detail (from the coverage check JSON output, not the abbreviated table version) as part of each violation's entry
+```bash
+python3 -c "import json,sys; print(json.load(sys.stdin)['markdown_table'])" < "$RUNDIR/coverage.json"
+```
+
+7. **Violation Resolution Guide**: After presenting the coverage table, the resolution guide is generated deterministically by script. The guide is both presented to the user and saved to a file for submission (step 9). See step 8 for the generation command. While the guide is being generated, present the coverage table `markdown_table` from step 6 to the user as the immediate output.
+
+8. **Generate the resolution guide**: Run the resolution guide generator on the intermediate outputs from steps 3-6. This produces a unified markdown file combining coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
+
+```bash
+# Extract metadata from fetch output
+SOURCE_PATH=$(python3 -c "import json; d=json.load(open('$RUNDIR/fetch-metadata.json')); print(d['releases']['$RELEASE']['source_path'])")
+CREATED_AT=$(python3 -c "import json; d=json.load(open('$RUNDIR/fetch-metadata.json')); print(d['releases']['$RELEASE']['created_at'])")
+
+python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
+  --violations-yaml "$RUNDIR/violations.yaml" \
+  --coverage-json "$RUNDIR/coverage.json" \
+  --reports-dir "$RUNDIR" \
+  --release "$RELEASE" \
+  --source-path "$SOURCE_PATH" \
+  --source-created-at "$CREATED_AT" \
+  --output "$RUNDIR/conforma-violations-resolution-guide.md"
+```
+
+   Present the generated guide content to the user. The guide includes:
+   - Metadata header (generation date, source CSV link)
+   - Summary metrics
+   - Coverage table (verbatim from step 6)
+   - Per-violation resolution guide (from catalog + fallback references)
+   - Warnings becoming violations (if any)
+   - Statistical breakdown
+
+9. **Submit to GitHub**: Push the resolution guide to the conforma-reporter repo on the same branch and directory as the source CSV. This is the **default action** — always submit unless the user explicitly says not to:
+
+```bash
+python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
+  --guide-file "$RUNDIR/conforma-violations-resolution-guide.md" \
+  --release "$RELEASE" \
+  --target-dir "$(dirname $SOURCE_PATH)"
+```
+
+   The script commits directly to the release branch. If submission fails (e.g. auth issue, branch protection), report the error but do not treat it as a workflow failure — the local guide file is still the primary deliverable.
+
+   To preview without committing:
+
+```bash
+python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
+  --guide-file "$RUNDIR/conforma-violations-resolution-guide.md" \
+  --release "$RELEASE" \
+  --target-dir "$(dirname $SOURCE_PATH)" \
+  --dry-run
+```
 
 ## Violation History
 
@@ -263,6 +356,10 @@ The text output includes:
 The output is a YAML file (human-reviewable, supports inline comments for annotation between skill runs). It is wrapped in a `violation_data` top-level key for future handover document embedding.
 
 The `violations_by_rule` index uses **full rule codes** (with extracted suffixes, e.g. `rpm_signature.allowed:9386b48a1a693c5c`) as keys. Each rule entry includes a `base_code` field to support fallback prefix matching by downstream consumers.
+
+Each entry in `violations_by_component` includes a `jira_component` field (string or null) mapping the Konflux component to its owning Jira Component from the component-maturity catalog. A top-level `catalog_enriched: true/false` flag indicates whether catalog enrichment was performed. This data is consumed by `analyze_csv_report.py` (via `--violations-yaml`) and `violations_coverage.py` to annotate outputs with ownership information.
+
+When warnings CSVs are present, the output also includes an `upcoming_violations` section with `by_rule`, `by_component`, and `summary` sub-keys. These are warnings that will become enforced violations once their `effective_on` date passes. Each rule entry includes `effective_on` (the enforcement deadline) and `days_until_effective` (countdown to enforcement). Upcoming `by_component` entries also carry `jira_component` when catalog enrichment is active.
 
 See `parse_violations.py` for the complete output schema.
 

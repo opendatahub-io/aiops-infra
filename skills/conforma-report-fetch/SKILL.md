@@ -38,12 +38,19 @@ gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .ful
 - **Branch per release**: `rhoai-2.25`, `rhoai-3.3`, `rhoai-3.4`, etc.
 - **Columns**: `type`, `component_name`, `image`, `message`, `effective_on`, `code`, `title`, `description`, `solution`
 
-The script tries multiple CSV paths within the `prod/` directory in order:
+The script tries multiple CSV paths within the `prod/` directory in order for both violations and warnings:
+
+**Violations** (`conforma-violations-report.csv`):
 1. `prod/release_day/conforma-violations-report.csv` (primary)
 2. `prod/future/build_type_latest/conforma-violations-report.csv`
 3. `prod/future/build_type_nightly/conforma-violations-report.csv`
 
-If `release_day` is unavailable (e.g. for in-development versions), the script automatically falls back to the next available report.
+**Warnings** (`conforma-warnings-report.csv`, fetched by default):
+1. `prod/release_day/conforma-warnings-report.csv` (primary)
+2. `prod/future/build_type_latest/conforma-warnings-report.csv`
+3. `prod/future/build_type_nightly/conforma-warnings-report.csv`
+
+If `release_day` is unavailable (e.g. for in-development versions), the script automatically falls back to the next available report. Use `--no-warnings` to skip fetching warnings CSVs.
 
 ### Usage
 
@@ -59,12 +66,15 @@ python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
   --releases rhoai-3.4 \
   --output-dir /path/to/output
 
+# Skip fetching warnings CSVs:
+python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py --no-warnings
+
 # Use pre-downloaded CSVs instead of fetching:
 python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
   --local-dir /path/to/csvs
 ```
 
-When `--output-dir` is omitted, the script creates a timestamped directory under `.work/` (relative to this skill) and updates the `.work/latest` symlink.
+When `--output-dir` is omitted, the script creates a timestamped directory under `.work/` (relative to this skill) and updates the `.work/latest` symlink. The output directory contains `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release.
 
 ### Release Auto-Detection
 
@@ -166,6 +176,6 @@ When the user asks to fetch a Conforma report from a PipelineRun:
 
 ## Relationship to Other Skills
 
-- **`conforma-analyze`**: Consumes CSV reports from this skill. Calls `fetch_csv_reports.py` with `--output-dir` to write CSVs into its own `.work/` directory, then parses and analyzes them.
+- **`conforma-analyze`**: Consumes both violation and warnings CSV reports from this skill. Calls `fetch_csv_reports.py` with `--output-dir` to write CSVs into its own `.work/` directory, then parses violations and identifies upcoming violations from warnings.
 - **`conforma-parse`** (downstream): Consumes the Tekton handover from `fetch_tekton_report.sh` to parse violations and warnings from the raw JSON report.
 - **`conforma-exception`**: Manages exception creation. Can consume parsed output from either fetch mechanism.

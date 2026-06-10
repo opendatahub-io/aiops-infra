@@ -268,6 +268,22 @@ conforma-analyze:
 - Downstream skills read upstream files for input
 - Always include `status: completed | failed | pending`
 
+## Repository Clone Policy
+
+Scripts that need a local clone of an external repository (e.g. `konflux-release-data`, `component-maturity`) **must** follow these rules:
+
+1. **Never use a pre-existing local clone** outside of `.work/`. Only `.work/` clones are trusted.
+2. **Always fetch before use.** If a `.work/` clone already exists, run `git fetch origin <branch>` and `git reset --hard origin/<branch>` before reading any data.
+3. **Abort on fetch failure.** If the fetch fails (VPN down, host unreachable, auth expired), the script **must** abort with a clear error. Never silently fall back to stale data.
+4. **Clone fresh if no `.work/` clone exists.** Use `git clone --depth 1` into `.work/`.
+
+The shared functions that enforce this are:
+- `conforma_policy_ops._refresh_workdir_clone()` — fetch + hard-reset, raises on failure
+- `manage_exceptions._clone_repo()` — clone-or-refresh with abort-on-failure
+- `component_catalog_ops.ensure_catalog_repo()` — returns `ok: False` on pull failure
+
+When adding new scripts that clone repos, use these primitives or follow the same pattern.
+
 ## Code Style
 
 - Python 3.11+

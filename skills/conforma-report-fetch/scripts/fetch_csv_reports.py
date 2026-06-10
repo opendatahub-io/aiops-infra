@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Fetch conforma violation report CSVs from conforma-reporter per release.
+"""Fetch conforma violation and warnings report CSVs from conforma-reporter per release.
 
-Downloads the CSV from each release branch of the private
+Downloads violation and warnings CSVs from each release branch of the private
 red-hat-data-services/conforma-reporter repository via raw download
 (raw.githubusercontent.com), avoiding the GitHub Contents API entirely.
 This handles multi-megabyte report files reliably without JSON/base64
 overhead or API size limits.
+
+Both violations and warnings are fetched by default. Warnings CSVs are
+saved as ``{release}-warnings.csv`` alongside violation CSVs (``{release}.csv``).
+Use ``--no-warnings`` to skip fetching warnings.
 
 When --output-dir is omitted, automatically creates a timestamped directory
 under .work/ (relative to this script's skill directory) and updates the
@@ -25,6 +29,9 @@ Usage:
     python3 scripts/fetch_csv_reports.py \\
       --releases rhoai-2.25,rhoai-3.4 \\
       --output-dir /tmp/conforma-reports
+
+    # Skip warnings:
+    python3 scripts/fetch_csv_reports.py --no-warnings
 
     # Use pre-downloaded CSVs instead of fetching:
     python3 scripts/fetch_csv_reports.py \\
@@ -48,11 +55,18 @@ WORK_DIR = SKILL_DIR / ".work"
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
 RAW_DOWNLOAD_BASE = "https://raw.githubusercontent.com"
 CSV_FILENAME = "conforma-violations-report.csv"
+WARNINGS_CSV_FILENAME = "conforma-warnings-report.csv"
 
 CSV_PATHS = [
     f"prod/release_day/{CSV_FILENAME}",
     f"prod/future/build_type_latest/{CSV_FILENAME}",
     f"prod/future/build_type_nightly/{CSV_FILENAME}",
+]
+
+WARNINGS_CSV_PATHS = [
+    f"prod/release_day/{WARNINGS_CSV_FILENAME}",
+    f"prod/future/build_type_latest/{WARNINGS_CSV_FILENAME}",
+    f"prod/future/build_type_nightly/{WARNINGS_CSV_FILENAME}",
 ]
 
 _github_token_cache: str | None = None
@@ -148,9 +162,50 @@ def fetch_csv_for_release(release: str, output_dir: Path) -> dict:
     }
 
 
-def copy_local_csvs(local_dir: Path, releases: list[str], output_dir: Path) -> list[dict]:
-    """Copy pre-downloaded CSVs from a local directory."""
+def fetch_warnings_csv_for_release(release: str, output_dir: Path) -> dict:
+    """Fetch the warnings CSV for a single release branch via raw download.
+
+    Same fallback logic as fetch_csv_for_release but for the warnings report.
+    Saves as ``{release}-warnings.csv``.
+    """
+    output_file = output_dir / f"{release}-warnings.csv"
+    last_error = ""
+
+    for csv_path in WARNINGS_CSV_PATHS:
+        err = _download_file_raw(csv_path, release, output_file)
+        if err is None:
+            created_at = _fetch_last_commit_date(release, csv_path)
+            return {
+                "release": release,
+                "status": "fetched",
+                "path": str(output_file),
+                "size_bytes": output_file.stat().st_size,
+                "source_path": csv_path,
+                "created_at": created_at,
+            }
+        last_error = err["error"]
+
+    return {
+        "release": release,
+        "status": "failed",
+        "error": last_error,
+        "path": None,
+    }
+
+
+def copy_local_csvs(
+    local_dir: Path,
+    releases: list[str],
+    output_dir: Path,
+    *,
+    include_warnings: bool = True,
+) -> tuple[list[dict], list[dict]]:
+    """Copy pre-downloaded CSVs from a local directory.
+
+    Returns (violation_results, warning_results).
+    """
     results = []
+    warning_results = []
     for release in releases:
         candidates = [
             local_dir / f"{release}.csv",
@@ -172,20 +227,43 @@ def copy_local_csvs(local_dir: Path, releases: list[str], output_dir: Path) -> l
                     "path": None,
                 }
             )
-            continue
+        else:
+            output_file = output_dir / f"{release}.csv"
+            shutil.copy2(found, output_file)
+            results.append(
+                {
+                    "release": release,
+                    "status": "copied",
+                    "path": str(output_file),
+                    "size_bytes": output_file.stat().st_size,
+                }
+            )
 
-        output_file = output_dir / f"{release}.csv"
-        shutil.copy2(found, output_file)
-        results.append(
-            {
-                "release": release,
-                "status": "copied",
-                "path": str(output_file),
-                "size_bytes": output_file.stat().st_size,
-            }
-        )
+        if include_warnings:
+            warn_candidates = [
+                local_dir / f"{release}-warnings.csv",
+                local_dir / release / "conforma-warnings-report.csv",
+                local_dir / release / WARNINGS_CSV_FILENAME,
+            ]
+            warn_found = None
+            for candidate in warn_candidates:
+                if candidate.is_file():
+                    warn_found = candidate
+                    break
 
-    return results
+            if warn_found:
+                output_file = output_dir / f"{release}-warnings.csv"
+                shutil.copy2(warn_found, output_file)
+                warning_results.append(
+                    {
+                        "release": release,
+                        "status": "copied",
+                        "path": str(output_file),
+                        "size_bytes": output_file.stat().st_size,
+                    }
+                )
+
+    return results, warning_results
 
 
 RELEASE_DATA_REPO = "red-hat-data-services/rhods-devops-infra"
@@ -254,7 +332,7 @@ def _create_timestamped_output_dir() -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Fetch conforma violation reports per release")
+    parser = argparse.ArgumentParser(description="Fetch conforma violation and warnings reports per release")
     parser.add_argument(
         "--releases",
         default=None,
@@ -270,7 +348,15 @@ def main() -> int:
         default=None,
         help="Use pre-downloaded CSVs from this directory instead of fetching",
     )
+    parser.add_argument(
+        "--no-warnings",
+        action="store_true",
+        default=False,
+        help="Skip fetching warnings CSVs (by default both violations and warnings are fetched)",
+    )
     args = parser.parse_args()
+
+    include_warnings = not args.no_warnings
 
     if args.releases:
         releases = [r.strip() for r in args.releases.split(",") if r.strip()]
@@ -305,11 +391,14 @@ def main() -> int:
         print(f"Run directory: {output_dir}", file=sys.stderr)
 
     if args.local_dir:
-        results = copy_local_csvs(Path(args.local_dir), releases, output_dir)
+        results, warning_results = copy_local_csvs(
+            Path(args.local_dir), releases, output_dir, include_warnings=include_warnings
+        )
     else:
         results = []
+        warning_results = []
         for release in releases:
-            print(f"Fetching {release}...", file=sys.stderr)
+            print(f"Fetching {release} violations...", file=sys.stderr)
             result = fetch_csv_for_release(release, output_dir)
             results.append(result)
             if result["status"] == "fetched":
@@ -321,10 +410,25 @@ def main() -> int:
             else:
                 print(f"  FAIL: {result['error']}", file=sys.stderr)
 
+            if include_warnings:
+                print(f"Fetching {release} warnings...", file=sys.stderr)
+                warn_result = fetch_warnings_csv_for_release(release, output_dir)
+                warning_results.append(warn_result)
+                if warn_result["status"] == "fetched":
+                    source = warn_result.get("source_path", "")
+                    print(
+                        f"  OK: {warn_result['size_bytes']} bytes -> {warn_result['path']} (from {source})",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(f"  WARN (warnings CSV): {warn_result['error']}", file=sys.stderr)
+
     succeeded = [r for r in results if r["status"] in ("fetched", "copied")]
     failed = [r for r in results if r["status"] == "failed"]
+    warnings_succeeded = [r for r in warning_results if r["status"] in ("fetched", "copied")]
+    warnings_failed = [r for r in warning_results if r["status"] == "failed"]
 
-    output = {
+    output: dict = {
         "releases": {
             r["release"]: {
                 "path": r["path"],
@@ -337,6 +441,21 @@ def main() -> int:
         "total_failed": len(failed),
         "failures": [{"release": r["release"], "error": r["error"]} for r in failed],
     }
+
+    if include_warnings:
+        output["warnings"] = {
+            "releases": {
+                r["release"]: {
+                    "path": r["path"],
+                    "source_path": r.get("source_path", ""),
+                    "created_at": r.get("created_at", ""),
+                }
+                for r in warnings_succeeded
+            },
+            "total_fetched": len(warnings_succeeded),
+            "total_failed": len(warnings_failed),
+            "failures": [{"release": r["release"], "error": r["error"]} for r in warnings_failed],
+        }
 
     print(json.dumps(output, indent=2))
     return 1 if failed else 0

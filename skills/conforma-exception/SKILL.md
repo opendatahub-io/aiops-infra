@@ -340,16 +340,19 @@ All intermediate files go inside `$RUN_DIR`. Example layout for a single run:
 │   └── action-plan.json
 ```
 
-**Shared repo clone**: The `konflux-release-data` GitLab repo is large and slow to clone (~40s). To avoid re-cloning on every script invocation, maintain a shared clone at `.work/konflux-release-data` and pass `--clone-dir .work/konflux-release-data` to all commands that accept it (`preflight_check.py`, `manage_exceptions.py`, `create_gitlab_mr.py`). If the clone already exists, pull the latest before use:
+**Shared repo clone**: The `konflux-release-data` GitLab repo is large and slow to clone (~40s). To avoid re-cloning on every script invocation, maintain a shared clone at `.work/konflux-release-data` and pass `--clone-dir .work/konflux-release-data` to all commands that accept it (`preflight_check.py`, `manage_exceptions.py`, `create_gitlab_mr.py`). **Always fetch before use and abort if the fetch fails** — never use stale data:
 
 ```bash
 if [ -d .work/konflux-release-data/.git ]; then
-  git -C .work/konflux-release-data fetch origin main && git -C .work/konflux-release-data reset --hard origin/main
+  git -C .work/konflux-release-data fetch origin main || { echo "ERROR: git fetch failed — remote unreachable (VPN down?). Aborting." >&2; exit 1; }
+  git -C .work/konflux-release-data reset --hard origin/main
 else
   GITLAB_TOKEN=$(glab config get token --host "$GITLAB_HOST")
-  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data
+  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
 fi
 ```
+
+**Note**: The Python scripts (`violations_coverage.py`, `conforma_policy_ops.py`, `manage_exceptions.py`) now enforce this policy internally — they will refresh any `--clone-dir` via `git fetch` and abort if the remote is unreachable.
 
 Script-internal temp directories (`conforma-exception-mr-*`, `conforma-exception-manage-*`, etc.) are created by Python scripts via `tempfile.mkdtemp()` and land directly in `.work/`. These are transient and self-cleaning — do not move them into run directories.
 

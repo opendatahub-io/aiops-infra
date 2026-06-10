@@ -39,16 +39,19 @@ Rules:
 
 ## Shared Repo Clone
 
-The `konflux-release-data` GitLab repo is large and slow to clone (~40s). Reuse `.work/konflux-release-data` across runs:
+The `konflux-release-data` GitLab repo is large and slow to clone (~40s). Reuse `.work/konflux-release-data` across runs, but **always fetch first and abort if the fetch fails** — never use stale data:
 
 ```bash
 if [ -d .work/konflux-release-data/.git ]; then
-  git -C .work/konflux-release-data fetch origin main && git -C .work/konflux-release-data reset --hard origin/main
+  git -C .work/konflux-release-data fetch origin main || { echo "ERROR: git fetch failed — remote unreachable (VPN down?). Aborting." >&2; exit 1; }
+  git -C .work/konflux-release-data reset --hard origin/main
 else
   GITLAB_TOKEN=$(glab config get token --host "$GITLAB_HOST")
-  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data
+  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
 fi
 ```
+
+**Note**: The `violations_coverage.py` script now enforces this policy internally — it will refresh any `--clone-dir` via `git fetch` and abort if the remote is unreachable. The shell snippet above is for reference when setting up the clone manually.
 
 ## Running the Coverage Check
 

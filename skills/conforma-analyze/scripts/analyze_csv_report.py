@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""Analyze conforma violation reports and produce a structured summary.
+"""Analyze conforma violation and warnings reports and produce a structured summary.
 
-Reads a violations CSV (or multiple CSVs from a directory) and outputs a
-human-readable analysis covering:
+Reads violation CSVs (and optionally warnings CSVs) from a directory and
+outputs a human-readable analysis covering:
   - Totals and breakdown by violation code
   - Root cause extraction (untrusted task names, signing keys, etc.)
   - Per-component violation patterns
   - Effective date enforcement deadlines
+  - Upcoming violations from warnings nearing enforcement
   - Prioritized remediation recommendations
+
+Warnings CSVs named ``{release}-warnings.csv`` in the same directory are
+parsed by default.  Warnings are policies not yet enforced — once their
+``effective_on`` date passes they become enforced violations.  Warnings
+with enforcement dates within 21 days (3 weeks) are surfaced.
 
 Usage:
     # Analyze all CSVs from the latest fetch run:
@@ -29,6 +35,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -46,6 +53,20 @@ class ViolationRecord:
     release: str = ""
 
 
+DEFAULT_UPCOMING_THRESHOLD_DAYS = 21
+
+
+@dataclass
+class UpcomingViolation:
+    component_name: str
+    code: str
+    title: str
+    message: str
+    effective_on: str
+    days_until_effective: int
+    release: str = ""
+
+
 @dataclass
 class AnalysisResult:
     total_violations: int = 0
@@ -58,6 +79,8 @@ class AnalysisResult:
     rpm_signature_details: list = field(default_factory=list)
     effective_dates: dict = field(default_factory=dict)
     priority_recommendations: list = field(default_factory=list)
+    upcoming_violations: list = field(default_factory=list)
+    upcoming_by_code: dict = field(default_factory=dict)
 
 
 def load_csv(csv_path: Path, release: str = "") -> list[ViolationRecord]:
@@ -91,6 +114,77 @@ def load_reports_dir(reports_dir: Path) -> list[ViolationRecord]:
         records = load_csv(csv_path, release)
         all_records.extend(records)
     return all_records
+
+
+def _parse_date(date_str: str) -> datetime | None:
+    """Parse a date string into a timezone-aware datetime."""
+    if not date_str:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(date_str.strip(), fmt)
+            return dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def load_warnings_csv(
+    csv_path: Path,
+    release: str = "",
+    threshold_days: int = DEFAULT_UPCOMING_THRESHOLD_DAYS,
+    reference_date: datetime | None = None,
+) -> list[UpcomingViolation]:
+    """Load warnings from a CSV file, returning those enforced within the threshold."""
+    now = reference_date or datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=threshold_days)
+    records = []
+    with open(csv_path, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            row_type = (row.get("type") or "").strip().lower()
+            if row_type != "warning":
+                continue
+
+            effective_on = (row.get("effective_on") or "").strip()
+            effective_dt = _parse_date(effective_on)
+            if effective_dt is None:
+                continue
+            if effective_dt > cutoff:
+                continue
+
+            days_remaining = max((effective_dt - now).days, 0)
+            records.append(
+                UpcomingViolation(
+                    component_name=(row.get("component_name") or "").strip(),
+                    code=(row.get("code") or "").strip(),
+                    title=(row.get("title") or "").strip(),
+                    message=(row.get("message") or "").strip(),
+                    effective_on=effective_on,
+                    days_until_effective=days_remaining,
+                    release=release or csv_path.stem.removesuffix("-warnings"),
+                )
+            )
+    return records
+
+
+def load_warnings_dir(
+    reports_dir: Path,
+    threshold_days: int = DEFAULT_UPCOMING_THRESHOLD_DAYS,
+    reference_date: datetime | None = None,
+) -> list[UpcomingViolation]:
+    """Load all warnings CSVs from a directory."""
+    all_warnings = []
+    for csv_path in sorted(reports_dir.glob("*-warnings.csv")):
+        release = csv_path.stem.removesuffix("-warnings")
+        warnings = load_warnings_csv(
+            csv_path,
+            release,
+            threshold_days=threshold_days,
+            reference_date=reference_date,
+        )
+        all_warnings.extend(warnings)
+    return all_warnings
 
 
 def extract_untrusted_tasks(records: list[ViolationRecord]) -> dict[str, int]:
@@ -244,7 +338,10 @@ def generate_priority_recommendations(
     return recommendations
 
 
-def analyze(records: list[ViolationRecord]) -> AnalysisResult:
+def analyze(
+    records: list[ViolationRecord],
+    upcoming: list[UpcomingViolation] | None = None,
+) -> AnalysisResult:
     """Run the full analysis pipeline on a set of violation records."""
     result = AnalysisResult()
     result.total_violations = len(records)
@@ -279,11 +376,52 @@ def analyze(records: list[ViolationRecord]) -> AnalysisResult:
     result.effective_dates = compute_effective_dates(records)
     result.priority_recommendations = generate_priority_recommendations(records, code_counts, result.untrusted_tasks)
 
+    if upcoming:
+        result.upcoming_violations = upcoming
+        upcoming_by_code: dict[str, dict] = {}
+        for u in upcoming:
+            if u.code not in upcoming_by_code:
+                upcoming_by_code[u.code] = {
+                    "count": 0,
+                    "title": u.title,
+                    "earliest_effective_on": u.effective_on,
+                    "min_days_remaining": u.days_until_effective,
+                    "affected_components": set(),
+                }
+            entry = upcoming_by_code[u.code]
+            entry["count"] += 1
+            entry["affected_components"].add(u.component_name)
+            if u.days_until_effective < entry["min_days_remaining"]:
+                entry["min_days_remaining"] = u.days_until_effective
+                entry["earliest_effective_on"] = u.effective_on
+        for code_info in upcoming_by_code.values():
+            code_info["affected_components"] = sorted(code_info["affected_components"])
+        result.upcoming_by_code = upcoming_by_code
+
     return result
 
 
-def format_text(result: AnalysisResult) -> str:
+def _load_component_owners(violations_yaml_path: str) -> dict[str, str | None]:
+    """Load jira_component mapping from an enriched violations YAML."""
+    import yaml
+
+    path = Path(violations_yaml_path)
+    if not path.is_file():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    by_component = data.get("violation_data", {}).get("violations_by_component", {})
+    return {comp: info.get("jira_component") for comp, info in by_component.items()}
+
+
+def _annotate_comp(comp: str, owners: dict[str, str | None]) -> str:
+    """Return 'comp (JiraComp)' if a mapping exists, else just 'comp'."""
+    jc = owners.get(comp)
+    return f"{comp} ({jc})" if jc else comp
+
+
+def format_text(result: AnalysisResult, component_owners: dict[str, str | None] | None = None) -> str:
     """Format analysis result as plain text."""
+    owners = component_owners or {}
     lines = []
 
     lines.append("=" * 80)
@@ -319,7 +457,7 @@ def format_text(result: AnalysisResult) -> str:
         lines.append("RPM SIGNATURE VIOLATIONS")
         lines.append("-" * 80)
         for detail in result.rpm_signature_details[:20]:
-            lines.append(f"  {detail['component']}: {detail['message']}")
+            lines.append(f"  {_annotate_comp(detail['component'], owners)}: {detail['message']}")
         if len(result.rpm_signature_details) > 20:
             lines.append(f"  ... and {len(result.rpm_signature_details) - 20} more")
         lines.append("")
@@ -339,6 +477,23 @@ def format_text(result: AnalysisResult) -> str:
         lines.append(f"  {pattern['count']} components: {codes_str}")
     lines.append("")
 
+    if result.upcoming_violations:
+        lines.append("-" * 80)
+        lines.append("WARNINGS BECOMING VIOLATIONS (enforcement date approaching)")
+        lines.append("-" * 80)
+        lines.append(f"  Total: {len(result.upcoming_violations)}")
+        lines.append(f"  Unique codes:   {len(result.upcoming_by_code)}")
+        lines.append("")
+        for code, info in sorted(result.upcoming_by_code.items(), key=lambda x: x[1]["min_days_remaining"]):
+            days = info["min_days_remaining"]
+            urgency = "OVERDUE" if days == 0 else f"in {days} days"
+            lines.append(f"  {code}: {info['count']} warnings, enforced {urgency}")
+            lines.append(f"    Title: {info['title']}")
+            lines.append(f"    Earliest deadline: {info['earliest_effective_on']}")
+            annotated = [_annotate_comp(c, owners) for c in info["affected_components"]]
+            lines.append(f"    Affected components: {', '.join(annotated)}")
+        lines.append("")
+
     lines.append("-" * 80)
     lines.append("PRIORITY RECOMMENDATIONS")
     lines.append("-" * 80)
@@ -352,8 +507,9 @@ def format_text(result: AnalysisResult) -> str:
     return "\n".join(lines)
 
 
-def format_markdown(result: AnalysisResult) -> str:
+def format_markdown(result: AnalysisResult, component_owners: dict[str, str | None] | None = None) -> str:
     """Format analysis result as markdown."""
+    owners = component_owners or {}
     lines = []
 
     lines.append("# Conforma Violations Analysis")
@@ -387,7 +543,8 @@ def format_markdown(result: AnalysisResult) -> str:
         lines.append("| Component | Message |")
         lines.append("|-----------|---------|")
         for detail in result.rpm_signature_details[:30]:
-            lines.append(f"| `{detail['component']}` | {detail['message']} |")
+            comp_label = _annotate_comp(detail["component"], owners)
+            lines.append(f"| `{comp_label}` | {detail['message']} |")
         if len(result.rpm_signature_details) > 30:
             lines.append(f"\n... and {len(result.rpm_signature_details) - 30} more")
         lines.append("")
@@ -409,6 +566,23 @@ def format_markdown(result: AnalysisResult) -> str:
         lines.append(f"| {pattern['count']} | {codes_str} |")
     lines.append("")
 
+    if result.upcoming_violations:
+        lines.append("## Warnings Becoming Violations")
+        lines.append("")
+        lines.append(
+            f"**{len(result.upcoming_violations)}** current warnings will become enforced violations once their enforcement date passes."
+        )
+        lines.append("")
+        lines.append("| Code | Count | Deadline | Days Left | Components |")
+        lines.append("|------|-------|----------|-----------|------------|")
+        for code, info in sorted(result.upcoming_by_code.items(), key=lambda x: x[1]["min_days_remaining"]):
+            days = info["min_days_remaining"]
+            urgency = "**OVERDUE**" if days == 0 else f"{days}"
+            annotated = [f"`{_annotate_comp(c, owners)}`" for c in info["affected_components"]]
+            comps = ", ".join(annotated)
+            lines.append(f"| `{code}` | {info['count']} | {info['earliest_effective_on']} | {urgency} | {comps} |")
+        lines.append("")
+
     lines.append("## Priority Recommendations")
     lines.append("")
     for rec in result.priority_recommendations:
@@ -418,15 +592,16 @@ def format_markdown(result: AnalysisResult) -> str:
         lines.append(f"- **Components affected:** {rec['affected_components']}")
         lines.append(f"- **Solution:** {rec['solution']}")
         if "components" in rec:
-            lines.append("- **Specific components:** " + ", ".join(f"`{c}`" for c in rec["components"]))
+            annotated = [f"`{_annotate_comp(c, owners)}`" for c in rec["components"]]
+            lines.append("- **Specific components:** " + ", ".join(annotated))
         lines.append("")
 
     return "\n".join(lines)
 
 
-def format_json(result: AnalysisResult) -> str:
+def format_json(result: AnalysisResult, component_owners: dict[str, str | None] | None = None) -> str:
     """Format analysis result as JSON."""
-    data = {
+    data: dict = {
         "summary": {
             "total_violations": result.total_violations,
             "unique_codes": result.unique_codes,
@@ -440,11 +615,18 @@ def format_json(result: AnalysisResult) -> str:
         "component_patterns": result.component_patterns,
         "priority_recommendations": result.priority_recommendations,
     }
-    return json.dumps(data, indent=2)
+    if result.upcoming_violations:
+        data["upcoming_violations"] = {
+            "total": len(result.upcoming_violations),
+            "by_code": result.upcoming_by_code,
+        }
+    if component_owners:
+        data["component_owners"] = {k: v for k, v in component_owners.items() if v is not None}
+    return json.dumps(data, indent=2, default=list)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Analyze conforma violation reports")
+    parser = argparse.ArgumentParser(description="Analyze conforma violation and warnings reports")
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
         "--csv",
@@ -465,7 +647,34 @@ def main() -> int:
         default=None,
         help="Output file path (default: stdout)",
     )
+    parser.add_argument(
+        "--no-warnings",
+        action="store_true",
+        default=False,
+        help="Skip loading warnings CSVs",
+    )
+    parser.add_argument(
+        "--upcoming-threshold-days",
+        type=int,
+        default=DEFAULT_UPCOMING_THRESHOLD_DAYS,
+        help=f"Warnings with enforcement dates within this many days are flagged as becoming violations (default: {DEFAULT_UPCOMING_THRESHOLD_DAYS})",
+    )
+    parser.add_argument(
+        "--violations-yaml",
+        default=None,
+        help="Path to enriched violations YAML (from parse_violations.py) to read jira_component ownership data",
+    )
     args = parser.parse_args()
+
+    component_owners: dict[str, str | None] = {}
+    if args.violations_yaml:
+        component_owners = _load_component_owners(args.violations_yaml)
+        if component_owners:
+            print(
+                f"Loaded ownership for {len(component_owners)} components from {args.violations_yaml}", file=sys.stderr
+            )
+
+    upcoming: list[UpcomingViolation] = []
 
     if args.csv:
         csv_path = Path(args.csv)
@@ -473,27 +682,39 @@ def main() -> int:
             print(f"Error: CSV file not found: {csv_path}", file=sys.stderr)
             return 1
         records = load_csv(csv_path)
+        if not args.no_warnings:
+            warnings_path = csv_path.parent / csv_path.name.replace(".csv", "-warnings.csv")
+            if not warnings_path.is_file():
+                stem = csv_path.stem
+                warnings_path = csv_path.parent / f"{stem}-warnings.csv"
+            if warnings_path.is_file():
+                upcoming = load_warnings_csv(warnings_path, threshold_days=args.upcoming_threshold_days)
     else:
         reports_dir = Path(args.reports_dir)
         if not reports_dir.is_dir():
             print(f"Error: directory not found: {reports_dir}", file=sys.stderr)
             return 1
         records = load_reports_dir(reports_dir)
+        if not args.no_warnings:
+            upcoming = load_warnings_dir(reports_dir, threshold_days=args.upcoming_threshold_days)
 
     if not records:
         print("Error: no violation records found", file=sys.stderr)
         return 1
 
     print(f"Loaded {len(records)} violations", file=sys.stderr)
+    if upcoming:
+        print(f"Loaded {len(upcoming)} warnings becoming violations", file=sys.stderr)
 
-    result = analyze(records)
+    result = analyze(records, upcoming=upcoming or None)
 
+    formatter_kwargs = {"component_owners": component_owners or None}
     formatters = {
         "text": format_text,
         "markdown": format_markdown,
         "json": format_json,
     }
-    output = formatters[args.format](result)
+    output = formatters[args.format](result, **formatter_kwargs)
 
     if args.output:
         output_path = Path(args.output)

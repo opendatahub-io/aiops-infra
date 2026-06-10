@@ -632,18 +632,28 @@ def annotate_expiry(exceptions: list[dict]) -> list[dict]:
 
 
 def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
-    """Clone konflux-release-data or use existing clone.
+    """Clone konflux-release-data into .work/, or fetch-and-reset an existing .work/ clone.
+
+    Policy: never silently reuse a stale clone.  If *clone_dir* points to an
+    existing checkout we **always** ``git fetch`` first; if the fetch fails the
+    remote is unreachable and we abort rather than use stale data.
 
     Returns (repo_dir, is_temp) where is_temp indicates whether caller
     should clean up.
     """
     ec_policy_dir = _get_ec_policy_dir()
     if clone_dir and clone_dir.is_dir():
-        if ec_policy_dir and (clone_dir / ec_policy_dir).is_dir():
-            return clone_dir, False
-        alt = clone_dir / "repo"
-        if ec_policy_dir and (alt / ec_policy_dir).is_dir():
-            return alt, False
+        repo_dir = clone_dir
+        if ec_policy_dir and not (clone_dir / ec_policy_dir).is_dir():
+            alt = clone_dir / "repo"
+            if ec_policy_dir and (alt / ec_policy_dir).is_dir():
+                repo_dir = alt
+            else:
+                repo_dir = None
+
+        if repo_dir is not None:
+            _refresh_clone(repo_dir)
+            return repo_dir, False
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     workdir = Path(tempfile.mkdtemp(prefix="conforma-exception-manage-", dir=WORK_DIR))

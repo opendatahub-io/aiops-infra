@@ -562,3 +562,83 @@ known_false_alerts:
     condition: >-
       Only ignore for on-push/CI builds. Nightly (on-schedule) reports should
       not have this violation -- investigate if they do.
+
+# Fallback references for violation code prefixes not yet in the violations list.
+# Used by generate_resolution_guide.py when a violation has no exact catalog match.
+# Matching: longest code_prefix wins (e.g. "sbom_spdx.allowed" beats "sbom_spdx").
+fallback_references:
+  - code_prefix: "sbom_spdx.disallowed_package_attributes"
+    title: "SBOM/SPDX disallowed package attributes"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/"
+      - "https://github.com/release-engineering/rhtap-ec-policy/tree/main/data"
+    guidance: >-
+      Packages in the SBOM have attributes not permitted by the EC policy.
+      Check the EC policy data for the list of disallowed attributes and update
+      the image build to avoid them. This is often a systemic issue requiring
+      Konflux-level tooling improvements rather than per-component fixes.
+
+  - code_prefix: "sbom_spdx.allowed_package_sources"
+    title: "SBOM/SPDX disallowed package source"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/"
+      - "https://github.com/release-engineering/rhtap-ec-policy/tree/main/data"
+    guidance: >-
+      A package in the SBOM comes from a source not in the allowed list.
+      Investigate which packages are flagged and either remove them or source
+      them from an allowed repository. Rebuild after fixing.
+
+  - code_prefix: "sbom_spdx"
+    title: "SBOM/SPDX compliance"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/#sbom-rules"
+      - "https://github.com/release-engineering/rhtap-ec-policy/tree/main/data"
+    guidance: >-
+      General SBOM/SPDX policy violation. Check the EC policy data for the
+      specific rule requirements and update the image accordingly.
+
+  - code_prefix: "source_image.exists"
+    title: "Source container image must exist"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/"
+    guidance: >-
+      The source container image was not published alongside the binary image.
+      Rebuild the component in Konflux — it should automatically produce the
+      source image. If the issue persists after rebuild, investigate the build
+      pipeline configuration for source-build task inclusion.
+
+  - code_prefix: "source_image"
+    title: "Source container image"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/"
+    guidance: >-
+      Source container image policy violation. Rebuild the component —
+      Konflux auto-publishes the source image. Investigate pipeline config
+      if the issue persists.
+
+  - code_prefix: "tasks.successful_pipeline_tasks"
+    title: "All pipeline tasks must succeed"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/building/pipelines/"
+    guidance: >-
+      One or more tasks in the build pipeline did not complete successfully.
+      Check Konflux build logs for the failing task. A rebuild may resolve
+      transient failures. If persistent, investigate the pipeline configuration.
+
+  - code_prefix: "tasks"
+    title: "Pipeline task execution"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/building/pipelines/"
+    guidance: >-
+      General pipeline task policy violation. Check Konflux build logs for the
+      failing or misconfigured task.
+
+  - code_prefix: "test.no_failed_tests"
+    title: "No tests may fail"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/building/pipelines/"
+    guidance: >-
+      A test task in the build pipeline reported a failure. Check Konflux build
+      logs to identify which test failed and coordinate with the component team
+      to fix it. If the failure is for fbc-fips-check on a push build, it may
+      be a known false positive (FIPS only runs on nightly builds).

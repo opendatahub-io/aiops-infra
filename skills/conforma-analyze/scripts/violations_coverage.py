@@ -92,6 +92,13 @@ def check_violations_coverage(
     all_rules = list(by_rule.keys())
     releases = data.get("violation_data", {}).get("releases", [])
 
+    by_component_data = data.get("violation_data", {}).get("violations_by_component", {})
+    component_owners: dict[str, str | None] = {}
+    for comp, info in by_component_data.items():
+        jc = info.get("jira_component")
+        if jc is not None:
+            component_owners[comp] = jc
+
     prefetched_mrs = conforma_mr_ops.prefetch_open_mrs(all_rules)
 
     if require_jira:
@@ -211,10 +218,15 @@ def check_violations_coverage(
 
         next_steps = "see resolution guide below"
 
-        if len(uncovered) <= 3:
-            display_components = ", ".join(uncovered)
+        uncov_labels = []
+        for c in uncovered:
+            jc = component_owners.get(c)
+            uncov_labels.append(f"{c} ({jc})" if jc else c)
+
+        if len(uncov_labels) <= 3:
+            display_components = ", ".join(uncov_labels)
         else:
-            display_components = ", ".join(uncovered[:3]) + f" ... +{len(uncovered) - 3} more"
+            display_components = ", ".join(uncov_labels[:3]) + f" ... +{len(uncovered) - 3} more"
 
         entry = {
             "rule": rule,
@@ -251,13 +263,16 @@ def check_violations_coverage(
 
     md_table = _render_violations_markdown_table(results, summary, include_slack=require_slack)
 
-    return {
+    output = {
         "violations_source": violations_yaml_path,
         "environment": environment,
         "summary": summary,
         "violations": results,
         "markdown_table": md_table,
     }
+    if component_owners:
+        output["component_owners"] = component_owners
+    return output
 
 
 def _render_violations_markdown_table(results: list[dict], summary: dict, include_slack: bool = False) -> str:

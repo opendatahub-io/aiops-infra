@@ -4,14 +4,15 @@
 
 When the user asks to see current Conforma exceptions (e.g. "show me current exceptions", "list exceptions", "what exceptions exist"), use the deterministic `list_exceptions.py` script. **Do NOT manually parse policy files or format output yourself** — the script produces a complete, ready-to-display Markdown report.
 
-1. **Ensure the clone is fresh** (or let the script clone a temp copy):
+1. **Ensure the clone is fresh** — always fetch and abort if unreachable (or let the script clone a temp copy):
 
 ```bash
 if [ -d .work/konflux-release-data/.git ]; then
-  git -C .work/konflux-release-data fetch origin main && git -C .work/konflux-release-data reset --hard origin/main
+  git -C .work/konflux-release-data fetch origin main || { echo "ERROR: git fetch failed — remote unreachable (VPN down?). Aborting." >&2; exit 1; }
+  git -C .work/konflux-release-data reset --hard origin/main
 else
   GITLAB_TOKEN=$(glab config get token --host "$GITLAB_HOST")
-  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data
+  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
 fi
 ```
 

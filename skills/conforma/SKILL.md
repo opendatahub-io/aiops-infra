@@ -52,6 +52,8 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 
 5. **Ambiguous queries.** If the user's intent matches multiple skills equally, ask them to clarify. Example: "I need help with conforma" could mean analyze, exception, or docs.
 
+6. **No custom analysis — HARD FAILURE.** When a conforma report/violation analysis is requested, the agent MUST follow the full deterministic workflow in `conforma-analyze`. The agent MUST NEVER produce ad-hoc summaries, run scripts with shortcuts (e.g. `--csv` directly, `| head`), skip workflow steps, or manually interpret CSV data. If only existence is asked, answer that and ask whether to run the full analysis. Partial or improvised analysis output is a hard failure.
+
 ## Example Queries
 
 - "Show me the current violations for rhoai-3.5" → **conforma-analyze**
