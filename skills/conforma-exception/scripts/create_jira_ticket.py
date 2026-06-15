@@ -2,28 +2,35 @@
 """Create a Jira ticket for a Conforma exception request.
 
 Supports three projects via --project flag:
-  RHOAIENG  - blocker bug (approval) or bug (remediation)
+  RHOAIENG  - Blocker Bug/Task depending on purpose
   PSX       - PSRD Exception for security-related exceptions
   OCPEXCEPT - Task for FIPS-related exceptions
 
 The --purpose flag differentiates RHOAIENG ticket types:
-  approval    - Blocker Bug for exception approval (default)
-  remediation - Bug assigned to devops/component team to fix the violation
+  violation_report - Blocker Bug describing the Conforma violation
+  remediation      - Blocker Bug assigned to component team to fix the violation
+  approval         - Blocker Task for Senior Management exception approval
 
 All tickets receive:
   - A provenance label: conforma-exception-ai-skill
   - A provenance footer in the description
 
 Usage:
-  python3 create_jira_ticket.py --project RHOAIENG --purpose approval \
+  python3 create_jira_ticket.py --project RHOAIENG --purpose violation_report \
     --rule hermetic_task.hermetic --components odh-mlflow-v3-3 \
     --rhoai-version rhoai-3.3 --effective-until 2026-10-10T00:00:00Z \
-    --template hermetic_build
+    --fix-target-version rhoai-3.4 --template hermetic_build
 
   python3 create_jira_ticket.py --project RHOAIENG --purpose remediation \
     --rule hermetic_task.hermetic --components odh-mlflow-v3-3 \
     --rhoai-version rhoai-3.3 --effective-until 2026-10-10T00:00:00Z \
-    --template hermetic_build --assignee "Component Team Lead"
+    --template hermetic_build --violation-jira-url https://...
+
+  python3 create_jira_ticket.py --project RHOAIENG --purpose approval \
+    --rule hermetic_task.hermetic --components odh-mlflow-v3-3 \
+    --rhoai-version rhoai-3.3 --effective-until 2026-10-10T00:00:00Z \
+    --template hermetic_build --violation-jira-url https://... \
+    --remediation-jira-url https://...
 """
 
 from __future__ import annotations
@@ -556,6 +563,41 @@ def _build_rhoaieng_remediation_description(
     }
 
 
+def _build_rhoaieng_violation_report_description(
+    rule: str,
+    components: list[str],
+    rhoai_version: str,
+    effective_until: str,
+    fix_target_version: str | None = None,
+    exception_scope: str | None = None,
+) -> dict:
+    """Build ADF description for RHOAIENG violation report ticket."""
+    context_text = (
+        f"Conforma Violation Report\n\n"
+        f"Rule: {rule}\n"
+        f"Components: {', '.join(components)}\n"
+        f"RHOAI Version: {rhoai_version}\n"
+        f"Effective Until: {effective_until}\n"
+    )
+    if fix_target_version:
+        context_text += f"Fix Target Version: {fix_target_version}\n"
+    if exception_scope:
+        context_text += f"\nScope: {exception_scope}\n"
+
+    context_text += f"\n{build_provenance_footer()}"
+
+    return {
+        "version": 1,
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": context_text}],
+            },
+        ],
+    }
+
+
 def _build_psx_description(
     rule: str,
     components: list[str],
@@ -639,14 +681,8 @@ def _build_psx_filled_adf(
         f"Components: {components_text}\n"
         f"RHOAI Version(s): {rhoai_version}\n"
         f"effectiveUntil: {effective_until}\n\n"
-        f"This exception is required because {rhoai_version} has already "
-        f"been released/code-frozen and major build infrastructure changes "
-        f"are not permitted in z-stream/sub-releases.\n\n"
         f"Scope: {scope}\n\n"
-        f"RHOAIENG tracking ticket: {rhoaieng_url}\n\n"
-        f"Note: it is not possible to add new signing keys to the global "
-        f"Conforma allowed list. Exceptions via the per-component MR process "
-        f"are the only path for third-party signed RPMs."
+        f"RHOAIENG tracking ticket: {rhoaieng_url}"
     )
 
     provenance = build_provenance_footer()
@@ -872,13 +908,17 @@ def create_ticket(
     purpose: str = "approval",
     assignee: str | None = None,
     jira_components: list[str] | None = None,
+    fix_target_version: str | None = None,
+    violation_jira_url: str | None = None,
+    remediation_jira_url: str | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Create a Jira ticket in the specified project.
 
     For RHOAIENG tickets, purpose controls the ticket type:
-      - "approval": Blocker Bug for exception approval
-      - "remediation": Bug for tracking the fix
+      - "violation_report": Blocker Bug describing the Conforma violation
+      - "remediation": Blocker Bug for tracking the component fix
+      - "approval": Blocker Task for Senior Management exception approval
     """
     if project not in VALID_PROJECTS:
         return {
@@ -924,7 +964,12 @@ def create_ticket(
         }
 
     tag_prefix = f"[{vendor_tag}] " if vendor_tag else ""
-    purpose_tag = "[Code Fix] " if purpose == "remediation" else "[Exception Approval] "
+    purpose_tags = {
+        "violation_report": "[Conforma Violation] ",
+        "remediation": "[Code Fix] ",
+        "approval": "[Exception Approval] ",
+    }
+    purpose_tag = purpose_tags.get(purpose, "[Exception Approval] ")
     comp_str = ", ".join(components[:3])
     if len(components) > 3:
         comp_str += f" (+{len(components) - 3} more)"
@@ -934,7 +979,30 @@ def create_ticket(
         summary = f"{tag_prefix}{purpose_tag}{rule} - {comp_str} - {rhoai_version}"
     labels = [PROVENANCE_LABEL, VIOLATION_LABEL]
 
-    if project == "RHOAIENG" and purpose == "remediation":
+    if project == "RHOAIENG" and purpose == "violation_report":
+        exception_label = build_exception_label(rule, components)
+        labels.append(exception_label)
+        description_adf = _build_rhoaieng_violation_report_description(
+            rule,
+            components,
+            rhoai_version,
+            effective_until,
+            fix_target_version=fix_target_version,
+            exception_scope=exception_scope,
+        )
+        issue_json: dict = {
+            "projectKey": project,
+            "summary": summary,
+            "type": "Bug",
+            "priority": "Blocker",
+            "description": description_adf,
+            "additionalAttributes": {
+                "labels": labels,
+            },
+        }
+        if fix_target_version:
+            issue_json["additionalAttributes"]["fixVersions"] = [fix_target_version]
+    elif project == "RHOAIENG" and purpose == "remediation":
         exception_label = build_exception_label(rule, components)
         labels.append(exception_label)
         description_adf = _build_rhoaieng_remediation_description(
@@ -942,19 +1010,22 @@ def create_ticket(
             components,
             rhoai_version,
             effective_until,
-            rhoaieng_url,
+            violation_jira_url or rhoaieng_url,
             exception_scope=exception_scope,
             exception_remediation=exception_remediation,
         )
-        issue_json: dict = {
+        issue_json = {
             "projectKey": project,
             "summary": summary,
             "type": "Bug",
+            "priority": "Blocker",
             "description": description_adf,
             "additionalAttributes": {
                 "labels": labels,
             },
         }
+        if fix_target_version:
+            issue_json["additionalAttributes"]["fixVersions"] = [fix_target_version]
     elif project == "RHOAIENG":
         fetch_template_description()
         exception_label = build_exception_label(rule, components)
@@ -972,7 +1043,7 @@ def create_ticket(
         issue_json = {
             "projectKey": project,
             "summary": summary,
-            "type": "Bug",
+            "type": "Task",
             "priority": "Blocker",
             "description": description_adf,
             "additionalAttributes": {
@@ -1661,7 +1732,12 @@ def _build_summary(
 ) -> str:
     """Build the expected summary string for a ticket."""
     tag_prefix = f"[{vendor_tag}] " if vendor_tag else ""
-    purpose_tag = "[Code Fix] " if purpose == "remediation" else "[Exception Approval] "
+    purpose_tags = {
+        "violation_report": "[Conforma Violation] ",
+        "remediation": "[Code Fix] ",
+        "approval": "[Exception Approval] ",
+    }
+    purpose_tag = purpose_tags.get(purpose, "[Exception Approval] ")
     comp_str = ", ".join(components[:3])
     if len(components) > 3:
         comp_str += f" (+{len(components) - 3} more)"
@@ -1685,11 +1761,26 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--rhoai-version", required=True)
     parser.add_argument("--effective-until", required=True)
-    parser.add_argument("--rhoaieng-url", default=None, help="RHOAIENG approval ticket URL (for PSX/OCPEXCEPT)")
+    parser.add_argument("--rhoaieng-url", default=None, help="Deprecated alias for --violation-jira-url")
+    parser.add_argument(
+        "--violation-jira-url",
+        default=None,
+        help="RHOAIENG violation report ticket URL",
+    )
+    parser.add_argument(
+        "--remediation-jira-url",
+        default=None,
+        help="RHOAIENG remediation ticket URL",
+    )
     parser.add_argument(
         "--remediation-plan-url",
         default=None,
-        help="RHOAIENG resolution plan ticket URL (referenced in justification text)",
+        help="Deprecated alias for --violation-jira-url (backward compat)",
+    )
+    parser.add_argument(
+        "--approval-jira-url",
+        default=None,
+        help="RHOAIENG approval ticket URL",
     )
     parser.add_argument("--psx-url", default=None, help="PSX ticket URL (for RHOAIENG back-ref)")
     parser.add_argument(
@@ -1734,8 +1825,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--purpose",
         default="approval",
-        choices=["approval", "remediation"],
-        help="RHOAIENG ticket purpose: approval (Blocker Bug) or remediation (Bug for fix)",
+        choices=["violation_report", "remediation", "approval"],
+        help="RHOAIENG ticket purpose: violation_report (Blocker Bug), remediation (Blocker Bug), approval (Blocker Task)",
+    )
+    parser.add_argument(
+        "--fix-target-version",
+        default=None,
+        help="Target RHOAI version for the fix (sets fixVersion on violation_report/remediation tickets)",
     )
     parser.add_argument(
         "--assignee",
@@ -1765,6 +1861,11 @@ def main() -> int:
     args = parse_args()
     components = [c.strip() for c in args.components.split(",")]
 
+    # Resolve deprecated aliases
+    _violation_jira_url = args.violation_jira_url or args.rhoaieng_url or args.remediation_plan_url
+    _remediation_jira_url = args.remediation_jira_url
+    _approval_jira_url = args.approval_jira_url
+
     # --- Resolve template + justification if provided ---
     if args.template:
         versions_str = args.rhoai_version or ""
@@ -1778,9 +1879,12 @@ def main() -> int:
             "versions": ", ".join(versions_list) if versions_list else versions_str,
             "version_count": str(len(versions_list)) if versions_list else "1",
             "vendor": args.vendor_tag or "",
-            "rhoaieng_exception_approval_url": args.rhoaieng_url or "",
-            "remediation_plan_url": args.remediation_plan_url or "",
+            "rhoaieng_exception_approval_url": _approval_jira_url or "",
+            "rhoaieng_jira_violation_url": _violation_jira_url or "",
+            "remediation_jira_url": _remediation_jira_url or "",
+            "remediation_plan_url": _violation_jira_url or "",
             "psx_url": args.psx_url or "",
+            "prodsec_ticket_url": args.psx_url or "",
             "effective_until": args.effective_until or "",
         }
         resolved = resolve_template(
@@ -1839,7 +1943,7 @@ def main() -> int:
         components=components,
         rhoai_version=args.rhoai_version,
         effective_until=args.effective_until,
-        rhoaieng_url=args.rhoaieng_url,
+        rhoaieng_url=_violation_jira_url,
         psx_url=args.psx_url,
         link_to=args.link_to,
         summary_context=args.summary_context,
@@ -1853,6 +1957,9 @@ def main() -> int:
         purpose=args.purpose,
         assignee=args.assignee,
         jira_components=jira_comp_list,
+        fix_target_version=args.fix_target_version,
+        violation_jira_url=_violation_jira_url,
+        remediation_jira_url=_remediation_jira_url,
         dry_run=args.dry_run,
     )
     print(json.dumps(result, indent=2))

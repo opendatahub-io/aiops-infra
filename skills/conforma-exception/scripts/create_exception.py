@@ -40,7 +40,12 @@ SCRIPTS_DIR = Path(__file__).parent
 
 def _get_reference_title(result: dict, reference_url: str) -> str | None:
     """Extract the Jira ticket title from previous stage results or fetch it live."""
-    for stage_key in ("psx_exception_jira", "rhoaieng_approval_jira"):
+    for stage_key in (
+        "prodsec_form_submission",
+        "psx_exception_jira",
+        "rhoaieng_approval_jira",
+        "rhoaieng_violation_report_jira",
+    ):
         stage = result.get("stages", {}).get(stage_key, {})
         if stage.get("ticket_url") == reference_url and stage.get("summary"):
             return stage["summary"]
@@ -70,14 +75,18 @@ def _get_reference_title(result: dict, reference_url: str) -> str | None:
     return None
 
 
-def _summarise_workflow(steps: list[dict]) -> str:
+def _summarise_workflow(steps: list[dict], has_violation_report: bool = True) -> str:
     """Build a human-readable workflow summary from template steps."""
     plan_parts: list[str] = []
     approval_parts: list[str] = []
 
+    if has_violation_report:
+        plan_parts.append("Violation Report (RHOAIENG Jira)")
+
     step_labels = {
-        "rhoaieng_resolution_plan_jira": "Resolution plan (team)",
+        "rhoaieng_remediation_jira": "Remediation (RHOAIENG Jira)",
         "rhoaieng_approval_jira": "Senior Management approval (RHOAIENG Jira)",
+        "prodsec_form_submission": "ProdSec exception form (user submits pre-fill URL)",
         "psx_exception_jira": None,
         "exception_merge_request": "GitLab Merge Request",
     }
@@ -232,8 +241,17 @@ def main() -> int:
     parser.add_argument("--components", default=None)
     parser.add_argument("--effective-until-date", default=None)
     parser.add_argument("--environment", default="prod", choices=["prod", "stage"])
-    parser.add_argument("--rhoaieng-url", default=None)
-    parser.add_argument("--psx-url", default=None)
+    parser.add_argument("--rhoaieng-url", default=None, help="Deprecated alias for --violation-jira-url")
+    parser.add_argument("--violation-jira-url", default=None, help="Existing RHOAIENG violation report URL")
+    parser.add_argument("--remediation-jira-url", default=None, help="Existing RHOAIENG remediation URL")
+    parser.add_argument("--approval-jira-url", default=None, help="Existing RHOAIENG approval URL")
+    parser.add_argument("--fix-target-version", default=None, help="Target RHOAI version for the fix (required)")
+    parser.add_argument(
+        "--prodsec-ticket-url",
+        default=None,
+        help="ProdSec ticket URL (from form submission or existing OCPEXCEPT ticket)",
+    )
+    parser.add_argument("--psx-url", default=None, help="Alias for --prodsec-ticket-url (backward compat)")
     parser.add_argument("--image-ref", default=None, help="SHA digest for weekday_restriction")
     parser.add_argument(
         "--link-to",
@@ -302,6 +320,14 @@ def main() -> int:
         if not getattr(args, required):
             parser.error(f"--{required.replace('_', '-')} is required when creating exceptions")
 
+    # Resolve prodsec ticket URL early (before validation forwarding)
+    _prodsec_ticket_url = args.prodsec_ticket_url or args.psx_url
+
+    # Resolve deprecated aliases for three-ticket URLs
+    _violation_jira_url = args.violation_jira_url or args.rhoaieng_url
+    _remediation_jira_url = args.remediation_jira_url
+    _approval_jira_url = args.approval_jira_url
+
     result: dict = {"stages": {}}
 
     # --- Stage 1: Validate inputs ---
@@ -317,10 +343,16 @@ def main() -> int:
     ]
     if args.effective_until_date:
         validate_args.extend(["--effective-until-date", args.effective_until_date])
-    if args.rhoaieng_url:
-        validate_args.extend(["--rhoaieng-url", args.rhoaieng_url])
-    if args.psx_url:
-        validate_args.extend(["--psx-url", args.psx_url])
+    if _violation_jira_url:
+        validate_args.extend(["--violation-jira-url", _violation_jira_url])
+    if _remediation_jira_url:
+        validate_args.extend(["--remediation-jira-url", _remediation_jira_url])
+    if _approval_jira_url:
+        validate_args.extend(["--approval-jira-url", _approval_jira_url])
+    if args.fix_target_version:
+        validate_args.extend(["--fix-target-version", args.fix_target_version])
+    if _prodsec_ticket_url:
+        validate_args.extend(["--psx-url", _prodsec_ticket_url])
     if args.dry_run:
         validate_args.append("--dry-run")
 
@@ -387,7 +419,7 @@ def main() -> int:
 
     # --- Ensure component-maturity catalog for Jira Component resolution ---
     has_rhoaieng_step = any(s.get("project") == "RHOAIENG" for s in workflow_steps)
-    if has_rhoaieng_step and not args.jira_components:
+    if (has_rhoaieng_step or True) and not args.jira_components:
         try:
             import component_catalog_ops
 
@@ -400,17 +432,82 @@ def main() -> int:
         except Exception as exc:
             print(f"WARNING: component-maturity catalog setup failed: {exc}", file=sys.stderr)
 
-    # --- Execute workflow steps ---
-    rhoaieng_url = args.rhoaieng_url
-    psx_url = args.psx_url
-    remediation_plan_url: str | None = None
+    fix_target_version = args.fix_target_version
+
+    # --- Execute workflow: implicit violation report + template steps ---
+    violation_report_url: str | None = _violation_jira_url
+    remediation_url: str | None = _remediation_jira_url
+    approval_url: str | None = _approval_jira_url
+    prodsec_ticket_url = _prodsec_ticket_url
+    psx_url = prodsec_ticket_url
     all_ticket_urls: list[str] = []
 
+    # --- Implicit Step 0: Violation Report Jira ---
+    if violation_report_url:
+        result["stages"]["rhoaieng_violation_report_jira"] = {
+            "status": "provided",
+            "ticket_url": violation_report_url,
+        }
+        all_ticket_urls.append(violation_report_url)
+    else:
+        jira_args = [
+            "--project",
+            "RHOAIENG",
+            "--purpose",
+            "violation_report",
+            "--rule",
+            args.rule,
+            "--components",
+            args.components,
+            "--rhoai-version",
+            args.rhoai_version,
+            "--effective-until",
+            effective_until or "",
+        ]
+        if fix_target_version:
+            jira_args.extend(["--fix-target-version", fix_target_version])
+        if args.link_to:
+            jira_args.extend(["--link-to", args.link_to])
+        if args.summary_context:
+            jira_args.extend(["--summary-context", args.summary_context])
+        if args.vendor_tag:
+            jira_args.extend(["--vendor-tag", args.vendor_tag])
+        if args.jira_components:
+            jira_args.extend(["--jira-components", args.jira_components])
+        if args.exception_scope:
+            jira_args.extend(["--exception-scope", args.exception_scope])
+        _add_template_and_justification_args(jira_args)
+        if args.dry_run:
+            jira_args.append("--dry-run")
+
+        jira_result = run_script("create_jira_ticket.py", jira_args)
+        result["stages"]["rhoaieng_violation_report_jira"] = jira_result
+
+        if jira_result.get("status") == "failed":
+            print(json.dumps(result, indent=2))
+            print(
+                f"\nFailed to create RHOAIENG violation report ticket: {jira_result.get('error')}", file=sys.stderr
+            )
+            return 1
+
+        violation_report_url = jira_result.get("ticket_url")
+        if violation_report_url:
+            all_ticket_urls.append(violation_report_url)
+
+    # --- Execute template workflow steps ---
     for step in workflow_steps:
         step_id = step.get("step")
         project = step.get("project")
 
-        if step_id == "rhoaieng_resolution_plan_jira":
+        if step_id == "rhoaieng_remediation_jira":
+            if remediation_url:
+                result["stages"]["rhoaieng_remediation_jira"] = {
+                    "status": "provided",
+                    "ticket_url": remediation_url,
+                }
+                all_ticket_urls.append(remediation_url)
+                continue
+
             jira_args = [
                 "--project",
                 "RHOAIENG",
@@ -425,6 +522,10 @@ def main() -> int:
                 "--effective-until",
                 effective_until or "",
             ]
+            if violation_report_url:
+                jira_args.extend(["--violation-jira-url", violation_report_url])
+            if fix_target_version:
+                jira_args.extend(["--fix-target-version", fix_target_version])
             if args.link_to:
                 jira_args.extend(["--link-to", args.link_to])
             if args.summary_context:
@@ -439,26 +540,26 @@ def main() -> int:
                 jira_args.append("--dry-run")
 
             jira_result = run_script("create_jira_ticket.py", jira_args)
-            result["stages"]["rhoaieng_resolution_plan_jira"] = jira_result
+            result["stages"]["rhoaieng_remediation_jira"] = jira_result
 
             if jira_result.get("status") == "failed":
                 print(json.dumps(result, indent=2))
                 print(
-                    f"\nFailed to create RHOAIENG resolution plan ticket: {jira_result.get('error')}", file=sys.stderr
+                    f"\nFailed to create RHOAIENG remediation ticket: {jira_result.get('error')}", file=sys.stderr
                 )
                 return 1
 
-            remediation_plan_url = jira_result.get("ticket_url")
-            if remediation_plan_url:
-                all_ticket_urls.append(remediation_plan_url)
+            remediation_url = jira_result.get("ticket_url")
+            if remediation_url:
+                all_ticket_urls.append(remediation_url)
 
         elif step_id == "rhoaieng_approval_jira":
-            if rhoaieng_url:
+            if approval_url:
                 result["stages"]["rhoaieng_approval_jira"] = {
                     "status": "provided",
-                    "ticket_url": rhoaieng_url,
+                    "ticket_url": approval_url,
                 }
-                all_ticket_urls.append(rhoaieng_url)
+                all_ticket_urls.append(approval_url)
             else:
                 jira_args = [
                     "--project",
@@ -474,8 +575,10 @@ def main() -> int:
                     "--effective-until",
                     effective_until or "",
                 ]
-                if remediation_plan_url:
-                    jira_args.extend(["--remediation-plan-url", remediation_plan_url])
+                if violation_report_url:
+                    jira_args.extend(["--violation-jira-url", violation_report_url])
+                if remediation_url:
+                    jira_args.extend(["--remediation-jira-url", remediation_url])
                 if args.psx_url:
                     jira_args.extend(["--psx-url", args.psx_url])
                 if args.link_to:
@@ -502,17 +605,15 @@ def main() -> int:
                     print(f"\nFailed to create RHOAIENG approval ticket: {jira_result.get('error')}", file=sys.stderr)
                     return 1
 
-                rhoaieng_url = jira_result.get("ticket_url")
-                if rhoaieng_url:
-                    all_ticket_urls.append(rhoaieng_url)
+                approval_url = jira_result.get("ticket_url")
+                if approval_url:
+                    all_ticket_urls.append(approval_url)
 
             # --- RHOAIENG Approval Gate ---
-            # The approval Jira MUST be approved before creating PSX/MR.
-            # This gate runs whether the ticket was just created or pre-existing.
-            if not args.dry_run and rhoaieng_url:
+            if not args.dry_run and approval_url:
                 from preflight_check import check_rhoaieng_approval_status
 
-                approval = check_rhoaieng_approval_status(rhoaieng_url)
+                approval = check_rhoaieng_approval_status(approval_url)
                 result["stages"]["rhoaieng_approval_check"] = approval
 
                 if not approval["approved"]:
@@ -520,20 +621,20 @@ def main() -> int:
                         f"\n{'=' * 70}\n"
                         f"RHOAIENG APPROVAL GATE — BLOCKED\n"
                         f"{'=' * 70}\n\n"
-                        f"Ticket: {rhoaieng_url}\n"
+                        f"Ticket: {approval_url}\n"
                         f"Status: {approval['status']}"
                         + (f" (resolution: {approval['resolution']})" if approval["resolution"] else "")
                         + "\n\n"
                         f"The RHOAIENG approval Jira ticket must be approved\n"
-                        f"(Closed/Resolved) BEFORE creating the PSX/OCPEXCEPT\n"
-                        f"Jira ticket and GitLab Merge Request.\n\n"
+                        f"(Closed/Resolved) BEFORE submitting the ProdSec form,\n"
+                        f"creating the OCPEXCEPT ticket, or the GitLab Merge Request.\n\n"
                         f"Required action:\n"
                         f"  1. Get approval from Senior Management on {approval['key']}:\n"
                         f"     - Lindani Phiri\n"
                         f"     - Jay Koehler\n"
                         f"     - Sherard Griffin (or another member of Steven Huel's staff)\n"
                         f"  2. Wait for the ticket to be Closed/Resolved with approval\n"
-                        f"  3. Re-run this skill with --rhoaieng-url {rhoaieng_url}\n\n"
+                        f"  3. Re-run this skill with --approval-jira-url {approval_url}\n\n"
                         f"To override this gate (NOT RECOMMENDED), re-run with\n"
                         f"  --skip-approval-gate\n"
                         f"{'=' * 70}\n",
@@ -547,11 +648,83 @@ def main() -> int:
                         f"WARNING: --skip-approval-gate is set. Proceeding\n"
                         f"WITHOUT RHOAIENG approval. The approval Jira\n"
                         f"({approval['key']}) is still {approval['status']}.\n"
-                        f"PSX/OCPEXCEPT reviewers may reject the exception\n"
+                        f"ProdSec/OCPEXCEPT reviewers may reject the exception\n"
                         f"if RHOAIENG approval is missing.\n"
                         f"{'!' * 70}\n",
                         file=sys.stderr,
                     )
+
+        elif step_id == "prodsec_form_submission":
+            if prodsec_ticket_url:
+                result["stages"]["prodsec_form_submission"] = {
+                    "status": "provided",
+                    "ticket_url": prodsec_ticket_url,
+                }
+                all_ticket_urls.append(prodsec_ticket_url)
+                continue
+
+            from fill_prodsec_form import generate_prefill_url, validate_config
+
+            form_warnings = validate_config()
+            form_warning_msgs = [str(w) for w in form_warnings]
+
+            try:
+                prefill_url = generate_prefill_url(
+                    rule=args.rule,
+                    components=args.components,
+                    rhoai_version=args.rhoai_version,
+                    effective_until=effective_until or "",
+                    exception_scope=args.exception_scope or "",
+                    exception_risk=args.exception_risk or "",
+                    exception_remediation=args.exception_remediation or "",
+                    exception_impact=args.exception_impact or "",
+                    rhoaieng_url=approval_url or violation_report_url or "",
+                    vendor_tag=args.vendor_tag or "",
+                    summary_context=args.summary_context or "",
+                    authorized_party=args.authorized_party or "",
+                )
+            except (FileNotFoundError, ValueError, ImportError) as exc:
+                result["stages"]["prodsec_form_submission"] = {
+                    "status": "failed",
+                    "error": str(exc),
+                    "form_warnings": form_warning_msgs,
+                }
+                print(json.dumps(result, indent=2))
+                print(f"\nFailed to generate ProdSec form URL: {exc}", file=sys.stderr)
+                return 1
+
+            result["stages"]["prodsec_form_submission"] = {
+                "status": "awaiting_user",
+                "prefill_url": prefill_url,
+                "form_warnings": form_warning_msgs,
+                "instructions": (
+                    "Open the pre-fill URL in your browser, review the form fields, "
+                    "and submit. After submission, a Jira ticket will be created. "
+                    "Provide the resulting ticket URL with --prodsec-ticket-url "
+                    "when re-running this script to continue the workflow."
+                ),
+            }
+
+            if args.dry_run:
+                continue
+
+            print(
+                f"\n{'=' * 70}\n"
+                f"PRODSEC FORM — USER ACTION REQUIRED\n"
+                f"{'=' * 70}\n\n"
+                f"Pre-fill URL:\n  {prefill_url}\n\n"
+                f"Open the URL, review the form, and submit.\n"
+                f"After submission, re-run with:\n"
+                f"  --prodsec-ticket-url <TICKET_URL>\n"
+                f"{'=' * 70}\n",
+                file=sys.stderr,
+            )
+            if form_warning_msgs:
+                for msg in form_warning_msgs:
+                    print(f"FORM WARNING: {msg}", file=sys.stderr)
+
+            print(json.dumps(result, indent=2))
+            return 0
 
         elif step_id == "psx_exception_jira":
             if psx_url:
@@ -574,11 +747,11 @@ def main() -> int:
                 args.rhoai_version,
                 "--effective-until",
                 effective_until or "",
-                "--rhoaieng-url",
-                rhoaieng_url or "",
+                "--violation-jira-url",
+                violation_report_url or "",
             ]
-            if remediation_plan_url:
-                jira_args.extend(["--remediation-plan-url", remediation_plan_url])
+            if remediation_url:
+                jira_args.extend(["--remediation-jira-url", remediation_url])
             if args.link_to:
                 jira_args.extend(["--link-to", args.link_to])
             if args.summary_context:
@@ -606,7 +779,7 @@ def main() -> int:
 
         elif step_id == "exception_merge_request":
             step_self_service = step.get("self_service", False) or is_self_service
-            reference_url = psx_url or rhoaieng_url or ""
+            reference_url = prodsec_ticket_url or psx_url or approval_url or violation_report_url or ""
             reference_title = _get_reference_title(result, reference_url)
             mr_args = [
                 "--rule",
@@ -624,10 +797,10 @@ def main() -> int:
             ]
             if reference_title:
                 mr_args.extend(["--reference-title", reference_title])
-            if rhoaieng_url:
-                mr_args.extend(["--rhoaieng-url", rhoaieng_url])
-            if remediation_plan_url:
-                mr_args.extend(["--remediation-plan-url", remediation_plan_url])
+            if violation_report_url:
+                mr_args.extend(["--rhoaieng-url", violation_report_url])
+            if remediation_url:
+                mr_args.extend(["--remediation-plan-url", remediation_url])
             if args.spreadsheet_url:
                 mr_args.extend(["--spreadsheet-url", args.spreadsheet_url])
             if args.vendor_tag:
@@ -656,8 +829,12 @@ def main() -> int:
     mr_url = result.get("stages", {}).get("exception_merge_request", {}).get("mr_url")
     if mr_url and not args.dry_run:
         link_args = ["--mr-url", mr_url]
-        if rhoaieng_url:
-            link_args.extend(["--rhoaieng-url", rhoaieng_url])
+        if violation_report_url:
+            link_args.extend(["--violation-jira-url", violation_report_url])
+        if remediation_url:
+            link_args.extend(["--remediation-jira-url", remediation_url])
+        if approval_url:
+            link_args.extend(["--approval-jira-url", approval_url])
         if psx_url:
             link_args.extend(["--psx-url", psx_url])
         if args.link_to:
@@ -672,12 +849,15 @@ def main() -> int:
 
     # --- Final output ---
     result["summary"] = {
-        "workflow_steps": [s.get("step") for s in workflow_steps],
-        "rhoaieng_url": rhoaieng_url,
-        "remediation_plan_url": remediation_plan_url,
+        "workflow_steps": ["rhoaieng_violation_report_jira"] + [s.get("step") for s in workflow_steps],
+        "violation_report_url": violation_report_url,
+        "remediation_url": remediation_url,
+        "approval_url": approval_url,
+        "prodsec_ticket_url": prodsec_ticket_url,
         "psx_url": psx_url,
         "mr_url": mr_url,
         "all_ticket_urls": all_ticket_urls,
+        "environment": args.environment,
         "dry_run": args.dry_run,
     }
 

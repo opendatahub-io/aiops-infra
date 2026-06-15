@@ -93,7 +93,7 @@ class TestResolveTemplate:
             "component_count": "1",
             "versions": "rhoai-3.3",
             "version_count": "1",
-            "remediation_plan_url": "https://redhat.atlassian.net/browse/RHOAIENG-1",
+            "rhoaieng_jira_violation_url": "https://redhat.atlassian.net/browse/RHOAIENG-1",
         }
         result = cjt.resolve_template("hermetic_build", variables, justification_id="dev_preview")
         assert "summary_context" in result
@@ -111,7 +111,7 @@ class TestResolveTemplate:
             "component_count": "1",
             "versions": "rhoai-3.3",
             "version_count": "1",
-            "remediation_plan_url": "https://example.com/plan",
+            "rhoaieng_jira_violation_url": "https://example.com/plan",
         }
         result = cjt.resolve_template("hermetic_build", variables)
         assert result["risk"]
@@ -190,6 +190,82 @@ class TestBuildExceptionLabel:
         assert label == "Exception - hermetic_task.hermetic:unknown"
 
 
+class TestBuildPsxFilledAdf:
+    """Verify _build_psx_filled_adf uses template-resolved text, not hardcoded."""
+
+    def _extract_all_text(self, adf: dict) -> str:
+        """Recursively extract all text from an ADF document."""
+        texts = []
+        for node in adf.get("content", []):
+            for child in node.get("content", []):
+                if child.get("type") == "text":
+                    texts.append(child["text"])
+        return "\n".join(texts)
+
+    def test_no_rpm_signing_key_note_for_unrelated_rule(self):
+        adf = cjt._build_psx_filled_adf(
+            rule="test.no_failed_tests:deprecated-image-check",
+            components=["odh-training-cuda121-v3-5-ea-1"],
+            rhoai_version="rhoai-3.5-ea.1",
+            effective_until="2026-12-31T00:00:00Z",
+            rhoaieng_url="https://redhat.atlassian.net/browse/RHOAIENG-67567",
+            exception_scope="Stage exception for deprecated-image-check",
+        )
+        all_text = self._extract_all_text(adf)
+        assert "signing key" not in all_text.lower()
+        assert "third-party signed RPMs" not in all_text
+
+    def test_no_code_freeze_assumption_for_non_frozen_release(self):
+        adf = cjt._build_psx_filled_adf(
+            rule="hermetic_task.hermetic",
+            components=["odh-mlflow-v3-5-ea-1"],
+            rhoai_version="rhoai-3.5-ea.1",
+            effective_until="2026-12-31T00:00:00Z",
+            rhoaieng_url="https://redhat.atlassian.net/browse/RHOAIENG-12345",
+            exception_scope="Non-hermetic build for odh-mlflow",
+        )
+        all_text = self._extract_all_text(adf)
+        assert "code-frozen" not in all_text
+        assert "z-stream/sub-releases" not in all_text
+
+    def test_uses_provided_scope_in_reason(self):
+        custom_scope = "Custom scope: GPU driver packages from AMD"
+        adf = cjt._build_psx_filled_adf(
+            rule="rpm_signature.allowed:abc123",
+            components=["odh-vllm-cpu-v3-4"],
+            rhoai_version="rhoai-3.4",
+            effective_until="2026-10-10T00:00:00Z",
+            rhoaieng_url="https://redhat.atlassian.net/browse/RHOAIENG-99999",
+            exception_scope=custom_scope,
+        )
+        all_text = self._extract_all_text(adf)
+        assert custom_scope in all_text
+
+    def test_includes_rule_and_components_in_reason(self):
+        adf = cjt._build_psx_filled_adf(
+            rule="sbom_spdx.allowed_package_sources:foo",
+            components=["odh-dashboard-v3-4", "odh-notebook-v3-4"],
+            rhoai_version="rhoai-3.4",
+            effective_until="2026-10-10T00:00:00Z",
+            rhoaieng_url="https://redhat.atlassian.net/browse/RHOAIENG-11111",
+        )
+        all_text = self._extract_all_text(adf)
+        assert "sbom_spdx.allowed_package_sources:foo" in all_text
+        assert "odh-dashboard-v3-4" in all_text
+        assert "odh-notebook-v3-4" in all_text
+
+    def test_adf_has_expected_panel_count(self):
+        adf = cjt._build_psx_filled_adf(
+            rule="hermetic_task.hermetic",
+            components=["odh-mlflow-v3-3"],
+            rhoai_version="rhoai-3.3",
+            effective_until="2026-10-10T00:00:00Z",
+            rhoaieng_url="https://redhat.atlassian.net/browse/RHOAIENG-12345",
+        )
+        panels = [n for n in adf["content"] if n.get("type") == "panel"]
+        assert len(panels) == 6
+
+
 class TestBuildProvenanceFooter:
     def test_includes_repo_and_user(self):
         with (
@@ -201,3 +277,72 @@ class TestBuildProvenanceFooter:
         assert cjt.PROVENANCE_REPO in footer
         assert "conforma-exception" in footer
         assert "testuser@testhost" in footer
+
+
+class TestThreeTicketModel:
+    """Tests for the three-ticket Jira model (violation_report, remediation, approval)."""
+
+    def test_violation_report_purpose_tag(self):
+        result = cjt._build_summary(
+            "RHOAIENG",
+            "hermetic_task.hermetic",
+            ["odh-mlflow-v3-3"],
+            "rhoai-3.3",
+            None,
+            None,
+            purpose="violation_report",
+        )
+        assert "[Conforma Violation]" in result
+        assert "odh-mlflow-v3-3" in result
+
+    def test_remediation_is_blocker_bug(self):
+        """Remediation should now be Blocker Bug (was regular Bug)."""
+        result = cjt._build_summary(
+            "RHOAIENG",
+            "hermetic_task.hermetic",
+            ["odh-mlflow-v3-3"],
+            "rhoai-3.3",
+            None,
+            None,
+            purpose="remediation",
+        )
+        assert "[Code Fix]" in result
+
+    def test_approval_purpose_tag(self):
+        result = cjt._build_summary(
+            "RHOAIENG",
+            "hermetic_task.hermetic",
+            ["odh-mlflow-v3-3"],
+            "rhoai-3.3",
+            None,
+            None,
+            purpose="approval",
+        )
+        assert "[Exception Approval]" in result
+
+    def test_violation_report_description(self):
+        desc = cjt._build_rhoaieng_violation_report_description(
+            rule="hermetic_task.hermetic",
+            components=["odh-mlflow-v3-3"],
+            rhoai_version="rhoai-3.3",
+            effective_until="2026-10-10T00:00:00Z",
+            fix_target_version="rhoai-3.4",
+            exception_scope="Non-hermetic build for odh-mlflow",
+        )
+        assert desc["version"] == 1
+        assert desc["type"] == "doc"
+        text = desc["content"][0]["content"][0]["text"]
+        assert "Conforma Violation Report" in text
+        assert "hermetic_task.hermetic" in text
+        assert "Fix Target Version: rhoai-3.4" in text
+        assert "Non-hermetic build for odh-mlflow" in text
+
+    def test_violation_report_description_no_fix_version(self):
+        desc = cjt._build_rhoaieng_violation_report_description(
+            rule="hermetic_task.hermetic",
+            components=["odh-mlflow-v3-3"],
+            rhoai_version="rhoai-3.3",
+            effective_until="2026-10-10T00:00:00Z",
+        )
+        text = desc["content"][0]["content"][0]["text"]
+        assert "Fix Target Version" not in text

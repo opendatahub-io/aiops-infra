@@ -44,7 +44,8 @@ WORK_DIR = _SKILL_DIR / ".work"
 # Hard rules — NOT configurable by the agent or user
 HARD_RULES = {
     "mr_strategy": "one_mr_per_rule_all_versions",
-    "link_type_rhoaieng_to_psx": "Blocks",
+    "link_type_rhoaieng_to_prodsec": "Blocks",
+    "link_type_rhoaieng_to_psx": "Blocks",  # legacy alias
     "link_type_related_psx": "Related",
     "link_type_tracking_ticket": "Related",
     "no_self_links": True,
@@ -234,8 +235,8 @@ def check_rhoaieng_approval_status(url: str) -> dict:
         reason = (
             f"{ticket_key} is {status_name}"
             + (f" (resolution: {resolution_name})" if resolution_name else "")
-            + ". RHOAIENG approval is required before creating PSX Jira "
-            + "ticket and GitLab Merge Request."
+            + ". RHOAIENG approval is required before submitting the ProdSec "
+            + "form, creating OCPEXCEPT tickets, or the GitLab Merge Request."
         )
 
     return {
@@ -414,6 +415,7 @@ def evaluate_decision(
         }
 
     volatile = existing_exceptions.get("existing_exceptions", [])
+    volatile = [v for v in volatile if f"-{environment}." in Path(v["file"]).name]
     if not volatile:
         return {
             "proceed": True,
@@ -691,9 +693,9 @@ def run_preflight(
     if not approval_status["approved"]:
         output["user_confirmation_required"].append(
             f"RHOAIENG APPROVAL REQUIRED: {approval_status['reason']} "
-            f"PSX Jira and GitLab Merge Request creation will be blocked "
-            f"until this ticket is approved. Use --skip-approval-gate to "
-            f"override (not recommended)."
+            f"ProdSec form submission, OCPEXCEPT ticket creation, and GitLab "
+            f"Merge Request creation will be blocked until this ticket is "
+            f"approved. Use --skip-approval-gate to override (not recommended)."
         )
 
     # 2. Resolve rule
@@ -755,7 +757,7 @@ def run_preflight(
         existing = conforma_policy_ops.search_existing_exceptions(resolved_rule, clone_dir)
         output["existing_exceptions"] = existing
 
-    # 8. Discover user's Jira groups for PSX watcher suggestion
+    # 8. Discover user's Jira groups for watcher suggestion
     watcher_info = discover_user_groups()
     output["psx_watchers"] = watcher_info
     suggested = watcher_info.get("suggested_members", [])
@@ -763,10 +765,10 @@ def run_preflight(
         member_names = [m["displayName"] for m in suggested[:5]]
         suffix = f" (+{len(suggested) - 5} more)" if len(suggested) > 5 else ""
         output["user_confirmation_required"].append(
-            f"PSX visibility: Found {len(suggested)} potential watchers from "
+            f"Ticket visibility: Found {len(suggested)} potential watchers from "
             f"group(s) {watcher_info.get('groups_found', [])}. "
             f"Suggested: {', '.join(member_names)}{suffix}. "
-            f"Add as watchers? (source: {watcher_info['source']})"
+            f"Add as watchers on RHOAIENG/OCPEXCEPT tickets? (source: {watcher_info['source']})"
         )
 
     # 9. Evaluate decision (deterministic go/no-go)

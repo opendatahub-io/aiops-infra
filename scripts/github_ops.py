@@ -213,6 +213,78 @@ def get_repo(repo: str) -> dict:
         return {"error": str(exc)}
 
 
+def check_issues_enabled(repo: str) -> dict:
+    """Check whether a GitHub repository has issues enabled.
+
+    Returns {"enabled": True|False} or {"error": str}.
+    """
+    try:
+        result = _run_gh(
+            ["api", f"repos/{repo}", "--jq", ".has_issues"],
+            timeout=15,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr + result.stdout).strip()
+            return {"error": detail or f"Failed to check issues for {repo}"}
+
+        val = result.stdout.strip().lower()
+        return {"enabled": val == "true"}
+    except FileNotFoundError:
+        return {"error": "gh CLI not found on PATH"}
+    except subprocess.TimeoutExpired:
+        return {"error": "gh api timed out"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def create_issue(
+    repo: str,
+    title: str,
+    body: str,
+    labels: list[str] | None = None,
+) -> dict:
+    """Create a GitHub issue via gh CLI.
+
+    Returns {"issue_url": str, "issue_number": int} or {"error": str}.
+    """
+    try:
+        cmd = [
+            "issue",
+            "create",
+            "--repo",
+            repo,
+            "--title",
+            title,
+            "--body",
+            body,
+        ]
+        for label in labels or []:
+            cmd.extend(["--label", label])
+
+        result = _run_gh(cmd, timeout=60)
+        if result.returncode != 0:
+            detail = (result.stderr + result.stdout).strip()
+            return {"error": detail or "gh issue create failed"}
+
+        issue_url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+        issue_number = None
+        if issue_url:
+            match = re.search(r"/issues/(\d+)(?:\?.*)?$", issue_url)
+            if match:
+                issue_number = int(match.group(1))
+
+        if not issue_url or issue_number is None:
+            return {"error": "Issue created but could not determine URL/number"}
+
+        return {"issue_url": issue_url, "issue_number": issue_number}
+    except FileNotFoundError:
+        return {"error": "gh CLI not found on PATH"}
+    except subprocess.TimeoutExpired:
+        return {"error": "gh issue create timed out"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def check_workflow_run(repo: str, run_id: int | str) -> dict:
     """Check GitHub Actions workflow run status."""
     try:
@@ -266,6 +338,15 @@ def main() -> None:
     p_pr.add_argument("--head", required=True)
     p_pr.add_argument("--base", default="main")
 
+    p_issues_enabled = sub.add_parser("check-issues-enabled")
+    p_issues_enabled.add_argument("--repo", required=True)
+
+    p_issue = sub.add_parser("create-issue")
+    p_issue.add_argument("--repo", required=True)
+    p_issue.add_argument("--title", required=True)
+    p_issue.add_argument("--body", required=True)
+    p_issue.add_argument("--label", action="append", default=None, dest="labels")
+
     p_run = sub.add_parser("check-workflow-run")
     p_run.add_argument("--repo", required=True)
     p_run.add_argument("--run-id", required=True)
@@ -280,6 +361,10 @@ def main() -> None:
         result = get_repo(args.repo)
     elif args.command == "create-pr":
         result = create_pr(args.repo, args.title, args.body, args.head, base_branch=args.base)
+    elif args.command == "check-issues-enabled":
+        result = check_issues_enabled(args.repo)
+    elif args.command == "create-issue":
+        result = create_issue(args.repo, args.title, args.body, labels=args.labels)
     elif args.command == "check-workflow-run":
         result = check_workflow_run(args.repo, args.run_id)
     else:

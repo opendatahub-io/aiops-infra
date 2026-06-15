@@ -193,8 +193,11 @@ def workflow_get_step(workflow: list[dict], step_id: str) -> dict | None:
 
 
 def workflow_is_self_service(workflow: list[dict]) -> bool:
-    """A workflow is self-service if it has no psx_exception_jira step."""
-    return not workflow_has_step(workflow, "psx_exception_jira")
+    """A workflow is self-service if it has no ProdSec or OCPEXCEPT step."""
+    return (
+        not workflow_has_step(workflow, "prodsec_form_submission")
+        and not workflow_has_step(workflow, "psx_exception_jira")
+    )
 
 
 def lookup_component_names(
@@ -443,6 +446,15 @@ def validate_all(args: argparse.Namespace) -> dict:
 
     is_self_service = workflow_is_self_service(workflow_steps)
 
+    # --- Stage workflow override: filter steps not applicable to stage ---
+    if args.environment == "stage":
+        stage_drop_steps = {"rhoaieng_approval_jira", "prodsec_form_submission", "psx_exception_jira"}
+        workflow_steps = [s for s in workflow_steps if s.get("step") not in stage_drop_steps]
+        for s in workflow_steps:
+            if s.get("step") == "exception_merge_request":
+                s["self_service"] = True
+        is_self_service = True
+
     from create_jira_ticket import _load_templates
 
     data = _load_templates()
@@ -471,8 +483,18 @@ def validate_all(args: argparse.Namespace) -> dict:
 
     is_fbc = detect_fbc(components)
     requires_approval = version_gte_threshold(version) and not is_self_service
+    if args.environment == "stage":
+        requires_approval = False
 
-    rhoaieng_info = check_rhoaieng_ticket_type(args.rhoaieng_url)
+    # --fix-target-version is mandatory
+    fix_target_version = getattr(args, "fix_target_version", None)
+    if not fix_target_version:
+        errors.append("--fix-target-version is required (target RHOAI version for the fix)")
+
+    # Resolve violation jira URL from new or deprecated flags
+    violation_jira_url = getattr(args, "violation_jira_url", None) or getattr(args, "rhoaieng_url", None)
+
+    rhoaieng_info = check_rhoaieng_ticket_type(violation_jira_url)
     if rhoaieng_info and rhoaieng_info.get("warning"):
         warnings.append(rhoaieng_info["warning"])
 
@@ -517,7 +539,11 @@ def validate_all(args: argparse.Namespace) -> dict:
         "justification_id": justification_id,
         "applicable_justifications": applicable_justifications,
         "environment": args.environment,
-        "rhoaieng_url": args.rhoaieng_url,
+        "rhoaieng_url": violation_jira_url,
+        "violation_jira_url": violation_jira_url,
+        "remediation_jira_url": getattr(args, "remediation_jira_url", None),
+        "approval_jira_url": getattr(args, "approval_jira_url", None),
+        "fix_target_version": fix_target_version,
         "psx_url": args.psx_url,
         "rhoaieng_info": rhoaieng_info,
         "dry_run": args.dry_run,
@@ -539,7 +565,11 @@ def parse_args() -> argparse.Namespace:
         choices=["prod", "stage"],
         help="Target environment (default: prod)",
     )
-    parser.add_argument("--rhoaieng-url", help="Existing RHOAIENG ticket URL")
+    parser.add_argument("--rhoaieng-url", help="Deprecated alias for --violation-jira-url")
+    parser.add_argument("--violation-jira-url", help="Existing RHOAIENG violation report ticket URL")
+    parser.add_argument("--remediation-jira-url", help="Existing RHOAIENG remediation ticket URL")
+    parser.add_argument("--approval-jira-url", help="Existing RHOAIENG approval ticket URL")
+    parser.add_argument("--fix-target-version", help="Target RHOAI version for the fix (required)")
     parser.add_argument("--psx-url", help="Existing PSX/OCPEXCEPT ticket URL")
     parser.add_argument(
         "--justification", default=None, help="Justification template ID (e.g., dev_preview, code_frozen)"

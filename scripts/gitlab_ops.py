@@ -261,6 +261,48 @@ def update_mr(
         return {"error": str(exc)}
 
 
+def check_issues_enabled(project_path: str, instance_url: str | None = None) -> dict:
+    """Check whether a GitLab project has issues enabled.
+
+    Returns {"enabled": True|False} or {"error": str}.
+    """
+    try:
+        gl = get_client(instance_url=instance_url)
+        project = gl.projects.get(project_path)
+        return {"enabled": bool(project.issues_enabled)}
+    except GitlabGetError as exc:
+        return {"error": f"Project not found or inaccessible: {project_path}: {exc}"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def create_issue(
+    project_path: str,
+    title: str,
+    description: str,
+    labels: list[str] | None = None,
+    instance_url: str | None = None,
+) -> dict:
+    """Create an issue on a GitLab project.
+
+    Returns {"issue_url": str, "issue_iid": int} or {"error": str}.
+    """
+    try:
+        gl = get_client(instance_url=instance_url)
+        project = gl.projects.get(project_path)
+        issue_data: dict = {"title": title, "description": description}
+        if labels:
+            issue_data["labels"] = ",".join(labels)
+        issue = project.issues.create(issue_data)
+        return {"issue_url": issue.web_url, "issue_iid": issue.iid}
+    except GitlabGetError as exc:
+        return {"error": f"Project not found or inaccessible: {project_path}: {exc}"}
+    except GitlabError as exc:
+        return {"error": f"Failed to create issue: {exc}"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def find_mr(
     project_path: str,
     source_branch: str | None = None,
@@ -322,6 +364,15 @@ def main() -> None:
     p_create.add_argument("--title", required=True)
     p_create.add_argument("--description", default="")
 
+    p_issues_enabled = sub.add_parser("check-issues-enabled")
+    p_issues_enabled.add_argument("--project", required=True)
+
+    p_issue = sub.add_parser("create-issue")
+    p_issue.add_argument("--project", required=True)
+    p_issue.add_argument("--title", required=True)
+    p_issue.add_argument("--description", default="")
+    p_issue.add_argument("--label", action="append", default=None, dest="labels")
+
     p_find = sub.add_parser("find-mr")
     p_find.add_argument("--project", required=True)
     p_find.add_argument("--source-branch", default=None)
@@ -346,6 +397,16 @@ def main() -> None:
             args.target_branch,
             args.title,
             description=args.description,
+            instance_url=instance_url,
+        )
+    elif args.command == "check-issues-enabled":
+        result = check_issues_enabled(args.project, instance_url=instance_url)
+    elif args.command == "create-issue":
+        result = create_issue(
+            args.project,
+            args.title,
+            args.description,
+            labels=args.labels,
             instance_url=instance_url,
         )
     elif args.command == "find-mr":

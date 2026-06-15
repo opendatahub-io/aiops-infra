@@ -511,29 +511,35 @@ def _derive_mr_link_title(mr_url: str, mr_title: str | None = None) -> str:
 
 def link_all(
     mr_url: str,
-    rhoaieng_url: str | None,
-    psx_url: str | None,
+    rhoaieng_url: str | None = None,
+    psx_url: str | None = None,
     link_to: str | None = None,
     related_psx: str | None = None,
     mr_title: str | None = None,
+    violation_jira_url: str | None = None,
+    remediation_jira_url: str | None = None,
+    approval_jira_url: str | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Comment MR URL, add provenance label, and link tickets to each other.
 
-    Args:
-        related_psx: An existing PSX ticket key/URL to link as "Related" only.
-                     This is NOT the main exception ticket -- it's a pre-existing
-                     ticket that should be cross-referenced but not used as the
-                     exception's PSX ticket.
-        mr_title: Descriptive title for the remote web link in Jira.
-                  If not provided, derives from MR URL (e.g. "Conforma Exception MR !18281").
+    Three-ticket model links:
+      violation -> remediation (Related)
+      violation -> approval (Related)
+      approval -> ProdSec/prodsec_ticket (Blocks)
+      MR linked (remote link + comment) to all provided tickets
     """
     results = []
     remote_link_title = _derive_mr_link_title(mr_url, mr_title)
 
-    for url in (rhoaieng_url, psx_url):
-        if not url:
-            continue
+    # Backward compat: if rhoaieng_url provided but no violation_jira_url, use it
+    effective_violation_url = violation_jira_url or rhoaieng_url
+
+    all_ticket_urls = [
+        u for u in (effective_violation_url, remediation_jira_url, approval_jira_url, psx_url) if u
+    ]
+
+    for url in all_ticket_urls:
         ticket_key = _extract_key(url)
         if not ticket_key:
             continue
@@ -541,19 +547,31 @@ def link_all(
         results.append(comment_on_ticket(ticket_key, mr_url, dry_run))
         results.append(add_label(ticket_key, dry_run))
 
-    # --- Deterministic link type rules (NOT configurable by the caller) ---
-    # RHOAIENG → PSX/OCPEXCEPT: always "Blocks" (RHOAIENG blocks PSX)
-    # PSX (new) → PSX (related/old): always "Related"
-    # Any ticket → tracking ticket (link_to): always "Related"
-    # RHOAIENG → related_psx: always "Related"
-    rhoaieng_key = _extract_key(rhoaieng_url) if rhoaieng_url else None
+    # --- Deterministic link type rules ---
+    violation_key = _extract_key(effective_violation_url) if effective_violation_url else None
+    remediation_key = _extract_key(remediation_jira_url) if remediation_jira_url else None
+    approval_key = _extract_key(approval_jira_url) if approval_jira_url else None
     psx_key = _extract_key(psx_url) if psx_url else None
-    if rhoaieng_key and psx_key and rhoaieng_key != psx_key:
-        results.append(ensure_link(rhoaieng_key, psx_key, link_type="Blocks", dry_run=dry_run))
+
+    # violation -> remediation (Related)
+    if violation_key and remediation_key and violation_key != remediation_key:
+        results.append(ensure_link(violation_key, remediation_key, link_type="Related", dry_run=dry_run))
+
+    # violation -> approval (Related)
+    if violation_key and approval_key and violation_key != approval_key:
+        results.append(ensure_link(violation_key, approval_key, link_type="Related", dry_run=dry_run))
+
+    # approval -> ProdSec/prodsec_ticket (Blocks)
+    if approval_key and psx_key and approval_key != psx_key:
+        results.append(ensure_link(approval_key, psx_key, link_type="Blocks", dry_run=dry_run))
+
+    # Backward compat: violation -> psx (Blocks) when no approval ticket
+    if violation_key and psx_key and not approval_key and violation_key != psx_key:
+        results.append(ensure_link(violation_key, psx_key, link_type="Blocks", dry_run=dry_run))
 
     if link_to:
         link_to_key = _extract_key(link_to) if "/" in link_to else link_to
-        for key in (rhoaieng_key, psx_key):
+        for key in (violation_key, remediation_key, approval_key, psx_key):
             if key and link_to_key and key != link_to_key:
                 results.append(ensure_link(key, link_to_key, link_type="Related", dry_run=dry_run))
 
@@ -562,8 +580,8 @@ def link_all(
         if related_key:
             if psx_key and psx_key != related_key:
                 results.append(ensure_link(psx_key, related_key, link_type="Related", dry_run=dry_run))
-            if rhoaieng_key and rhoaieng_key != related_key:
-                results.append(ensure_link(rhoaieng_key, related_key, link_type="Related", dry_run=dry_run))
+            if violation_key and violation_key != related_key:
+                results.append(ensure_link(violation_key, related_key, link_type="Related", dry_run=dry_run))
 
     success_statuses = (
         "commented",
@@ -597,8 +615,12 @@ def _extract_key(url: str) -> str | None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Link MR URL to Jira tickets and add provenance label")
     parser.add_argument("--mr-url", required=True)
-    parser.add_argument("--rhoaieng-url", default=None)
-    parser.add_argument("--psx-url", default=None)
+    parser.add_argument("--rhoaieng-url", default=None, help="Deprecated alias for --violation-jira-url")
+    parser.add_argument("--violation-jira-url", default=None, help="RHOAIENG violation report ticket URL")
+    parser.add_argument("--remediation-jira-url", default=None, help="RHOAIENG remediation ticket URL")
+    parser.add_argument("--approval-jira-url", default=None, help="RHOAIENG approval ticket URL")
+    parser.add_argument("--prodsec-ticket-url", default=None, help="ProdSec ticket URL (from form or OCPEXCEPT)")
+    parser.add_argument("--psx-url", default=None, help="Alias for --prodsec-ticket-url (backward compat)")
     parser.add_argument("--link-to", default=None, help="Tracking ticket key to link all tickets to")
     parser.add_argument(
         "--related-psx",
@@ -616,13 +638,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    prodsec_url = args.prodsec_ticket_url or args.psx_url
     result = link_all(
         mr_url=args.mr_url,
         rhoaieng_url=args.rhoaieng_url,
-        psx_url=args.psx_url,
+        psx_url=prodsec_url,
         link_to=args.link_to,
         related_psx=args.related_psx,
         mr_title=args.mr_title,
+        violation_jira_url=args.violation_jira_url,
+        remediation_jira_url=args.remediation_jira_url,
+        approval_jira_url=args.approval_jira_url,
         dry_run=args.dry_run,
     )
     print(json.dumps(result, indent=2))

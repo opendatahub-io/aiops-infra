@@ -147,6 +147,97 @@ class TestCreateMr:
         assert "branch not found" in result["error"]
 
 
+class TestCheckIssuesEnabled:
+    def test_enabled(self):
+        project = _mock_project()
+        project.issues_enabled = True
+        gl = _mock_gl(project=project)
+        with patch.object(gitlab_ops, "get_client", return_value=gl):
+            result = gitlab_ops.check_issues_enabled("group/repo")
+
+        assert result == {"enabled": True}
+
+    def test_disabled(self):
+        project = _mock_project()
+        project.issues_enabled = False
+        gl = _mock_gl(project=project)
+        with patch.object(gitlab_ops, "get_client", return_value=gl):
+            result = gitlab_ops.check_issues_enabled("group/repo")
+
+        assert result == {"enabled": False}
+
+    def test_project_not_found(self):
+        gl = MagicMock()
+        gl.projects.get.side_effect = GitlabGetError("404")
+        with patch.object(gitlab_ops, "get_client", return_value=gl):
+            result = gitlab_ops.check_issues_enabled("group/missing")
+
+        assert "error" in result
+
+
+class TestCreateIssue:
+    def test_success(self):
+        issue = MagicMock(
+            web_url="https://gitlab.example.com/group/repo/-/issues/12",
+            iid=12,
+        )
+        project = _mock_project()
+        project.issues.create.return_value = issue
+        gl = _mock_gl(project=project)
+
+        with patch.object(gitlab_ops, "get_client", return_value=gl):
+            result = gitlab_ops.create_issue(
+                "group/repo",
+                "Bug report",
+                "Description text",
+                labels=["bug", "conforma"],
+            )
+
+        assert result == {"issue_url": issue.web_url, "issue_iid": 12}
+        project.issues.create.assert_called_once_with(
+            {
+                "title": "Bug report",
+                "description": "Description text",
+                "labels": "bug,conforma",
+            }
+        )
+
+    def test_success_no_labels(self):
+        issue = MagicMock(
+            web_url="https://gitlab.example.com/group/repo/-/issues/1",
+            iid=1,
+        )
+        project = _mock_project()
+        project.issues.create.return_value = issue
+        gl = _mock_gl(project=project)
+
+        with patch.object(gitlab_ops, "get_client", return_value=gl):
+            result = gitlab_ops.create_issue("group/repo", "Title", "Desc")
+
+        assert result["issue_iid"] == 1
+        call_data = project.issues.create.call_args[0][0]
+        assert "labels" not in call_data
+
+    def test_error(self):
+        project = _mock_project()
+        project.issues.create.side_effect = GitlabError("forbidden")
+        gl = _mock_gl(project=project)
+
+        with patch.object(gitlab_ops, "get_client", return_value=gl):
+            result = gitlab_ops.create_issue("group/repo", "Title", "Desc")
+
+        assert "error" in result
+        assert "forbidden" in result["error"]
+
+    def test_project_not_found(self):
+        gl = MagicMock()
+        gl.projects.get.side_effect = GitlabGetError("404")
+        with patch.object(gitlab_ops, "get_client", return_value=gl):
+            result = gitlab_ops.create_issue("group/missing", "Title", "Desc")
+
+        assert "error" in result
+
+
 class TestFindMr:
     def test_returns_matching_mrs(self):
         mr = MagicMock(

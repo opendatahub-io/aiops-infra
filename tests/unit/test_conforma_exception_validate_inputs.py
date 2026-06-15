@@ -147,9 +147,83 @@ class TestWorkflowHelpers:
         return workflow
 
     def test_workflow_has_step(self, psx_workflow):
-        assert validate_inputs.workflow_has_step(psx_workflow, "psx_exception_jira") is True
+        assert validate_inputs.workflow_has_step(psx_workflow, "prodsec_form_submission") is True
         assert validate_inputs.workflow_has_step(psx_workflow, "nonexistent_step") is False
 
     def test_workflow_is_self_service(self, psx_workflow, self_service_workflow):
         assert validate_inputs.workflow_is_self_service(psx_workflow) is False
         assert validate_inputs.workflow_is_self_service(self_service_workflow) is True
+
+
+class TestStageWorkflowOverride:
+    """Tests for the stage environment workflow filtering."""
+
+    def _make_args(self, environment="stage", rule="hermetic_task.hermetic"):
+        import argparse
+
+        return argparse.Namespace(
+            rhoai_version="rhoai-3.4",
+            rule=rule,
+            components="odh-mlflow-v3-4",
+            effective_until_date="2027-01-01",
+            environment=environment,
+            rhoaieng_url=None,
+            violation_jira_url=None,
+            remediation_jira_url=None,
+            approval_jira_url=None,
+            fix_target_version="rhoai-3.5",
+            psx_url=None,
+            justification=None,
+            dry_run=True,
+        )
+
+    def test_stage_drops_approval_and_prodsec_steps(self):
+        result = validate_inputs.validate_all(self._make_args(environment="stage"))
+        step_ids = [s.get("step") for s in result["workflow_steps"]]
+        assert "rhoaieng_approval_jira" not in step_ids
+        assert "prodsec_form_submission" not in step_ids
+        assert "psx_exception_jira" not in step_ids
+
+    def test_stage_sets_self_service_on_mr(self):
+        result = validate_inputs.validate_all(self._make_args(environment="stage"))
+        mr_steps = [s for s in result["workflow_steps"] if s.get("step") == "exception_merge_request"]
+        assert len(mr_steps) == 1
+        assert mr_steps[0].get("self_service") is True
+
+    def test_stage_is_self_service(self):
+        result = validate_inputs.validate_all(self._make_args(environment="stage"))
+        assert result["is_self_service"] is True
+
+    def test_stage_requires_approval_false(self):
+        result = validate_inputs.validate_all(self._make_args(environment="stage"))
+        assert result["requires_approval"] is False
+
+    def test_prod_keeps_approval_steps(self):
+        result = validate_inputs.validate_all(self._make_args(environment="prod"))
+        step_ids = [s.get("step") for s in result["workflow_steps"]]
+        assert "rhoaieng_approval_jira" in step_ids
+        assert "prodsec_form_submission" in step_ids
+
+    def test_stage_self_service_rule_has_no_remediation(self):
+        result = validate_inputs.validate_all(
+            self._make_args(environment="stage", rule="schedule.weekday_restriction")
+        )
+        step_ids = [s.get("step") for s in result["workflow_steps"]]
+        assert "rhoaieng_remediation_jira" not in step_ids
+        assert "exception_merge_request" in step_ids
+
+    def test_stage_normal_rule_keeps_remediation(self):
+        result = validate_inputs.validate_all(self._make_args(environment="stage"))
+        step_ids = [s.get("step") for s in result["workflow_steps"]]
+        assert "rhoaieng_remediation_jira" in step_ids
+
+    def test_fix_target_version_mandatory(self):
+        args = self._make_args(environment="prod")
+        args.fix_target_version = None
+        result = validate_inputs.validate_all(args)
+        assert result["valid"] is False
+        assert any("fix-target-version" in e for e in result["errors"])
+
+    def test_fix_target_version_in_result(self):
+        result = validate_inputs.validate_all(self._make_args())
+        assert result["fix_target_version"] == "rhoai-3.5"

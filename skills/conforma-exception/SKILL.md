@@ -1,6 +1,6 @@
 ---
 name: conforma-exception
-description: Manage RHOAI Conforma exceptions end-to-end — create, extend, check, and reconcile policy exceptions. Handles Jira tickets (RHOAIENG Jira, PSX Jira, OCPEXCEPT Jira), GitLab Merge Requests in konflux-release-data, deduplication of existing exceptions, and cross-linking of all artifacts.
+description: Manage RHOAI Conforma exceptions end-to-end — create, extend, check, and reconcile policy exceptions. Uses a three-ticket Jira model (Violation Report, Remediation, Approval) with prod/stage environment support. Handles ProdSec form, OCPEXCEPT Jira, GitLab Merge Requests in konflux-release-data, deduplication, and cross-linking.
 allowed-tools: Bash(python3:*,acli:*,glab:*,git:*,docker:*,podman:*)
 user-invocable: true
 ---
@@ -22,7 +22,7 @@ An exception is a YAML entry added to a release policy file in the `konflux-rele
   reference: https://redhat.atlassian.net/browse/PSX-1234
 ```
 
-Key fields: `value` = the [Conforma rule](https://conforma.dev/docs/policy/release_policy.html) being waived, `componentNames` = Konflux component names (not container image names), `effectiveUntil` = expiry date in RFC3339 format, `reference` = the PSX/OCPEXCEPT Jira ticket URL.
+Key fields: `value` = the [Conforma rule](https://conforma.dev/docs/policy/release_policy.html) being waived, `componentNames` = Konflux component names (not container image names), `effectiveUntil` = expiry date in RFC3339 format, `reference` = the ProdSec/OCPEXCEPT Jira ticket URL.
 
 ## Violations-First Philosophy
 
@@ -74,11 +74,11 @@ cd ~/dev/gitlab/releng/konflux-release-data && git show origin/main:path/to/file
 
 ## RHOAIENG Approval Gate (Hard Prerequisite)
 
-**The RHOAIENG approval Jira ticket is created by the DevOps engineer (typically using this skill) and then MUST be approved by Senior Management (Closed/Resolved) BEFORE creating the PSX/OCPEXCEPT Jira ticket and GitLab Merge Request.** This is a hard gate enforced by the orchestrator. When explaining this to the user, always make clear that the ticket is created first, then separately approved by Senior Management — never imply that Senior Management creates the ticket.
+**The RHOAIENG approval Jira ticket is created by the DevOps engineer (typically using this skill) and then MUST be approved by Senior Management (Closed/Resolved) BEFORE submitting the ProdSec form, creating the OCPEXCEPT ticket, or the GitLab Merge Request.** This is a hard gate enforced by the orchestrator. When explaining this to the user, always make clear that the ticket is created first, then separately approved by Senior Management — never imply that Senior Management creates the ticket.
 
 The orchestrator checks the RHOAIENG approval ticket status after creation (or when provided via `--rhoaieng-url`). If the ticket is not yet approved:
 
-1. **The orchestrator halts** — PSX/OCPEXCEPT Jira and GitLab MR creation are blocked
+1. **The orchestrator halts** — ProdSec form submission, OCPEXCEPT Jira, and GitLab MR creation are blocked
 2. **The user is instructed** to get Senior Management approval on the RHOAIENG ticket first
 3. **Re-run** with `--rhoaieng-url <approved-ticket-url>` after approval is granted
 
@@ -90,19 +90,45 @@ Approval is detected by checking:
 
 If the user explicitly requests to proceed without approval, the `--skip-approval-gate` flag bypasses the gate. The agent MUST:
 
-1. **Warn the user clearly** that RHOAIENG approval is a hard prerequisite and PSX/OCPEXCEPT reviewers may reject the exception if approval is missing
+1. **Warn the user clearly** that RHOAIENG approval is a hard prerequisite and ProdSec/OCPEXCEPT reviewers may reject the exception if approval is missing
 2. **Ask for explicit confirmation** using the AskQuestion tool before passing `--skip-approval-gate`
 3. **Never pass `--skip-approval-gate` without the user's explicit request** — the agent must not decide to skip the gate on its own
 
 ### Workflow behavior
 
-The approval gate sits between the `rhoaieng_approval_jira` and `psx_exception_jira` workflow steps:
+The approval gate sits between the `rhoaieng_approval_jira` and `prodsec_form_submission` workflow steps:
 
-```
-rhoaieng_resolution_plan_jira → rhoaieng_approval_jira → [APPROVAL GATE] → psx_exception_jira → exception_merge_request
+```mermaid
+flowchart TD
+    VR["Violation Report Jira\n(Blocker Bug, always)"]
+    ENV{Environment?}
+    VR --> ENV
+
+    subgraph prod_flow [Prod Workflow]
+        REM_P["Remediation Jira\n(Blocker Bug)"]
+        APP["Approval Jira\n(Blocker Task)"]
+        GATE{"Approval\nGate"}
+        FORM["ProdSec Form\n(user submits)"]
+        MR_P["GitLab MR\n[prod] prefix"]
+        REM_P --> APP --> GATE
+        GATE -->|approved| FORM --> MR_P
+        GATE -->|blocked| HALT_P["HALT — get approval"]
+    end
+
+    subgraph stage_flow [Stage Workflow]
+        SELF{Self-service\nrule?}
+        REM_S["Remediation Jira\n(Blocker Bug)"]
+        MR_S["GitLab MR\n[stage] self-service"]
+        MR_SS["GitLab MR\n[stage] self-service"]
+        SELF -->|no| REM_S --> MR_S
+        SELF -->|yes| MR_SS
+    end
+
+    ENV -->|prod| REM_P
+    ENV -->|stage| SELF
 ```
 
-In self-service workflows (no PSX step), the gate sits before the MR step:
+In self-service workflows (no ProdSec/OCPEXCEPT step), the gate sits before the MR step:
 
 ```
 rhoaieng_approval_jira → [APPROVAL GATE] → exception_merge_request (self-service)
@@ -120,18 +146,18 @@ The `preflight_check.py` script includes an `rhoaieng_approval_status` field in 
     "status": "Open",
     "resolution": null,
     "approved": false,
-    "reason": "RHOAIENG-12345 is Open. RHOAIENG approval is required before creating PSX Jira ticket and GitLab Merge Request.",
+    "reason": "RHOAIENG-12345 is Open. RHOAIENG approval is required before submitting the ProdSec form, creating OCPEXCEPT tickets, or the GitLab Merge Request.",
     "approval_comment": null
   }
 }
 ```
 
-When `approved` is `false`, the agent MUST inform the user that they need to get approval first and MUST NOT proceed with PSX/MR creation unless the user explicitly overrides.
+When `approved` is `false`, the agent MUST inform the user that they need to get approval first and MUST NOT proceed with ProdSec form submission or MR creation unless the user explicitly overrides.
 
 ## Important: Human-in-the-Loop
 
 Exception GitLab Merge Requests bypass policy enforcement. Engineer approval is **MANDATORY** before creation.
-The RHOAIENG approval Jira ticket must be approved before PSX/MR creation (see "RHOAIENG Approval Gate" above).
+The RHOAIENG approval Jira ticket must be approved before ProdSec form submission / MR creation (see "RHOAIENG Approval Gate" above).
 
 ### No Agent Decisions Policy
 
@@ -139,9 +165,10 @@ The RHOAIENG approval Jira ticket must be approved before PSX/MR creation (see "
 1. Run `preflight_check.py --check-existing-exception` — Existing Exception Gate (hard prerequisite, must pass before continuing)
 2. Run `preflight_check.py` (full) to resolve all values from authoritative sources
 3. Present the script's output to the user as a structured questionnaire for confirmation
-4. **Dry-run first**: Always run `create_exception.py` with `--dry-run` before the real execution and present the preview to the user. Only proceed with the real execution after the user confirms the dry-run output. This is a standard safety step — never skip it unless the user explicitly asks to go straight to execution.
-5. Execute the creation scripts with the confirmed values (remove `--dry-run`)
-6. Report results
+4. **Justification review**: Present the template-resolved justification text (scope, risk, remediation, impact) as a **draft for review** — not a finished product. Include this note: *"This justification is auto-generated from the violation template. It covers the general case but should be reviewed and enhanced with details specific to this exception request — for example, input from the component team explaining why the violation cannot be fixed in the component code, what has already been tried, upstream dependencies, timelines, etc."* The user must explicitly confirm or edit the text before proceeding. See `references/interactive-workflow.md` item 13 for the full questionnaire flow.
+5. **Dry-run first**: Always run `create_exception.py` with `--dry-run` before the real execution and present the preview to the user. The dry-run output includes the full justification text — verify the user has reviewed it. Only proceed with the real execution after the user confirms the dry-run output. This is a standard safety step — never skip it unless the user explicitly asks to go straight to execution.
+6. Execute the creation scripts with the confirmed values (remove `--dry-run`)
+7. Report results
 
 The agent MUST NEVER:
 - Decide link types (enforced by `link_artifacts.py`)
@@ -191,7 +218,7 @@ The script outputs JSON containing:
 - `versions`: resolved RHOAI versions
 - `components`: per-version component names from RPA files
 - `effective_until`: per-version dates from end-of-support defaults
-- `related_psx`: auto-discovered related PSX tickets
+- `related_psx`: auto-discovered related ProdSec/PSX tickets
 - `existing_exceptions`: current state in konflux-release-data
 - `duplicate_check`: existing tickets created by this skill
 - `user_confirmation_required`: items that need user approval
@@ -213,8 +240,8 @@ Workflow routing (which Jira projects, how many tickets, assignees, MR target) i
 
 Each workflow step has a `track` field indicating which logical track it belongs to:
 
-- **`track: remediation_plan`** — The resolution plan ticket. Created FIRST to establish the fix commitment (with a future target date). Its URL (`{remediation_plan_url}`) is referenced in the justification text of all downstream artifacts.
-- **`track: exception_approval`** — The exception approval chain. These steps are sequential and block the release until the exception is granted: approval ticket -> ProdSec review -> policy MR.
+- **`track: remediation_plan`** — The remediation ticket for the component team fix commitment. Its URL (`{rhoaieng_jira_violation_url}`) is referenced in the justification text of all downstream artifacts.
+- **`track: exception_approval`** — The exception approval chain. These steps are sequential and block the release until the exception is granted: approval ticket -> ProdSec form (or OCPEXCEPT for FIPS) -> policy MR.
 
 The `--rule` flag determines which template category matches, and thus which workflow runs. There are no separate path flags -- the rule is the single input that drives routing.
 
@@ -222,7 +249,7 @@ Common workflow patterns:
 
 | Pattern | Steps | Example rules |
 |---------|-------|---------------|
-| Standard | Resolution plan (team) -> Senior Management approval (RHOAIENG Jira) -> **[APPROVAL GATE]** -> PSX Jira -> GitLab Merge Request | `rpm_signature.allowed:*`, `hermetic_task.hermetic`, SBOM rules |
+| Standard | Resolution plan (team) -> Senior Management approval (RHOAIENG Jira) -> **[APPROVAL GATE]** -> ProdSec form -> GitLab Merge Request | `rpm_signature.allowed:*`, `hermetic_task.hermetic`, SBOM rules |
 | FIPS | Resolution plan (team) -> Senior Management approval (RHOAIENG Jira) -> **[APPROVAL GATE]** -> OCPEXCEPT Jira -> GitLab Merge Request | `fips-check`, `fips_check` |
 | Self-service | Senior Management approval (RHOAIENG Jira) -> **[APPROVAL GATE]** -> GitLab Merge Request (to `exceptions/` dir) | `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check` |
 
@@ -242,9 +269,9 @@ When `match_template_category()` returns `"other"`, the agent MUST follow an int
 
 2. **Check the Jira ticket** (if `--rhoaieng-url` provided): Read the ticket summary, description, and comments to extract context about what the violation is, which components are affected, and what the remediation plan looks like. Present findings to the user for confirmation.
 
-3. **Determine the correct workflow**: The default workflow for `other` is the standard 4-step PSX Jira path (resolution plan -> Senior Management approval -> PSX Jira -> GitLab Merge Request). However, the agent MUST ask the user:
-   - "Is this a FIPS-related violation?" — if yes, switch `psx_exception_jira` project to OCPEXCEPT Jira (task type)
-   - "Is this a non-security, self-service exception?" — if yes, skip PSX/OCPEXCEPT Jira and use the 2-step self-service path (Senior Management approval -> self-service GitLab Merge Request)
+3. **Determine the correct workflow**: The default workflow for `other` is the standard 4-step path (resolution plan -> Senior Management approval -> ProdSec form -> GitLab Merge Request). However, the agent MUST ask the user:
+   - "Is this a FIPS-related violation?" — if yes, the `fips_check` category uses `psx_exception_jira` with OCPEXCEPT Jira (task type)
+   - "Is this a non-security, self-service exception?" — if yes, skip ProdSec form/OCPEXCEPT and use the 2-step self-service path (Senior Management approval -> self-service GitLab Merge Request)
 
    Present these as structured choices. The user's answer overrides the default workflow.
 
@@ -279,7 +306,7 @@ flowchart TD
     Step2["② RHOAIENG Senior Management\napproval Jira"]
     Step3{{"③ APPROVAL GATE\nSenior Management\nmust approve"}}
     Halt([Halted — get approval,\nthen re-run])
-    Step4["④ PSX or OCPEXCEPT Jira\n(skip for self-service rules)"]
+    Step4["④ ProdSec form or OCPEXCEPT Jira\n(skip for self-service rules)"]
     Step5["⑤ GitLab Merge Request\n(exception YAML in konflux-release-data)"]
     Step6["⑥ Link all artifacts\n(comments, labels, Jira links)"]
 
@@ -292,7 +319,7 @@ flowchart TD
 
     subgraph Review [External review — human]
         direction TB
-        Step7["⑦ ProdSec reviews PSX Jira\n→ Ready for Verification"]
+        Step7["⑦ ProdSec reviews exception ticket\n→ Ready for Verification"]
         Step8["⑧ Release Engineering\nmerges GitLab MR"]
     end
 
@@ -304,7 +331,7 @@ flowchart TD
     Granted([Exception granted])
 ```
 
-The exception is only granted when **both** conditions are met: the PSX Jira ticket reaches **Ready for Verification** and the GitLab Merge Request is **merged**. Steps ①–⑥ are automated by this skill; steps ⑦–⑧ require human review by ProdSec and Release Engineering respectively.
+The exception is only granted when **both** conditions are met: the ProdSec/OCPEXCEPT Jira ticket reaches **Ready for Verification** and the GitLab Merge Request is **merged**. Steps ①–⑥ are automated by this skill; steps ⑦–⑧ require human review by ProdSec and Release Engineering respectively.
 
 **Self-service variant** (for rules like `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check`): Steps ① and ④ are skipped, and step ⑦ does not apply — the workflow is: Senior Management approval → Approval Gate → GitLab MR (to `exceptions/` directory) → MR merged → Exception granted.
 
@@ -408,7 +435,7 @@ The `--check-violations-coverage` script also searches for open Jira tickets (RH
 - `open_jira_tickets`: list of matching tickets with `key`, `status`, `summary`, `url`
 - `open_jira_label`: pre-formatted markdown links for display (empty if none)
 
-When `open_jira_label` is non-empty, present it alongside the MR coverage in the violations table. This is informational — it does not block exception creation — but it prevents creating duplicate Jira tickets. If an open RHOAIENG or PSX ticket already exists for a violation, the agent should suggest reusing it (via `--rhoaieng-url` or `--psx-url`) rather than creating a new one.
+When `open_jira_label` is non-empty, present it alongside the MR coverage in the violations table. This is informational — it does not block exception creation — but it prevents creating duplicate Jira tickets. If an open RHOAIENG or ProdSec ticket already exists for a violation, the agent should suggest reusing it (via `--rhoaieng-url` or `--prodsec-ticket-url`) rather than creating a new one.
 
 ## Listing Exception Types, Usage, and Questionnaire
 
@@ -445,8 +472,8 @@ Every ticket creation or reconciliation ends with a **verification phase** that 
 |-------|-------|
 | Labels | Contains both `conforma-exception-ai-skill` and `conforma-violation` |
 | Issue links | Includes all expected targets (RHOAIENG, tracking ticket) |
-| Description | ADF with >= 15 panel/paragraph nodes (PSX/OCPEXCEPT) |
-| Authorized Party | `customfield_10938` is set (PSX/OCPEXCEPT) |
+| Description | ADF with >= 15 panel/paragraph nodes (OCPEXCEPT) |
+| Authorized Party | `customfield_10938` is set (OCPEXCEPT) |
 | Jira Component | Set on RHOAIENG tickets (auto-resolved from component-maturity catalog) |
 
 If any check fails, the script **retries the failed operation** (up to 2 attempts) and re-verifies. If it still fails, the script exits non-zero with structured JSON listing exactly what expectations are unmet.
@@ -557,7 +584,7 @@ See `references/exception-process.md` for the full process documentation includi
 - Jira project routing rules
 - Senior manager approval requirements
 - VolatileCriteria schema
-- Upstream reference links (Konflux docs, PSX Confluence, conforma.dev)
+- Upstream reference links (Konflux docs, ProdSec Confluence, conforma.dev)
 
 See `references/conforma-release-policy-rules.yaml` for the complete catalog of enforced rules in the Conforma `redhat` collection, sourced from [conforma.dev/docs/policy/release_policy.html](https://conforma.dev/docs/policy/release_policy.html). Each entry includes the rule code, human-readable name, and documentation URL. Use this catalog to validate `--rule` values and provide context when handling non-templated ("other" category) exceptions.
 

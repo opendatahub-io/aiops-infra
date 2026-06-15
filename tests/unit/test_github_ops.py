@@ -151,6 +151,104 @@ class TestGetRepo:
         assert "repository not found" in result["error"]
 
 
+class TestCheckIssuesEnabled:
+    def test_enabled(self):
+        with patch.object(
+            github_ops.subprocess,
+            "run",
+            return_value=_completed(stdout="true\n"),
+        ):
+            result = github_ops.check_issues_enabled("org/repo")
+
+        assert result == {"enabled": True}
+
+    def test_disabled(self):
+        with patch.object(
+            github_ops.subprocess,
+            "run",
+            return_value=_completed(stdout="false\n"),
+        ):
+            result = github_ops.check_issues_enabled("org/repo")
+
+        assert result == {"enabled": False}
+
+    def test_api_error(self):
+        with patch.object(
+            github_ops.subprocess,
+            "run",
+            return_value=_completed(returncode=1, stderr="Not Found"),
+        ):
+            result = github_ops.check_issues_enabled("org/missing")
+
+        assert "error" in result
+        assert "Not Found" in result["error"]
+
+
+class TestCreateIssue:
+    def test_success(self):
+        with patch.object(
+            github_ops.subprocess,
+            "run",
+            return_value=_completed(stdout="https://github.com/org/repo/issues/99\n"),
+        ):
+            result = github_ops.create_issue(
+                "org/repo",
+                "Bug: something broke",
+                "Details here",
+                labels=["bug", "conforma"],
+            )
+
+        assert result == {
+            "issue_url": "https://github.com/org/repo/issues/99",
+            "issue_number": 99,
+        }
+
+    def test_success_no_labels(self):
+        with patch.object(
+            github_ops.subprocess,
+            "run",
+            return_value=_completed(stdout="https://github.com/org/repo/issues/1\n"),
+        ):
+            result = github_ops.create_issue("org/repo", "Title", "Body")
+
+        assert result["issue_number"] == 1
+
+    def test_labels_passed_to_cli(self):
+        with patch.object(
+            github_ops.subprocess,
+            "run",
+            return_value=_completed(stdout="https://github.com/org/repo/issues/5\n"),
+        ) as mock_run:
+            github_ops.create_issue("org/repo", "Title", "Body", labels=["bug", "conforma"])
+
+        cmd = mock_run.call_args[0][0]
+        label_indices = [i for i, v in enumerate(cmd) if v == "--label"]
+        assert len(label_indices) == 2
+        assert cmd[label_indices[0] + 1] == "bug"
+        assert cmd[label_indices[1] + 1] == "conforma"
+
+    def test_error(self):
+        with patch.object(
+            github_ops.subprocess,
+            "run",
+            return_value=_completed(returncode=1, stderr="issues are disabled"),
+        ):
+            result = github_ops.create_issue("org/repo", "Title", "Body")
+
+        assert "error" in result
+        assert "issues are disabled" in result["error"]
+
+    def test_timeout(self):
+        with patch.object(
+            github_ops.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired("gh", 60),
+        ):
+            result = github_ops.create_issue("org/repo", "Title", "Body")
+
+        assert result == {"error": "gh issue create timed out"}
+
+
 class TestCheckWorkflowRun:
     def test_success(self):
         payload = {

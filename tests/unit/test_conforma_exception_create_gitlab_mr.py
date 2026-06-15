@@ -317,3 +317,29 @@ class TestRemoveExceptionFromPolicyFile:
 
         assert result["action"] == "not_found"
         assert "No matching exception block found" in result["detail"]
+
+
+class TestMrTitleEnvPrefix:
+    """Tests for [prod]/[stage] prefix in MR titles."""
+
+    def test_prod_prefix(self):
+        title = mod._build_mr_title("hermetic_task.hermetic", "rhoai-3.3", environment="prod")
+        assert title.startswith("[prod] [RHOAI]")
+
+    def test_stage_prefix(self):
+        title = mod._build_mr_title("hermetic_task.hermetic", "rhoai-3.3", environment="stage")
+        assert title.startswith("[stage] [RHOAI]")
+
+    def test_vendor_tag_with_env_prefix(self):
+        title = mod._build_mr_title("rpm_signature.allowed:abc", "rhoai-3.4", vendor_tag="AMD", environment="prod")
+        assert title.startswith("[AMD] [prod]")
+
+    def test_consolidated_prod_prefix(self):
+        specs = [{"version": "rhoai-3.3"}, {"version": "rhoai-3.4"}]
+        title = mod._build_mr_title_consolidated("hermetic_task.hermetic", specs, environment="prod")
+        assert title.startswith("[prod] [RHOAI]")
+
+    def test_consolidated_stage_prefix(self):
+        specs = [{"version": "rhoai-3.3"}]
+        title = mod._build_mr_title_consolidated("hermetic_task.hermetic", specs, environment="stage")
+        assert title.startswith("[stage] [RHOAI]")

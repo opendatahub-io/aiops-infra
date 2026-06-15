@@ -57,7 +57,10 @@ python3 skills/conforma-exception/scripts/create_exception.py \
   --rule hermetic_task.hermetic \
   --components odh-mlflow-v3-3 \
   --effective-until-date 2026-10-03 \
-  --rhoaieng-url https://redhat.atlassian.net/browse/RHOAIENG-38414 \
+  --fix-target-version rhoai-3.4 \
+  --violation-jira-url https://redhat.atlassian.net/browse/RHOAIENG-70000 \
+  --remediation-jira-url https://redhat.atlassian.net/browse/RHOAIENG-70001 \
+  --approval-jira-url https://redhat.atlassian.net/browse/RHOAIENG-70002 \
   --psx-url https://redhat.atlassian.net/browse/PSX-1089
 ```
 
@@ -79,19 +82,23 @@ python3 skills/conforma-exception/scripts/create_exception.py \
 | Policy rule | `--rule` | Full rule value (e.g., `hermetic_task.hermetic`). Determines workflow and justification from templates. |
 | Component names | `--components` | Comma-separated Konflux component names |
 | Expiry date | `--effective-until-date` | YYYY-MM-DD (used as-is; +7 day buffer only applies to end-of-support sourced dates) |
+| Fix target version | `--fix-target-version` | Target RHOAI version for the fix (required). Sets `fixVersion` on violation/remediation tickets. |
 
 Exception text (scope, risk, remediation, impact) is derived from `exception_templates.yaml`. Scope and impact come from the matched category. Risk and remediation come from a justification template selected via `--justification <id>` (e.g., `--justification dev_preview`). If omitted, the first entry in the category's `applicable_justifications` list is used as default.
 
 The `--vendor-tag` flag fills the `{vendor}` placeholder in templates. The `--exception-scope`, `--exception-risk`, `--exception-remediation`, `--exception-impact` flags override template-resolved values when custom wording is needed.
 
-The resolved exception text flows into all workflow artifacts: RHOAIENG Jira resolution plan ticket, RHOAIENG Jira approval ticket, PSX/OCPEXCEPT Jira ticket, and GitLab Merge Request commit message. The `{remediation_plan_url}` placeholder in justification text is auto-filled with the resolution plan ticket URL (created first in the workflow).
+The resolved exception text flows into all workflow artifacts: RHOAIENG Jira violation report, remediation ticket, approval ticket, PSX/OCPEXCEPT Jira ticket, and GitLab Merge Request commit message. The `{rhoaieng_jira_violation_url}` placeholder in justification text is auto-filled with the violation report ticket URL (created first in the workflow).
 
 ### Optional flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--environment` | `prod` | `prod` or `stage` |
-| `--rhoaieng-url` | *(creates new)* | Existing RHOAIENG Jira ticket URL |
+| `--environment` | `prod` | `prod` or `stage`. Stage drops approval + ProdSec steps; MR is self-service. |
+| `--violation-jira-url` | *(creates new)* | Existing RHOAIENG violation report URL |
+| `--remediation-jira-url` | *(creates new)* | Existing RHOAIENG remediation URL |
+| `--approval-jira-url` | *(creates new)* | Existing RHOAIENG approval URL (prod only) |
+| `--rhoaieng-url` | *(deprecated)* | Deprecated alias for `--violation-jira-url` |
 | `--psx-url` | *(creates new)* | Existing PSX/OCPEXCEPT Jira ticket URL |
 | `--related-psx` | none | Pre-existing PSX Jira ticket to link as "Related" only (a new PSX Jira is still created) |
 | `--link-to` | none | Tracking ticket key to link all tickets to (e.g. `RHAISTRAT-576`) |
@@ -108,15 +115,31 @@ The resolved exception text flows into all workflow artifacts: RHOAIENG Jira res
 
 ## Orchestration Flow
 
-1. **Validate** (`validate_inputs.py`): version parsing, component-version reconciliation (rejects container image names like `-rhel9`), date calculation (user-provided dates used as-is; +7 day buffer only for EOS-sourced dates), workflow determination from `exception_templates.yaml`
+1. **Validate** (`validate_inputs.py`): version parsing, component-version reconciliation (rejects container image names like `-rhel9`), date calculation, workflow determination from `exception_templates.yaml`. For stage environment: drops approval + ProdSec steps, sets MR to self-service. Requires `--fix-target-version`.
 2. **Auth check** (`verify_auth.py`): auto-install `acli` if needed, verify `acli` and `glab` are available and authenticated -- **stop here if any check fails**
-3. **Execute workflow steps** (from `exception_templates.yaml`): the orchestrator iterates through the matched category's `workflow` list and executes each step:
-   - `rhoaieng_resolution_plan_jira` *(track: remediation_plan)*: Creates a Bug in RHOAIENG Jira assigned to the component team documenting the fix commitment. Created FIRST so its URL can be referenced in downstream justification text.
-   - `rhoaieng_approval_jira` *(track: exception_approval)*: Creates a Blocker Bug in RHOAIENG Jira for Senior Management approval (skipped if `--rhoaieng-url` provided). Assigned to `default_assignee` from template if set. References the resolution plan URL in its description.
-   - **APPROVAL GATE**: After the RHOAIENG approval step, the orchestrator checks whether the approval ticket is Closed/Resolved with an approved resolution or has an approval comment. **If not approved, the orchestrator halts here.** The user must get Senior Management approval and re-run. Use `--skip-approval-gate` to override (requires explicit user confirmation).
-   - `psx_exception_jira` *(track: exception_approval)*: Creates a PSX Jira (PSRD Exception) or OCPEXCEPT Jira (Task) ticket (skipped if `--psx-url` provided). Project determined by template. References the resolution plan URL in justification. **Blocked until RHOAIENG approval gate passes.**
-   - `exception_merge_request` *(track: exception_approval)*: Creates the exception GitLab Merge Request. If `self_service: true` in template, targets `exceptions/` dir. **Blocked until RHOAIENG approval gate passes.**
-4. **Link artifacts** (`link_artifacts.py`): comment GitLab Merge Request URL on Jira tickets, add provenance label, create Jira links between all tickets (including `--link-to` tracking ticket)
+3. **Implicit Step 0: Violation Report** (always): Creates a Blocker Bug `[Conforma Violation]` in RHOAIENG describing the violation. Sets `fixVersion` from `--fix-target-version`. Shared across prod and stage exceptions. Skipped if `--violation-jira-url` provided.
+4. **Execute template workflow steps** (from `exception_templates.yaml`):
+   - `rhoaieng_remediation_jira` *(track: remediation_plan)*: Creates a Blocker Bug `[Code Fix]` in RHOAIENG assigned to the component team. References the violation report URL. Skipped if `--remediation-jira-url` provided. Not present for self-service rules (weekday/fbc_pruning) in stage.
+   - `rhoaieng_approval_jira` *(track: exception_approval)*: Creates a Blocker Task `[Exception Approval]` in RHOAIENG for Senior Management approval. Skipped for stage environment. Skipped if `--approval-jira-url` provided.
+   - **APPROVAL GATE** (prod only): After the approval step, checks whether the ticket is approved. If not, halts. Use `--skip-approval-gate` to override (requires explicit user confirmation).
+   - `prodsec_form_submission` *(track: exception_approval, prod only)*: Generates ProdSec Google Form pre-fill URL for user submission.
+   - `psx_exception_jira` *(track: exception_approval, prod only)*: Creates OCPEXCEPT Jira Task for FIPS exceptions.
+   - `exception_merge_request` *(track: exception_approval)*: Creates the GitLab MR. Title prefixed with `[prod]` or `[stage]`. Stage MRs are self-service (target `exceptions/` dir).
+5. **Link artifacts** (`link_artifacts.py`): Links violation->remediation (Related), violation->approval (Related), approval->ProdSec (Blocks). MR linked to all tickets via remote link + comment.
+
+### Three-Ticket Jira Model
+
+| Ticket | Purpose | Issue Type | Priority | Summary Prefix | Created For |
+|--------|---------|------------|----------|----------------|-------------|
+| Violation Report | Describes the Conforma violation | Bug | Blocker | `[Conforma Violation]` | prod + stage |
+| Remediation | Component team fix commitment | Bug | Blocker | `[Code Fix]` | prod + stage (except self-service rules) |
+| Approval | Senior Management exception approval | Task | Blocker | `[Exception Approval]` | prod only |
+
+### Stage vs Prod Workflow
+
+- **Prod**: Violation Report -> Remediation -> Approval -> APPROVAL GATE -> ProdSec Form -> MR
+- **Stage**: Violation Report -> Remediation -> MR (self-service)
+- **Stage (self-service rules)**: Violation Report -> MR (self-service)
 
 All created tickets receive the `conforma-exception-ai-skill` and `conforma-violation` Jira labels and a provenance footer in the description.
 
@@ -134,14 +157,28 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
 - After each batch, summarize confirmed answers before moving to the next batch
 - If a question's options depend on earlier answers (e.g., component names depend on version), resolve dependencies first then present options
 
+**Batch 0 — Environment:**
+
+0. **Environment selection** (MUST be the very first question): Present as a multiple-choice selection:
+   - "Production exception (full workflow: Jira tickets + ProdSec form + MR)" (Recommended)
+   - "Stage exception (simplified: violation report Jira + MR, self-service)"
+
 **Batch 1 — Rule and ticket basics:**
 
 1. **Conforma rule confirmation**: Extract the rule from the RHOAIENG Jira ticket and present as a confirmation choice. Example options:
    - "Yes, the rule is `rpm_signature.allowed:8a3872bf3228467c`"
    - "No, the rule is different (let me specify)"
 
-2. **RHOAIENG Jira ticket type check**: If the ticket is not a Blocker Bug, present options:
-   - "Create a proper Blocker Bug and link to this Epic/Story"
+1b. **Existing violation Jira**: Ask if there is an existing RHOAIENG Jira that describes the violation:
+   - "Yes, provide the URL"
+   - "No, create a new violation report"
+
+1c. **Fix-target version**: Ask for the target RHOAI version where the fix will land:
+   - "rhoai-X.Y (next major release)"
+   - "Let me specify"
+
+2. **RHOAIENG Jira ticket type check**: If a violation Jira was provided and it is not a Blocker Bug, present options:
+   - "Create a proper Blocker Bug and link to this ticket"
    - "Use this ticket as-is (non-standard)"
 
 3. **RHOAI versions**: Present all versions found in the ticket as multi-select. Example:
@@ -196,7 +233,7 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
     - Ask the user to provide or confirm each text field
     - Ask the user to confirm the workflow (PSX vs OCPEXCEPT vs self-service)
 
-**Batch 3 — Approval and PSX details:**
+**Batch 3 — Approval and PSX details (prod only — skip entirely for stage):**
 
 10. **PSX Jira ticket visibility / watchers (MANDATORY)**: PSX tickets are restricted — **watchers are a hard requirement, not optional**. The script always adds the mandatory watchers (Jay Koehler, Lindani Phiri) even if `--watchers` is omitted, but the full team should be included for proper visibility.
 
@@ -216,12 +253,14 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
 
 12. **Effective-until date**: Resolved by `preflight_check.py` from its `DEFAULT_EOS_DATES` table (with +7 day buffer pre-calculated for EOS-sourced dates). User-provided or Jira-sourced dates are used as-is without any buffer. The script outputs per-version dates in `effective_until` and flags any versions without defaults in `user_confirmation_required`. Present the script's output for user confirmation.
 
-13. **Template review** (confirm the resolved text): After template resolution, present the filled-in scope/risk/remediation/impact text for user confirmation:
-    - "Here is the pre-filled PSX text from the template (with `{vendor}` replaced by your `--vendor-tag` value). Confirm or edit:"
-    - Show each field with its resolved value
-    - "Confirm all"
-    - "Edit one or more fields"
+13. **Justification review** (MANDATORY — confirm and enhance the resolved text): After template resolution, present the filled-in scope/risk/remediation/impact text for user review. The agent MUST frame this as a **draft that needs enhancement**, not a finished product:
 
-    The resolved text is deterministic (from `exception_templates.yaml`) and NOT generated by the LLM. The user may override individual fields via `--exception-scope`, `--exception-risk`, etc. if the template doesn't perfectly match their case.
+    - Present each field (scope, risk, remediation, impact) with its resolved value
+    - Include this note verbatim above the fields: **"The following justification text is auto-generated from the violation template. It covers the general case but should be reviewed and enhanced with details specific to this exception request — for example, input from the component team explaining why the violation cannot be fixed in the component code, what has already been tried, upstream dependencies, timelines, etc."**
+    - Offer choices:
+      - "Edit one or more fields (recommended — add component-specific details)"
+      - "Confirm all as-is"
+
+    The resolved text is deterministic (from `exception_templates.yaml`) and NOT generated by the LLM. The user may override individual fields via `--exception-scope`, `--exception-risk`, etc. if the template doesn't perfectly match their case. The agent MUST NOT submit template text to any artifact (Jira tickets, GitLab MR, ProdSec form) without the user explicitly confirming they have reviewed it. The `--dry-run` output includes the full justification text so the user can inspect it before the real run.
 
 **After all batches**: Present a final summary of all confirmed values and ask for a single "Proceed" / "Edit something" confirmation before executing.

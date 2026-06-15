@@ -247,22 +247,28 @@ def _build_mr_body(
     return "\n".join(lines)
 
 
-def _build_mr_title(rule: str, rhoai_version: str, vendor_tag: str | None = None) -> str:
-    """Build the MR title, including vendor tag if provided."""
-    title = f"[RHOAI] Conforma exception: {rule} for {rhoai_version}"
+def _build_mr_title(
+    rule: str, rhoai_version: str, vendor_tag: str | None = None, environment: str = "prod"
+) -> str:
+    """Build the MR title, including vendor tag and environment prefix."""
+    env_prefix = f"[{environment}] " if environment else ""
+    title = f"{env_prefix}[RHOAI] Conforma exception: {rule} for {rhoai_version}"
     if vendor_tag:
         title = f"[{vendor_tag}] {title}"
     return title
 
 
-def _build_mr_title_consolidated(rule: str, version_specs: list[dict], vendor_tag: str | None = None) -> str:
+def _build_mr_title_consolidated(
+    rule: str, version_specs: list[dict], vendor_tag: str | None = None, environment: str = "prod"
+) -> str:
     """Build MR title for a consolidated (multi-version) exception MR."""
     versions = [s["version"] for s in version_specs]
     if len(versions) == 1:
         version_str = versions[0]
     else:
         version_str = f"{versions[0]}..{versions[-1]}"
-    title = f"[RHOAI] Conforma exception: {rule} for {version_str}"
+    env_prefix = f"[{environment}] " if environment else ""
+    title = f"{env_prefix}[RHOAI] Conforma exception: {rule} for {version_str}"
     if vendor_tag:
         title = f"[{vendor_tag}] {title}"
     return title
@@ -882,7 +888,7 @@ def create_mr(
             _run_git(["git", "push", "-u", "fork", branch_name], cwd=repo_dir)
             use_fork = True
 
-        mr_title = _build_mr_title(rule, rhoai_version, vendor_tag)
+        mr_title = _build_mr_title(rule, rhoai_version, vendor_tag, environment)
         mr_body = _build_mr_body(
             rule=rule,
             components=components,
@@ -1282,7 +1288,7 @@ def create_consolidated_mr(
             _run_git(["git", "push", "-u", "fork", branch_name], cwd=repo_dir)
             use_fork = True
 
-        mr_title = _build_mr_title_consolidated(rule, version_specs, vendor_tag)
+        mr_title = _build_mr_title_consolidated(rule, version_specs, vendor_tag, environment)
         mr_body = _build_mr_body_consolidated(
             rule=rule,
             version_specs=version_specs,
@@ -2034,6 +2040,7 @@ def main() -> int:
             "version_count": str(len(versions_list)) if versions_list else "1",
             "vendor": args.vendor_tag or "",
             "rhoaieng_exception_approval_url": args.rhoaieng_url or args.reference_url or "",
+            "rhoaieng_jira_violation_url": args.remediation_plan_url or args.rhoaieng_url or "",
             "remediation_plan_url": args.remediation_plan_url or "",
             "effective_until": args.effective_until or "",
         }

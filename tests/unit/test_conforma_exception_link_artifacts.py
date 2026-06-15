@@ -106,3 +106,65 @@ class TestLinkAllDryRun:
         )
         assert any(r["from"] == "RHOAIENG-62569" and r["to"] == "RHAISTRAT-576" for r in link_ops)
         assert any(r["from"] == "PSX-1042" and r["to"] == "PSX-999" for r in link_ops)
+
+
+class TestThreeTicketLinking:
+    """Tests for the three-ticket model linking behavior."""
+
+    def test_three_ticket_links(self):
+        mr_url = "https://gitlab.example.com/-/merge_requests/100"
+        result = la.link_all(
+            mr_url=mr_url,
+            violation_jira_url="https://redhat.atlassian.net/browse/RHOAIENG-100",
+            remediation_jira_url="https://redhat.atlassian.net/browse/RHOAIENG-101",
+            approval_jira_url="https://redhat.atlassian.net/browse/RHOAIENG-102",
+            psx_url="https://redhat.atlassian.net/browse/PSX-200",
+            dry_run=True,
+        )
+        assert result["status"] == "completed"
+
+        link_ops = [r for r in result["results"] if "link_type" in r]
+        # violation -> remediation (Related)
+        assert any(
+            r["from"] == "RHOAIENG-100" and r["to"] == "RHOAIENG-101" and r["link_type"] == "Related"
+            for r in link_ops
+        )
+        # violation -> approval (Related)
+        assert any(
+            r["from"] == "RHOAIENG-100" and r["to"] == "RHOAIENG-102" and r["link_type"] == "Related"
+            for r in link_ops
+        )
+        # approval -> psx (Blocks)
+        assert any(
+            r["from"] == "RHOAIENG-102" and r["to"] == "PSX-200" and r["link_type"] == "Blocks" for r in link_ops
+        )
+
+    def test_stage_no_approval_links_violation_to_psx(self):
+        mr_url = "https://gitlab.example.com/-/merge_requests/101"
+        result = la.link_all(
+            mr_url=mr_url,
+            violation_jira_url="https://redhat.atlassian.net/browse/RHOAIENG-100",
+            remediation_jira_url="https://redhat.atlassian.net/browse/RHOAIENG-101",
+            dry_run=True,
+        )
+        assert result["status"] == "completed"
+
+        link_ops = [r for r in result["results"] if "link_type" in r]
+        assert any(
+            r["from"] == "RHOAIENG-100" and r["to"] == "RHOAIENG-101" and r["link_type"] == "Related"
+            for r in link_ops
+        )
+        # No approval links
+        assert not any(r.get("link_type") == "Blocks" for r in link_ops)
+
+    def test_all_tickets_get_remote_link_and_comment_and_label(self):
+        mr_url = "https://gitlab.example.com/-/merge_requests/102"
+        result = la.link_all(
+            mr_url=mr_url,
+            violation_jira_url="https://redhat.atlassian.net/browse/RHOAIENG-100",
+            remediation_jira_url="https://redhat.atlassian.net/browse/RHOAIENG-101",
+            approval_jira_url="https://redhat.atlassian.net/browse/RHOAIENG-102",
+            dry_run=True,
+        )
+        remote_links = [r for r in result["results"] if "remote_link" in r]
+        assert len(remote_links) == 3  # One per ticket

@@ -4,23 +4,49 @@ Self-contained documentation for the RHOAI Conforma exception request workflow.
 
 ## Jira Project Routing
 
-All exception types require a **blocker RHOAIENG ticket** (cloned from template RHOAIENG-62569).
-The secondary Jira project depends on the exception type:
+All exception types require up to three RHOAIENG tickets (the "three-ticket model").
+The secondary Jira project depends on the exception type and environment.
 
-| Exception type | Jira projects required |
-|---|---|
-| Self-service (non-security, release-specific) | RHOAIENG only |
-| Security-related (non-hermetic, RPM signatures, SBOM) | RHOAIENG + PSX |
-| FIPS-related | RHOAIENG + OCPEXCEPT |
+### Three-Ticket Model
+
+| Ticket | Issue Type | Priority | Summary Prefix | When Created |
+|--------|-----------|----------|----------------|-------------|
+| **Violation Report** | Bug | Blocker | `[Conforma Violation]` | Always (prod + stage) |
+| **Remediation** | Bug | Blocker | `[Code Fix]` | Prod + stage (except self-service rules) |
+| **Approval** | Task | Blocker | `[Exception Approval]` | Prod only |
+
+### Workflow by Environment
+
+| Exception type | Environment | Jira tickets |
+|---|---|---|
+| Self-service (weekday/fbc_pruning) | prod | Violation Report + MR |
+| Self-service (weekday/fbc_pruning) | stage | Violation Report + MR (self-service) |
+| Standard | stage | Violation Report + Remediation + MR (self-service) |
+| Security-related | prod | Violation Report + Remediation + Approval + ProdSec form + MR |
+| FIPS-related | prod | Violation Report + Remediation + Approval + OCPEXCEPT + MR |
+
+### Shared Violation Report
+
+The same violation report Jira should be used for both prod and stage exceptions for the same violation. It describes the problem and is not environment-specific.
 
 ## RHOAIENG Ticket Requirements
 
-- Clone from template: [RHOAIENG-62569](https://redhat.atlassian.net/browse/RHOAIENG-62569)
-- Priority: **Blocker**
-- Label: `Exception - <full-exception-name>` (e.g., `Exception - hermetic_task.hermetic:quay.io/rhoai/odh-kserve-router-rhel9`)
+### Violation Report
+- Issue type: **Bug**, priority: **Blocker**
+- Summary prefix: `[Conforma Violation]`
+- Label: `Exception - <full-exception-name>`
+- `fixVersion` set to the target release for the fix (from `--fix-target-version`)
+
+### Remediation
+- Issue type: **Bug**, priority: **Blocker**
+- Summary prefix: `[Code Fix]`
 - Assigned to the team responsible for root-cause remediation
-- Target version set to the RHOAI release
-- Must include remediation plan for each affected release
+- References the violation report URL
+
+### Approval
+- Issue type: **Task**, priority: **Blocker**
+- Summary prefix: `[Exception Approval]`
+- Prod only — not created for stage exceptions
 
 ### Senior Manager Approval (rhoai-3.5-ea.1+)
 
@@ -33,14 +59,21 @@ A comment on the ticket confirming approval is sufficient.
 
 Versions before rhoai-3.5-ea.1 do NOT require senior manager approval.
 
-## PSX Ticket (Security Exceptions)
+## ProdSec Exception Form (Security Exceptions)
 
 For security-related exceptions (non-hermetic builds, RPM signatures, SBOM violations).
 
-- Project: PSX
-- Follow the [PSRD Exception Submission Quick Guide](https://redhat.atlassian.net/wiki/spaces/PRODSEC/pages/289226815/PSRD+Exception+Submission+Quick+Guide)
-- Must reference the RHOAIENG ticket
-- Requires Product Security team approval on the GitLab MR
+The ProdSec team now uses a Google Form instead of direct PSX Jira ticket creation. The workflow is:
+
+1. The skill generates a **pre-fill URL** with exception details populated from the violation data
+2. The user opens the URL, reviews the form fields, and submits
+3. A Jira ticket is created automatically by the form backend
+4. The user provides the resulting ticket URL back to the skill via `--prodsec-ticket-url`
+5. The skill continues with the GitLab MR and cross-linking
+
+The form configuration is maintained in `scripts/prodsec_form_config.yaml`. See `references/update-prodsec-form.md` for instructions on updating it when a new form is released.
+
+Legacy note: The `--psx-url` flag is kept as a backward-compatible alias for `--prodsec-ticket-url`. Existing PSX tickets from the old workflow are still supported for cross-linking.
 
 ## OCPEXCEPT Ticket (FIPS Exceptions)
 
@@ -56,8 +89,17 @@ For non-security, RHOAI-release-specific exceptions. Only two rules qualify:
 - `schedule.weekday_restriction` (weekend/Friday releases)
 - `test.no_failed_tests:fbc-target-index-pruning-check` (catalog pruning)
 
-These go to `exceptions/fbc-rhoai-prod.yaml` and are self-approved by the RHOAI team.
-Still require a RHOAIENG blocker ticket (no PSX/OCPEXCEPT needed).
+These go to `exceptions/` directory files and are self-approved by the RHOAI team.
+Still require a violation report RHOAIENG ticket. No remediation, approval, or PSX/OCPEXCEPT tickets needed.
+
+## Stage Exceptions
+
+Stage exceptions follow a simplified workflow:
+- Drops the Approval Jira, ProdSec form, and PSX/OCPEXCEPT steps
+- MR is self-service (targets `exceptions/` directory, self-mergeable)
+- Still creates the Violation Report Jira (shared with prod)
+- Creates the Remediation Jira unless the rule is self-service (weekday/fbc_pruning)
+- MR titles are prefixed with `[stage]`
 
 ## Important Constraints
 

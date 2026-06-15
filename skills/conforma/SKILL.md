@@ -35,6 +35,7 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 | search slack, slack threads, slack discussions | use the **search-conforma-slack-threads** skill |
 | search existing exceptions, policy exceptions, find exceptions | use the **search-conforma-existing-exceptions** skill |
 | check coverage, exception coverage, gate check | use the **check-exception-coverage** skill |
+| report bug, file issue, something is broken, skill feedback, report problem, conforma-feedback | use the **conforma-feedback** skill |
 | gitlab auth, gitlab token, glab login, glab auth | use the **gitlab-auth** skill |
 | jira auth, acli auth, jira login, jira token | use the **jira-auth** skill |
 | github auth, gh auth, github token | use the **github-auth** skill |
@@ -67,3 +68,5 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 - "How do I fix the untrusted task violation?" → **conforma-remedy**
 - "What Jira component is odh-dashboard?" → **software-catalog-query**
 - "Which team owns the vllm component?" → **software-catalog-query**
+- "The conforma-exception skill crashed when creating an MR" → **conforma-feedback**
+- "I want to report a bug in the analyze skill" → **conforma-feedback**
