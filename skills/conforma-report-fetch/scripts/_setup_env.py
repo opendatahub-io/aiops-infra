@@ -1,8 +1,7 @@
-"""Auto-bootstrap for conforma-feedback skill scripts.
+"""Auto-bootstrap for conforma-report-fetch skill scripts.
 
 Adds the repo-root ``scripts/`` directory to ``sys.path`` so that shared
-modules (``github_ops``, ``gitlab_ops``, ``git_ops``, ``cli_runner``)
-can be imported directly.
+modules (``site_config``, ``github_ops``) can be imported directly.
 
 Also ensures Python dependencies declared in ``pyproject.toml`` are installed
 (uses ``uv sync`` if available, falls back to ``pip install -e .``).
@@ -10,7 +9,7 @@ Also ensures Python dependencies declared in ``pyproject.toml`` are installed
 Import this module at the top of any skill script that needs shared ops::
 
     import _setup_env  # noqa: F401  (side-effect import)
-    import git_ops
+    import github_ops
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ _BOOTSTRAPPED = False
 def _find_repo_root() -> Path:
     """Walk up from this file to find the repository root.
 
-    Path from this file: scripts/ -> conforma-feedback/ -> skills/ -> <repo>/
+    Path from this file: scripts/ -> conforma-report-fetch/ -> skills/ -> <repo>/
     """
     here = Path(__file__).resolve().parent
     candidate = here.parent.parent.parent
@@ -52,10 +51,8 @@ def _find_repo_root() -> Path:
 
 
 def _ensure_dependencies(repo_root: Path) -> None:
-    """Install Python deps if shared modules are not yet importable."""
+    """Install Python deps if critical modules are not yet importable."""
     try:
-        importlib.import_module("gitlab")
-        importlib.import_module("jira")
         importlib.import_module("requests")
         importlib.import_module("yaml")
         return
@@ -111,7 +108,7 @@ def _try_pip_install(repo_root: Path) -> None:
         pass
 
 
-def _load_site_config(root: Path) -> None:
+def _load_site_config() -> None:
     """Load site config to populate infra env vars if available."""
     try:
         import site_config
@@ -136,7 +133,7 @@ def _bootstrap() -> Path:
     if scripts_dir not in sys.path:
         sys.path.insert(1, scripts_dir)
 
-    _load_site_config(root)
+    _load_site_config()
 
     _BOOTSTRAPPED = True
     return root

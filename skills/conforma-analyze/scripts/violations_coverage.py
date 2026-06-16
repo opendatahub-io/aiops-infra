@@ -126,6 +126,8 @@ def check_violations_coverage(
     else:
         prefetched_slack = {}
 
+    analyzed_release = releases[0] if releases else None
+
     results = []
     for rule, info in sorted(by_rule.items()):
         all_components = []
@@ -182,11 +184,24 @@ def check_violations_coverage(
                 mr_label = f"open [MR !{mr['iid']}]({mr_url}) covers {n_cov}/{len(all_components)}"
 
         jira_tickets = prefetched_jira.get(rule, [])
+        if analyzed_release:
+            for t in jira_tickets:
+                t["version_relevance"] = conforma_jira_ops.classify_ticket_version_relevance(
+                    t, analyzed_release
+                )
         jira_label = ""
         if jira_tickets:
             labels = []
             for t in jira_tickets:
-                labels.append(f"[{t['key']}]({t['url']}) ({t['status']})")
+                version_tag = ""
+                if analyzed_release:
+                    relevance = t.get("version_relevance", "no_target_version")
+                    if relevance == "targets_future":
+                        fv_str = ", ".join(t.get("fix_versions", []))
+                        version_tag = f" ⚠️ targets {fv_str}"
+                    elif relevance == "no_target_version":
+                        version_tag = " ⚠️ no fixVersion"
+                labels.append(f"[{t['key']}]({t['url']}) ({t['status']}{version_tag})")
             jira_label = ", ".join(labels)
 
         slack_threads = prefetched_slack.get(rule, [])
@@ -247,6 +262,7 @@ def check_violations_coverage(
             "coverage": coverage,
             "coverage_label": coverage_label,
             "status": gate["status"],
+            "analyzed_release": analyzed_release,
         }
         if require_slack:
             entry["open_slack_threads"] = slack_threads

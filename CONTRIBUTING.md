@@ -239,7 +239,7 @@ and OpenShift domain names.
 
 **If the hook blocks your commit:**
 - Replace the hardcoded value with an environment variable (e.g. `$GITLAB_HOST`)
-- See `site-config.example.yaml` for the full list of configurable variables
+- See `.work/site-config.example.yaml` for the full list of configurable variables
 - See `tests/check_no_internal_refs.py` for the exact forbidden patterns
 
 The same check runs as a pytest test (`tests/unit/test_no_internal_refs.py`) in CI.
@@ -283,6 +283,26 @@ The shared functions that enforce this are:
 - `component_catalog_ops.ensure_catalog_repo()` — returns `ok: False` on pull failure
 
 When adding new scripts that clone repos, use these primitives or follow the same pattern.
+
+## Secrets and Credentials Policy
+
+**Tokens and secrets MUST NEVER be pasted into an AI chat window.** The agent must never ask the user to paste tokens, API keys, or credentials into the conversation.
+
+All secrets go in `.work/.env` (gitignored). Instruct users to write secrets there directly:
+
+```bash
+# Example: instruct user to run in their terminal
+echo 'GITLAB_TOKEN=glpat-XXXXX' >> .work/.env
+echo 'JIRA_API_TOKEN=ATATT3xxx' >> .work/.env
+```
+
+The `.work/` directory:
+- Is gitignored (never committed)
+- Contains `.env` for secrets and API tokens
+- Contains transient skill working data (clones, temp files)
+- Is loaded automatically by `_setup_env.py` and `site_config.load()`
+
+When writing skills or scripts that need auth, always reference `.work/.env` as the token location and point users to the relevant `-auth` skill for setup instructions.
 
 ## Code Style
 

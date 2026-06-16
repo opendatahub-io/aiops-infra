@@ -48,7 +48,7 @@ EXCLUDE_PATHS: set[str] = {
     "tests/check_no_internal_refs.py",
     "tests/unit/test_no_internal_refs.py",
     "tests/unit/test_site_config.py",
-    "site-config.example.yaml",
+    ".work/site-config.example.yaml",
     # TODO: these areas still need their own cleanup pass
     ".claude/skills",
     "docs",
@@ -148,7 +148,7 @@ def main() -> int:
     print(
         "Hardcoded internal hostnames, cluster IDs, and infrastructure URLs must not\n"
         "be committed to this public repository. Use environment variables or\n"
-        "site-config.yaml instead (see site-config.example.yaml).\n",
+        "site-config.yaml instead (see .work/site-config.example.yaml).\n",
         file=sys.stderr,
     )
 

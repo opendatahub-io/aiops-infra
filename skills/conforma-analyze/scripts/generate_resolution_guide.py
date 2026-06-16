@@ -37,7 +37,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _setup_env  # noqa: F401, E402
+
+import yaml  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
 import analyze_csv_report as analysis  # noqa: E402

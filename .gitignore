@@ -2,7 +2,9 @@
 __pycache__/
 *.pyc
 tmp/
-.work/
+.work/*
+!.work/.env.example
+!.work/site-config.example.yaml
 .venv/
 *.egg-info/
 .env

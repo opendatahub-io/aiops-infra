@@ -2,32 +2,39 @@
 # within the releng/konflux-release-data repository.
 #
 # Routing logic:
-# - FBC fragment component -> fbc-rhoai-{env}.yaml
-# - Any other component -> registry-rhoai-{env}.yaml
-# - Self-service eligible -> exceptions/{policy}.yaml
+# - FBC fragment component -> {ec_policy_dir}/fbc-*-{env}.yaml
+# - Any other component -> {ec_policy_dir}/registry-*-{env}.yaml
+# - Self-service eligible -> exceptions/{type}-*-{env}.yaml
+#
+# Path resolution:
+#   Paths are now resolved automatically by tenant discovery. The system
+#   discovers which files exist in the EC policy directory and matches them
+#   by type prefix (registry/fbc) and environment suffix (prod/stage).
+#
+#   See: python3 scripts/tenant_discovery.py --tenant <name> --human
 
 gitlab_project: ${GITLAB_PROJECT}
 gitlab_host: ${GITLAB_HOST}
 default_branch: main
 
-# Paths below use ${KRD_CLUSTER_DOMAIN} which must be set at runtime.
-# Example: KRD_CLUSTER_DOMAIN=my-cluster.example.p1
+# Paths below are auto-discovered from the tenant's cluster config.
+# Set via: tenant discovery -> KRD_EC_POLICY_DIR env var
+# Or manually: KRD_CLUSTER_DOMAIN -> derived path
+#
+# Pattern: ${KRD_EC_POLICY_DIR}/{type}-*-{env}.yaml
+# Example: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/registry-rhoai-prod.yaml
 paths:
   standing_exceptions:
-    registry:
-      prod: config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/registry-rhoai-prod.yaml
-      stage: config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/registry-rhoai-stage.yaml
-    fbc:
-      prod: config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/fbc-rhoai-prod.yaml
-      stage: config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/fbc-rhoai-stage.yaml
+    pattern: "${KRD_EC_POLICY_DIR}/{type}-*-{env}.yaml"
+    resolution: "Matched from KRD_EC_POLICY_FILES env (comma-separated list of discovered files)"
+    types: ["registry", "fbc"]
+    environments: ["prod", "stage"]
 
   self_service:
-    fbc:
-      prod: exceptions/fbc-rhoai-prod.yaml
-      stage: exceptions/fbc-rhoai-stage.yaml
-    registry:
-      prod: exceptions/registry-rhoai-prod.yaml
-      stage: exceptions/registry-rhoai-stage.yaml
+    pattern: "exceptions/{type}-*-{env}.yaml"
+    resolution: "Matched from KRD_SELF_SERVICE_FILES env (comma-separated list of discovered files)"
+    types: ["registry", "fbc"]
+    environments: ["prod", "stage"]
 
 # FBC detection: component name contains 'fbc' (case-insensitive)
 fbc_detection_pattern: "(?i)fbc"

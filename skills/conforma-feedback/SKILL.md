@@ -11,42 +11,76 @@ Report bugs, enhancement requests, or general feedback about Conforma skills by 
 
 ## Prerequisites
 
-- `gh` CLI authenticated (`gh auth login`) -- for GitHub repos
-- `glab` CLI or `GITLAB_TOKEN` configured -- for GitLab repos
+- `GITHUB_TOKEN` in `.work/.env` -- for GitHub repos
+- `GITLAB_TOKEN` in `.work/.env` -- for GitLab repos
 - `git` available on PATH
 - Current working directory must be inside a git repository
+
+Verify with: `python3 scripts/verify_conforma_prerequisites.py --fix`
 
 ## Workflow
 
 Follow these steps **in order**. Each step is deterministic -- do not skip or reorder.
 
-```mermaid
-flowchart TD
-    Start["User: report a problem"]
-    DetectRepo["Step 0: detect repo\n(git remote)"]
-    AuthCheck["Step 1: verify auth\n(gh or glab)"]
-    IssuesGate{"Step 2:\nIssues\nenabled?"}
-    Q1["Step 3a: confirm skill name"]
-    Q2["Step 3b: confirm type\n(bug/enhancement)"]
-    Q3["Step 3c: what happened\nvs expected"]
-    Q4["Step 3d: confirm error output"]
-    Q5["Step 3e: confirm severity"]
-    Q6["Step 3f: additional context"]
-    Draft["Step 4: generate draft"]
-    UserOK{"Step 5:\nUser\nconfirms?"}
-    Submit["Step 6: submit issue"]
-    ShowURL["Print issue URL"]
-    HaltIssues["HALT: issues disabled"]
-    HaltAuth["HALT: auth failed"]
-
-    Start --> DetectRepo --> AuthCheck
-    AuthCheck -->|ok| IssuesGate
-    AuthCheck -->|fail| HaltAuth
-    IssuesGate -->|yes| Q1 --> Q2 --> Q3 --> Q4 --> Q5 --> Q6 --> Draft
-    IssuesGate -->|no| HaltIssues
-    Draft --> UserOK
-    UserOK -->|yes| Submit --> ShowURL
-    UserOK -->|edit| Draft
+```
+  ┌───────────────────────────┐
+  │ User: report a problem    │
+  └─────────────┬─────────────┘
+                ▼
+  ┌───────────────────────────┐
+  │ Step 0: detect repo       │
+  │ (git remote)              │
+  └─────────────┬─────────────┘
+                ▼
+  ┌───────────────────────────┐
+  │ Step 1: verify auth       │
+  │ (gh or glab)              │
+  └──────┬──────────────┬─────┘
+         │              │
+        ok            fail
+         │              │
+         ▼              ▼
+  ┌──────────────┐ ┌─────────────────┐
+  │ Step 2:      │ │ HALT: auth      │
+  │ Issues       │ │ failed          │
+  │ enabled?     │ └─────────────────┘
+  └──┬───────┬───┘
+     │       │
+    yes      no
+     │       │
+     │       ▼
+     │  ┌─────────────────┐
+     │  │ HALT: issues    │
+     │  │ disabled        │
+     │  └─────────────────┘
+     ▼
+  ┌───────────────────────────┐
+  │ Step 3a: confirm skill    │
+  │ Step 3b: confirm type     │
+  │ Step 3c: what happened    │
+  │ Step 3d: confirm errors   │
+  │ Step 3e: confirm severity │
+  │ Step 3f: additional ctx   │
+  └─────────────┬─────────────┘
+                ▼
+  ┌───────────────────────────┐
+  │ Step 4: generate draft    │◀──┐
+  └─────────────┬─────────────┘   │
+                ▼                 │
+  ┌───────────────────────────┐   │
+  │ Step 5: user confirms?    │   │
+  └──────┬──────────────┬─────┘   │
+         │              │         │
+        yes           edit────────┘
+         │
+         ▼
+  ┌───────────────────────────┐
+  │ Step 6: submit issue      │
+  └─────────────┬─────────────┘
+                ▼
+  ┌───────────────────────────┐
+  │ Print issue URL           │
+  └───────────────────────────┘
 ```
 
 ### Step 0 -- Detect repository

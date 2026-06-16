@@ -56,14 +56,13 @@ def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
     host = _gitlab_host()
     project = _catalog_project()
 
+    import gitlab_ops
+
     if (target / ".git").is_dir():
         try:
-            subprocess.run(
+            gitlab_ops.run_git(
                 ["git", "-C", str(target), "pull", "--ff-only"],
-                capture_output=True,
-                text=True,
                 timeout=60,
-                check=True,
             )
             return {"ok": True, "path": str(target), "error": None}
         except subprocess.CalledProcessError as exc:
@@ -73,31 +72,14 @@ def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
 
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        token_result = subprocess.run(
-            ["glab", "config", "get", "token", "--host", host],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        token = token_result.stdout.strip() if token_result.returncode == 0 else ""
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        token = ""
+        clone_url = gitlab_ops.authenticated_clone_url(project)
+    except ValueError as exc:
+        return {"ok": False, "path": str(target), "error": str(exc)}
 
-    if not token:
-        return {
-            "ok": False,
-            "path": str(target),
-            "error": f"No GitLab token for {host}. Run: glab auth login --hostname {host}",
-        }
-
-    clone_url = f"https://oauth2:{token}@{host}/{project}.git"
     try:
-        subprocess.run(
+        gitlab_ops.run_git(
             ["git", "clone", "--depth", "1", clone_url, str(target)],
-            capture_output=True,
-            text=True,
             timeout=120,
-            check=True,
         )
         return {"ok": True, "path": str(target), "error": None}
     except subprocess.CalledProcessError as exc:

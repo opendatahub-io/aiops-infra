@@ -7,6 +7,14 @@
 #   Run `python3 scripts/site_config.py --show-source` to verify.
 #   Run `python3 scripts/site_config.py --refresh` to force a re-fetch.
 #
+# Tenant-based setup (recommended for discovery):
+#   Set `tenant` below and `gitlab.host`. The system auto-discovers cluster_domain,
+#   policy paths, and RPA directories from the konflux-release-data GitLab repo.
+#   Steps:
+#     1. Fill in gitlab.host and tenant below
+#     2. Run: python3 scripts/site_config.py --check-connectivity
+#     3. Run: python3 scripts/tenant_discovery.py --tenant <name> --human
+#
 # Manual setup (for custom or offline use):
 #   Copy this file to ~/.config/aiops-infra/site-config.yaml and fill in values.
 #   Local config always takes precedence over the remote config.
@@ -21,6 +29,16 @@
 #
 # This file is safe to commit (no real values). Your filled-in copy
 # must NOT be committed to the public repo.
+
+# TENANT — Konflux tenant name for auto-discovery (e.g. "rhoai-tenant")
+#   When set without konflux.cluster_domain, triggers automatic discovery of
+#   cluster, policy files, and RPA paths from the konflux-release-data GitLab repo.
+tenant: ""
+
+# PREFERRED_CLUSTER — which cluster to use when tenant exists on multiple clusters
+#   Only needed if your tenant spans multiple clusters (e.g. prod + stage).
+#   If omitted and multiple clusters are found, discovery errors with available options.
+preferred_cluster: ""
 
 gitlab:
   # GITLAB_HOST — internal GitLab instance hostname (VPN required)

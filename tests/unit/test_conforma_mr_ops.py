@@ -170,16 +170,22 @@ class TestAnalyzeMrComponentCoverage:
         assert result["source"] == "none"
         assert result["missing"] == ["odh-dashboard-v3-4"]
 
-    @patch("cli_runner.run_glab")
-    def test_fetches_diff_on_demand_when_not_cached(self, mock_run_glab):
-        mock_run_glab.return_value = MagicMock(
-            returncode=0,
-            stdout=(
-                '{"changes": [{"new_path": "exceptions/registry-rhoai-prod.yaml", '
-                '"diff": "+- value: schedule.weekday_restriction\\n'
-                '+  componentNames:\\n+    - odh-operator-v3-4\\n"}]}'
-            ),
-        )
+    @patch("conforma_mr_ops.gitlab_ops")
+    def test_fetches_diff_on_demand_when_not_cached(self, mock_gitlab_ops):
+        mock_mr = MagicMock()
+        mock_mr.changes.return_value = {
+            "changes": [
+                {
+                    "new_path": "exceptions/registry-rhoai-prod.yaml",
+                    "diff": "+- value: schedule.weekday_restriction\n+  componentNames:\n+    - odh-operator-v3-4\n",
+                }
+            ]
+        }
+        mock_project = MagicMock()
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_gl = MagicMock()
+        mock_gl.projects.get.return_value = mock_project
+        mock_gitlab_ops.get_client.return_value = mock_gl
 
         result = mod.analyze_mr_component_coverage(
             mr_iid=55,
@@ -187,7 +193,7 @@ class TestAnalyzeMrComponentCoverage:
             requested_components=["odh-operator-v3-4"],
         )
 
-        mock_run_glab.assert_called_once()
+        mock_project.mergerequests.get.assert_called_once_with(55)
         assert result["source"] == "diff"
         assert result["suggestion"] == "fully_covered"
         assert mod._mr_cache.has(55)

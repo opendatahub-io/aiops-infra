@@ -115,17 +115,27 @@ class TestLoad:
 
 class TestValidate:
     def test_passes_when_required_vars_set(self):
-        with patch.dict(os.environ, {"GITLAB_HOST": "x", "KRD_CLUSTER_DOMAIN": "y"}):
-            ok, missing = site_config.validate()
-        assert ok
-        assert missing == []
+        with patch.dict(os.environ, {"GITLAB_HOST": "real-gitlab.corp.com", "KRD_CLUSTER_DOMAIN": "stone-prod.abc.p1"}):
+            result = site_config.validate()
+        assert result.ok
+        assert result.missing == []
+        assert result.placeholders == []
 
     def test_fails_when_required_vars_missing(self):
         clean = {k: v for k, v in os.environ.items() if k not in ("GITLAB_HOST", "KRD_CLUSTER_DOMAIN")}
         with patch.dict(os.environ, clean, clear=True):
-            ok, missing = site_config.validate()
-        assert not ok
-        assert "GITLAB_HOST" in missing
+            result = site_config.validate()
+        assert not result.ok
+        assert "GITLAB_HOST" in result.missing
+
+    def test_detects_placeholder_values(self):
+        with patch.dict(os.environ, {"GITLAB_HOST": "test.example.com", "KRD_CLUSTER_DOMAIN": "my.cluster.p1"}):
+            result = site_config.validate()
+        assert not result.ok
+        assert len(result.placeholders) == 2
+        placeholder_vars = [p[0] for p in result.placeholders]
+        assert "GITLAB_HOST" in placeholder_vars
+        assert "KRD_CLUSTER_DOMAIN" in placeholder_vars
 
 
 class TestDeriveFromClusterDomain:

@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import urllib.parse
 
 import gitlab_ops
@@ -56,10 +55,7 @@ def image_url_covers_component(image_url: str, component_name: str) -> bool:
 
 
 def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
-    """List open MRs matching a search term via python-gitlab.
-
-    Falls back to glab CLI if the library call fails.
-    """
+    """List open MRs matching a search term via python-gitlab."""
     _ensure_gitlab_env()
     try:
         gl = gitlab_ops.get_client(instance_url=GITLAB_HOST)
@@ -69,6 +65,7 @@ def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
             search=search_term,
             per_page=20,
             get_all=False,
+            timeout=timeout,
         )
         return [
             {
@@ -84,36 +81,7 @@ def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
             for mr in mrs
         ]
     except Exception:
-        pass
-
-    from cli_runner import run_glab
-
-    encoded = urllib.parse.quote(search_term)
-    project_encoded = GITLAB_PROJECT.replace("/", "%2F")
-    try:
-        result = run_glab(
-            [
-                "api",
-                "--hostname",
-                GITLAB_HOST,
-                "--method",
-                "GET",
-                f"projects/{project_encoded}/merge_requests?state=opened&search={encoded}&per_page=20",
-            ],
-            timeout=timeout,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
-
-    if result.returncode != 0:
-        return []
-
-    try:
-        mrs_data = json.loads(result.stdout)
-    except (ValueError, TypeError):
-        return []
-
-    return [mr for mr in mrs_data if isinstance(mr, dict)]
 
 
 def search_open_exception_mrs(rule: str) -> list[dict]:
@@ -272,30 +240,24 @@ class _MRCache:
 
     def prefetch(self, iids: list[int]) -> None:
         """Fetch diffs for all *iids* that are not already cached."""
-        from cli_runner import run_glab
+        _ensure_gitlab_env()
+        try:
+            gl = gitlab_ops.get_client(instance_url=GITLAB_HOST)
+            project = gl.projects.get(GITLAB_PROJECT)
+        except Exception:
+            for iid in iids:
+                if not self.has(iid):
+                    self.store(iid, [])
+            return
 
-        project = GITLAB_PROJECT.replace("/", "%2F")
         for iid in iids:
             if self.has(iid):
                 continue
             try:
-                resp = run_glab(
-                    [
-                        "api",
-                        "--hostname",
-                        GITLAB_HOST,
-                        "--method",
-                        "GET",
-                        f"projects/{project}/merge_requests/{iid}/changes",
-                    ],
-                    timeout=30,
-                )
-                if resp.returncode == 0:
-                    data = json.loads(resp.stdout)
-                    self.store(iid, data.get("changes", []))
-                else:
-                    self.store(iid, [])
-            except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+                mr = project.mergerequests.get(iid)
+                changes = mr.changes()
+                self.store(iid, changes.get("changes", []))
+            except Exception:
                 self.store(iid, [])
 
 
@@ -366,8 +328,6 @@ def analyze_mr_component_coverage(
 
     Uses ``_mr_cache`` if the diff was prefetched; otherwise fetches on demand.
     """
-    from cli_runner import run_glab
-
     result_base: dict = {
         "mr_iid": mr_iid,
         "mr_components": [],
@@ -385,28 +345,19 @@ def analyze_mr_component_coverage(
             if "EnterpriseContractPolicy/" in path or "exceptions/" in path:
                 diff_components.extend(_parse_components_from_diff(change.get("diff", ""), rule))
     else:
-        project = GITLAB_PROJECT.replace("/", "%2F")
+        _ensure_gitlab_env()
         try:
-            resp = run_glab(
-                [
-                    "api",
-                    "--hostname",
-                    GITLAB_HOST,
-                    "--method",
-                    "GET",
-                    f"projects/{project}/merge_requests/{mr_iid}/changes",
-                ],
-                timeout=30,
-            )
-            if resp.returncode == 0:
-                data = json.loads(resp.stdout)
-                changes = data.get("changes", [])
-                _mr_cache.store(mr_iid, changes)
-                for change in changes:
-                    path = change.get("new_path", "")
-                    if "EnterpriseContractPolicy/" in path or "exceptions/" in path:
-                        diff_components.extend(_parse_components_from_diff(change.get("diff", ""), rule))
-        except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+            gl = gitlab_ops.get_client(instance_url=GITLAB_HOST)
+            project = gl.projects.get(GITLAB_PROJECT)
+            mr = project.mergerequests.get(mr_iid)
+            changes_data = mr.changes()
+            changes = changes_data.get("changes", [])
+            _mr_cache.store(mr_iid, changes)
+            for change in changes:
+                path = change.get("new_path", "")
+                if "EnterpriseContractPolicy/" in path or "exceptions/" in path:
+                    diff_components.extend(_parse_components_from_diff(change.get("diff", ""), rule))
+        except Exception:
             result_base["coverage_error"] = "Failed to fetch MR diff"
 
     if diff_components:

@@ -24,15 +24,17 @@ from typing import NamedTuple
 # RPA = ReleasePlanAdmission (primary source, version-specific files)
 # PDS = ProjectDevelopmentStream source files (fallback, uses {{.versionName}} placeholders)
 #       These are the authoritative source; the auto-generated/ folder is derived from them.
+# These are populated by tenant discovery or manual site-config.
 _KRD_CLUSTER_DOMAIN = os.environ.get("KRD_CLUSTER_DOMAIN", "")
 _KRD_CLUSTER_ID = os.environ.get("KRD_CLUSTER_ID", "")
+_TENANT = os.environ.get("TENANT", "")
 KRD_RPA_SUBPATH = os.environ.get(
     "KRD_RPA_SUBPATH",
-    f"config/{_KRD_CLUSTER_DOMAIN}/product/ReleasePlanAdmission/rhoai" if _KRD_CLUSTER_DOMAIN else "",
+    f"config/{_KRD_CLUSTER_DOMAIN}/product/ReleasePlanAdmission" if _KRD_CLUSTER_DOMAIN else "",
 )
 KRD_PDS_SUBPATH = os.environ.get(
     "KRD_PDS_SUBPATH",
-    f"tenants-config/cluster/{_KRD_CLUSTER_ID}/tenants/rhoai-tenant" if _KRD_CLUSTER_ID else "",
+    f"tenants-config/cluster/{_KRD_CLUSTER_ID}/tenants/{_TENANT}" if _KRD_CLUSTER_ID and _TENANT else "",
 )
 
 APPROVAL_THRESHOLD_VERSION = (3, 5, "ea", 1)
@@ -329,19 +331,15 @@ def check_rhoaieng_ticket_type(rhoaieng_url: str | None) -> dict | None:
 
     ticket_key = ticket_key_match.group(1)
     try:
-        from cli_runner import run_acli
+        import jira_ops
 
-        result = run_acli(["jira", "workitem", "view", ticket_key, "--json"], timeout=30)
-        if result.returncode != 0:
-            return {"warning": f"Cannot fetch {ticket_key}: {result.stderr.strip()}"}
+        issue_data = jira_ops.get_issue(ticket_key, fields=["priority"])
+        if issue_data.get("error"):
+            return {"warning": f"Cannot fetch {ticket_key}: {issue_data['error']}"}
 
-        import json as _json
-
-        data = _json.loads(result.stdout)
-        fields = data.get("fields", {})
-        issue_type = fields.get("issuetype", {}).get("name", "Unknown")
-        priority = fields.get("priority", {}).get("name", "Unknown")
-        summary = fields.get("summary", "")
+        issue_type = issue_data.get("issue_type", "Unknown")
+        priority = issue_data.get("priority", "Unknown")
+        summary = issue_data.get("summary", "")
 
         info: dict = {
             "key": ticket_key,

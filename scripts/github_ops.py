@@ -23,7 +23,19 @@ def _run_gh(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess[s
 
 
 def get_token() -> str:
-    """Get GitHub token from gh auth token."""
+    """Get GitHub token from env vars or gh CLI.
+
+    Resolution order:
+      1. GITHUB_TOKEN env var
+      2. GH_TOKEN env var
+      3. `gh auth token` CLI (if gh is installed)
+    """
+    import os
+
+    for var in ("GITHUB_TOKEN", "GH_TOKEN"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            return val
     try:
         result = _run_gh(["auth", "token"], timeout=10)
         if result.returncode == 0:
@@ -34,30 +46,39 @@ def get_token() -> str:
 
 
 def verify_auth() -> dict:
-    """Check gh CLI authentication."""
-    try:
-        status = _run_gh(["auth", "status"], timeout=15)
-        if status.returncode != 0:
-            detail = (status.stderr + status.stdout).strip()
-            return {"ok": False, "user": None, "error": detail or "gh auth status failed"}
+    """Check GitHub authentication via API.
 
-        user_result = _run_gh(["api", "user", "--jq", ".login"], timeout=15)
-        if user_result.returncode != 0:
-            detail = (user_result.stderr + user_result.stdout).strip()
-            return {"ok": False, "user": None, "error": detail or "Failed to fetch GitHub user"}
-
-        user = user_result.stdout.strip() or None
-        return {"ok": True, "user": user, "error": None}
-    except FileNotFoundError:
+    Works with or without the gh CLI — uses get_token() which checks
+    GITHUB_TOKEN / GH_TOKEN env vars before falling back to gh.
+    """
+    token = get_token()
+    if not token:
         return {
             "ok": False,
             "user": None,
-            "error": "gh CLI not found on PATH. Install from https://cli.github.com/",
+            "error": (
+                "No GitHub token found. Set GITHUB_TOKEN in .work/.env "
+                "or install gh CLI and run 'gh auth login'."
+            ),
         }
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "user": None, "error": "gh command timed out"}
-    except Exception as exc:
-        return {"ok": False, "user": None, "error": str(exc)}
+    try:
+        resp = requests.get(
+            f"{GITHUB_API}/user",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=15,
+        )
+        if resp.status_code == 401:
+            return {"ok": False, "user": None, "error": "Token is invalid or expired (HTTP 401)"}
+        if resp.status_code != 200:
+            return {"ok": False, "user": None, "error": f"GitHub API error {resp.status_code}"}
+        user = resp.json().get("login")
+        return {"ok": True, "user": user, "error": None}
+    except requests.RequestException as exc:
+        return {"ok": False, "user": None, "error": f"GitHub API request failed: {exc}"}
 
 
 def create_pr(
@@ -67,81 +88,52 @@ def create_pr(
     head_branch: str,
     base_branch: str = "main",
 ) -> dict:
-    """Create a pull request via gh pr create."""
+    """Create a pull request via GitHub API.
+
+    Returns {"pr_url": str, "pr_number": int} or {"error": str}.
+    """
+    token = get_token()
+    if not token:
+        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+
     try:
-        result = _run_gh(
-            [
-                "pr",
-                "create",
-                "--repo",
-                repo,
-                "--title",
-                title,
-                "--body",
-                body,
-                "--head",
-                head_branch,
-                "--base",
-                base_branch,
-            ],
+        resp = requests.post(
+            f"{GITHUB_API}/repos/{repo}/pulls",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json={
+                "title": title,
+                "body": body,
+                "head": head_branch,
+                "base": base_branch,
+            },
             timeout=60,
         )
-        if result.returncode != 0:
-            detail = (result.stderr + result.stdout).strip()
-            return {"error": detail or "gh pr create failed"}
+        if resp.status_code == 422:
+            return {"error": f"PR creation failed (422): {resp.text[:300]}"}
+        if resp.status_code not in (201, 200):
+            return {"error": f"GitHub API error {resp.status_code}: {resp.text[:300]}"}
 
-        pr_url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
-        pr_number = None
-        if pr_url:
-            match = re.search(r"/pull/(\d+)(?:\?.*)?$", pr_url)
-            if match:
-                pr_number = int(match.group(1))
-
-        if pr_number is None:
-            lookup = _run_gh(
-                [
-                    "pr",
-                    "list",
-                    "--repo",
-                    repo,
-                    "--head",
-                    head_branch,
-                    "--base",
-                    base_branch,
-                    "--state",
-                    "open",
-                    "--json",
-                    "url,number",
-                    "--limit",
-                    "1",
-                ],
-                timeout=30,
-            )
-            if lookup.returncode == 0 and lookup.stdout.strip():
-                data = json.loads(lookup.stdout)
-                if data:
-                    pr_url = data[0].get("url", pr_url)
-                    pr_number = data[0].get("number")
+        data = resp.json()
+        pr_url = data.get("html_url", "")
+        pr_number = data.get("number")
 
         if not pr_url or pr_number is None:
             return {"error": "PR created but could not determine PR URL/number"}
 
         return {"pr_url": pr_url, "pr_number": pr_number}
-    except FileNotFoundError:
-        return {"error": "gh CLI not found on PATH"}
-    except subprocess.TimeoutExpired:
-        return {"error": "gh pr create timed out"}
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
-        return {"error": f"Failed to parse PR response: {exc}"}
-    except Exception as exc:
-        return {"error": str(exc)}
+    except requests.RequestException as exc:
+        return {"error": f"GitHub API request failed: {exc}"}
 
 
 def get_file(repo: str, path: str, ref: str = "main") -> dict:
     """Get file content via GitHub API."""
     token = get_token()
     if not token:
-        return {"error": "Failed to get GitHub token from 'gh auth token'"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
 
     url = f"{GITHUB_API}/repos/{repo}/contents/{path.lstrip('/')}"
     try:
@@ -182,35 +174,36 @@ def get_file(repo: str, path: str, ref: str = "main") -> dict:
 
 
 def get_repo(repo: str) -> dict:
-    """Get repository metadata via gh api."""
+    """Get repository metadata via GitHub API."""
+    token = get_token()
+    if not token:
+        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+
     try:
-        result = _run_gh(
-            [
-                "api",
-                f"repos/{repo}",
-                "--jq",
-                "{full_name: .full_name, default_branch: .default_branch, private: .private}",
-            ],
+        resp = requests.get(
+            f"{GITHUB_API}/repos/{repo}",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
             timeout=30,
         )
-        if result.returncode != 0:
-            detail = (result.stderr + result.stdout).strip()
-            return {"error": detail or f"Failed to fetch repo {repo}"}
+        if resp.status_code == 404:
+            return {"error": f"Repository not found: {repo}"}
+        if resp.status_code != 200:
+            return {"error": f"GitHub API error {resp.status_code}: {resp.text[:300]}"}
 
-        data = json.loads(result.stdout)
+        data = resp.json()
         return {
             "full_name": data["full_name"],
             "default_branch": data["default_branch"],
-            "private": bool(data["private"]),
+            "private": bool(data.get("private", False)),
         }
-    except FileNotFoundError:
-        return {"error": "gh CLI not found on PATH"}
-    except subprocess.TimeoutExpired:
-        return {"error": "gh api timed out"}
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+    except requests.RequestException as exc:
+        return {"error": f"GitHub API request failed: {exc}"}
+    except (KeyError, TypeError) as exc:
         return {"error": f"Failed to parse repo response: {exc}"}
-    except Exception as exc:
-        return {"error": str(exc)}
 
 
 def check_issues_enabled(repo: str) -> dict:
@@ -218,23 +211,27 @@ def check_issues_enabled(repo: str) -> dict:
 
     Returns {"enabled": True|False} or {"error": str}.
     """
+    token = get_token()
+    if not token:
+        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+
     try:
-        result = _run_gh(
-            ["api", f"repos/{repo}", "--jq", ".has_issues"],
+        resp = requests.get(
+            f"{GITHUB_API}/repos/{repo}",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
             timeout=15,
         )
-        if result.returncode != 0:
-            detail = (result.stderr + result.stdout).strip()
-            return {"error": detail or f"Failed to check issues for {repo}"}
-
-        val = result.stdout.strip().lower()
-        return {"enabled": val == "true"}
-    except FileNotFoundError:
-        return {"error": "gh CLI not found on PATH"}
-    except subprocess.TimeoutExpired:
-        return {"error": "gh api timed out"}
-    except Exception as exc:
-        return {"error": str(exc)}
+        if resp.status_code == 404:
+            return {"error": f"Repository not found: {repo}"}
+        if resp.status_code != 200:
+            return {"error": f"GitHub API error {resp.status_code}"}
+        return {"enabled": resp.json().get("has_issues", False)}
+    except requests.RequestException as exc:
+        return {"error": f"GitHub API request failed: {exc}"}
 
 
 def create_issue(
@@ -243,81 +240,75 @@ def create_issue(
     body: str,
     labels: list[str] | None = None,
 ) -> dict:
-    """Create a GitHub issue via gh CLI.
+    """Create a GitHub issue via the API.
 
     Returns {"issue_url": str, "issue_number": int} or {"error": str}.
     """
+    token = get_token()
+    if not token:
+        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+
+    payload: dict = {"title": title, "body": body}
+    if labels:
+        payload["labels"] = labels
+
     try:
-        cmd = [
-            "issue",
-            "create",
-            "--repo",
-            repo,
-            "--title",
-            title,
-            "--body",
-            body,
-        ]
-        for label in labels or []:
-            cmd.extend(["--label", label])
+        resp = requests.post(
+            f"{GITHUB_API}/repos/{repo}/issues",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json=payload,
+            timeout=60,
+        )
+        if resp.status_code not in (201, 200):
+            return {"error": f"GitHub API error {resp.status_code}: {resp.text[:300]}"}
 
-        result = _run_gh(cmd, timeout=60)
-        if result.returncode != 0:
-            detail = (result.stderr + result.stdout).strip()
-            return {"error": detail or "gh issue create failed"}
-
-        issue_url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
-        issue_number = None
-        if issue_url:
-            match = re.search(r"/issues/(\d+)(?:\?.*)?$", issue_url)
-            if match:
-                issue_number = int(match.group(1))
-
-        if not issue_url or issue_number is None:
-            return {"error": "Issue created but could not determine URL/number"}
-
-        return {"issue_url": issue_url, "issue_number": issue_number}
-    except FileNotFoundError:
-        return {"error": "gh CLI not found on PATH"}
-    except subprocess.TimeoutExpired:
-        return {"error": "gh issue create timed out"}
-    except Exception as exc:
-        return {"error": str(exc)}
+        data = resp.json()
+        return {
+            "issue_url": data.get("html_url", ""),
+            "issue_number": data.get("number"),
+        }
+    except requests.RequestException as exc:
+        return {"error": f"GitHub API request failed: {exc}"}
 
 
 def check_workflow_run(repo: str, run_id: int | str) -> dict:
     """Check GitHub Actions workflow run status."""
+    token = get_token()
+    if not token:
+        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+
     try:
-        result = _run_gh(
-            [
-                "api",
-                f"repos/{repo}/actions/runs/{run_id}",
-                "--jq",
-                "{status: .status, conclusion: .conclusion, url: .html_url}",
-            ],
+        resp = requests.get(
+            f"{GITHUB_API}/repos/{repo}/actions/runs/{run_id}",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
             timeout=30,
         )
-        if result.returncode != 0:
-            detail = (result.stderr + result.stdout).strip()
-            return {"error": detail or f"Failed to fetch workflow run {run_id}"}
-
-        data = json.loads(result.stdout)
+        if resp.status_code != 200:
+            return {"error": f"GitHub API error {resp.status_code}: {resp.text[:300]}"}
+        data = resp.json()
         return {
             "status": data.get("status", ""),
             "conclusion": data.get("conclusion"),
-            "url": data.get("url", ""),
+            "url": data.get("html_url", ""),
         }
-    except FileNotFoundError:
-        return {"error": "gh CLI not found on PATH"}
-    except subprocess.TimeoutExpired:
-        return {"error": "gh api timed out"}
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+    except requests.RequestException as exc:
+        return {"error": f"GitHub API request failed: {exc}"}
+    except (KeyError, TypeError) as exc:
         return {"error": f"Failed to parse workflow run response: {exc}"}
-    except Exception as exc:
-        return {"error": str(exc)}
 
 
 def main() -> None:
+    import site_config
+    site_config.load()
+
     parser = argparse.ArgumentParser(description="GitHub primitives")
     sub = parser.add_subparsers(dest="command", required=True)
 

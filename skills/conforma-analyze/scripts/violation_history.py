@@ -45,11 +45,18 @@ import argparse
 import csv
 import io
 import json
+import os
 import subprocess
 import sys
+from pathlib import Path
+
+import requests
+
+import _setup_env  # noqa: F401 -- loads .work/.env and adds scripts/ to sys.path
 
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
 RAW_DOWNLOAD_BASE = "https://raw.githubusercontent.com"
+GITHUB_API = "https://api.github.com"
 
 CSV_PATHS = [
     "prod/release_day/conforma-violations-report.csv",
@@ -64,14 +71,33 @@ def _get_github_token() -> str:
     global _github_token_cache
     if _github_token_cache is not None:
         return _github_token_cache
-    result = subprocess.run(
-        ["gh", "auth", "token"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    _github_token_cache = result.stdout.strip() if result.returncode == 0 else ""
+
+    for var in ("GITHUB_TOKEN", "GH_TOKEN"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            _github_token_cache = val
+            return _github_token_cache
+
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        _github_token_cache = result.stdout.strip() if result.returncode == 0 else ""
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        _github_token_cache = ""
     return _github_token_cache
+
+
+def _gh_headers() -> dict[str, str]:
+    token = _get_github_token()
+    return {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
 
 
 def _find_csv_path(ref: str) -> str | None:
@@ -81,14 +107,12 @@ def _find_csv_path(ref: str) -> str | None:
         return None
     for csv_path in CSV_PATHS:
         url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{ref}/{csv_path}"
-        result = subprocess.run(
-            ["curl", "-fsSL", "-o", "/dev/null", "-w", "%{http_code}", "-H", f"Authorization: token {token}", url],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.stdout.strip() == "200":
-            return csv_path
+        try:
+            resp = requests.head(url, headers={"Authorization": f"token {token}"}, timeout=30)
+            if resp.status_code == 200:
+                return csv_path
+        except requests.RequestException:
+            continue
     return None
 
 
@@ -99,17 +123,18 @@ def _fetch_commits(ref: str, csv_path: str, max_commits: int) -> list[dict]:
     per_page = min(max_commits, 100)
 
     while len(all_commits) < max_commits:
-        api_path = f"repos/{CONFORMA_REPORTER_REPO}/commits?sha={ref}&path={csv_path}&per_page={per_page}&page={page}"
-        result = subprocess.run(
-            ["gh", "api", api_path],
-            capture_output=True,
-            text=True,
-            timeout=30,
+        url = (
+            f"{GITHUB_API}/repos/{CONFORMA_REPORTER_REPO}/commits"
+            f"?sha={ref}&path={csv_path}&per_page={per_page}&page={page}"
         )
-        if result.returncode != 0:
+        try:
+            resp = requests.get(url, headers=_gh_headers(), timeout=30)
+            if resp.status_code != 200:
+                break
+            commits = resp.json()
+        except (requests.RequestException, json.JSONDecodeError):
             break
 
-        commits = json.loads(result.stdout)
         if not commits:
             break
 
@@ -135,15 +160,14 @@ def _fetch_csv_content(sha: str, csv_path: str) -> str | None:
     if not token:
         return None
     url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{sha}/{csv_path}"
-    result = subprocess.run(
-        ["curl", "-fsSL", "-H", f"Authorization: token {token}", url],
-        capture_output=True,
-        timeout=120,
-    )
-    if result.returncode != 0:
+    try:
+        resp = requests.get(url, headers={"Authorization": f"token {token}"}, timeout=120)
+        if resp.status_code != 200:
+            return None
+        content = resp.text
+        return content if content.strip() else None
+    except requests.RequestException:
         return None
-    content = result.stdout.decode("utf-8", errors="replace")
-    return content if content.strip() else None
 
 
 def _check_violation_in_csv(

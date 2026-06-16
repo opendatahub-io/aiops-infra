@@ -98,34 +98,50 @@ If the user explicitly requests to proceed without approval, the `--skip-approva
 
 The approval gate sits between the `rhoaieng_approval_jira` and `prodsec_form_submission` workflow steps:
 
-```mermaid
-flowchart TD
-    VR["Violation Report Jira\n(Blocker Bug, always)"]
-    ENV{Environment?}
-    VR --> ENV
-
-    subgraph prod_flow [Prod Workflow]
-        REM_P["Remediation Jira\n(Blocker Bug)"]
-        APP["Approval Jira\n(Blocker Task)"]
-        GATE{"Approval\nGate"}
-        FORM["ProdSec Form\n(user submits)"]
-        MR_P["GitLab MR\n[prod] prefix"]
-        REM_P --> APP --> GATE
-        GATE -->|approved| FORM --> MR_P
-        GATE -->|blocked| HALT_P["HALT — get approval"]
-    end
-
-    subgraph stage_flow [Stage Workflow]
-        SELF{Self-service\nrule?}
-        REM_S["Remediation Jira\n(Blocker Bug)"]
-        MR_S["GitLab MR\n[stage] self-service"]
-        MR_SS["GitLab MR\n[stage] self-service"]
-        SELF -->|no| REM_S --> MR_S
-        SELF -->|yes| MR_SS
-    end
-
-    ENV -->|prod| REM_P
-    ENV -->|stage| SELF
+```
+                  ┌──────────────────────┐
+                  │ Violation Report Jira│
+                  │ (Blocker Bug, always)│
+                  └──────────┬───────────┘
+                             │
+                      ┌──────┴──────┐
+                      │ Environment?│
+                      └──┬───────┬──┘
+                         │       │
+                    prod │       │ stage
+                         ▼       ▼
+  ┌─ Prod Workflow ──────────┐  ┌─ Stage Workflow ──────────────────┐
+  │                          │  │                                    │
+  │  ┌────────────────────┐  │  │  ┌────────────────┐               │
+  │  │ Remediation Jira   │  │  │  │ Self-service   │               │
+  │  │ (Blocker Bug)      │  │  │  │ rule?          │               │
+  │  └─────────┬──────────┘  │  │  └───┬────────┬───┘               │
+  │            ▼             │  │      │        │                    │
+  │  ┌────────────────────┐  │  │  no  │        │ yes               │
+  │  │ Approval Jira      │  │  │      ▼        ▼                   │
+  │  │ (Blocker Task)     │  │  │  ┌────────┐  ┌──────────────────┐ │
+  │  └─────────┬──────────┘  │  │  │Remed.  │  │ GitLab MR       │ │
+  │            ▼             │  │  │Jira    │  │ [stage]          │ │
+  │  ╔════════════════════╗  │  │  └───┬────┘  │ self-service     │ │
+  │  ║   APPROVAL GATE   ║  │  │      ▼       └──────────────────┘ │
+  │  ╚════╤═══════════╤═══╝  │  │  ┌──────────────────┐            │
+  │       │           │      │  │  │ GitLab MR        │            │
+  │  approved      blocked   │  │  │ [stage]          │            │
+  │       │           │      │  │  │ self-service     │            │
+  │       ▼           ▼      │  │  └──────────────────┘            │
+  │  ┌──────────┐ ┌───────┐  │  │                                    │
+  │  │ ProdSec  │ │ HALT  │  │  └────────────────────────────────────┘
+  │  │ Form     │ │ get   │  │
+  │  │ (user    │ │ appro-│  │
+  │  │ submits) │ │ val   │  │
+  │  └────┬─────┘ └───────┘  │
+  │       ▼                  │
+  │  ┌──────────────────┐    │
+  │  │ GitLab MR        │    │
+  │  │ [prod] prefix    │    │
+  │  └──────────────────┘    │
+  │                          │
+  └──────────────────────────┘
 ```
 
 In self-service workflows (no ProdSec/OCPEXCEPT step), the gate sits before the MR step:
@@ -295,40 +311,67 @@ When `match_template_category()` returns `"other"`, the agent MUST follow an int
 
 ## Exception Creation Workflow Diagram
 
-The following mermaid diagram shows the end-to-end flow for creating a new Conforma exception. **The agent MUST render this diagram to the user** in the following situations:
+The following diagram shows the end-to-end flow for creating a new Conforma exception. **The agent MUST show this diagram verbatim to the user** (copy the code block exactly) in the following situations:
 
 1. **Generic questions** — When the user asks what a Conforma exception is, how exceptions work, or asks about the exception process (e.g. "what is a conforma exception", "explain conforma exceptions", "how does the exception workflow work", "what's the process for creating an exception")
 2. **Before prompting for details** — When the user initiates exception creation (e.g. "create conforma exception", "I need a conforma exception", "create exception for componentA") the agent MUST show this diagram BEFORE presenting the entry-point choices or the questionnaire, so the user understands the full flow they are about to go through
 
-```mermaid
-flowchart TD
-    Step1["① RHOAIENG component bugfix Jira\n(remediation plan — created first)"]
-    Step2["② RHOAIENG Senior Management\napproval Jira"]
-    Step3{{"③ APPROVAL GATE\nSenior Management\nmust approve"}}
-    Halt([Halted — get approval,\nthen re-run])
-    Step4["④ ProdSec form or OCPEXCEPT Jira\n(skip for self-service rules)"]
-    Step5["⑤ GitLab Merge Request\n(exception YAML in konflux-release-data)"]
-    Step6["⑥ Link all artifacts\n(comments, labels, Jira links)"]
-
-    Step1 --> Step2
-    Step2 --> Step3
-    Step3 -->|Not approved| Halt
-    Step3 -->|Approved| Step4
-    Step4 --> Step5
-    Step5 --> Step6
-
-    subgraph Review [External review — human]
-        direction TB
-        Step7["⑦ ProdSec reviews exception ticket\n→ Ready for Verification"]
-        Step8["⑧ Release Engineering\nmerges GitLab MR"]
-    end
-
-    Step6 --> Step7
-    Step6 --> Step8
-    Step7 --> Granted
-    Step8 --> Granted
-
-    Granted([Exception granted])
+```
+  ┌─────────────────────────────────────────────┐
+  │ ① RHOAIENG component bugfix Jira            │
+  │   (remediation plan — created first)        │
+  └──────────────────────┬──────────────────────┘
+                         ▼
+  ┌─────────────────────────────────────────────┐
+  │ ② RHOAIENG Senior Management approval Jira │
+  └──────────────────────┬──────────────────────┘
+                         ▼
+              ╔════════════════════╗
+              ║ ③ APPROVAL GATE   ║
+              ║ Senior Management ║
+              ║ must approve      ║
+              ╚═════╤════════╤════╝
+                    │        │
+               approved   not approved
+                    │        │
+                    ▼        ▼
+                    │   ┌─────────────────────┐
+                    │   │ HALTED — get        │
+                    │   │ approval, then      │
+                    │   │ re-run              │
+                    │   └─────────────────────┘
+                    ▼
+  ┌─────────────────────────────────────────────┐
+  │ ④ ProdSec form or OCPEXCEPT Jira            │
+  │   (skip for self-service rules)             │
+  └──────────────────────┬──────────────────────┘
+                         ▼
+  ┌─────────────────────────────────────────────┐
+  │ ⑤ GitLab Merge Request                      │
+  │   (exception YAML in konflux-release-data)  │
+  └──────────────────────┬──────────────────────┘
+                         ▼
+  ┌─────────────────────────────────────────────┐
+  │ ⑥ Link all artifacts                        │
+  │   (comments, labels, Jira links)            │
+  └──────────┬───────────────────────┬──────────┘
+             │                       │
+             ▼                       ▼
+  ┌─ External review — human ───────────────────┐
+  │                                              │
+  │  ┌────────────────────┐ ┌─────────────────┐  │
+  │  │ ⑦ ProdSec reviews │ │ ⑧ Release Eng.  │  │
+  │  │ exception ticket   │ │ merges GitLab   │  │
+  │  │ → Ready for Verif. │ │ MR              │  │
+  │  └─────────┬──────────┘ └────────┬────────┘  │
+  │            │                     │           │
+  └────────────┼─────────────────────┼───────────┘
+               │                     │
+               └──────────┬──────────┘
+                          ▼
+              ┌───────────────────────┐
+              │  Exception granted    │
+              └───────────────────────┘
 ```
 
 The exception is only granted when **both** conditions are met: the ProdSec/OCPEXCEPT Jira ticket reaches **Ready for Verification** and the GitLab Merge Request is **merged**. Steps ①–⑥ are automated by this skill; steps ⑦–⑧ require human review by ProdSec and Release Engineering respectively.
@@ -339,7 +382,7 @@ The exception is only granted when **both** conditions are met: the ProdSec/OCPE
 
 When the user asks what a Conforma exception is (e.g. "what is a conforma exception", "explain conforma exceptions"), always include the compact YAML example from the introduction above. This makes the concept concrete. Also link to the [Conforma redhat collection](https://conforma.dev/docs/policy/release_policy.html) and [VolatileCriteria schema](https://conforma.dev/docs/policy/packages/release_volatile_config.html).
 
-**Additionally**, always render the workflow diagram from the "Exception Creation Workflow Diagram" section above when explaining Conforma exceptions, so the user can see the full process visually.
+**Additionally**, always show the workflow diagram from the "Exception Creation Workflow Diagram" section above verbatim (copy the code block exactly) when explaining Conforma exceptions, so the user can see the full process visually.
 
 ## Run Directory Convention
 
@@ -387,7 +430,7 @@ Script-internal temp directories (`conforma-exception-mr-*`, `conforma-exception
 
 When the user asks to create a Conforma exception but does not provide specific details (no rule, no version, no components, no Jira URL — e.g., "create conforma exception for componentA", "how do I create an exception", "I need a conforma exception"), the agent MUST:
 
-1. **Show the workflow diagram first** — render the mermaid diagram from the "Exception Creation Workflow Diagram" section so the user understands the full flow before beginning
+1. **Show the workflow diagram first** — copy the diagram from the "Exception Creation Workflow Diagram" section verbatim so the user understands the full flow before beginning
 2. **Then present two entry points** using the AskQuestion tool:
 
    a. **Paste violation text**: The user pastes Conforma violation output (from a CI log, Conforma report, or error message) directly into the prompt. The agent extracts the rule code, component name(s), RHOAI version, and any other available details from the pasted text, then runs the Existing Exception Gate before proceeding with the normal preflight/questionnaire flow.

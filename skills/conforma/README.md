@@ -6,55 +6,75 @@ This is the master install and setup guide for the full suite of `conforma-*` sk
 
 ## Install
 
-Install all conforma skills (via skills-registry):
-
-- **Cursor**: `cursor skills install opendatahub-io/aiops-infra`
-- **Claude Code**: `claude install-skill opendatahub-io/aiops-infra`
-
-Python dependencies are auto-installed on first run.
-
-## Prerequisites
-
-### CLI tools (install once)
-
-| Tool | Purpose | Install |
-|------|---------|---------|
-| `gh` | GitHub CLI | [cli.github.com](https://cli.github.com) |
-| `glab` | GitLab CLI | Fedora/RHEL: `sudo dnf install glab` / macOS: `brew install glab` |
-| `acli` | Jira (Atlassian) CLI | Auto-installed on first use -- no manual install needed |
-
-### One-time authentication
-
-Credentials persist across sessions. Run these once after installing the CLI tools:
-
-1. **GitHub**:
+### 1. Clone the repository
 
 ```bash
-gh auth login
+git clone https://github.com/opendatahub-io/aiops-infra.git
+cd aiops-infra
 ```
 
-2. **Jira**: generate an API token at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens), then:
+### 2. Install Python dependencies
+
+Requires **Python 3.11+**. Dependencies auto-install on first script run, but you can install upfront:
 
 ```bash
-echo "YOUR_TOKEN" | acli jira auth login --site redhat.atlassian.net --email "$USER@redhat.com" --token
+uv sync          # if you have uv
+# or
+pip install -e .
 ```
 
-3. **GitLab**: go to `https://$GITLAB_HOST/-/user_settings/personal_access_tokens`, create a token named `glab-cli` with `api` scope and 1 year expiration, then:
+### 3. Configure secrets
 
 ```bash
-glab auth login --hostname "$GITLAB_HOST" --token "YOUR_TOKEN"
+cp .work/.env.example .work/.env
 ```
 
-### Additional requirements
+Open `.work/.env` and fill in the tokens:
 
-Some skills require extra tools or access beyond the shared set above. See each skill's own README for details.
+| Variable | Where to get it |
+|----------|-----------------|
+| `GITHUB_TOKEN` | [github.com/settings/tokens](https://github.com/settings/tokens) — scope: `repo` (needed for private `conforma-reporter`) |
+| `GITLAB_TOKEN` | `https://$GITLAB_HOST/-/user_settings/personal_access_tokens` — scopes: `api`, `read_repository`, `write_repository` |
+| `JIRA_API_TOKEN` | [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens) |
+| `JIRA_EMAIL` | Auto-derived from token on first run (or set manually) |
 
-| Skill | Extra requirements |
-|-------|--------------------|
-| `conforma-analyze` | `GITHUB_TOKEN` with read access to `red-hat-data-services/conforma-reporter` (private) |
-| `conforma-report-fetch` | Tekton mode: `oc` CLI, `jq`, VPN access |
-| `conforma-exception` | VPN access to internal GitLab (`$GITLAB_HOST`) |
-| `conforma-release-readiness` | Read access to `conforma-reporter` (private) |
+### 4. Authenticate Slack (for coverage search)
+
+slackdump is auto-installed to `.work/bin/` on first use. You only need to log in once:
+
+```bash
+.work/bin/slackdump login    # opens browser for Red Hat SSO
+```
+
+If slackdump hasn't been installed yet (e.g. first time running the verify script), trigger it manually:
+
+```bash
+bash scripts/install_slackdump.sh
+.work/bin/slackdump login
+```
+
+### 5. Verify everything works
+
+```bash
+python3 scripts/verify_conforma_prerequisites.py --fix
+```
+
+This single command checks: Python deps, `.work/.env`, site-config, GitHub auth, GitLab auth (requires VPN), Jira auth, and Slack auth. All must pass before running workflows. The `--fix` flag prints remediation steps for any failures.
+
+## Site Configuration
+
+Site-config (GitLab host, Konflux tenant, cluster domain) is loaded automatically:
+
+1. From `~/.config/aiops-infra/site-config.yaml` if present
+2. Auto-fetched from `rhods-devops-infra` remote (requires `GITHUB_TOKEN`)
+3. From `.work/site-config.yaml` as a manual fallback
+
+For first-time setup, the auto-fetch handles most users. To validate or debug:
+
+```bash
+python3 scripts/site_config.py --validate
+python3 scripts/site_config.py --check-connectivity   # requires VPN
+```
 
 ## Skills in the suite
 
@@ -67,6 +87,18 @@ Some skills require extra tools or access beyond the shared set above. See each 
 | [`conforma-release-readiness`](../conforma-release-readiness/) | "Can version X ship?" -- detailed breakdown and verdict |
 | [`conforma-remedy`](../conforma-remedy/) | Fix violations in component code, configs, or build pipelines |
 | [`conforma-docs`](../conforma-docs/) | Full-text search across Conforma documentation and runbooks |
+| [`conforma-feedback`](../conforma-feedback/) | Report issues or feedback about Conforma skills |
+
+## Additional per-skill requirements
+
+Some skills require extra access or VPN connectivity beyond the shared set above:
+
+| Skill | Extra requirements |
+|-------|--------------------|
+| `conforma-analyze` | `GITHUB_TOKEN` with read access to `conforma-reporter` (private) |
+| `conforma-report-fetch` | Tekton mode: `oc` CLI, `jq`, VPN access |
+| `conforma-exception` | VPN access to internal GitLab |
+| `conforma-release-readiness` | Read access to `conforma-reporter` (private) |
 
 ## Troubleshooting
 
@@ -75,3 +107,10 @@ If you run into authentication issues, the suite includes dedicated troubleshoot
 - **GitLab**: use the `gitlab-auth` skill
 - **Jira**: use the `jira-auth` skill
 - **GitHub**: use the `github-auth` skill
+- **Slack**: use the `slack-auth` skill
+
+Or run the prerequisite checker for a full diagnostic:
+
+```bash
+python3 scripts/verify_conforma_prerequisites.py --fix
+```

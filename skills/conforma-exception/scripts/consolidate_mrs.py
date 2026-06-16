@@ -54,13 +54,11 @@ def _fetch_jira_title(ticket_key: str) -> str | None:
 
 
 def _get_gitlab_token() -> str:
-    """Retrieve GitLab token via shared gitlab_ops (env + glab config)."""
-    from cli_runner import _resolve_env
-
+    """Retrieve GitLab token via shared gitlab_ops."""
     token = gitlab_ops.discover_token(GITLAB_HOST)
     if token:
         return token
-    token = _resolve_env("GITLAB_TOKEN")
+    token = os.environ.get("GITLAB_TOKEN", "")
     if token:
         return token
     raise RuntimeError("Cannot resolve GitLab token for " + GITLAB_HOST)
@@ -218,27 +216,17 @@ def _check_jira_rest_api() -> dict:
 
     Returns {"available": bool, "detail": str}.
     """
-    from link_artifacts import _jira_auth
-
-    from cli_runner import _resolve_env
-
-    creds = _jira_auth()
-    if not creds:
+    token = os.environ.get("JIRA_API_TOKEN", "")
+    email = os.environ.get("JIRA_EMAIL", "")
+    if not token or not email:
         return {
             "available": False,
             "detail": (
-                "JIRA_API_TOKEN is not configured. Remote link (web link) "
-                "operations require a valid REST API token. "
-                "Generate one at: https://id.atlassian.com/manage-profile/security/api-tokens "
-                "and save it with: python3 -c \"import sys; sys.path.insert(0,'scripts'); "
-                "from cli_runner import save_token; save_token('JIRA_API_TOKEN','YOUR_TOKEN')\""
+                "JIRA_API_TOKEN or JIRA_EMAIL is not configured. "
+                "Add them to .work/.env. Generate a token at: "
+                "https://id.atlassian.com/manage-profile/security/api-tokens"
             ),
         }
-
-    email = _resolve_env("JIRA_EMAIL") or ""
-    token = _resolve_env("JIRA_API_TOKEN") or ""
-    os.environ.setdefault("JIRA_EMAIL", email)
-    os.environ.setdefault("JIRA_API_TOKEN", token)
     result = jira_ops.verify_auth()
     if result["ok"]:
         return {"available": True, "detail": "JIRA_API_TOKEN validated"}

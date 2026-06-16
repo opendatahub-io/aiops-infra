@@ -30,8 +30,8 @@ import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
 import argparse
 import json
+import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -63,10 +63,7 @@ DEFAULT_EOS_DATES: dict[str, str] = {
 }
 
 
-def _run_acli(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess:
-    from cli_runner import run_acli
-
-    return run_acli(args, timeout=timeout)
+import jira_ops
 
 
 def _extract_ticket_key(url: str) -> str | None:
@@ -80,21 +77,18 @@ def fetch_rhoaieng_ticket(url: str) -> dict:
     if not ticket_key:
         return {"error": f"Cannot extract ticket key from: {url}"}
 
-    result = _run_acli(["jira", "workitem", "view", ticket_key, "--json"], timeout=30)
-    if result.returncode != 0:
-        return {"error": f"Cannot fetch {ticket_key}: {result.stderr.strip()}"}
-
-    data = json.loads(result.stdout)
-    fields = data.get("fields", {})
+    issue_data = jira_ops.get_issue(ticket_key, fields=["priority", "labels"])
+    if issue_data.get("error"):
+        return {"error": f"Cannot fetch {ticket_key}: {issue_data['error']}"}
 
     info = {
         "key": ticket_key,
         "url": url,
-        "summary": fields.get("summary", ""),
-        "type": fields.get("issuetype", {}).get("name", "Unknown"),
-        "priority": fields.get("priority", {}).get("name", "Unknown"),
-        "status": fields.get("status", {}).get("name", "Unknown"),
-        "labels": fields.get("labels", []),
+        "summary": issue_data.get("summary", ""),
+        "type": issue_data.get("issue_type", "Unknown"),
+        "priority": issue_data.get("priority", "Unknown"),
+        "status": issue_data.get("status", "Unknown"),
+        "labels": issue_data.get("labels", []),
     }
 
     if info["type"] != "Bug" or info["priority"] != "Blocker":
@@ -139,22 +133,13 @@ def search_related_psx(rule: str) -> list[dict]:
     if ":" in rule:
         rule_fragment = rule.split(":", 1)[1]
 
-    result = _run_acli(
-        ["jira", "workitem", "search", "--jql", f"project = PSX AND text ~ '{rule_fragment}'"],
-        timeout=30,
-    )
-    if result.returncode != 0:
-        return []
-
+    jql = f"project = PSX AND text ~ '{rule_fragment}'"
+    result = jira_ops.search_issues(jql, max_results=50)
     tickets = []
-    for line in result.stdout.splitlines():
-        match = re.search(r"(PSX-\d+)", line)
-        if match:
-            key = match.group(1)
-            if key not in [t["key"] for t in tickets]:
-                summary_match = re.search(r"PSX-\d+\s*│\s*.*?│.*?│.*?│\s*(.*)", line)
-                summary = summary_match.group(1).strip() if summary_match else ""
-                tickets.append({"key": key, "summary_fragment": summary})
+    for issue in result.get("issues", []):
+        key = issue["key"]
+        if key not in [t["key"] for t in tickets]:
+            tickets.append({"key": key, "summary_fragment": issue.get("summary", "")})
     return tickets
 
 
@@ -189,24 +174,23 @@ def check_rhoaieng_approval_status(url: str) -> dict:
             "approval_comment": None,
         }
 
-    result = _run_acli(["jira", "workitem", "view", ticket_key, "--json"], timeout=30)
-    if result.returncode != 0:
+    issue_data = jira_ops.get_issue(ticket_key, fields=["resolution"])
+    if issue_data.get("error"):
         return {
             "url": url,
             "key": ticket_key,
             "status": "unknown",
             "resolution": None,
             "approved": False,
-            "reason": f"Cannot fetch {ticket_key}: {result.stderr.strip()}",
+            "reason": f"Cannot fetch {ticket_key}: {issue_data['error']}",
             "approval_comment": None,
         }
 
-    data = json.loads(result.stdout)
-    fields = data.get("fields", {})
-    status_name = fields.get("status", {}).get("name", "Unknown")
-    status_category = fields.get("status", {}).get("statusCategory", {}).get("key", "")
-    resolution = fields.get("resolution")
-    resolution_name = resolution.get("name", "") if resolution else None
+    status_name = issue_data.get("status", "Unknown")
+    resolution_name = issue_data.get("resolution")
+    status_category = ""
+    if status_name.lower() in ("done", "closed", "resolved"):
+        status_category = "done"
 
     approved_statuses = {"done", "closed", "resolved"}
     approved_resolutions = {"done", "fixed", "approved", "won't do", "complete", "completed"}
@@ -252,16 +236,10 @@ def check_rhoaieng_approval_status(url: str) -> dict:
 
 def _search_approval_comments(ticket_key: str) -> str | None:
     """Search a ticket's comments for approval from a senior manager."""
-    result = _run_acli(["jira", "workitem", "comments", ticket_key, "--json"], timeout=30)
-    if result.returncode != 0:
+    comments_result = jira_ops.get_comments(ticket_key)
+    if not comments_result.get("ok"):
         return None
 
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-
-    comments = data if isinstance(data, list) else data.get("comments", [])
     approval_keywords = [
         "approved",
         "approve",
@@ -270,21 +248,13 @@ def _search_approval_comments(ticket_key: str) -> str | None:
         "exception approved",
         "approval granted",
     ]
-    for comment in comments:
-        body = ""
-        if isinstance(comment, dict):
-            body = comment.get("body", "") or ""
-            if isinstance(body, dict):
-                body = json.dumps(body)
-        elif isinstance(comment, str):
-            body = comment
+    for comment in comments_result.get("comments", []):
+        body = comment.get("body", "")
+        if isinstance(body, dict):
+            body = json.dumps(body)
         body_lower = body.lower()
         if any(kw in body_lower for kw in approval_keywords):
-            author = ""
-            if isinstance(comment, dict):
-                author = (
-                    comment.get("author", {}).get("displayName", "") if isinstance(comment.get("author"), dict) else ""
-                )
+            author = comment.get("author", "")
             snippet = body[:200] + ("..." if len(body) > 200 else "")
             return f"[{author}]: {snippet}"
 
@@ -294,26 +264,13 @@ def _search_approval_comments(ticket_key: str) -> str | None:
 def check_duplicate_psx_tickets(rule: str, rhoai_versions: list[str]) -> list[dict]:
     """Check if PSX tickets already exist for this exact rule+versions combo."""
     search_term = rule.split(":", 1)[1] if ":" in rule else rule
-    result = _run_acli(
-        [
-            "jira",
-            "workitem",
-            "search",
-            "--jql",
-            f"project = PSX AND summary ~ '{search_term}' AND labels = 'conforma-exception-ai-skill'",
-        ],
-        timeout=30,
-    )
-    if result.returncode != 0:
-        return []
-
+    jql = f"project = PSX AND summary ~ '{search_term}' AND labels = 'conforma-exception-ai-skill'"
+    result = jira_ops.search_issues(jql, max_results=50)
     tickets = []
-    for line in result.stdout.splitlines():
-        match = re.search(r"(PSX-\d+)", line)
-        if match:
-            key = match.group(1)
-            if key not in [t["key"] for t in tickets]:
-                tickets.append({"key": key})
+    for issue in result.get("issues", []):
+        key = issue["key"]
+        if key not in [t["key"] for t in tickets]:
+            tickets.append({"key": key})
     return tickets
 
 
@@ -496,15 +453,13 @@ def discover_user_groups() -> dict:
     import urllib.error
     import urllib.request
 
-    from cli_runner import _resolve_env
-
     try:
         current_user = getpass.getuser()
     except Exception:
         current_user = "unknown"
 
-    token = _resolve_env("JIRA_API_TOKEN") or ""
-    email = _resolve_env("JIRA_EMAIL") or ""
+    token = os.environ.get("JIRA_API_TOKEN", "")
+    email = os.environ.get("JIRA_EMAIL", "")
     if not token or not email:
         return {
             "source": "none",

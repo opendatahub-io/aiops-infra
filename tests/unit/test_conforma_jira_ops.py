@@ -77,20 +77,72 @@ class TestTicketMatchesRelease:
         )
 
 
-class TestParseAcliTable:
-    def test_parses_simple_table(self):
-        table = (
-            "┌──────┬────────────────┬──────────┬──────────┬──────────┬───────────────────────────────────┐\n"
-            "│ Type │ Key            │ Assignee │ Priority │ Status   │ Summary                           │\n"
-            "├──────┼────────────────┼──────────┼──────────┼──────────┼───────────────────────────────────┤\n"
-            "│ Bug  │ RHOAIENG-66102 │          │ Blocker  │ New      │ [Exception] hermetic_task.hermetic│\n"
-            "└──────┴────────────────┴──────────┴──────────┴──────────┴───────────────────────────────────┘\n"
-        )
-        tickets = mod._parse_acli_table(table)
-        assert len(tickets) == 1
-        assert tickets[0]["key"] == "RHOAIENG-66102"
-        assert tickets[0]["type"] == "Bug"
-        assert tickets[0]["status"] == "New"
+class TestClassifyTicketVersionRelevance:
+    def test_targets_current_exact_match(self):
+        ticket = {"fix_versions": ["RHOAI 3.5-ea.1"]}
+        assert mod.classify_ticket_version_relevance(ticket, "rhoai-3.5-ea.1") == "targets_current"
 
-    def test_empty_table(self):
-        assert mod._parse_acli_table("") == []
+    def test_targets_current_partial_match(self):
+        ticket = {"fix_versions": ["3.5-ea.1"]}
+        assert mod.classify_ticket_version_relevance(ticket, "rhoai-3.5-ea.1") == "targets_current"
+
+    def test_targets_future(self):
+        ticket = {"fix_versions": ["RHOAI 3.6"]}
+        assert mod.classify_ticket_version_relevance(ticket, "rhoai-3.5-ea.1") == "targets_future"
+
+    def test_no_target_version(self):
+        ticket = {"fix_versions": []}
+        assert mod.classify_ticket_version_relevance(ticket, "rhoai-3.5-ea.1") == "no_target_version"
+
+    def test_no_fix_versions_key(self):
+        ticket = {}
+        assert mod.classify_ticket_version_relevance(ticket, "rhoai-3.5-ea.1") == "no_target_version"
+
+    def test_multiple_versions_one_matches(self):
+        ticket = {"fix_versions": ["RHOAI 3.6", "RHOAI 3.5-ea.1"]}
+        assert mod.classify_ticket_version_relevance(ticket, "rhoai-3.5-ea.1") == "targets_current"
+
+    def test_targets_current_short_version(self):
+        ticket = {"fix_versions": ["v3.5"]}
+        assert mod.classify_ticket_version_relevance(ticket, "rhoai-3.5-ea.1") == "targets_current"
+
+
+class TestPrefetchOpenJiraTickets:
+    def test_matches_tickets_to_rules(self, monkeypatch):
+        fake_issues = [
+            {"key": "RHOAIENG-66102", "url": "https://redhat.atlassian.net/browse/RHOAIENG-66102",
+             "summary": "[Exception] hermetic_task.hermetic for rhoai-3.4", "status": "New", "type": "Bug"},
+            {"key": "PSX-1097", "url": "https://redhat.atlassian.net/browse/PSX-1097",
+             "summary": "[AMD] rpm_signature.allowed:9386b48a1a693c5c rhoai-3.4", "status": "In Progress", "type": "Task"},
+        ]
+        monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": fake_issues, "total": 2})
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic", "rpm_signature.allowed:9386b48a1a693c5c"],
+            releases=["rhoai-3.4"],
+        )
+        assert len(result["hermetic_task.hermetic"]) == 1
+        assert result["hermetic_task.hermetic"][0]["key"] == "RHOAIENG-66102"
+        assert len(result["rpm_signature.allowed:9386b48a1a693c5c"]) == 1
+        assert result["rpm_signature.allowed:9386b48a1a693c5c"][0]["key"] == "PSX-1097"
+
+    def test_returns_empty_on_no_results(self, monkeypatch):
+        monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": [], "total": 0})
+        result = mod.prefetch_open_jira_tickets(["hermetic_task.hermetic"])
+        assert result["hermetic_task.hermetic"] == []
+
+    def test_label_fallback_search(self, monkeypatch):
+        call_count = {"n": 0}
+
+        def fake_search(jql, **kw):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return {"issues": [], "total": 0}
+            return {"issues": [
+                {"key": "RHOAIENG-99", "url": "https://redhat.atlassian.net/browse/RHOAIENG-99",
+                 "summary": "found via label", "status": "Open", "type": "Bug"},
+            ], "total": 1}
+
+        monkeypatch.setattr("jira_ops.search_issues", fake_search)
+        result = mod.prefetch_open_jira_tickets(["some.rule"])
+        assert len(result["some.rule"]) == 1
+        assert result["some.rule"][0]["key"] == "RHOAIENG-99"

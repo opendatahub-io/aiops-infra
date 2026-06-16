@@ -6,24 +6,54 @@ This is a two-skill workflow involving `conforma-exception` (this skill) and the
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    subgraph reportFetch [conforma-report-fetch skill]
-        A2[fetch_csv_reports.py]
-    end
-    subgraph analyze [conforma-analyze skill]
-        A2 --> A1[verify_auth.py]
-        A1 --> A3[parse_violations.py]
-        A3 --> VY[conforma-violations.yaml]
-    end
-    subgraph exception [conforma-exception skill]
-        M1["manage_exceptions.py --find-expired / --find-all"] --> EY[exceptions.yaml stdout]
-        M2["manage_exceptions.py --assess-expired / --assess-all"] --> AY[assessed-exceptions.yaml]
-        AY --> UserReview[Agent presents to user]
-        UserReview -->|extend| CE[create_exception.py]
-        UserReview -->|remove| GM["create_gitlab_mr.py --remove-expired-exception"]
-    end
-    VY -->|"--violations-input"| M2
+```
+┌─ conforma-report-fetch skill ──────────────────────────────────────────────┐
+│                                                                            │
+│  ┌──────────────────────┐                                                  │
+│  │ fetch_csv_reports.py │                                                  │
+│  └──────────┬───────────┘                                                  │
+│             │                                                              │
+└─────────────┼──────────────────────────────────────────────────────────────┘
+              │
+┌─ conforma-analyze skill ───────────────────────────────────────────────────┐
+│             ▼                                                              │
+│  ┌──────────────────┐    ┌──────────────────────┐    ┌───────────────────┐ │
+│  │ verify_auth.py   ├───▶│ parse_violations.py  ├───▶│ conforma-        │ │
+│  └──────────────────┘    └──────────────────────┘    │ violations.yaml  │ │
+│                                                      └────────┬──────────┘ │
+└───────────────────────────────────────────────────────────────┼────────────┘
+                                                                │
+                                              --violations-input│
+                                                                │
+┌─ conforma-exception skill ────────────────────────────────────┼────────────┐
+│                                                               │            │
+│  ┌──────────────────────────────────┐                         │            │
+│  │ manage_exceptions.py            │                         │            │
+│  │ --find-expired / --find-all     ├──▶ exceptions.yaml      │            │
+│  └──────────────────────────────────┘   (stdout)              │            │
+│                                                               │            │
+│  ┌──────────────────────────────────┐                         │            │
+│  │ manage_exceptions.py            │◀─────────────────────────┘            │
+│  │ --assess-expired / --assess-all │                                       │
+│  └───────────────┬──────────────────┘                                      │
+│                  ▼                                                          │
+│  ┌──────────────────────────┐                                              │
+│  │ assessed-exceptions.yaml │                                              │
+│  └─────────────┬────────────┘                                              │
+│                ▼                                                           │
+│  ┌──────────────────────────┐                                              │
+│  │ Agent presents to user   │                                              │
+│  └──────┬────────────┬──────┘                                              │
+│         │            │                                                     │
+│    extend│       remove│                                                    │
+│         ▼            ▼                                                     │
+│  ┌────────────┐ ┌──────────────────────────────────┐                       │
+│  │ create_    │ │ create_gitlab_mr.py              │                       │
+│  │ exception  │ │ --remove-expired-exception       │                       │
+│  │ .py        │ └──────────────────────────────────┘                       │
+│  └────────────┘                                                            │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **`conforma-analyze`** is a self-contained, user-invocable skill that fetches CSV violation reports from the private `red-hat-data-services/conforma-reporter` repository and parses them into a structured YAML index (`conforma-violations.yaml`). It knows about violations only -- not exceptions, policy files, or Jira.

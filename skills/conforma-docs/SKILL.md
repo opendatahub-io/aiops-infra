@@ -15,40 +15,28 @@ This skill is part of the conforma suite in [aiops-infra](https://github.com/ope
 
 **Setup:** See [README.md](README.md) for installation and prerequisites.
 
-## Mandatory Presentation Format
+## Presentation Rules
 
-Every answer produced by this skill MUST follow the **theory / example / explanation** structure for each concept or section. No exceptions.
+All reference documents (`references/*.md`) in the conforma skill suite are pre-written for direct user presentation. The agent MUST follow these rules:
 
-### Template
+1. **Verbatim output** — copy the markdown content of the reference document into the response exactly as written. Do not rephrase, summarize, reorder, expand, or add commentary. The document IS the response.
+2. **Diagrams** — Unicode box-drawing diagrams inside fenced code blocks MUST be copied character-for-character. Do not paraphrase, redraw, convert to bullet lists, or describe in prose. They are pre-rendered to display identically in Cursor chat, Claude Code terminal, and GitHub markdown.
+3. **No unsolicited expansion** — if a section says "ask to learn more", do not expand it. Wait for the user to ask.
+4. **No wrapping text** — do not add introductory sentences before or summary sentences after the copied content. The document starts and ends the response.
 
-For each concept in the response:
-
-1. **Brief theory** (2-3 sentences) — what it is, why it matters
-2. **Example** — a real code snippet, YAML fragment, CLI output, or violation message
-3. **Explanation of the example** — walk through what each part means, connecting back to the theory
-
-### Worked example
-
-If a user asks "What does hermetic_task.hermetic mean?", the response must look like:
-
-> **Hermetic builds** ensure that a Tekton task runs without network access during the build step. This prevents the build from fetching undeclared dependencies at runtime, guaranteeing that everything the build needs is pre-fetched and accounted for in the SBOM.
->
-> ```
-> Task 'buildah' was not invoked with the hermetic parameter set
-> ```
->
-> This violation message appears when a build task (here `buildah`) ran without `HERMETIC=true`. The Conforma policy engine checked the PipelineRun attestation and found the task's `HERMETIC` parameter was either missing or set to `false`. To resolve this, add `HERMETIC: "true"` to the task's params in your PipelineAs-Code definition.
+These rules apply to ALL reference document queries (overview, exception process, etc.). The only exception is rule-specific queries where the agent composes a response from upstream docs (see below).
 
 ## Source Routing
 
-When the user asks a question, determine the query type and use the appropriate source:
+When the user asks a question, determine the query type and route to the correct source:
 
-| Query type | Source | How |
-|------------|--------|-----|
-| "What is conforma?", overview questions | Local reference | Read `references/what-is-conforma.md` and present following the mandatory format |
-| Specific rule lookup ("What does X rule mean?") | Upstream docs | Look up the rule in `conforma-release-policy-rules.yaml` (in conforma-exception/references/), get the `docs:` URL, fetch via WebFetch, present in the mandatory format |
-| Exception process, how to create exceptions | Cross-skill search | Run `search_docs.py --query "..."` — it indexes conforma-exception/references/ which has comprehensive exception docs |
-| General keyword search | Full-text search | Run `search_docs.py --query "..."` to search across all conforma skills |
+| Query type | Source | Action |
+|------------|--------|--------|
+| "What is conforma?", overview questions | `references/what-is-conforma.md` | Read the file, copy its content verbatim into the response |
+| "Tell me more about violations/remedies/exceptions/release readiness" | `references/what-is-conforma-details.md` | Read the file, copy the requested section verbatim (or the full file if the user asks about all concepts) |
+| Specific rule lookup ("What does X rule mean?") | Upstream docs via `conforma-release-policy-rules.yaml` | Follow the rule-specific query workflow below |
+| Exception process, how to create exceptions | `search_docs.py` | Run search, present matching reference doc content verbatim |
+| General keyword search | `search_docs.py` | Run search, present matching reference doc content verbatim |
 
 ## Workflow
 
@@ -57,21 +45,36 @@ When the user asks a question, determine the query type and use the appropriate 
 When the user asks "what is conforma" or similar overview questions:
 
 1. Read `references/what-is-conforma.md` (relative to this skill's directory)
-2. Present the content following the mandatory presentation format
+2. Copy its full markdown content into the response. Do not add, remove, or rephrase anything.
+
+### Concept detail queries
+
+When the user asks for more detail on violations, remedies, exceptions, or release readiness (following up on the overview's "ask about any of these concepts"):
+
+1. Read `references/what-is-conforma-details.md` (relative to this skill's directory)
+2. Copy the requested section(s) verbatim. If the user asks about a single concept (e.g. "tell me more about violations"), copy only that `##` section. If the user asks about all concepts, copy the full file.
 
 ### Rule-specific queries
 
-When the user asks about a specific Conforma policy rule:
+When the user asks about a specific Conforma policy rule, this is the one case where the agent composes a response (because content comes from an external source):
 
 1. **Look up the rule** in `conforma-exception/references/conforma-release-policy-rules.yaml` to find the rule entry and its `docs:` URL
 2. **Fetch upstream docs** via WebFetch using the `docs:` URL (e.g., `https://conforma.dev/docs/policy/packages/release_hermetic_task.html`)
-3. **Present in the mandatory format**: use the upstream content (rule description, solution text, failure message) as the basis, then wrap with RHOAI context
+3. **Compose the response** using this exact three-part structure:
 
-**Fallback**: if the upstream fetch fails (offline, VPN issues), use the rule `name` and `code` from the local YAML catalog and state that full details are available at the `docs:` URL.
+   **Part 1 — Rule summary** (2-3 sentences from the upstream doc's description): what the rule checks and why it matters.
+
+   **Part 2 — Failure message** (verbatim from upstream doc): the exact violation message the user would see, inside a fenced code block.
+
+   **Part 3 — Resolution** (from upstream doc's solution/resolution section): the specific fix, with a code example if the upstream doc provides one.
+
+4. Do not add product-specific commentary, opinions, or extra context beyond what the upstream doc provides.
+
+**Fallback**: if the upstream fetch fails (offline, VPN issues), respond with exactly: the rule `code` and `name` from the local YAML catalog, and the statement "Full documentation is available at `<docs URL>`."
 
 ### Keyword search
 
-For general queries, use the search script:
+For general queries, run the search script:
 
 ```bash
 python3 skills/conforma-docs/scripts/search_docs.py --query "hermetic build"
@@ -83,6 +86,8 @@ The script auto-discovers and indexes content from all `skills/conforma*/` direc
 - `docs/` — additional documentation
 - `SKILL.md` — skill definitions (prose only, frontmatter and code blocks stripped)
 
+When presenting search results: if a result points to a reference document, read that document and copy the relevant section verbatim. Do not paraphrase search result snippets into a new summary.
+
 ## Content Boundaries
 
 This skill does NOT own exception-related content. All exception documentation (what exceptions are, how to create them, the approval workflow) belongs to the `conforma-exception` skill and its `references/` directory. Since `search_docs.py` indexes all conforma skills, exception queries will surface the right content automatically.
@@ -90,17 +95,18 @@ This skill does NOT own exception-related content. All exception documentation (
 ## Reference Data
 
 This skill indexes content from across the conforma skill suite:
-- `conforma-docs/references/what-is-conforma.md` — RHOAI-contextualized Conforma overview
+- `conforma-docs/references/what-is-conforma.md` — product-agnostic Conforma overview (site-config aware)
+- `conforma-docs/references/what-is-conforma-details.md` — detailed concept explanations (violations, remedies, exceptions, release readiness) with examples
 - `conforma-exception/references/conforma-release-policy-rules.yaml` — all policy rules with codes, names, and upstream doc URLs
 - `conforma-exception/references/conforma-exception-overview.md` — what exceptions are
-- `conforma-exception/references/exception-process.md` — RHOAI exception request workflow
+- `conforma-exception/references/exception-process.md` — exception request workflow
 - `conforma-exception/references/policy-files.yaml` — GitLab policy file path mappings
 - All `conforma*/SKILL.md` files — domain context from each skill
 
 ## Examples
 
-- "What is conforma?" — read `references/what-is-conforma.md`, present with theory/example/explanation
-- "What does hermetic_task.hermetic mean?" — look up rule, fetch upstream docs, present in mandatory format
-- "How do I create an exception?" — search indexes conforma-exception's references
-- "What are the allowed RPM signing keys?" — search policy rules catalog
-- "What is the violations-first philosophy?" — search finds it in conforma-analyze's SKILL.md
+- "What is conforma?" — read `references/what-is-conforma.md`, copy verbatim
+- "What does hermetic_task.hermetic mean?" — look up rule, fetch upstream docs, compose three-part response
+- "How do I create an exception?" — search finds `conforma-exception/references/exception-process.md`, copy relevant section verbatim
+- "What are the allowed RPM signing keys?" — search policy rules catalog, compose three-part response
+- "What is the violations-first philosophy?" — search finds it in `conforma-analyze/SKILL.md`, copy relevant section verbatim

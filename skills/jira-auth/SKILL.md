@@ -9,6 +9,12 @@ user-invocable: true
 
 Verify and troubleshoot Jira authentication. This skill does not own any scripts — it references the shared `scripts/jira_ops.py` for programmatic auth verification.
 
+## CRITICAL: Token Handling
+
+**NEVER ask the user to paste tokens or secrets into the chat window.**
+
+Always instruct the user to write tokens to the `.work/.env` file directly (using their editor, `echo >>`, or another non-chat method). The `.work/` directory is gitignored and is the designated location for secrets.
+
 ## Quick Verification
 
 ```bash
@@ -26,23 +32,25 @@ This checks:
 
 Auth requires both email and API token.
 
-**Fix:**
+**Fix — instruct the user:**
 
 ```bash
-# Set both environment variables
-export JIRA_EMAIL="your.name@redhat.com"
-export JIRA_API_TOKEN="ATATT3xxxxxxxxxxx"
+# Add credentials to .work/.env (create if missing):
+echo 'JIRA_EMAIL=your.name@redhat.com' >> .work/.env
+echo 'JIRA_API_TOKEN=ATATT3xxxxxxxxxxx' >> .work/.env
 ```
+
+Generate a token at: https://id.atlassian.com/manage-profile/security/api-tokens
 
 ### "401 Unauthorized"
 
 Token exists but is invalid or expired.
 
-**Fix:**
+**Fix — instruct the user:**
 
 1. Go to https://id.atlassian.com/manage-profile/security/api-tokens
 2. Create a new API token
-3. Export: `export JIRA_API_TOKEN="ATATT3xxxxxxxxxxx"`
+3. Update the token in `.work/.env` (edit the `JIRA_API_TOKEN=` line)
 
 ### "acli not found" (for conforma-exception workflows)
 
@@ -67,11 +75,21 @@ jira_token = ATATT3xxxxxxxxxxx
 
 ## Environment Variables
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `JIRA_API_TOKEN` | Atlassian API token | — |
-| `JIRA_EMAIL` | Atlassian account email | — |
-| `JIRA_URL` | Jira instance URL | `https://redhat.atlassian.net` |
+| Variable | Purpose | Source |
+|----------|---------|--------|
+| `JIRA_API_TOKEN` | Atlassian API token | `.work/.env` |
+| `JIRA_EMAIL` | Atlassian account email | `.work/.env` |
+| `JIRA_URL` | Jira instance URL | `https://redhat.atlassian.net` (default) |
+
+## Token Storage
+
+All secrets go in `.work/.env` (gitignored, loaded by `_setup_env.py` and `site_config.load()`):
+
+```
+# .work/.env — NOT committed to git
+JIRA_EMAIL=your.name@redhat.com
+JIRA_API_TOKEN=ATATT3xxxxxxxxxxx
+```
 
 ## Two Auth Systems
 

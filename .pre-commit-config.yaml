@@ -29,3 +29,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: check-no-secrets-in-examples
+        name: no real secrets in example files
+        entry: python tests/check_no_secrets_in_examples.py
+        language: system
+        pass_filenames: false
+        always_run: true

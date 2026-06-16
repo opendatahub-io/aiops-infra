@@ -29,7 +29,6 @@ import os
 import sys
 
 import jira_ops
-from cli_runner import _resolve_env
 
 JIRA_BASE = "https://redhat.atlassian.net"
 
@@ -39,15 +38,8 @@ ADDITIONAL_WATCHERS_FIELD = "customfield_10705"
 
 
 def _ensure_jira_env() -> None:
-    """Bridge conforma token discovery to env vars for jira_ops."""
-    if not os.environ.get("JIRA_API_TOKEN"):
-        token = _resolve_env("JIRA_API_TOKEN")
-        if token:
-            os.environ["JIRA_API_TOKEN"] = token
-    if not os.environ.get("JIRA_EMAIL"):
-        email = _resolve_env("JIRA_EMAIL")
-        if email:
-            os.environ["JIRA_EMAIL"] = email
+    """Ensure jira env vars are available (site_config.load() already handles this)."""
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -59,8 +51,8 @@ def _jira_auth() -> tuple[str, str] | None:
     """Return (email, base64-encoded Basic auth value) or None."""
     import base64
 
-    token = _resolve_env("JIRA_API_TOKEN") or ""
-    email = _resolve_env("JIRA_EMAIL") or ""
+    token = os.environ.get("JIRA_API_TOKEN", "")
+    email = os.environ.get("JIRA_EMAIL", "")
     if not token or not email:
         return None
     auth = base64.b64encode(f"{email}:{token}".encode()).decode()

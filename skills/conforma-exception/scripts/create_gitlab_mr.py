@@ -24,6 +24,9 @@ import tempfile
 from pathlib import Path
 
 import gitlab_ops
+import site_config
+
+site_config.require("gitlab")
 
 GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
 GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
@@ -393,12 +396,10 @@ def _get_gitlab_token() -> str | None:
       2. ~/.config/glab-cli/config.yml (host-specific token)
     Falls back to conforma-specific token file if shared ops can't find one.
     """
-    from cli_runner import _resolve_env
-
     token = gitlab_ops.discover_token(GITLAB_HOST)
     if token:
         return token
-    return _resolve_env("GITLAB_TOKEN")
+    return os.environ.get("GITLAB_TOKEN")
 
 
 def _get_authenticated_repo_url(project: str = GITLAB_PROJECT) -> str:
@@ -410,25 +411,69 @@ def _get_authenticated_repo_url(project: str = GITLAB_PROJECT) -> str:
 
 
 _KRD_CLUSTER_DOMAIN = os.environ.get("KRD_CLUSTER_DOMAIN", "")
-_EC_POLICY_DIR = (
-    f"config/{_KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy"
-    if _KRD_CLUSTER_DOMAIN
-    else os.environ.get("KRD_EC_POLICY_DIR", "")
+_EC_POLICY_DIR = os.environ.get(
+    "KRD_EC_POLICY_DIR",
+    f"config/{_KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy" if _KRD_CLUSTER_DOMAIN else "",
 )
 
-POLICY_PATHS = {
-    ("registry", "prod"): f"{_EC_POLICY_DIR}/registry-rhoai-prod.yaml",
-    ("registry", "stage"): f"{_EC_POLICY_DIR}/registry-rhoai-stage.yaml",
-    ("fbc", "prod"): f"{_EC_POLICY_DIR}/fbc-rhoai-prod.yaml",
-    ("fbc", "stage"): f"{_EC_POLICY_DIR}/fbc-rhoai-stage.yaml",
-}
 
-SELF_SERVICE_PATHS = {
-    ("fbc", "prod"): "exceptions/fbc-rhoai-prod.yaml",
-    ("fbc", "stage"): "exceptions/fbc-rhoai-stage.yaml",
-    ("registry", "prod"): "exceptions/registry-rhoai-prod.yaml",
-    ("registry", "stage"): "exceptions/registry-rhoai-stage.yaml",
-}
+def _build_policy_paths() -> dict[tuple[str, str], str]:
+    """Build policy path mappings from discovered EC policy dir.
+
+    Uses the KRD_EC_POLICY_DIR env var (populated by discovery or manual config)
+    and matches files by type-prefix and environment-suffix patterns.
+    """
+    if not _EC_POLICY_DIR:
+        return {}
+    paths = {}
+    for comp_type in ("registry", "fbc"):
+        for env in ("prod", "stage"):
+            paths[(comp_type, env)] = f"{_EC_POLICY_DIR}/{comp_type}-*-{env}.yaml"
+    return paths
+
+
+def _resolve_policy_file(component_type: str, environment: str, discovered_files: list[str] | None = None) -> str:
+    """Resolve a policy file path from discovered file list or pattern.
+
+    If discovered_files are available (from KRD_EC_POLICY_FILES env), search for
+    a matching file. Otherwise fall back to pattern-based path.
+    """
+    if discovered_files:
+        prefix = f"{component_type}-"
+        suffix = f"-{environment}.yaml"
+        matches = [f for f in discovered_files if f.startswith(prefix) and f.endswith(suffix)]
+        if matches:
+            return f"{_EC_POLICY_DIR}/{matches[0]}"
+
+    return f"{_EC_POLICY_DIR}/{component_type}-*-{environment}.yaml"
+
+
+def _resolve_self_service_file(component_type: str, environment: str, discovered_files: list[str] | None = None) -> str:
+    """Resolve a self-service exception file path."""
+    if discovered_files:
+        prefix = f"{component_type}-"
+        suffix = f"-{environment}.yaml"
+        matches = [f for f in discovered_files if f.startswith(prefix) and f.endswith(suffix)]
+        if matches:
+            return f"exceptions/{matches[0]}"
+
+    return f"exceptions/{component_type}-*-{environment}.yaml"
+
+
+def _get_discovered_ec_files() -> list[str] | None:
+    """Get the list of EC policy files from discovery (if available)."""
+    raw = os.environ.get("KRD_EC_POLICY_FILES", "")
+    if raw:
+        return [f.strip() for f in raw.split(",") if f.strip()]
+    return None
+
+
+def _get_discovered_self_service_files() -> list[str] | None:
+    """Get the list of self-service exception files from discovery (if available)."""
+    raw = os.environ.get("KRD_SELF_SERVICE_FILES", "")
+    if raw:
+        return [f.strip() for f in raw.split(",") if f.strip()]
+    return None
 
 
 def detect_component_type(components: list[str]) -> str:
@@ -440,11 +485,14 @@ def detect_component_type(components: list[str]) -> str:
 
 
 def get_target_file(component_type: str, environment: str, is_self_service: bool) -> str:
-    """Determine the target policy file path."""
-    key = (component_type, environment)
+    """Determine the target policy file path using discovery or pattern matching."""
     if is_self_service:
-        return SELF_SERVICE_PATHS.get(key, SELF_SERVICE_PATHS[("fbc", "prod")])
-    return POLICY_PATHS.get(key, POLICY_PATHS[("registry", "prod")])
+        return _resolve_self_service_file(
+            component_type, environment, _get_discovered_self_service_files()
+        )
+    return _resolve_policy_file(
+        component_type, environment, _get_discovered_ec_files()
+    )
 
 
 def generate_exception_yaml(
@@ -871,6 +919,7 @@ def create_mr(
             text=True,
             timeout=60,
             cwd=repo_dir,
+            env=gitlab_ops.git_env(),
         )
 
         use_fork = False
@@ -1095,6 +1144,7 @@ def update_mr(
             text=True,
             timeout=60,
             cwd=repo_dir,
+            env=gitlab_ops.git_env(),
         )
         if push_result.returncode != 0:
             return {
@@ -1271,6 +1321,7 @@ def create_consolidated_mr(
             text=True,
             timeout=60,
             cwd=repo_dir,
+            env=gitlab_ops.git_env(),
         )
 
         use_fork = False
@@ -1415,11 +1466,11 @@ def _make_branch_name(rule: str, version: str, components: list[str]) -> str:
 
 
 def _run_git(cmd: list[str], cwd: Path | None = None, timeout: int = 60) -> subprocess.CompletedProcess:
-    """Run a git command, raising on failure."""
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
-    if result.returncode != 0:
-        raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
-    return result
+    """Run a git command, raising on failure.
+
+    Uses gitlab_ops.run_git() to respect GITLAB_SSL_VERIFY settings.
+    """
+    return gitlab_ops.run_git(cmd, cwd=cwd, timeout=timeout, check=True)
 
 
 def _extract_mr_url(output: str) -> str | None:
@@ -1524,6 +1575,7 @@ def remove_expired_mr(
             text=True,
             timeout=60,
             cwd=repo_dir,
+            env=gitlab_ops.git_env(),
         )
 
         use_fork = False
@@ -1776,6 +1828,7 @@ def modernize_exception_mr(
             text=True,
             timeout=60,
             cwd=repo_dir,
+            env=gitlab_ops.git_env(),
         )
 
         use_fork = False

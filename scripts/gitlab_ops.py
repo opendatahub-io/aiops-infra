@@ -65,6 +65,58 @@ def discover_token(instance_url: str | None = None) -> str | None:
     return None
 
 
+def git_env() -> dict[str, str]:
+    """Return an os.environ copy with GIT_SSL_NO_VERIFY set when GITLAB_SSL_VERIFY is disabled.
+
+    Use this for ALL subprocess git calls against internal GitLab to ensure
+    SSL verification settings are respected consistently.
+    """
+    env = os.environ.copy()
+    if not _ssl_verify():
+        env["GIT_SSL_NO_VERIFY"] = "1"
+    return env
+
+
+def authenticated_clone_url(project: str, instance_url: str | None = None) -> str:
+    """Build an authenticated git clone URL for a GitLab project.
+
+    Returns a URL with embedded oauth2 token for non-interactive git operations.
+    Raises ValueError if no token is available.
+    """
+    url = _normalize_instance_url(instance_url)
+    host = _host_from_url(url)
+    token = discover_token(url)
+    if not token:
+        raise ValueError(
+            f"No GitLab token found for {host}. "
+            "Set GITLAB_TOKEN in .work/.env or configure glab."
+        )
+    return f"https://oauth2:{token}@{host}/{project}.git"
+
+
+def run_git(
+    cmd: list[str],
+    cwd: Path | str | None = None,
+    timeout: int = 120,
+    check: bool = True,
+) -> subprocess.CompletedProcess:
+    """Run a git command with correct SSL settings for internal GitLab.
+
+    Automatically sets GIT_SSL_NO_VERIFY when GITLAB_SSL_VERIFY=false.
+    Raises subprocess.CalledProcessError if check=True and command fails.
+    """
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
+        env=git_env(),
+        check=check,
+    )
+    return result
+
+
 def get_client(instance_url: str | None = None, token: str | None = None) -> gitlab.Gitlab:
     """Get authenticated GitLab client."""
     url = _normalize_instance_url(instance_url)

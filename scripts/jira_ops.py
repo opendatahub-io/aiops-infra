@@ -114,6 +114,30 @@ def get_issue(issue_key: str, fields: list[str] | None = None) -> dict:
         return {"key": issue_key, "error": str(exc)}
 
 
+def get_comments(issue_key: str) -> dict:
+    """Get all comments for an issue.
+
+    Returns {"ok": True, "comments": [{"id": str, "author": str, "body": str, "created": str}]}
+    """
+    try:
+        client = get_client()
+        issue = client.issue(issue_key, fields="comment")
+        comments = []
+        for c in issue.fields.comment.comments:
+            author = getattr(c.author, "displayName", "") if c.author else ""
+            comments.append({
+                "id": c.id,
+                "author": author,
+                "body": c.body or "",
+                "created": str(c.created),
+            })
+        return {"ok": True, "comments": comments}
+    except JIRAError as exc:
+        return {"ok": False, "comments": [], "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "comments": [], "error": str(exc)}
+
+
 def add_comment(issue_key: str, body: str) -> dict:
     """Add a comment to an issue.
 
@@ -132,21 +156,36 @@ def add_comment(issue_key: str, body: str) -> dict:
 def create_issue(
     project: str,
     summary: str,
-    description: str,
+    description: str | dict | None = None,
     issue_type: str = "Task",
     components: list[str] | None = None,
+    labels: list[str] | None = None,
+    priority: str | None = None,
+    extra_fields: dict | None = None,
 ) -> dict:
-    """Create issue. Returns {"key": str, "url": str}."""
+    """Create issue. Returns {"key": str, "url": str}.
+
+    Args:
+        description: Plain text string or ADF dict (Atlassian Document Format).
+        extra_fields: Additional fields dict merged directly into the create payload.
+    """
     try:
         client = get_client()
         fields: dict = {
             "project": {"key": project},
             "summary": summary,
-            "description": description,
             "issuetype": {"name": issue_type},
         }
+        if description is not None:
+            fields["description"] = description
         if components:
             fields["components"] = [{"name": c} for c in components]
+        if labels:
+            fields["labels"] = labels
+        if priority:
+            fields["priority"] = {"name": priority}
+        if extra_fields:
+            fields.update(extra_fields)
         issue = client.create_issue(fields=fields)
         return {"key": issue.key, "url": _issue_url(client, issue.key)}
     except Exception as exc:
@@ -258,6 +297,10 @@ def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = No
                 entry["created"] = str(issue.fields.created)
             if "labels" in requested:
                 entry["labels"] = issue.fields.labels
+            if "fixVersions" in requested:
+                entry["fix_versions"] = (
+                    [v.name for v in issue.fields.fixVersions] if issue.fields.fixVersions else []
+                )
             results.append(entry)
 
         return {"issues": results, "total": issues.total}
@@ -294,6 +337,21 @@ def link_issues(from_key: str, to_key: str, link_type: str = "Related") -> dict:
             "ok": False,
             "error": str(exc),
         }
+
+
+def delete_issue_link(link_id: str) -> dict:
+    """Delete an issue link by ID.
+
+    Returns {"ok": True, "link_id": str} on success.
+    """
+    try:
+        client = get_client()
+        client._session.delete(f"{client._options['server']}/rest/api/2/issueLink/{link_id}")
+        return {"ok": True, "link_id": link_id}
+    except JIRAError as exc:
+        return {"ok": False, "link_id": link_id, "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "link_id": link_id, "error": str(exc)}
 
 
 def transition_issue(issue_key: str, transition_name: str, resolution: str | None = None) -> dict:

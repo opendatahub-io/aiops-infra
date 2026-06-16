@@ -5,13 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 
-
-def _run_acli(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess:
-    from cli_runner import run_acli
-
-    return run_acli(args, timeout=timeout)
+import jira_ops
 
 
 def _extract_ticket_key(url: str) -> str | None:
@@ -77,80 +72,34 @@ def _ticket_matches_release(ticket: dict, version_patterns: list[str]) -> bool:
     return False
 
 
-def _parse_acli_table(stdout: str) -> list[dict]:
-    """Parse acli table output with multi-line wrapped cells.
 
-    The table has columns: Type | Key | Assignee | Priority | Status | Summary.
-    Rows are separated by ``├──`` lines. Long cell values wrap across multiple
-    lines within the same row.
+
+def _normalize_version(version: str) -> str:
+    """Normalize a version string for comparison (lowercase, strip whitespace)."""
+    return version.strip().lower()
+
+
+def classify_ticket_version_relevance(
+    ticket: dict, analyzed_release: str
+) -> str:
+    """Classify whether a ticket's fixVersion targets the analyzed release.
+
+    Returns one of:
+    - "targets_current" — fixVersion matches the analyzed release
+    - "targets_future" — fixVersion is set but doesn't match the analyzed release
+    - "no_target_version" — no fixVersion set
     """
-    tickets: list[dict] = []
-    current_cells: dict[str, str] = {}
-    col_indices: list[tuple[int, int]] = []
+    fix_versions = ticket.get("fix_versions", [])
+    if not fix_versions:
+        return "no_target_version"
 
-    for line in stdout.splitlines():
-        if line.startswith("├") or line.startswith("└"):
-            if current_cells.get("key"):
-                tickets.append(
-                    {
-                        "key": current_cells["key"].strip(),
-                        "type": current_cells.get("type", "").strip(),
-                        "status": current_cells.get("status", "").strip(),
-                        "summary": re.sub(r"\s+", " ", current_cells.get("summary", "")).strip(),
-                        "url": f"https://redhat.atlassian.net/browse/{current_cells['key'].strip()}",
-                    }
-                )
-            current_cells = {}
-            continue
-
-        if line.startswith("┌"):
-            col_indices = []
-            start = 0
-            for m in re.finditer(r"[┬┐]", line):
-                col_indices.append((start + 1, m.start()))
-                start = m.start()
-            continue
-
-        if "│" not in line or not col_indices:
-            continue
-
-        if line.strip().startswith("│") and "Type" in line and "Key" in line:
-            continue
-
-        parts = []
-        raw_parts = []
-        for start, end in col_indices:
-            if start < len(line) and end <= len(line):
-                parts.append(line[start:end].strip())
-                raw_parts.append(line[start:end].rstrip())
-            else:
-                parts.append("")
-                raw_parts.append("")
-
-        if len(parts) >= 6:
-            key_candidate = parts[1]
-            if re.match(r"(RHOAIENG|PSX|OCPEXCEPT)-\d+", key_candidate):
-                current_cells = {
-                    "type": parts[0],
-                    "key": key_candidate,
-                    "status": parts[4],
-                    "summary": raw_parts[5],
-                }
-            elif current_cells:
-                current_cells["summary"] = current_cells.get("summary", "") + raw_parts[5]
-
-    if current_cells.get("key"):
-        tickets.append(
-            {
-                "key": current_cells["key"].strip(),
-                "type": current_cells.get("type", "").strip(),
-                "status": current_cells.get("status", "").strip(),
-                "summary": re.sub(r"\s+", " ", current_cells.get("summary", "")).strip(),
-                "url": f"https://redhat.atlassian.net/browse/{current_cells['key'].strip()}",
-            }
-        )
-
-    return tickets
+    release_patterns = _build_release_version_patterns([analyzed_release])
+    for fv in fix_versions:
+        fv_norm = _normalize_version(fv)
+        for pattern in release_patterns:
+            if pattern in fv_norm or fv_norm in pattern:
+                return "targets_current"
+    return "targets_future"
 
 
 def prefetch_open_jira_tickets(rules: list[str], releases: list[str] | None = None) -> dict[str, list[dict]]:
@@ -171,12 +120,19 @@ def prefetch_open_jira_tickets(rules: list[str], releases: list[str] | None = No
         "AND labels = 'conforma-violation' "
         "AND status not in (Closed, Resolved, Done)"
     )
-    result = _run_acli(
-        ["jira", "workitem", "search", "--jql", jql],
-        timeout=45,
-    )
-    if result.returncode == 0:
-        all_tickets = _parse_acli_table(result.stdout)
+    result = jira_ops.search_issues(jql, max_results=200, fields=["key", "summary", "status", "issuetype", "fixVersions"])
+    if result.get("issues"):
+        all_tickets = [
+            {
+                "key": t["key"],
+                "type": t.get("type", ""),
+                "status": t.get("status", ""),
+                "summary": t.get("summary", ""),
+                "url": t["url"],
+                "fix_versions": t.get("fix_versions", []),
+            }
+            for t in result["issues"]
+        ]
 
     version_patterns = _build_release_version_patterns(releases) if releases else []
 
@@ -197,17 +153,24 @@ def prefetch_open_jira_tickets(rules: list[str], releases: list[str] | None = No
     unmatched = [r for r, tickets in rule_to_tickets.items() if not tickets]
     for rule in unmatched:
         label_jql = (
-            f"project in (RHOAIENG, PSX, OCPEXCEPT) AND labels = '{rule}' AND status not in (Closed, Resolved, Done)"
+            f"project in (RHOAIENG, PSX, OCPEXCEPT) AND labels = '{rule}' "
+            f"AND status not in (Closed, Resolved, Done)"
         )
-        label_result = _run_acli(
-            ["jira", "workitem", "search", "--jql", label_jql],
-            timeout=45,
-        )
-        if label_result.returncode == 0:
-            for ticket in _parse_acli_table(label_result.stdout):
-                if ticket not in rule_to_tickets[rule]:
-                    if not version_patterns or _ticket_matches_release(ticket, version_patterns):
-                        rule_to_tickets[rule].append(ticket)
+        label_result = jira_ops.search_issues(label_jql, max_results=50, fields=["key", "summary", "status", "issuetype", "fixVersions"])
+        if label_result.get("issues"):
+            for ticket in label_result["issues"]:
+                normalized = {
+                    "key": ticket["key"],
+                    "type": ticket.get("type", ""),
+                    "status": ticket.get("status", ""),
+                    "summary": ticket.get("summary", ""),
+                    "url": ticket["url"],
+                    "fix_versions": ticket.get("fix_versions", []),
+                }
+                existing_keys = {t["key"] for t in rule_to_tickets[rule]}
+                if normalized["key"] not in existing_keys:
+                    if not version_patterns or _ticket_matches_release(normalized, version_patterns):
+                        rule_to_tickets[rule].append(normalized)
 
     return rule_to_tickets
 

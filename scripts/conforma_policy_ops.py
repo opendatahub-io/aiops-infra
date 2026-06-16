@@ -20,22 +20,19 @@ def _refresh_workdir_clone(clone_dir: Path) -> None:
 
     Raises subprocess.CalledProcessError if fetch fails (e.g. VPN down,
     host unreachable).  Callers must not silently fall back to stale data.
+    Uses gitlab_ops.run_git() to respect GITLAB_SSL_VERIFY settings.
     """
-    subprocess.run(
+    import gitlab_ops
+
+    gitlab_ops.run_git(
         ["git", "fetch", "origin", "main"],
         cwd=clone_dir,
-        capture_output=True,
-        text=True,
         timeout=120,
-        check=True,
     )
-    subprocess.run(
+    gitlab_ops.run_git(
         ["git", "reset", "--hard", "origin/main"],
         cwd=clone_dir,
-        capture_output=True,
-        text=True,
         timeout=30,
-        check=True,
     )
 
 
@@ -74,7 +71,7 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
     except ImportError:
         _find_existing_exceptions = None
 
-    for yaml_file in policy_dir.glob("*rhoai*.yaml"):
+    for yaml_file in policy_dir.glob("*.yaml"):
         content = yaml_file.read_text(encoding="utf-8")
         rel_path = str(yaml_file.relative_to(search_dir))
 
@@ -205,15 +202,31 @@ def check_existing_exception_gate(
 
     if not repo_dir:
         try:
-            from manage_exceptions import _clone_repo
+            import gitlab_ops
 
-            repo_dir, _ = _clone_repo(Path(clone_dir) if clone_dir else None)
+            target_dir = Path(clone_dir) if clone_dir else (WORK_DIR / "konflux-release-data")
+            krd_project = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
+            clone_url = gitlab_ops.authenticated_clone_url(krd_project)
+            if (target_dir / ".git").is_dir():
+                _refresh_workdir_clone(target_dir)
+            else:
+                import shutil
+
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                target_dir.parent.mkdir(parents=True, exist_ok=True)
+                gitlab_ops.run_git(
+                    ["git", "clone", "--depth=1", "--branch", "main", clone_url, str(target_dir)],
+                    timeout=120,
+                )
+            repo_dir = target_dir
         except Exception as exc:
             return {
                 **base_result,
                 "status": "error",
                 "reason": (
-                    f"Could not clone konflux-release-data ({exc}). Ensure VPN is connected and GitLab is reachable."
+                    f"Could not clone konflux-release-data ({exc}). "
+                    f"Ensure VPN is connected, GitLab is reachable, and GITLAB_TOKEN is set."
                 ),
             }
 

@@ -29,7 +29,7 @@ See [README.md](README.md) for installation and shared prerequisites.
 **Auth check:**
 
 ```bash
-gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name
+python3 scripts/verify_conforma_prerequisites.py --fix
 ```
 
 ### Data Source

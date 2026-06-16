@@ -23,50 +23,66 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+import requests
+
+import _setup_env  # noqa: F401 -- loads .work/.env and adds scripts/ to sys.path
+
 DEFAULT_REPO = "red-hat-data-services/conforma-reporter"
 DEFAULT_FILENAME = "conforma-violations-resolution-guide.md"
+GITHUB_API = "https://api.github.com"
 
 
-def _gh_api(endpoint: str, method: str = "GET", input_data: str | None = None) -> tuple[int, str]:
-    """Call gh api and return (exit_code, stdout)."""
-    cmd = ["gh", "api", endpoint]
-    if method != "GET":
-        cmd.extend(["-X", method])
-    if input_data:
-        cmd.extend(["--input", "-"])
+def _get_github_token() -> str:
+    """Get GitHub token from env vars or gh CLI."""
+    for var in ("GITHUB_TOKEN", "GH_TOKEN"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            return val
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return ""
 
-    result = subprocess.run(
-        cmd,
-        input=input_data,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    return result.returncode, result.stdout
+
+def _gh_headers() -> dict[str, str]:
+    token = _get_github_token()
+    return {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
 
 
 def _get_existing_file_sha(repo: str, path: str, branch: str) -> str | None:
     """Check if file already exists on the branch. Returns SHA if it does."""
-    endpoint = f"repos/{repo}/contents/{path}?ref={branch}"
-    rc, stdout = _gh_api(endpoint)
-    if rc != 0:
-        return None
+    url = f"{GITHUB_API}/repos/{repo}/contents/{path}?ref={branch}"
     try:
-        data = json.loads(stdout)
-        return data.get("sha")
-    except (json.JSONDecodeError, KeyError):
+        resp = requests.get(url, headers=_gh_headers(), timeout=30)
+        if resp.status_code != 200:
+            return None
+        return resp.json().get("sha")
+    except (requests.RequestException, json.JSONDecodeError, KeyError):
         return None
 
 
 def _check_branch_exists(repo: str, branch: str) -> bool:
     """Verify the branch exists."""
-    endpoint = f"repos/{repo}/branches/{branch}"
-    rc, _ = _gh_api(endpoint)
-    return rc == 0
+    url = f"{GITHUB_API}/repos/{repo}/branches/{branch}"
+    try:
+        resp = requests.get(url, headers=_gh_headers(), timeout=15)
+        return resp.status_code == 200
+    except requests.RequestException:
+        return False
 
 
 def submit_resolution_guide(
@@ -119,27 +135,30 @@ def submit_resolution_guide(
     if existing_sha:
         payload["sha"] = existing_sha
 
-    endpoint = f"repos/{repo}/contents/{target_path}"
-    rc, stdout = _gh_api(endpoint, method="PUT", input_data=json.dumps(payload))
+    url = f"{GITHUB_API}/repos/{repo}/contents/{target_path}"
+    try:
+        resp = requests.put(url, headers=_gh_headers(), json=payload, timeout=60)
+    except requests.RequestException as exc:
+        return {"error": f"GitHub API request failed: {exc}", "committed": False}
 
-    if rc != 0:
+    if resp.status_code not in (200, 201):
         error_detail = ""
         try:
-            err_data = json.loads(stdout)
-            error_detail = err_data.get("message", stdout[:200])
-        except json.JSONDecodeError:
-            error_detail = stdout[:200] if stdout else "Unknown error"
+            err_data = resp.json()
+            error_detail = err_data.get("message", resp.text[:200])
+        except (json.JSONDecodeError, ValueError):
+            error_detail = resp.text[:200] if resp.text else "Unknown error"
 
-        if "protected branch" in error_detail.lower() or rc == 1:
+        if "protected branch" in error_detail.lower():
             return {
                 "error": f"Cannot commit to {release}: {error_detail}. "
                 "Branch may be protected — consider using PR mode.",
                 "committed": False,
             }
-        return {"error": f"GitHub API error: {error_detail}", "committed": False}
+        return {"error": f"GitHub API error {resp.status_code}: {error_detail}", "committed": False}
 
     try:
-        result = json.loads(stdout)
+        result = resp.json()
         file_url = result.get("content", {}).get("html_url", "")
         file_sha = result.get("content", {}).get("sha", "")
     except (json.JSONDecodeError, KeyError):

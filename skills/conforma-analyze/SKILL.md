@@ -1,7 +1,7 @@
 ---
 name: conforma-analyze
 description: Fetch and expose RHOAI Conforma violation report data from conforma-reporter. Trace when specific violations appeared or disappeared via CSV git history. Knows about violations only -- not exceptions, policy files, Jira, or GitLab MRs.
-allowed-tools: Bash(python3:*,gh:*,git:*)
+allowed-tools: Bash(python3:*,bash:*,git:*)
 user-invocable: true
 ---
 
@@ -37,16 +37,26 @@ When presenting violation data — whether standalone or when handing off to the
 
 **Setup:** See [README.md](README.md) for installation and one-time authentication setup.
 
-**Always run auth check first:**
+**Always run the unified prerequisite check first:**
 
 ```bash
-gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name
+python3 scripts/verify_conforma_prerequisites.py --fix
 ```
 
-**Component-maturity catalog** (required for Jira Component enrichment): The parse step enriches every component with its owning Jira Component from the component-maturity catalog. This requires VPN and GitLab auth. The parse script will clone/refresh the catalog automatically and fail hard if the catalog is unreachable. Ensure VPN is active and `glab auth status` succeeds before running:
+This single command verifies:
+- Python dependencies installed
+- `.work/.env` exists with tokens
+- Site-config loaded (GITLAB_HOST, KRD_CLUSTER_DOMAIN)
+- GitHub authentication (conforma-reporter access)
+- GitLab authentication (VPN + token)
+- Jira authentication (token + email)
+- Slack authentication (slackdump + session)
+
+**All checks must pass** before proceeding to the workflow. If any fail, the `--fix` flag shows remediation instructions.
+
+**Component-maturity catalog** (required for Jira Component enrichment): The parse step enriches every component with its owning Jira Component from the component-maturity catalog. This requires VPN and GitLab auth. The parse script will clone/refresh the catalog automatically and fail hard if the catalog is unreachable:
 
 ```bash
-glab auth status
 python3 scripts/component_catalog_ops.py ensure-repo
 ```
 
@@ -54,19 +64,12 @@ python3 scripts/component_catalog_ops.py ensure-repo
 
 When fetching data from remote repositories (GitLab, GitHub):
 
-- **ALWAYS** use the remote API directly (`gh api`, raw HTTP download via `curl`)
+- **ALWAYS** use the skill scripts (which use Python `requests` + API tokens internally)
 - **NEVER** use `find` to locate local clones, `cd` into them, or `git checkout`/`git show` on a local working tree
 - **NEVER** assume a local clone is up-to-date or on the correct branch
+- **NEVER** shell out to `gh`, `curl`, or `glab` — all API access is handled by Python scripts
 
-Local clones on a dev workstation may be on a feature branch, days out of date, or modified with uncommitted changes. Using the remote API guarantees you always read the canonical, production state of the repository at the exact ref you specify.
-
-```bash
-# GOOD — fetch from GitHub
-gh api "repos/org/repo/contents/path/to/file?ref=main" --jq '.content' | base64 -d
-
-# BAD — using a local clone
-cd ~/dev/github/org/repo && git show origin/main:path/to/file
-```
+Local clones on a dev workstation may be on a feature branch, days out of date, or modified with uncommitted changes. The scripts use remote APIs to guarantee you always read the canonical, production state of the repository.
 
 ## Data Sources
 
@@ -92,20 +95,30 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
 
 ### Steps
 
-1. **Auth check**: Run `gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name`. Stop if either command fails.
+**Important**: Steps 1–9 use a shared `$RUNDIR` variable set in step 3. All intermediate outputs live in this directory. The `$RELEASE` variable is determined in step 2.
 
-2. **Releases**: If the user provided a URL, extract the release branch from it (see above). Otherwise, the script auto-detects supported releases by fetching [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) from `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases. No static release list is maintained in this skill.
+1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py`. If exit code is non-zero, **stop immediately** — do not proceed with partial auth. The user must fix failures before the workflow can continue. The script loads `.work/.env` automatically and checks all required services (GitHub, GitLab, Jira).
+
+   **Slack is optional.** If only Slack shows a warning (exit code is still 0), inform the user:
+   > Slack is not configured. Setting it up requires extracting token/cookie from browser DevTools (more involved than other services). The coverage table will omit Slack thread references. To set it up later, see `skills/slack-auth/SKILL.md`.
+   >
+   > Proceed without Slack?
+
+   If the user wants Slack, follow the `slack-auth` skill's Agent Workflow. Otherwise, continue — pass `--require-slack false` to `violations_coverage.py` in step 6.
+
+2. **Releases**: If the user provided a URL, extract the release branch from it (see above) and set `RELEASE=rhoai-X.Y`. If the user said "rhoai-3.4" or just "3.4", set `RELEASE=rhoai-3.4`. Otherwise, the fetch script (step 3) auto-detects supported releases by fetching [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) from `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases.
 
    If auto-detection fails (e.g. network issue, repo access), the script errors out and instructs the user to provide `--releases` manually.
 
-3. **Fetch reports**: CSV fetching is provided by the **`conforma-report-fetch`** skill. Create a timestamped output directory under this skill's `.work/` and pass it via `--output-dir` to keep all data local. **Both violations and warnings CSVs are fetched by default**. **Save the fetch metadata** (source paths, timestamps) to a JSON file for use by later steps:
+3. **Fetch reports**: Create a timestamped output directory and fetch CSVs. **Both violations and warnings CSVs are fetched by default**. The `$RUNDIR` variable is used by ALL subsequent steps — never change it mid-workflow:
 
 ```bash
 mkdir -p .work
 RUNDIR=".work/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RUNDIR"
 python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
-  --output-dir "$RUNDIR" > "$RUNDIR/fetch-metadata.json"
+  --output-dir "$RUNDIR" \
+  --metadata-file "$RUNDIR/fetch-metadata.json"
 ```
 
    Override with explicit releases only if needed for a one-off check:
@@ -113,7 +126,8 @@ python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
 ```bash
 python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
   --releases rhoai-2.25,rhoai-3.4 \
-  --output-dir "$RUNDIR" > "$RUNDIR/fetch-metadata.json"
+  --output-dir "$RUNDIR" \
+  --metadata-file "$RUNDIR/fetch-metadata.json"
 ```
 
    The output directory will contain `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release. The `fetch-metadata.json` contains `source_path` and `created_at` per release — needed by steps 8-9. Some in-development/EA branches may not have report CSVs yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
@@ -192,19 +206,34 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 
    This ensures the user is aware they may be looking at outdated violation data and can trigger a fresh scan before making decisions based on the results.
 
-6. **Cross-reference with exceptions, open MRs, open Jira, and Slack**: After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open merge requests, open Jira tickets, Slack threads, and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
+6. **Cross-reference with exceptions, open MRs, open Jira, and Slack**: After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open merge requests, open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
 
-   Read and follow [`skills/conforma-exception/references/coverage-check.md`](../conforma-exception/references/coverage-check.md). In particular, follow the **"Auth Availability — Inform the User"** section: check all auth sources (GitLab, Jira, Slack) before running, tell the user which sources are unavailable and how to fix them, then proceed with whatever sources are available. Never silently skip a data source.
+   **Target version checking (HARDCODED — always performed)**: Every Jira ticket found is automatically classified by its `fixVersion` relevance to the currently-analyzed release. Tickets are annotated as:
+   - (no annotation) — fixVersion targets the currently analyzed release
+   - `⚠️ targets {version}` — fixVersion is set but targets a different/future release (fix exists but won't land in the analyzed release)
+   - `⚠️ no fixVersion` — no fixVersion set (unclear which release the fix targets)
 
-   Ensure the `.work/konflux-release-data` clone is fresh (fetch + reset), or let the script clone it. The script enforces the repo clone policy: it will `git fetch` any existing `--clone-dir` and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
+   This ensures the user can distinguish between "this violation has a fix landing in the current release" vs "there's a Jira for this but it targets a future release and is NOT a solution for the current report".
+
+   All required auth (GitLab, Jira) was already verified in step 1. Slack is optional — if not configured, pass `--require-slack false`.
+
+   The script manages the `.work/konflux-release-data` clone (fresh fetch + reset). It enforces the repo clone policy: it will `git fetch` any existing `--clone-dir` and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
 
    **Save the output to a JSON file** for use by the resolution guide generator (step 8):
 
 ```bash
+# With Slack (when configured):
 python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
   --environment prod > "$RUNDIR/coverage.json"
+
+# Without Slack (when not configured):
+python3 skills/conforma-analyze/scripts/violations_coverage.py \
+  --violations-yaml "$RUNDIR/violations.yaml" \
+  --clone-dir .work/konflux-release-data \
+  --environment prod \
+  --require-slack false > "$RUNDIR/coverage.json"
 ```
 
    Pass the violations YAML from step 4 as input. The coverage table is the primary deliverable; the statistical breakdown from step 5 can be presented as supplementary detail below it.
@@ -234,7 +263,7 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
   --output "$RUNDIR/conforma-violations-resolution-guide.md"
 ```
 
-   Present the generated guide content to the user. The guide includes:
+   **Present the generated guide content to the user.** This MUST happen before step 9 — the user must see the full report before being asked about submission. Never run step 9 in parallel with presenting the guide. The guide includes:
    - Metadata header (generation date, source CSV link)
    - Summary metrics
    - Coverage table (verbatim from step 6)
@@ -242,7 +271,7 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
    - Warnings becoming violations (if any)
    - Statistical breakdown
 
-9. **Submit to GitHub**: Push the resolution guide to the conforma-reporter repo on the same branch and directory as the source CSV. This is the **default action** — always submit unless the user explicitly says not to:
+9. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit to conforma-reporter?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The script pushes to the same branch and directory as the source CSV:
 
 ```bash
 python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
@@ -285,7 +314,7 @@ If the user's phrase does not match any alias in the catalog, first run `analyze
 
 ### Steps
 
-1. **Auth check**: Run `gh auth status && gh api repos/red-hat-data-services/conforma-reporter --jq .full_name`. Stop if either command fails.
+1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py`. Stop if any check fails.
 
 2. **Resolve the violation code**: Map the user's phrase to an exact `--code` value using the `aliases` field in [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml).
 

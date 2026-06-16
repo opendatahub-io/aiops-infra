@@ -44,12 +44,10 @@ import os
 import platform
 import re
 import sys
-import tempfile
 from pathlib import Path
 
 import jira_ops
 from add_jira_watchers import add_watchers_to_tickets as _add_jira_watchers
-from cli_runner import _resolve_env, run_acli
 
 TEMPLATE_TICKET = "RHOAIENG-62569"
 PROVENANCE_REPO = "opendatahub-io/aiops-infra"
@@ -222,15 +220,8 @@ def resolve_template(
 
 
 def _ensure_jira_env() -> None:
-    """Bridge conforma token discovery to env vars for jira_ops."""
-    if not os.environ.get("JIRA_API_TOKEN"):
-        token = _resolve_env("JIRA_API_TOKEN")
-        if token:
-            os.environ["JIRA_API_TOKEN"] = token
-    if not os.environ.get("JIRA_EMAIL"):
-        email = _resolve_env("JIRA_EMAIL")
-        if email:
-            os.environ["JIRA_EMAIL"] = email
+    """Ensure jira env vars are available (site_config.load() already handles this)."""
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -242,8 +233,8 @@ def _jira_auth() -> tuple[str, str] | None:
     """Return (email, base64-encoded auth header value) or None if not configured."""
     import base64
 
-    token = _resolve_env("JIRA_API_TOKEN") or ""
-    email = _resolve_env("JIRA_EMAIL") or ""
+    token = os.environ.get("JIRA_API_TOKEN", "")
+    email = os.environ.get("JIRA_EMAIL", "")
     if not token or not email:
         return None
     auth = base64.b64encode(f"{email}:{token}".encode()).decode()
@@ -450,31 +441,17 @@ def build_provenance_footer() -> str:
 
 
 def fetch_template_description() -> str:
-    """Fetch the description of the RHOAIENG template ticket via acli."""
-    result = run_acli(
-        ["jira", "workitem", "view", TEMPLATE_TICKET, "--json"],
-        timeout=30,
-    )
-    if result.returncode != 0:
+    """Fetch the description of the RHOAIENG template ticket."""
+    issue_data = jira_ops.get_issue(TEMPLATE_TICKET, fields=["description"])
+    if issue_data.get("error"):
         print(
-            f"Error: Failed to fetch template {TEMPLATE_TICKET}: {result.stderr.strip()}",
+            f"Error: Failed to fetch template {TEMPLATE_TICKET}: {issue_data['error']}",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    try:
-        ticket_data = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        print(
-            f"Error: Invalid JSON from acli for {TEMPLATE_TICKET}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    description = ticket_data.get("description", "")
-    if not description:
-        description = ticket_data.get("fields", {}).get("description", "")
-    return description if isinstance(description, str) else json.dumps(description)
+    description = issue_data.get("description", "")
+    return description if isinstance(description, str) else json.dumps(description) if description else ""
 
 
 def build_exception_label(rule: str, components: list[str]) -> str:
@@ -1097,100 +1074,86 @@ def create_ticket(
             "jira_components_resolved": jira_components or [],
         }
 
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".json",
-        prefix=f"{project.lower()}-create-",
-        delete=False,
-        dir=WORK_DIR,
+    issue_type = issue_json.get("type", "Task")
+    priority_name = issue_json.get("priority")
+    create_result = jira_ops.create_issue(
+        project=project,
+        summary=summary,
+        description=description_adf,
+        issue_type=issue_type,
+        labels=labels,
+        priority=priority_name,
     )
-    try:
-        json.dump(issue_json, tmp, indent=2)
-        tmp.close()
-
-        result = run_acli(
-            ["jira", "workitem", "create", "--from-json", tmp.name],
-            timeout=30,
-        )
-        if result.returncode != 0:
-            return {
-                "status": "failed",
-                "project": project,
-                "error": result.stderr.strip() or result.stdout.strip(),
-                "ticket_key": None,
-                "ticket_url": None,
-            }
-
-        output = result.stdout.strip()
-        ticket_key = _extract_ticket_key(output, project)
-        ticket_url = f"https://redhat.atlassian.net/browse/{ticket_key}" if ticket_key else None
-
-        # --- Post-creation: apply all fields with retry ---
-        if ticket_key:
-            apply_result = _apply_and_verify(
-                ticket_key=ticket_key,
-                project=project,
-                summary=summary,
-                labels=labels,
-                rhoaieng_url=rhoaieng_url,
-                psx_url=psx_url,
-                link_to=link_to,
-                rule=rule,
-                components=components,
-                rhoai_version=rhoai_version,
-                effective_until=effective_until,
-                exception_scope=exception_scope,
-                exception_risk=exception_risk,
-                exception_remediation=exception_remediation,
-                exception_impact=exception_impact,
-                authorized_party=authorized_party,
-            )
-        else:
-            apply_result = {"operations": [], "verification": None}
-
-        # --- Post-creation: set Jira Component (RHOAIENG only) ---
-        if ticket_key and project == "RHOAIENG" and jira_components:
-            comp_result = _set_jira_components(ticket_key, jira_components)
-            apply_result.setdefault("operations", []).append(comp_result)
-
-        # --- Post-creation: add watchers ---
-        # For PSX/OCPEXCEPT, mandatory watchers are always prepended.
-        # Team members should already be included in watcher_names by the
-        # agent after running discover_team() and getting user confirmation
-        # during the questionnaire (Batch 3, item 10).
-        watcher_result = None
-        if ticket_key:
-            is_psx = project in ("PSX", "OCPEXCEPT")
-            all_watchers = list(PSX_MANDATORY_WATCHERS) if is_psx else []
-            if watcher_names:
-                for name in watcher_names:
-                    if name not in all_watchers:
-                        all_watchers.append(name)
-            if all_watchers:
-                batch = _add_jira_watchers([ticket_key], all_watchers)
-                watcher_result = batch.get("tickets", [None])[0]
-                if watcher_result:
-                    apply_result.setdefault("operations", []).append(watcher_result)
-
+    if create_result.get("error"):
         return {
-            "status": "created",
+            "status": "failed",
             "project": project,
-            "ticket_key": ticket_key,
-            "ticket_url": ticket_url,
-            "summary": summary,
-            "labels": labels,
-            "jira_components_resolved": jira_components or [],
-            "linked_to": apply_result.get("linked_to", []),
-            "description_filled": apply_result.get("description_filled", False),
-            "authorized_party_set": apply_result.get("authorized_party_set", False),
-            "watchers": watcher_result,
-            "verification": apply_result.get("verification"),
-            "operations": apply_result.get("operations", []),
-            "raw_output": output,
+            "error": create_result["error"],
+            "ticket_key": None,
+            "ticket_url": None,
         }
-    finally:
-        Path(tmp.name).unlink(missing_ok=True)
+
+    ticket_key = create_result.get("key")
+    ticket_url = create_result.get("url")
+
+    # --- Post-creation: apply all fields with retry ---
+    if ticket_key:
+        apply_result = _apply_and_verify(
+            ticket_key=ticket_key,
+            project=project,
+            summary=summary,
+            labels=labels,
+            rhoaieng_url=rhoaieng_url,
+            psx_url=psx_url,
+            link_to=link_to,
+            rule=rule,
+            components=components,
+            rhoai_version=rhoai_version,
+            effective_until=effective_until,
+            exception_scope=exception_scope,
+            exception_risk=exception_risk,
+            exception_remediation=exception_remediation,
+            exception_impact=exception_impact,
+            authorized_party=authorized_party,
+        )
+    else:
+        apply_result = {"operations": [], "verification": None}
+
+    # --- Post-creation: set Jira Component (RHOAIENG only) ---
+    if ticket_key and project == "RHOAIENG" and jira_components:
+        comp_result = _set_jira_components(ticket_key, jira_components)
+        apply_result.setdefault("operations", []).append(comp_result)
+
+    # --- Post-creation: add watchers ---
+    watcher_result = None
+    if ticket_key:
+        is_psx = project in ("PSX", "OCPEXCEPT")
+        all_watchers = list(PSX_MANDATORY_WATCHERS) if is_psx else []
+        if watcher_names:
+            for name in watcher_names:
+                if name not in all_watchers:
+                    all_watchers.append(name)
+        if all_watchers:
+            batch = _add_jira_watchers([ticket_key], all_watchers)
+            watcher_result = batch.get("tickets", [None])[0]
+            if watcher_result:
+                apply_result.setdefault("operations", []).append(watcher_result)
+
+    return {
+        "status": "created",
+        "project": project,
+        "ticket_key": ticket_key,
+        "ticket_url": ticket_url,
+        "summary": summary,
+        "labels": labels,
+        "jira_components_resolved": jira_components or [],
+        "linked_to": apply_result.get("linked_to", []),
+        "description_filled": apply_result.get("description_filled", False),
+        "authorized_party_set": apply_result.get("authorized_party_set", False),
+        "watchers": watcher_result,
+        "verification": apply_result.get("verification"),
+        "operations": apply_result.get("operations", []),
+    }
 
 
 def _set_labels_rest(ticket_key: str, labels: list[str]) -> dict:
@@ -1238,16 +1201,13 @@ def _enforce_labels(ticket_key: str, required_labels: list[str]) -> dict:
     put_result = _jira_rest_put(f"issue/{ticket_key}", {"fields": {"labels": all_labels}})
 
     if not put_result["ok"]:
-        edit_result = run_acli(
-            ["jira", "workitem", "edit", "--key", ticket_key, "--labels", ",".join(all_labels), "--yes"],
-            timeout=30,
-        )
+        update_result = jira_ops.update_issue(ticket_key, labels=all_labels)
         return {
-            "ok": edit_result.returncode == 0,
+            "ok": not update_result.get("error"),
             "action": "enforce_labels",
             "ticket_key": ticket_key,
-            "method": "acli_fallback",
-            "error": "" if edit_result.returncode == 0 else edit_result.stderr.strip(),
+            "method": "jira_ops_fallback",
+            "error": update_result.get("error", ""),
         }
 
     return {
@@ -1460,23 +1420,11 @@ def _link_tickets(from_key: str, to_key: str, link_type: str = "Related") -> boo
     if link_result.get("ok"):
         return True
 
-    result = run_acli(
-        [
-            "jira",
-            "workitem",
-            "link",
-            "create",
-            "--out",
-            from_key,
-            "--in",
-            to_key,
-            "--type",
-            link_type,
-            "--yes",
-        ],
-        timeout=30,
-    )
-    return result.returncode == 0
+    error = link_result.get("error", "")
+    if "already exists" in error.lower():
+        return True
+
+    return False
 
 
 def _delete_link(ticket_key: str, target_key: str, link_type: str | None = None) -> bool:
@@ -1491,48 +1439,27 @@ def _delete_link(ticket_key: str, target_key: str, link_type: str | None = None)
         link_type: Optional link type name to match (e.g. 'Related', 'Blocks').
                    If None, deletes ANY link to target_key.
     """
-    import base64
-    import urllib.request
-
-    from cli_runner import _resolve_env
-
-    token = _resolve_env("JIRA_API_TOKEN") or ""
-    email = _resolve_env("JIRA_EMAIL") or ""
-    if not token or not email:
+    issue_data = jira_ops.get_issue(ticket_key)
+    if issue_data.get("error"):
         return False
 
-    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
-    url = f"https://redhat.atlassian.net/rest/api/3/issue/{ticket_key}?fields=issuelinks"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Basic {auth}",
-            "Accept": "application/json",
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read())
+        client = jira_ops.get_client()
+        issue = client.issue(ticket_key, fields="issuelinks")
+        for link in issue.fields.issuelinks:
+            inward_key = getattr(link.inwardIssue, "key", "") if hasattr(link, "inwardIssue") and link.inwardIssue else ""
+            outward_key = getattr(link.outwardIssue, "key", "") if hasattr(link, "outwardIssue") and link.outwardIssue else ""
+            lt_name = link.type.name if link.type else ""
+
+            if target_key not in (inward_key, outward_key):
+                continue
+            if link_type and lt_name != link_type:
+                continue
+
+            del_result = jira_ops.delete_issue_link(str(link.id))
+            return del_result.get("ok", False)
     except Exception:
         return False
-
-    links = data.get("fields", {}).get("issuelinks", [])
-    for link in links:
-        inward = link.get("inwardIssue", {}).get("key", "")
-        outward = link.get("outwardIssue", {}).get("key", "")
-        lt_name = link.get("type", {}).get("name", "")
-        link_id = link.get("id")
-
-        if target_key not in (inward, outward):
-            continue
-        if link_type and lt_name != link_type:
-            continue
-
-        result = run_acli(
-            ["jira", "workitem", "link", "delete", "--id", str(link_id), "--yes"],
-            timeout=30,
-        )
-        return result.returncode == 0
 
     return False
 

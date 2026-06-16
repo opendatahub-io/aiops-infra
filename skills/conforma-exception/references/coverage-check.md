@@ -6,79 +6,42 @@ This reference is the canonical source for the coverage check workflow. It is us
 
 ## Prerequisites
 
-- Violations must already be parsed into a YAML file via `parse_violations.py` (see conforma-analyze workflow steps 1–4)
-- GitLab auth must be working (`glab auth status`)
-- The `konflux-release-data` repo clone must be available (see "Shared Repo Clone" below)
-- Slack auth must be working (`python3 scripts/slack_ops.py verify-auth`) — required by default; disable with `--require-slack false`
+All auth is verified upfront by `python3 scripts/verify_conforma_prerequisites.py` (conforma-analyze workflow step 1). If that passed, the coverage check has everything it needs:
 
-**Site config**: If this is your first run, the skill will walk you through setup. See [site-config-setup.md](../../references/site-config-setup.md).
+- Violations parsed into a YAML file via `parse_violations.py` (steps 1–4)
+- GitLab auth (token in `.work/.env`, VPN active)
+- Jira auth (token + email in `.work/.env`)
+- Slack auth (slackdump installed + logged in)
+- The `konflux-release-data` repo clone (managed automatically by the script)
 
-## Auth Availability — Inform the User
-
-Before running the coverage check, probe all auth sources. If any are unavailable, **always tell the user** which data sources will be skipped and how to enable them. Present this as a compact notice before the results, not buried in a footnote. Prefer asking the user to set up auth so the analysis is complete.
-
-Check order and compact setup instructions to show the user:
-
-| Source | Check command | If missing, tell the user |
-|--------|--------------|--------------------------|
-| GitLab | `glab auth status --hostname "$GITLAB_HOST"` | `glab auth login --hostname "$GITLAB_HOST"` (VPN required) |
-| Jira | `python3 scripts/jira_ops.py verify-auth` | `export JIRA_EMAIL=you@redhat.com JIRA_API_TOKEN=ATATT3x...` |
-| Slack | `python3 scripts/slack_ops.py verify-auth` | `./scripts/install_slackdump.sh && slackdump login` |
-| GitHub | `gh auth status` | `gh auth login` |
-
-Example notice (adapt to actual failures):
-
-> **Note**: Slack search skipped (slackdump not authenticated). For full coverage including Slack threads, run: `./scripts/install_slackdump.sh && slackdump login`
-
-Rules:
-- If GitLab auth fails → the coverage check cannot run at all (exception data lives in GitLab). Stop and tell the user.
-- If Jira auth fails → the coverage check cannot run (open tickets are essential context). Stop and tell the user.
-- If Slack auth fails → the coverage check cannot run. Stop and tell the user to run `./scripts/install_slackdump.sh && slackdump login`.
-- If GitHub auth fails → the CSV fetch in earlier steps already failed; should not reach here.
-- **Never silently skip** a data source. All three (GitLab, Jira, Slack) are required by default. The script enforces this with `--require-jira true` and `--require-slack true` (defaults).
+**Do not re-check auth here.** If step 1 passed, proceed. If step 1 failed, the workflow should not have reached this point.
 
 ## Shared Repo Clone
 
-The `konflux-release-data` GitLab repo is large and slow to clone (~40s). Reuse `.work/konflux-release-data` across runs, but **always fetch first and abort if the fetch fails** — never use stale data:
+The `konflux-release-data` GitLab repo is large and slow to clone (~40s). The `violations_coverage.py` script manages this automatically via `--clone-dir`:
 
-```bash
-if [ -d .work/konflux-release-data/.git ]; then
-  git -C .work/konflux-release-data fetch origin main || { echo "ERROR: git fetch failed — remote unreachable (VPN down?). Aborting." >&2; exit 1; }
-  git -C .work/konflux-release-data reset --hard origin/main
-else
-  GITLAB_TOKEN=$(glab config get token --host "$GITLAB_HOST")
-  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
-fi
-```
+- If the directory exists, the script runs `git fetch` and resets to `origin/main`
+- If the fetch fails (VPN down), the script aborts with a clear error
+- If the directory doesn't exist, the script clones it using `GITLAB_TOKEN` from the environment
 
-**Note**: The `violations_coverage.py` script now enforces this policy internally — it will refresh any `--clone-dir` via `git fetch` and abort if the remote is unreachable. The shell snippet above is for reference when setting up the clone manually.
+No manual clone management is needed — just pass `--clone-dir .work/konflux-release-data`.
 
 ## Running the Coverage Check
 
 ```bash
 python3 skills/conforma-analyze/scripts/violations_coverage.py \
-  --violations-yaml "$RUN_DIR/violations.yaml" \
+  --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
-  --environment prod
-```
-
-To disable Slack search (e.g. in CI or environments without Slack access):
-
-```bash
-python3 skills/conforma-analyze/scripts/violations_coverage.py \
-  --violations-yaml "$RUN_DIR/violations.yaml" \
-  --clone-dir .work/konflux-release-data \
-  --environment prod \
-  --require-slack false
+  --environment prod > "$RUNDIR/coverage.json"
 ```
 
 This checks all violations against existing exceptions in the policy file, searches for open MRs, open Jira tickets, and Slack threads — all in one pass.
 
+For CI-only environments (no Slack access), disable with `--require-slack false`. This should **never** be used in the interactive conforma-analyze workflow.
+
 ## Presenting Results
 
 The JSON output contains a `markdown_table` field — a pre-rendered markdown table with columns: `#`, `Rule`, `Components`, `Open MRs`, `Open Jira`, `Slack`, `Next Steps`.
-
-When `--require-slack false` is used, the `Slack` column is omitted and the table has the same 6 columns as before.
 
 **Print `markdown_table` verbatim as the primary output to the user.** This is the main deliverable when analyzing a report.
 

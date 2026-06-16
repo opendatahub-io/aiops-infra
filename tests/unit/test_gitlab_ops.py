@@ -278,6 +278,116 @@ class TestFindMr:
         )
 
 
+class TestGitEnv:
+    """Tests for git_env() — ensures GITLAB_SSL_VERIFY propagates to GIT_SSL_NO_VERIFY."""
+
+    def test_ssl_verify_true_by_default(self, monkeypatch):
+        monkeypatch.delenv("GITLAB_SSL_VERIFY", raising=False)
+        env = gitlab_ops.git_env()
+        assert "GIT_SSL_NO_VERIFY" not in env
+
+    def test_ssl_verify_false_sets_git_env(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_SSL_VERIFY", "false")
+        env = gitlab_ops.git_env()
+        assert env["GIT_SSL_NO_VERIFY"] == "1"
+
+    def test_ssl_verify_zero_sets_git_env(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_SSL_VERIFY", "0")
+        env = gitlab_ops.git_env()
+        assert env["GIT_SSL_NO_VERIFY"] == "1"
+
+    def test_ssl_verify_off_sets_git_env(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_SSL_VERIFY", "off")
+        env = gitlab_ops.git_env()
+        assert env["GIT_SSL_NO_VERIFY"] == "1"
+
+    def test_ssl_verify_true_does_not_set_git_env(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_SSL_VERIFY", "true")
+        env = gitlab_ops.git_env()
+        assert "GIT_SSL_NO_VERIFY" not in env
+
+
+class TestAuthenticatedCloneUrl:
+    """Tests for authenticated_clone_url() — token resolution for git clone URLs."""
+
+    def test_uses_env_token(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "my-token")
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.example.com")
+        url = gitlab_ops.authenticated_clone_url("group/repo")
+        assert url == "https://oauth2:my-token@gitlab.example.com/group/repo.git"
+
+    def test_uses_glab_config_fallback(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.test.com")
+        config_path = tmp_path / "config.yml"
+        config_path.write_text(
+            "hosts:\n  gitlab.test.com:\n    token: glab-token\n",
+            encoding="utf-8",
+        )
+        with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", config_path):
+            url = gitlab_ops.authenticated_clone_url("org/project")
+        assert url == "https://oauth2:glab-token@gitlab.test.com/org/project.git"
+
+    def test_raises_when_no_token(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.nowhere.com")
+        with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", tmp_path / "missing.yml"):
+            import pytest
+
+            with pytest.raises(ValueError, match="No GitLab token found"):
+                gitlab_ops.authenticated_clone_url("org/project")
+
+    def test_custom_instance_url(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "custom-token")
+        url = gitlab_ops.authenticated_clone_url(
+            "team/repo", instance_url="https://custom.gitlab.io"
+        )
+        assert url == "https://oauth2:custom-token@custom.gitlab.io/team/repo.git"
+
+
+class TestRunGit:
+    """Tests for run_git() — git subprocess wrapper with SSL env injection."""
+
+    def test_passes_ssl_env_when_verify_disabled(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_SSL_VERIFY", "false")
+        with patch("subprocess.run", return_value=_completed()) as mock_run:
+            gitlab_ops.run_git(["git", "status"])
+        call_env = mock_run.call_args[1]["env"]
+        assert call_env["GIT_SSL_NO_VERIFY"] == "1"
+
+    def test_no_ssl_env_when_verify_enabled(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_SSL_VERIFY", "true")
+        with patch("subprocess.run", return_value=_completed()) as mock_run:
+            gitlab_ops.run_git(["git", "status"])
+        call_env = mock_run.call_args[1]["env"]
+        assert "GIT_SSL_NO_VERIFY" not in call_env
+
+    def test_passes_cwd(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("GITLAB_SSL_VERIFY", raising=False)
+        with patch("subprocess.run", return_value=_completed()) as mock_run:
+            gitlab_ops.run_git(["git", "fetch"], cwd=tmp_path)
+        assert mock_run.call_args[1]["cwd"] == tmp_path
+
+    def test_passes_timeout(self, monkeypatch):
+        monkeypatch.delenv("GITLAB_SSL_VERIFY", raising=False)
+        with patch("subprocess.run", return_value=_completed()) as mock_run:
+            gitlab_ops.run_git(["git", "clone", "url"], timeout=300)
+        assert mock_run.call_args[1]["timeout"] == 300
+
+    def test_raises_on_failure_when_check_true(self, monkeypatch):
+        import subprocess as sp
+
+        monkeypatch.delenv("GITLAB_SSL_VERIFY", raising=False)
+        with patch(
+            "subprocess.run",
+            side_effect=sp.CalledProcessError(1, ["git"], "", "fatal: error"),
+        ):
+            import pytest
+
+            with pytest.raises(sp.CalledProcessError):
+                gitlab_ops.run_git(["git", "fetch"], check=True)
+
+
 class TestCloneRepo:
     def test_success(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GITLAB_TOKEN", "clone-token")

@@ -42,13 +42,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _setup_env  # noqa: F401, E402
+
+import requests  # noqa: E402
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT = _setup_env.REPO_ROOT
 WORK_DIR = SKILL_DIR / ".work"
 
 
@@ -73,41 +80,62 @@ _github_token_cache: str | None = None
 
 
 def _get_github_token() -> str:
-    """Get the GitHub token from gh CLI (cached for the process lifetime)."""
+    """Get GitHub token from env vars or gh CLI (cached for the process lifetime).
+
+    Resolution order: GITHUB_TOKEN, GH_TOKEN, then `gh auth token`.
+    """
     global _github_token_cache
     if _github_token_cache is not None:
         return _github_token_cache
-    result = subprocess.run(
-        ["gh", "auth", "token"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    _github_token_cache = result.stdout.strip() if result.returncode == 0 else ""
+
+    for var in ("GITHUB_TOKEN", "GH_TOKEN"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            _github_token_cache = val
+            return _github_token_cache
+
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        _github_token_cache = result.stdout.strip() if result.returncode == 0 else ""
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        _github_token_cache = ""
     return _github_token_cache
 
 
 def _download_file_raw(csv_path: str, ref: str, output_file: Path) -> dict | None:
     """Download a file via raw.githubusercontent.com. Returns error dict or None on success.
 
-    Always uses raw download — no Contents API, no JSON, no base64.
+    Uses requests for streaming download — no curl dependency.
     Handles files of any size reliably.
     """
     token = _get_github_token()
     if not token:
-        return {"error": "Failed to get GitHub token from 'gh auth token'"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env or run 'gh auth login')"}
 
     url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{ref}/{csv_path}"
-    result = subprocess.run(
-        ["curl", "-fsSL", "-H", f"Authorization: token {token}", "-o", str(output_file), url],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"token {token}"},
+            timeout=120,
+            stream=True,
+        )
+        if resp.status_code == 404:
+            return {"error": f"File not found: {csv_path} on {ref}"}
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code} downloading {url}"}
 
-    if result.returncode != 0:
+        with open(output_file, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+    except requests.RequestException as exc:
         output_file.unlink(missing_ok=True)
-        return {"error": result.stderr.strip()[:300]}
+        return {"error": str(exc)[:300]}
 
     if not output_file.exists() or output_file.stat().st_size == 0:
         output_file.unlink(missing_ok=True)
@@ -118,15 +146,30 @@ def _download_file_raw(csv_path: str, ref: str, output_file: Path) -> dict | Non
 
 def _fetch_last_commit_date(release: str, csv_path: str) -> str:
     """Get the ISO-8601 date of the last commit that touched the CSV file."""
-    api_path = f"repos/{CONFORMA_REPORTER_REPO}/commits?path={csv_path}&sha={release}&per_page=1"
-    result = subprocess.run(
-        ["gh", "api", api_path, "--jq", ".[0].commit.committer.date"],
-        capture_output=True,
-        text=True,
-        timeout=15,
+    token = _get_github_token()
+    if not token:
+        return ""
+
+    url = (
+        f"https://api.github.com/repos/{CONFORMA_REPORTER_REPO}/commits"
+        f"?path={csv_path}&sha={release}&per_page=1"
     )
-    if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip()
+    try:
+        resp = requests.get(
+            url,
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            commits = resp.json()
+            if commits:
+                return commits[0].get("commit", {}).get("committer", {}).get("date", "")
+    except (requests.RequestException, KeyError, IndexError):
+        pass
     return ""
 
 
@@ -283,16 +326,20 @@ def fetch_supported_releases() -> list[str]:
         return []
 
     url = f"{RAW_DOWNLOAD_BASE}/{RELEASE_DATA_REPO}/main/{RELEASE_DATA_PATH}"
-    result = subprocess.run(
-        ["curl", "-fsSL", "-H", f"Authorization: token {token}", url],
-        capture_output=True,
-        timeout=30,
-    )
-    if result.returncode != 0:
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"token {token}"},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return []
+        content = resp.text
+    except requests.RequestException:
         return []
 
     try:
-        data = yaml.safe_load(result.stdout.decode("utf-8"))
+        data = yaml.safe_load(content)
     except Exception:
         return []
 
@@ -353,6 +400,11 @@ def main() -> int:
         action="store_true",
         default=False,
         help="Skip fetching warnings CSVs (by default both violations and warnings are fetched)",
+    )
+    parser.add_argument(
+        "--metadata-file",
+        default=None,
+        help="Write JSON metadata to this file instead of stdout (avoids stdout/stderr mixing issues)",
     )
     args = parser.parse_args()
 
@@ -457,7 +509,12 @@ def main() -> int:
             "failures": [{"release": r["release"], "error": r["error"]} for r in warnings_failed],
         }
 
-    print(json.dumps(output, indent=2))
+    json_output = json.dumps(output, indent=2)
+    if args.metadata_file:
+        Path(args.metadata_file).write_text(json_output + "\n", encoding="utf-8")
+        print(f"Metadata written to {args.metadata_file}", file=sys.stderr)
+    else:
+        print(json_output)
     return 1 if failed else 0
 
 

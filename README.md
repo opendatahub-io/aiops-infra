@@ -1,6 +1,6 @@
 # aiops-infra
 
-AI-powered automation for ODH/RHOAI component onboarding and Conforma policy compliance.
+AI-powered automation for ODH/RHOAI component onboarding and RHOAI Conforma policy compliance.
 
 ## Quick Start
 
@@ -24,7 +24,7 @@ environment variables populated by a private site config file.
 
 ```bash
 mkdir -p ~/.config/aiops-infra
-cp site-config.example.yaml ~/.config/aiops-infra/site-config.yaml
+cp .work/site-config.example.yaml ~/.config/aiops-infra/site-config.yaml
 ```
 
 2. Fill in your organization's values (obtain from your team's internal docs).
@@ -40,8 +40,8 @@ python3 scripts/site_config.py --validate
 ```
 Public repo (git-tracked)          Private user config (NOT tracked)
 ┌─────────────────────────┐        ┌───────────────────────────────────┐
-│ site-config.example.yaml│ copy → │ ~/.config/aiops-infra/            │
-│   (all keys, no values) │        │   site-config.yaml                │
+│ .work/site-config.      │ copy → │ ~/.config/aiops-infra/            │
+│   example.yaml          │        │   site-config.yaml                │
 │                         │        │     gitlab.host: <your-host>      │
 │ scripts/site_config.py  │ reads→ │     konflux.namespace: <ns>       │
 │   (config loader)       │        │     ...                           │
@@ -51,7 +51,7 @@ Public repo (git-tracked)          Private user config (NOT tracked)
 └─────────────────────────┘
 ```
 
-- `site-config.example.yaml` documents every required variable with empty values
+- `.work/site-config.example.yaml` documents every required variable with empty values
 - `scripts/site_config.py` loads the private config and populates environment variables
 - `_setup_env.py` auto-loads the site config when any skill script starts
 - Environment variables already set take precedence (CI can override via `export`)
@@ -84,4 +84,4 @@ python3 scripts/site_config.py --export     # print shell export statements
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — design principles, skill inventory, key decisions
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to write scripts, add tests, structure skills
-- [site-config.example.yaml](site-config.example.yaml) — all configurable infrastructure variables
+- [.work/site-config.example.yaml](.work/site-config.example.yaml) — all configurable infrastructure variables

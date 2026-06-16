@@ -1,0 +1,16 @@
+---
+description: Show TODO progress checklist when running conforma skill workflows
+alwaysApply: true
+---
+
+# Conforma Skill Workflow Progress Tracking
+
+When executing any conforma skill workflow (conforma-analyze, conforma-exception, conforma-release-readiness, conforma-remedy, or any skill under `.cursor/skills/conforma*`), the agent MUST use the `TodoWrite` tool to display a progress checklist **before** starting the workflow.
+
+## Rules
+
+1. **Create the TODO list first.** Before running any workflow step, call `TodoWrite` with all steps from the skill's workflow listed as `pending`. Mark the first step as `in_progress`.
+2. **Update as you go.** After each step completes, mark it `completed` and mark the next step `in_progress`. Batch the status update with the next tool call for efficiency.
+3. **Use step names from the skill.** Derive TODO item names from the skill's workflow step headings (e.g. "Prerequisites check", "Fetch reports", "Parse violations"). Keep them short — 5-8 words max.
+4. **Stable IDs.** Use the skill name + step number as the TODO id (e.g. `analyze-1`, `analyze-2`). This prevents collisions when chaining multiple skills.
+5. **Mark failures.** If a step fails, mark it `cancelled` and stop — do not mark subsequent steps.

@@ -21,12 +21,10 @@ import os
 import platform
 import re
 import sys
-import tempfile
 import urllib.request
 from pathlib import Path
 
 import jira_ops
-from cli_runner import _resolve_env, run_acli
 
 PROVENANCE_REPO = "opendatahub-io/aiops-infra"
 PROVENANCE_LABEL = "conforma-exception-ai-skill"
@@ -37,25 +35,16 @@ WORK_DIR = _SKILL_DIR / ".work"
 
 
 def _ensure_jira_env() -> None:
-    """Bridge conforma token discovery to env vars for jira_ops."""
-    if not os.environ.get("JIRA_API_TOKEN"):
-        token = _resolve_env("JIRA_API_TOKEN")
-        if token:
-            os.environ["JIRA_API_TOKEN"] = token
-    if not os.environ.get("JIRA_EMAIL"):
-        email = _resolve_env("JIRA_EMAIL")
-        if email:
-            os.environ["JIRA_EMAIL"] = email
+    """Ensure jira env vars are available (site_config.load() already handles this)."""
+    pass
 
 
 def _jira_auth() -> tuple[str, str] | None:
     """Return (email, base64-encoded auth header value) or None if not configured."""
     import base64
 
-    from cli_runner import _resolve_env
-
-    token = _resolve_env("JIRA_API_TOKEN") or ""
-    email = _resolve_env("JIRA_EMAIL") or ""
+    token = os.environ.get("JIRA_API_TOKEN", "")
+    email = os.environ.get("JIRA_EMAIL", "")
     if not token or not email:
         return None
     auth = base64.b64encode(f"{email}:{token}".encode()).decode()
@@ -182,10 +171,8 @@ def add_remote_link(ticket_key: str, url: str, title: str, dry_run: bool = False
             "remote_link": url,
         }
 
-    from cli_runner import _resolve_env
-
-    api_token = _resolve_env("JIRA_API_TOKEN") or ""
-    email = _resolve_env("JIRA_EMAIL") or ""
+    api_token = os.environ.get("JIRA_API_TOKEN", "")
+    email = os.environ.get("JIRA_EMAIL", "")
     if not api_token or not email:
         return {
             "status": "skipped_no_token",
@@ -264,16 +251,12 @@ def add_label(ticket_key: str, dry_run: bool = False) -> dict:
     put_result = _jira_rest_put(f"issue/{ticket_key}", {"fields": {"labels": all_labels}})
 
     if not put_result["ok"]:
-        all_labels_str = ",".join(all_labels)
-        result = run_acli(
-            ["jira", "workitem", "edit", "--key", ticket_key, "--labels", all_labels_str, "--yes"],
-            timeout=30,
-        )
-        if result.returncode != 0:
+        update_result = jira_ops.update_issue(ticket_key, labels=all_labels)
+        if update_result.get("error"):
             return {
                 "status": "label_failed",
                 "ticket_key": ticket_key,
-                "error": result.stderr.strip() or result.stdout.strip(),
+                "error": update_result["error"],
             }
 
     return {
@@ -337,37 +320,17 @@ def comment_on_ticket(ticket_key: str, mr_url: str, dry_run: bool = False) -> di
                 "mr_url": mr_url,
             }
 
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", prefix="jira-comment-", delete=False, dir=WORK_DIR)
-    try:
-        tmp.write(comment_text)
-        tmp.close()
-
-        result = run_acli(
-            [
-                "jira",
-                "workitem",
-                "comment",
-                "create",
-                "--key",
-                ticket_key,
-                "--body-file",
-                tmp.name,
-            ],
-            timeout=30,
-        )
-        if result.returncode != 0:
-            return {
-                "status": "failed",
-                "ticket_key": ticket_key,
-                "error": result.stderr.strip() or result.stdout.strip(),
-            }
+    result = jira_ops.add_comment(ticket_key, comment_text)
+    if result.get("ok"):
         return {
             "status": "commented",
             "ticket_key": ticket_key,
         }
-    finally:
-        Path(tmp.name).unlink(missing_ok=True)
+    return {
+        "status": "failed",
+        "ticket_key": ticket_key,
+        "error": result.get("error", "Unknown error"),
+    }
 
 
 def ensure_link(from_key: str, to_key: str, link_type: str = "Related", dry_run: bool = False) -> dict:
@@ -408,51 +371,14 @@ def ensure_link(from_key: str, to_key: str, link_type: str = "Related", dry_run:
     if "already exists" in error.lower():
         return {"status": "link_exists", "from": from_key, "to": to_key, "verified": True}
 
-    if link_type == "Blocks":
-        acli_out = to_key
-        acli_in = from_key
-    else:
-        acli_out = from_key
-        acli_in = to_key
-
-    result = run_acli(
-        [
-            "jira",
-            "workitem",
-            "link",
-            "create",
-            "--out",
-            acli_out,
-            "--in",
-            acli_in,
-            "--type",
-            link_type,
-            "--yes",
-        ],
-        timeout=30,
-    )
-    if result.returncode != 0:
-        acli_error = result.stderr.strip() or result.stdout.strip()
-        if "already exists" in acli_error.lower():
-            return {"status": "link_exists", "from": from_key, "to": to_key, "verified": True}
-        return {
-            "status": "link_failed",
-            "from": from_key,
-            "to": to_key,
-            "error": acli_error,
-            "verified": False,
-        }
-
-    import time
-
-    time.sleep(1)
-    verified = _verify_link_exists(from_key, to_key)
     return {
-        "status": "linked" if verified else "link_unverified",
+        "status": "link_failed",
         "from": from_key,
         "to": to_key,
-        "verified": verified,
+        "error": error,
+        "verified": False,
     }
+
 
 
 def delete_link(ticket_key: str, target_key: str, link_type: str | None = None, dry_run: bool = False) -> dict:
@@ -480,18 +406,15 @@ def delete_link(ticket_key: str, target_key: str, link_type: str | None = None, 
         if link_type and lt_name != link_type:
             continue
 
-        result = run_acli(
-            ["jira", "workitem", "link", "delete", "--id", str(link_id), "--yes"],
-            timeout=30,
-        )
-        if result.returncode == 0:
+        del_result = jira_ops.delete_issue_link(str(link_id))
+        if del_result.get("ok"):
             return {
                 "status": "deleted",
                 "link_id": str(link_id),
                 "from": ticket_key,
                 "to": target_key,
             }
-        return {"status": "failed", "error": result.stderr.strip() or result.stdout.strip()}
+        return {"status": "failed", "error": del_result.get("error", "delete failed")}
 
     return {"status": "not_found", "from": ticket_key, "to": target_key}
 

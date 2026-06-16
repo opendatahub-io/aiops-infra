@@ -56,6 +56,8 @@ def _ensure_dependencies(repo_root: Path) -> None:
     try:
         importlib.import_module("gitlab")
         importlib.import_module("jira")
+        importlib.import_module("requests")
+        importlib.import_module("yaml")
         return
     except ImportError:
         pass

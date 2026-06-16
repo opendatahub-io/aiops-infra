@@ -1,6 +1,6 @@
 # aiops-infra
 
-AI-powered automation for ODH/RHOAI component onboarding and Conforma policy compliance.
+AI-powered automation for ODH/RHOAI component onboarding and RHOAI Conforma policy compliance.
 
 ## Architecture
 
@@ -17,6 +17,10 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for how to write scripts, add tests, str
 - Every new script MUST have a corresponding test in `tests/unit/`
 - Inter-skill data flows through YAML files in `.work/` (git-ignored)
 - The `conforma` skill is the single entry point for all conforma-related queries
+
+## Secrets Policy
+
+**NEVER ask the user to paste tokens, API keys, or credentials into the chat window.** Always instruct them to write secrets to `.work/.env` directly (using their editor or terminal). The `.work/` directory is gitignored and loaded automatically by `_setup_env.py` and `site_config.load()`. See [CONTRIBUTING.md](CONTRIBUTING.md#secrets-and-credentials-policy) for details.
 
 ## Repository Clone Policy
 

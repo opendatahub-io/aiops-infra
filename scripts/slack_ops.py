@@ -34,8 +34,36 @@ SLACKDUMP_CACHE_DIR = Path.home() / ".cache" / "slackdump"
 
 
 def _slackdump_binary() -> str | None:
-    """Return path to slackdump binary, or None if not found."""
-    return shutil.which("slackdump")
+    """Return path to slackdump binary, or None if not found.
+
+    Checks .work/bin/ first (project-local install), then PATH.
+    Auto-installs to .work/bin/ if missing.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    local_bin = repo_root / ".work" / "bin" / "slackdump"
+    if local_bin.is_file() and os.access(local_bin, os.X_OK):
+        return str(local_bin)
+    found = shutil.which("slackdump")
+    if found:
+        return found
+
+    # Auto-install
+    install_script = repo_root / "scripts" / "install_slackdump.sh"
+    if install_script.is_file():
+        print("slackdump not found — installing to .work/bin/ ...", file=sys.stderr)
+        result = subprocess.run(
+            ["bash", str(install_script)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=repo_root,
+        )
+        if result.returncode == 0 and local_bin.is_file():
+            print("slackdump installed successfully.", file=sys.stderr)
+            return str(local_bin)
+        print(f"slackdump auto-install failed: {result.stderr.strip()}", file=sys.stderr)
+
+    return None
 
 
 def _slackdump_auth_files() -> list[Path]:
