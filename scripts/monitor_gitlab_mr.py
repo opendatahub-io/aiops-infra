@@ -45,7 +45,6 @@ import re
 import sys
 import time
 import warnings
-from urllib.parse import urlparse
 
 import gitlab
 from gitlab.exceptions import GitlabAuthenticationError, GitlabError, GitlabGetError
@@ -72,7 +71,7 @@ def parse_mr_url(mr_url: str) -> tuple[str, str, int]:
     match = re.match(pattern, mr_url.rstrip("/"))
     if not match:
         print("ERROR: Cannot parse MR URL.", file=sys.stderr)
-        print(f"  Expected format: https://<host>/<namespace>/<project>/-/merge_requests/<iid>", file=sys.stderr)
+        print("  Expected format: https://<host>/<namespace>/<project>/-/merge_requests/<iid>", file=sys.stderr)
         print(f"  Got: {mr_url}", file=sys.stderr)
         sys.exit(2)
     base_url = match.group(1)
@@ -125,7 +124,7 @@ def get_project_and_mr(gl: gitlab.Gitlab, project_path: str, mr_iid: int):
     except Exception as exc:
         msg = str(exc).lower()
         if any(k in msg for k in ("connection", "timeout", "name resolution")):
-            print(f"ERROR: Cannot reach GitLab. Ensure VPN is active.", file=sys.stderr)
+            print("ERROR: Cannot reach GitLab. Ensure VPN is active.", file=sys.stderr)
         else:
             print(f"ERROR: Unexpected error fetching project: {exc}", file=sys.stderr)
         sys.exit(2)
@@ -234,15 +233,21 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--mr-url", required=True, metavar="URL",
-        help="Full GitLab MR web URL (e.g. https://gitlab.cee.redhat.com/service/app-interface/-/merge_requests/42)",
+        "--mr-url",
+        required=True,
+        metavar="URL",
+        help="Full GitLab MR web URL (e.g. https://$GITLAB_HOST/namespace/project/-/merge_requests/42)",
     )
     parser.add_argument(
-        "--timeout", type=int, default=60, metavar="MINUTES",
+        "--timeout",
+        type=int,
+        default=60,
+        metavar="MINUTES",
         help="Polling timeout in minutes (default: 60). Ignored in --check-only mode.",
     )
     parser.add_argument(
-        "--check-only", action="store_true",
+        "--check-only",
+        action="store_true",
         help="Print current MR state and exit immediately without polling.",
     )
     args = parser.parse_args()

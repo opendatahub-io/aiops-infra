@@ -1,0 +1,829 @@
+# Deterministic templates for Conforma exception text fields and workflow routing.
+#
+# Each category maps to a rule pattern and provides:
+#   1. workflow — ordered list of Jira/MR steps the orchestrator executes
+#   2. template text — scope, risk, remediation, impact fields with placeholders
+#   3. find_examples — pre-built search URLs for Jira tickets and GitLab MRs (not used by code)
+#   4. example_tickets — historical Jira+MR pairs created before the conforma-exception AI skill (not used by code)
+#   5. reference_examples — past real-world cases for human reference (not used by code)
+#
+# Workflow step schema:
+#   - step: step ID
+#     track: remediation_plan | exception_approval
+#     project: Jira project key (RHOAIENG, PSX, OCPEXCEPT)
+#     issue_type: blocker_bug | bug | psrd_exception | task
+#     purpose: human-readable description of this step
+#     default_assignee: Jira display name (optional)
+#     assignee_role: component_team (resolved at runtime, optional)
+#     self_service: true (for exception_merge_request step targeting exceptions/ dir, optional)
+#
+# Track values:
+#   remediation_plan    — fix commitment ticket; its URL feeds into downstream text
+#   exception_approval  — steps on the blocking exception approval chain
+#                         (approval -> PSX/OCPEXCEPT -> GitLab MR)
+#
+# Step IDs (in template workflows — violation report is implicit, not listed here):
+#   rhoaieng_remediation_jira     — RHOAIENG Blocker Bug: component team fix commitment
+#   rhoaieng_approval_jira        — RHOAIENG Blocker Task: Senior Management exception approval
+#   prodsec_form_submission       — ProdSec Google Form pre-fill URL (async: user submits, provides ticket URL)
+#   psx_exception_jira            — OCPEXCEPT Jira ticket for FIPS exception review (legacy; FIPS only)
+#   exception_merge_request       — GitLab Merge Request to add the exception to the release policy
+#
+# Implicit step (injected by orchestrator before template steps):
+#   rhoaieng_violation_report_jira — RHOAIENG Blocker Bug: describes the Conforma violation
+#
+# Template variables (auto-filled by resolve_template()):
+#   {rule}            — full rule value (e.g., rpm_signature.allowed:8a3872bf3228467c)
+#   {rule_key}        — key portion after colon (e.g., 8a3872bf3228467c)
+#   {components}      — comma-separated Konflux component names
+#   {component_count} — number of components
+#   {versions}        — comma-separated RHOAI versions
+#   {version_count}   — number of versions
+#   {vendor}          — vendor name provided via --vendor-tag (e.g., AMD, Intel, Fedora/EPEL)
+#   {rhoaieng_exception_approval_url} — RHOAIENG exception approval ticket URL
+#   {rhoaieng_jira_violation_url}     — RHOAIENG violation report ticket URL
+#   {remediation_jira_url}            — RHOAIENG remediation ticket URL
+#   {prodsec_ticket_url} — ProdSec ticket URL (from form submission or OCPEXCEPT)
+#   {psx_url}         — PSX ticket URL (legacy alias for prodsec_ticket_url)
+#   {effective_until} — expiry date
+#
+# The template text uses {vendor} as a placeholder for any third-party name.
+# The actual vendor name is provided at runtime via --vendor-tag. The --exception-scope,
+# --exception-risk, --exception-remediation, --exception-impact CLI flags override the
+# template text when more specific wording is needed for a particular case.
+#
+# Justification templates (top-level `justifications` section):
+#   Reusable risk + remediation text blocks. Each category lists its
+#   `applicable_justifications` (ordered, first = default). The selected
+#   justification's risk/remediation text uses {violation_summary} from the
+#   category as a placeholder.
+#
+# Additional template variable (justification-specific):
+#   {violation_summary} — short per-category description injected into justification text
+
+justifications:
+  dev_preview:
+    display_name: "Component in Dev Preview / Tech Preview"
+    risk: >-
+      {violation_summary} for a Dev Preview / Tech Preview component.
+      Acceptable because this maturity level does not require full
+      compliance; the fix is planned for the GA release.
+    remediation: >-
+      Component team to resolve the violation before the component
+      graduates to GA. Tracked in {rhoaieng_jira_violation_url}.
+
+  code_frozen:
+    display_name: "Code-frozen release (fix deferred)"
+    risk: >-
+      {violation_summary} in a code-frozen release. Acceptable because
+      major changes are not permitted in z-stream releases. The
+      violation existed before code-freeze.
+    remediation: >-
+      Fix planned for the next RHOAI release cycle. Exception needed
+      for the duration of the current release support lifecycle.
+      Tracked in {rhoaieng_jira_violation_url}.
+
+  tooling_limitation:
+    display_name: "Build tooling limitation"
+    risk: >-
+      {violation_summary} due to a known limitation in the build
+      tooling. Acceptable because the root cause is a tooling issue
+      being addressed by the build team, not a component decision.
+    remediation: >-
+      Blocked on build tooling fix. Will be resolved once the
+      tooling issue is addressed. Tracked in {rhoaieng_jira_violation_url}.
+
+  vendor_dependency:
+    display_name: "Vendor/partner package dependency"
+    risk: >-
+      {violation_summary}. Acceptable because {vendor} is a trusted
+      partner providing packages required for hardware/software
+      enablement that are not available from Red Hat repositories.
+    remediation: >-
+      Exception required while formal agreement or package onboarding
+      with {vendor} is being arranged. Tracked in {rhoaieng_jira_violation_url}.
+
+  upstream_dependency:
+    display_name: "Upstream dependency (not available from Red Hat)"
+    risk: >-
+      {violation_summary}. Acceptable because the upstream project
+      distributes only from their own infrastructure and no
+      Red Hat-managed alternative exists.
+    remediation: >-
+      Component team to explore mirroring or onboarding the
+      dependency. If not feasible, exception maintained for the
+      release lifecycle. Tracked in {rhoaieng_jira_violation_url}.
+
+  infrastructure_delay:
+    display_name: "Infrastructure delay (scan/proxy/tooling not ready)"
+    risk: >-
+      {violation_summary}. Acceptable as a temporary measure because
+      the required infrastructure is not yet available or has a
+      known delay.
+    remediation: >-
+      Infrastructure team to resolve the issue. Short-term exception
+      to unblock the release. Tracked in {rhoaieng_jira_violation_url}.
+
+  operational_urgency:
+    display_name: "Time-critical operational action"
+    risk: >-
+      {violation_summary}. Acceptable because the action is
+      time-critical and on-call support is available to handle
+      any issues.
+    remediation: >-
+      One-time exception for this release window. Future actions
+      will follow the standard process. Tracked in {rhoaieng_jira_violation_url}.
+
+  fips_certification_pending:
+    display_name: "Component not yet FIPS compliant"
+    risk: >-
+      {violation_summary}. Acceptable because the component is not
+      yet compliant with FIPS requirements and the current release
+      timeline cannot accommodate the full compliance work.
+    remediation: >-
+      FIPS compliance work is tracked separately. Components will
+      be updated as compliance is achieved. Tracked in
+      {rhoaieng_jira_violation_url}.
+
+categories:
+  rpm_signature_thirdparty:
+    display_name: "Third-party RPM signing key"
+    common: true
+    matches_rules:
+      - "rpm_signature.allowed:*"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "{vendor} RPM signing key exception"
+    violation_summary: >-
+      RPMs signed with {vendor} key ({rule_key}) instead of Red Hat key
+    applicable_justifications:
+      - vendor_dependency
+      - dev_preview
+      - code_frozen
+    scope: >-
+      Container component(s) {components} include RPMs signed with {vendor} GPG
+      key ({rule_key}) rather than a Red Hat key. {component_count} component(s)
+      affected across {version_count} RHOAI version(s): {versions}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Z-stream security fixes and GA releases cannot ship for affected components.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22rpm_signature.allowed%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=rpm_signature.allowed&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/RHOAIENG-38427"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/18328"
+        note: "Habanalabs(Intel) RPM signing key exception for rhoai-2.25..rhoai-3.3"
+      - jira: "https://redhat.atlassian.net/browse/PSX-1101"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/18291"
+        note: "Fedora/EPEL RPM signing key exception for rhoai-3.5-ea.1"
+    reference_examples:
+      - vendor: "Fedora/EPEL"
+        note: "Trusted upstream community packages"
+      - vendor: "AMD"
+        note: "GPU/accelerator driver packages for hardware enablement"
+      - vendor: "Intel/CentOS"
+        note: "OpenVINO, oneAPI hardware enablement packages"
+      - vendor: "Mellanox"
+        note: "RDMA and high-performance networking for distributed AI workloads"
+      - vendor: "Habanalabs (Intel)"
+        note: "Gaudi accelerator driver and firmware packages"
+      - vendor: "CentOS"
+        note: "Standard CentOS community packages (boost, gcc, perl, valgrind)"
+
+  hermetic_build:
+    display_name: "Non-hermetic build"
+    common: true
+    matches_rules:
+      - "hermetic_task.hermetic"
+      - "hermetic_task"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "hermetic build exception"
+    violation_summary: >-
+      Non-hermetic build for affected component(s)
+    applicable_justifications:
+      - dev_preview
+      - tooling_limitation
+      - code_frozen
+      - upstream_dependency
+    scope: >-
+      Component(s) {components} have not achieved hermetic builds.
+      {component_count} component(s) affected across {version_count} RHOAI
+      version(s): {versions}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Z-stream security fixes and GA releases cannot ship for affected components.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22hermetic_task%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=hermetic_task&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/PSX-1102"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/18346"
+        note: "hermetic_task.hermetic exception for rhoai-2.25, rhoai-3.3, rhoai-3.4"
+      - mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/18362"
+        note: "Extend hermetic_task.hermetic for rhoai-2.25, 3.3, 3.4 notebooks through EUS"
+    reference_examples:
+      - note: "Component in Dev Preview (hermetic not required until GA)"
+      - note: "Build tool limitation (Hermeto/Cachi2 bug or missing support)"
+      - note: "Dependencies not obtainable in a hermetic way (no mirror, no proxy support)"
+      - note: "Code-frozen release, hermetic migration deferred to next release"
+      - note: "Upstream dependency prevents hermetic build (binary-only artifacts)"
+
+  sbom_package_sources:
+    display_name: "External package source in SBOM"
+    common: true
+    matches_rules:
+      - "sbom_spdx.allowed_package_sources:*"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "SBOM external source exception"
+    violation_summary: >-
+      External package source used for dependencies or artifacts
+    applicable_justifications:
+      - upstream_dependency
+      - dev_preview
+      - code_frozen
+    scope: >-
+      Component(s) {components} fetch artifacts from an external source not in
+      the Conforma allowed list. {component_count} component(s) affected across
+      {version_count} RHOAI version(s): {versions}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Z-stream security fixes and GA releases cannot ship for affected components.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22sbom_spdx.allowed_package_sources%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=sbom_spdx.allowed_package_sources&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/RHOAIENG-59987"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17545"
+        note: "autorag rhoai 3.4 image sbom_spdx.allowed_package_sources exception"
+      - mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17116"
+        note: "RHAI wheel index — package type generic but not pypi"
+    reference_examples:
+      - note: "ML model weights from HuggingFace (binary artifact, not buildable from source)"
+      - note: "GitHub release artifact (upstream distributes via GitHub only)"
+      - note: "Generic external artifact (e.g., SQLite, Bazel deps)"
+      - note: "PyPI/Python package from non-standard source (e.g., Red Hat Pulp)"
+
+  sbom_disallowed_attributes:
+    display_name: "SBOM disallowed package attributes"
+    matches_rules:
+      - "sbom_spdx.disallowed_package_attributes"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "SBOM package attributes exception"
+    violation_summary: >-
+      Dependencies with disallowed SBOM package attributes
+    applicable_justifications:
+      - upstream_dependency
+      - dev_preview
+      - code_frozen
+    scope: >-
+      Component(s) {components} include dependencies with disallowed SBOM
+      package attributes. {component_count} component(s) affected across
+      {version_count} RHOAI version(s): {versions}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Components with non-compliant dependencies cannot ship.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22sbom_spdx.disallowed_package_attributes%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=sbom_spdx.disallowed_package_attributes&state=all"
+    example_tickets: []  # no RHOAI-specific examples found yet
+
+  prefetch_registry_proxy:
+    display_name: "Registry proxy not enabled"
+    matches_rules:
+      - "prefetch_dependencies.package_registry_proxy_enabled"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "registry proxy exception"
+    violation_summary: >-
+      Builds fetching dependencies without the Konflux registry proxy
+    applicable_justifications:
+      - infrastructure_delay
+      - dev_preview
+      - code_frozen
+    scope: >-
+      Component(s) {components} do not have registry proxy enabled for
+      prefetch dependencies. {component_count} component(s) affected across
+      {version_count} RHOAI version(s): {versions}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      The release cannot proceed on schedule.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22prefetch_dependencies.package_registry_proxy_enabled%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=prefetch_dependencies.package_registry_proxy_enabled&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/PSX-1087"
+        note: "Allow rhoai-3.4.0 and rhoai-3.3.3 release without Nexus registry proxy"
+
+  prefetch_mode_permissive:
+    display_name: "Prefetch mode not permissive"
+    matches_rules:
+      - "prefetch_dependencies.mode_not_permissive"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "prefetch mode exception"
+    violation_summary: >-
+      Permissive prefetch mode required
+    applicable_justifications:
+      - tooling_limitation
+      - dev_preview
+      - code_frozen
+    scope: >-
+      Component(s) {components} require permissive prefetch mode due to a
+      build tooling issue. {component_count} component(s) affected across
+      {version_count} RHOAI version(s): {versions}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Affected components cannot ship until the tooling bug is fixed or
+      exception is granted.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22prefetch_dependencies.mode_not_permissive%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=prefetch_dependencies.mode_not_permissive&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/RHOAIENG-56367"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/16085"
+        note: "Hermeto permissive prefetch mode for llama-stack-provider-trustyai-garak"
+    reference_examples:
+      - note: "Maturin/Cargo.lock inconsistency (known upstream bug)"
+      - note: "Hermeto/Cachi2 prefetch bug"
+
+  rpm_repos_known:
+    display_name: "RPM from non-standard repository"
+    matches_rules:
+      - "rpm_repos.ids_known:*"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "RPM repository exception"
+    violation_summary: >-
+      RPM package sourced from a non-standard repository
+    applicable_justifications:
+      - vendor_dependency
+      - upstream_dependency
+      - dev_preview
+      - code_frozen
+    scope: >-
+      Component(s) {components} include RPM(s) sourced from a non-standard
+      repository rather than a Red Hat-managed repo. {component_count}
+      component(s) affected across {version_count} RHOAI version(s): {versions}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Affected components cannot ship.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22rpm_repos.ids_known%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=rpm_repos.ids_known&state=all"
+    example_tickets: []  # no RHOAI-specific examples found yet
+
+  tasks_unsupported:
+    display_name: "Unsupported/deprecated Tekton task"
+    matches_rules:
+      - "tasks.unsupported:*"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "unsupported task exception"
+    violation_summary: >-
+      Using a deprecated Tekton task version
+    applicable_justifications:
+      - code_frozen
+      - dev_preview
+    scope: >-
+      Component(s) {components} use a deprecated or unsupported Tekton task
+      version. {component_count} component(s) affected across {version_count}
+      RHOAI version(s): {versions}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Urgent z-stream or GA releases cannot proceed.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22tasks.unsupported%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=tasks.unsupported&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/RHOAIENG-56614"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/16698"
+        note: "Expired konflux tasks: buildah-remote-oci-ta, tasks.unsupported:init"
+
+  olm_unmapped_references:
+    display_name: "OLM unmapped references"
+    common: true
+    matches_rules:
+      - "olm.unmapped_references:*"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "OLM unmapped references exception"
+    violation_summary: >-
+      OLM bundle references images not yet in the release mapping
+    applicable_justifications:
+      - infrastructure_delay
+      - code_frozen
+    scope: >-
+      FBC (File-Based Catalog) bundle for {versions} contains references to
+      images not yet mapped in the release configuration. {component_count}
+      component(s) affected.
+    impact: >-
+      Without exception, Conforma blocks the FBC catalog push for {versions}.
+      Operator updates cannot ship via OLM.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22olm.unmapped_references%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=olm.unmapped_references&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/RHOAIENG-60934"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17634"
+        note: "olm.unmapped_references violation for rhaii/vllm-gaudi-rhel9 (rhoai-3.4)"
+      - jira: "https://redhat.atlassian.net/browse/RHOAIENG-33259"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17326"
+        note: "olm.unmapped_references blocking push to prod (rhoai-2.24)"
+
+  cve_results:
+    display_name: "CVE scan results not found"
+    matches_rules:
+      - "cve.cve_results_found"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "CVE scan results exception"
+    violation_summary: >-
+      CVE scan results not found for the component
+    applicable_justifications:
+      - infrastructure_delay
+      - dev_preview
+    scope: >-
+      Component(s) {components} do not have CVE scan results available.
+      {component_count} component(s) affected across {version_count} RHOAI
+      version(s): {versions}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Release cannot proceed without CVE scan clearance.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22cve.cve_results_found%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=cve.cve_results_found&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/RHOAIENG-36999"
+        note: "odh-llama-stack-core-v3-0 — Clair CVE scan results were not found"
+
+  fips_check:
+    display_name: "FIPS compliance check"
+    common: true
+    matches_rules:
+      - "fips-check"
+      - "fips_check"
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the FIPS fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request for FIPS — requires Senior Management approval"
+      - step: psx_exception_jira
+        track: exception_approval
+        project: OCPEXCEPT
+        issue_type: task
+        purpose: "OCPEXCEPT Jira — FIPS exception review"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "FIPS check exception"
+    violation_summary: >-
+      FIPS compliance check waived for affected components
+    applicable_justifications:
+      - fips_certification_pending
+      - dev_preview
+      - code_frozen
+    scope: >-
+      FIPS compliance check exception for {versions}. {component_count}
+      component(s) affected: {components}.
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Affected releases cannot ship.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22fips-check%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=fips-check&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/OCPEXCEPT-65"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17844"
+        note: "FIPS exception for RHOAI < 3.5 GA"
+      - jira: "https://redhat.atlassian.net/browse/OCPEXCEPT-43"
+        note: "FIPS exception for RHOAI llm-d routing for KServe"
+
+  weekday_restriction:
+    display_name: "Weekend release restriction"
+    common: true
+    matches_rules:
+      - "schedule.weekday_restriction"
+    workflow:
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request for weekend/holiday release — requires Senior Management approval"
+      - step: exception_merge_request
+        track: exception_approval
+        self_service: true
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "weekday restriction exception"
+    violation_summary: >-
+      Releasing outside the standard weekday window
+    applicable_justifications:
+      - operational_urgency
+    scope: >-
+      Release for {versions} is being pushed outside the standard weekday
+      window. {component_count} component(s) affected: {components}.
+    impact: >-
+      Without exception, Conforma blocks the release pipeline for
+      {versions}. The time-critical release cannot proceed.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22schedule.weekday_restriction%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=schedule.weekday_restriction&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - jira: "https://redhat.atlassian.net/browse/RHOAIENG-59732"
+        mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/17331"
+        note: "Extend weekday exception to cover 2.25.5 dashboard issue"
+
+  fbc_pruning_test:
+    display_name: "FBC pruning test skip"
+    common: true
+    matches_rules:
+      - "test.no_failed_tests:fbc-target-index-pruning-check"
+    workflow:
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request to skip FBC pruning test — requires Senior Management approval"
+      - step: exception_merge_request
+        track: exception_approval
+        self_service: true
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "FBC pruning test exception"
+    violation_summary: >-
+      FBC target index pruning check skipped
+    applicable_justifications:
+      - infrastructure_delay
+      - operational_urgency
+    scope: >-
+      FBC index pruning check is failing for {versions}.
+      {component_count} component(s) affected: {components}.
+    impact: >-
+      Without exception, Conforma blocks the FBC catalog push for
+      {versions}. Operator updates cannot ship via OLM.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20AND%20summary%20~%20%22fbc-target-index-pruning-check%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?search=fbc-target-index-pruning-check&state=all"
+    example_tickets:  # pre-skill (created before conforma-exception AI skill)
+      - mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/16166"
+        note: "rhoai exception prod for test.no_failed_tests:fbc-target-index-pruning-check"
+      - mr: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests/16131"
+        note: "fbc-target-index-pruning-check exception for rhoai-3.4.ea1"
+
+  # -----------------------------------------------------------------------
+  # Catch-all for any Conforma rule not covered by a specific category above.
+  #
+  # This category is ONLY matched by explicit fallback logic in
+  # match_template_category() when no other category's matches_rules
+  # patterns match. It is NOT matched via glob — it must be the last resort.
+  #
+  # Because there is no pre-written template text for unknown violations,
+  # the agent MUST interactively gather all exception text fields from the
+  # user (scope, risk, remediation, impact, summary_context). The agent
+  # uses references/conforma-release-policy-rules.yaml to validate the
+  # rule code and provide the user with the official rule name and docs URL.
+  #
+  # Workflow: uses the standard 4-step PSX path by default. The agent may
+  # present the user with the option to switch to OCPEXCEPT or self-service
+  # if the rule warrants it, but PSX is the safe default.
+  # -----------------------------------------------------------------------
+  other:
+    display_name: "Other Conforma violation (non-templated)"
+    is_catch_all: true
+    matches_rules: []
+    workflow:
+      - step: rhoaieng_remediation_jira
+        track: remediation_plan
+        project: RHOAIENG
+        issue_type: bug
+        purpose: "RHOAIENG Jira resolution plan — documents the fix commitment with a future target date"
+        assignee_role: component_team
+      - step: rhoaieng_approval_jira
+        track: exception_approval
+        project: RHOAIENG
+        issue_type: blocker_bug
+        purpose: "RHOAIENG Jira exception approval request — requires Senior Management approval to proceed"
+        default_assignee: "Jay Koehler"
+      - step: prodsec_form_submission
+        track: exception_approval
+        async: true
+        purpose: "ProdSec exception form — agent generates pre-fill URL, user submits and provides resulting ticket URL"
+      - step: exception_merge_request
+        track: exception_approval
+        purpose: "GitLab Merge Request to add the exception to the release policy"
+    summary_context: "{rule} exception"
+    violation_summary: >-
+      Conforma policy violation: {rule}
+    applicable_justifications:
+      - code_frozen
+      - dev_preview
+      - tooling_limitation
+      - upstream_dependency
+      - infrastructure_delay
+    scope: >-
+      USER_PROVIDED
+    risk: >-
+      USER_PROVIDED
+    remediation: >-
+      USER_PROVIDED
+    impact: >-
+      Without exception, Conforma blocks release pipeline gates for {versions}.
+      Affected components cannot ship.
+    find_examples:
+      jira_search: "https://redhat.atlassian.net/issues/?jql=labels%20%3D%20%22conforma-violation%22%20ORDER%20BY%20created%20DESC"
+      gitlab_mr_search: "https://${GITLAB_HOST}/releng/konflux-release-data/-/merge_requests?state=all&sort=created_desc"
+    example_tickets: []
+    reference_docs:
+      - url: "https://conforma.dev/docs/policy/release_policy.html"
+        note: "Full Conforma release policy — all rule collections and rule definitions"
+      - url: "https://conforma.dev/docs/policy/packages/release_volatile_config.html"
+        note: "VolatileCriteria schema (effectiveUntil, componentNames, etc.)"

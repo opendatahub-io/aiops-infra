@@ -1,3 +1,11 @@
 .DS_STORE
 __pycache__/
+*.pyc
 tmp/
+.work/*
+!.work/.env.example
+!.work/site-config.example.yaml
+.venv/
+*.egg-info/
+.env
+site-config.yaml

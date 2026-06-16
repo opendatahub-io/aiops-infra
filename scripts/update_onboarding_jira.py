@@ -103,11 +103,7 @@ def main():
 
     if odh_header_idx is not None:
         values_row = (
-            f"| {args.repo_url} "
-            f"| {quay_image} "
-            f"| {args.context_path} "
-            f"| [{args.dockerfile_path}|{dockerfile_link}] "
-            f"| |"
+            f"| {args.repo_url} | {quay_image} | {args.context_path} | [{args.dockerfile_path}|{dockerfile_link}] | |"
         )
         header_idx = odh_header_idx
     elif rhoai_header_idx is not None:

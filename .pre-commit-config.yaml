@@ -1,0 +1,37 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff lint
+        entry: ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format
+        language: system
+        types: [python]
+      - id: pytest-unit
+        name: unit tests
+        entry: pytest tests/unit/ -x -q
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check-test-coverage
+        name: check test file exists for new scripts
+        entry: python tests/check_test_coverage.py
+        language: system
+        pass_filenames: true
+        types: [python]
+      - id: check-no-internal-refs
+        name: no hardcoded internal hostnames
+        entry: python tests/check_no_internal_refs.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check-no-secrets-in-examples
+        name: no real secrets in example files
+        entry: python tests/check_no_secrets_in_examples.py
+        language: system
+        pass_filenames: false
+        always_run: true

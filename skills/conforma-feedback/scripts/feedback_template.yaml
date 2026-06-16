@@ -1,0 +1,53 @@
+# Issue body template and label configuration for conforma-feedback.
+#
+# Edit this file to change the issue structure or default labels.
+# Placeholders use Python str.format() syntax: {field_name}.
+
+labels:
+  always:
+    - conforma
+    - conforma-skill
+  bug:
+    - bug
+  enhancement:
+    - enhancement
+
+title_template: "[conforma-feedback] {issue_type}: {summary}"
+
+body_template: |
+  ## Summary
+
+  {summary}
+
+  ## Skill
+
+  {skill_name}
+
+  ## Expected Behavior
+
+  {expected}
+
+  ## Actual Behavior
+
+  {actual}
+
+  ## Error Output
+
+  ```
+  {error_output}
+  ```
+
+  ## Environment
+
+  - **Python:** {python_version}
+  - **OS:** {os_info}
+  - **Platform:** {platform} ({host})
+  - **Repository:** {repo_path}
+
+  ## Severity
+
+  {severity}
+
+  ## Additional Context
+
+  {additional_context}

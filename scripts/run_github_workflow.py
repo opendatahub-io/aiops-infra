@@ -65,6 +65,7 @@ POLL_INTERVAL_S = 60  # default seconds between status checks
 
 # ── Auth / helpers ─────────────────────────────────────────────────────────────
 
+
 def require_env(name: str, hint: str) -> str:
     value = os.environ.get(name)
     if not value:
@@ -135,10 +136,11 @@ def strip_log_timestamps(line: str) -> str:
 
 # ── Subcommand: trigger ────────────────────────────────────────────────────────
 
+
 def cmd_trigger(args, token: str) -> None:
     owner, repo_name = parse_repo_path(args.repo_url)
 
-    print(f"Connecting to GitHub...", file=sys.stderr)
+    print("Connecting to GitHub...", file=sys.stderr)
     g = get_github_client(token)
     repo = get_repo(g, owner, repo_name)
 
@@ -157,8 +159,7 @@ def cmd_trigger(args, token: str) -> None:
             # wf.path is e.g. ".github/workflows/foo.yml"
             wf_path_normalized = wf.path.lstrip("./").lstrip("/")
             # Match on the filename or the full path (normalized)
-            if (wf_path_normalized == workflow_file
-                    or wf_path_normalized.endswith("/" + workflow_file.split("/")[-1])):
+            if wf_path_normalized == workflow_file or wf_path_normalized.endswith("/" + workflow_file.split("/")[-1]):
                 target_workflow = wf
                 break
     except GithubException as exc:
@@ -199,7 +200,7 @@ def cmd_trigger(args, token: str) -> None:
         target_workflow.create_dispatch(ref=ref, inputs=inputs_dict)
     except GithubException as exc:
         if exc.status == 422:
-            print(f"ERROR: Workflow dispatch failed (HTTP 422).", file=sys.stderr)
+            print("ERROR: Workflow dispatch failed (HTTP 422).", file=sys.stderr)
             data = getattr(exc, "data", {}) or {}
             msg = data.get("message", "")
             if "inputs" in str(msg).lower() or "inputs" in str(data).lower():
@@ -262,13 +263,14 @@ def cmd_trigger(args, token: str) -> None:
 
 # ── Subcommand: monitor ────────────────────────────────────────────────────────
 
+
 def cmd_monitor(args, token: str) -> None:
     owner, repo_name = parse_repo_path(args.repo_url)
     run_id = args.run_id
     timeout_minutes = args.timeout
     poll_interval = args.poll_interval
 
-    print(f"Connecting to GitHub...", file=sys.stderr)
+    print("Connecting to GitHub...", file=sys.stderr)
     g = get_github_client(token)
     repo = get_repo(g, owner, repo_name)
 
@@ -343,12 +345,13 @@ def cmd_monitor(args, token: str) -> None:
 
 # ── Subcommand: get-step-logs ──────────────────────────────────────────────────
 
+
 def cmd_get_step_logs(args, token: str) -> None:
     owner, repo_name = parse_repo_path(args.repo_url)
     run_id = args.run_id
     step_name = args.step
 
-    print(f"Connecting to GitHub...", file=sys.stderr)
+    print("Connecting to GitHub...", file=sys.stderr)
     g = get_github_client(token)
     repo = get_repo(g, owner, repo_name)
 
@@ -394,11 +397,8 @@ def cmd_get_step_logs(args, token: str) -> None:
     print(f"Found step '{matched_step_name}' in job '{matched_job.name}'.", file=sys.stderr)
 
     # Download job logs via GitHub API (returns redirect to log text)
-    logs_api_url = (
-        f"https://api.github.com/repos/{owner}/{repo_name}"
-        f"/actions/jobs/{matched_job.id}/logs"
-    )
-    print(f"Downloading job logs...", file=sys.stderr)
+    logs_api_url = f"https://api.github.com/repos/{owner}/{repo_name}/actions/jobs/{matched_job.id}/logs"
+    print("Downloading job logs...", file=sys.stderr)
 
     try:
         resp = requests.get(
@@ -416,14 +416,12 @@ def cmd_get_step_logs(args, token: str) -> None:
         status_code = exc.response.status_code if exc.response is not None else "?"
         if status_code == 410:
             print(
-                "ERROR: Job logs are no longer available (HTTP 410). "
-                "GitHub retains logs for 90 days.",
+                "ERROR: Job logs are no longer available (HTTP 410). GitHub retains logs for 90 days.",
                 file=sys.stderr,
             )
         elif status_code == 403:
             print(
-                "ERROR: Permission denied fetching logs (HTTP 403). "
-                "Check GITHUB_TOKEN scope.",
+                "ERROR: Permission denied fetching logs (HTTP 403). Check GITHUB_TOKEN scope.",
                 file=sys.stderr,
             )
         else:
@@ -481,6 +479,7 @@ def cmd_get_step_logs(args, token: str) -> None:
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -491,24 +490,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ── trigger ────────────────────────────────────────────────────────────────
     p_trigger = sub.add_parser("trigger", help="Dispatch a workflow_dispatch event")
-    p_trigger.add_argument("--repo-url",  required=True, metavar="URL",  help="GitHub repo URL")
-    p_trigger.add_argument("--workflow",  required=True, metavar="FILE", help="Workflow file path")
-    p_trigger.add_argument("--ref",       default=None,  metavar="REF",  help="Branch/tag/sha (default: repo default branch)")
-    p_trigger.add_argument("--input",     default=[],    metavar="K=V",  action="append",
-                           help="Workflow input as key=value (repeatable)")
+    p_trigger.add_argument("--repo-url", required=True, metavar="URL", help="GitHub repo URL")
+    p_trigger.add_argument("--workflow", required=True, metavar="FILE", help="Workflow file path")
+    p_trigger.add_argument("--ref", default=None, metavar="REF", help="Branch/tag/sha (default: repo default branch)")
+    p_trigger.add_argument(
+        "--input", default=[], metavar="K=V", action="append", help="Workflow input as key=value (repeatable)"
+    )
 
     # ── monitor ────────────────────────────────────────────────────────────────
     p_monitor = sub.add_parser("monitor", help="Poll a workflow run to completion")
-    p_monitor.add_argument("--repo-url",      required=True, metavar="URL",     help="GitHub repo URL")
-    p_monitor.add_argument("--run-id",        required=True, metavar="ID",      type=int, help="Workflow run ID")
-    p_monitor.add_argument("--timeout",       default=30,    metavar="MINUTES", type=int, help="Timeout in minutes (default: 30)")
-    p_monitor.add_argument("--poll-interval", default=60,    metavar="SECONDS", type=int, help="Poll interval in seconds (default: 60)")
+    p_monitor.add_argument("--repo-url", required=True, metavar="URL", help="GitHub repo URL")
+    p_monitor.add_argument("--run-id", required=True, metavar="ID", type=int, help="Workflow run ID")
+    p_monitor.add_argument(
+        "--timeout", default=30, metavar="MINUTES", type=int, help="Timeout in minutes (default: 30)"
+    )
+    p_monitor.add_argument(
+        "--poll-interval", default=60, metavar="SECONDS", type=int, help="Poll interval in seconds (default: 60)"
+    )
 
     # ── get-step-logs ──────────────────────────────────────────────────────────
     p_logs = sub.add_parser("get-step-logs", help="Extract logs for a named step")
-    p_logs.add_argument("--repo-url", required=True, metavar="URL",  help="GitHub repo URL")
-    p_logs.add_argument("--run-id",   required=True, metavar="ID",   type=int, help="Workflow run ID")
-    p_logs.add_argument("--step",     required=True, metavar="NAME", help="Step name (case-insensitive substring match)")
+    p_logs.add_argument("--repo-url", required=True, metavar="URL", help="GitHub repo URL")
+    p_logs.add_argument("--run-id", required=True, metavar="ID", type=int, help="Workflow run ID")
+    p_logs.add_argument("--step", required=True, metavar="NAME", help="Step name (case-insensitive substring match)")
 
     return parser
 

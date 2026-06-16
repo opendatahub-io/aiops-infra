@@ -1,0 +1,644 @@
+# Conforma Violation Catalog
+#
+# Single source of truth for all known RHOAI Conforma violation types,
+# their classification, troubleshooting steps, and resolution guidance.
+#
+# Referenced by: conforma-remedy, conforma-analyze, conforma-exception
+# Location: skills/references/violation-catalog.yaml
+#
+# Schema:
+#   violations[].type: conforma_violation | operational_issue
+#   violations[].conforma_rule_codes: list (optional for operational_issue)
+#   violations[].classification.resolution_path: code_fix | operational | exception_likely | mixed
+#   violations[].classification.typical_owner: component_team | devops | konflux_team
+#   violations[].classification.estimated_effort: low | medium | high
+#   violations[].classification.requires_rebuild: bool
+#   known_false_alerts[].action: ignore
+
+source_url: "https://docs.google.com/document/d/1LsHzcZ2TAIIc4slqAdMnDBovYa2EzgOD8bWx-QXR8kM/"
+last_synced_from_doc: "2026-06-08"
+
+violations:
+  - id: hermetic_task.hermetic
+    type: conforma_violation
+    title: "Build task was not invoked with the hermetic parameter set"
+    description: >-
+      All container images built by Internal Red Hat Konflux are required to be
+      built in Hermetic environment. The 'hermetic' parameter of PipelineRun spec
+      should be set to 'true'. Hermetic builds don't have access to the Internet
+      or any network resources outside of the build node. All packages (pip, RPMs,
+      gomod etc.) must be prefetched as part of the 'prefetch-dependencies' step.
+    conforma_rule_codes:
+      - hermetic_task.hermetic
+    aliases:
+      - "hermetic"
+      - "hermetic build"
+      - "non-hermetic"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "Build task was not invoked with the hermetic parameter set"
+    fix_steps:
+      - action: "Set hermetic=true in the component PipelineRun YAML (.tekton/ directory or konflux-central pipeline)"
+        reference: "https://konflux-ci.dev/docs/building/hermetic-builds/"
+      - action: "Enable prefetch-dependencies for all packages (pip, RPMs, gomod)"
+        reference: "https://konflux-ci.dev/docs/building/prefetching-dependencies/"
+      - action: "Rebuild the component in Konflux"
+    exception_context:
+      when_to_exception: >-
+        Only if making the build hermetic is genuinely not feasible (e.g.,
+        dependency on network resources that cannot be prefetched). Component
+        team must be actively working on making builds hermetic with DevOps
+        team supporting (e.g., helping with RPM lock files).
+      exception_template_category: non_hermetic_build
+
+  - id: trusted_task.trusted.unpinned_reference
+    type: conforma_violation
+    title: "Task XXXX is used by pipeline task YYYY via an unpinned reference"
+    description: >-
+      A Konflux task container image used during build was not pinned to a
+      specific tag. For example, 'main' branch was used instead of a commit
+      hash or image SHA. All task references must be pinned to a specific
+      commit or image SHA for reproducibility and trust.
+    conforma_rule_codes:
+      - trusted_task.trusted
+    aliases:
+      - "unpinned reference"
+      - "unpinned task"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "Task XXXX is used by pipeline task YYYY via an unpinned reference"
+    fix_steps:
+      - action: "Pin the task to a specific commit hash or image SHA in konflux-central"
+        reference: "https://github.com/red-hat-data-services/konflux-central"
+      - action: "Rebuild the component's container image in Konflux"
+
+  - id: trusted_task.trusted.not_built_by_trusted
+    type: conforma_violation
+    title: "Image not built by a trusted task"
+    description: >-
+      The Konflux task bundle container images used to build the component are
+      outdated. Updating Konflux task bundle references is automatic for
+      Pipelines in konflux-central via Renovate, but the affected components
+      may need to be rebuilt manually if the update didn't propagate.
+    conforma_rule_codes:
+      - trusted_task.trusted
+    aliases:
+      - "untrusted task"
+      - "trusted task"
+      - "not built by a trusted task"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "Image \"quay.io/...\" not built by a trusted task: Build Task(s) \"build-image-index,buildah-oci-ta\" are not trusted"
+    fix_steps:
+      - action: "Ensure the SHA of the task bundle container image is recent (less than a month old) -- check on quay.io"
+      - action: "If old, update the SHA to a recent one in konflux-central (do NOT change the version tag, e.g. 0.2 -> 0.3)"
+      - action: "Rebuild the component container image in Konflux to use the updated task bundle"
+    exception_context:
+      when_to_exception: >-
+        Rarely needed. Usually a rebuild with updated task bundles resolves this.
+        Exception only if Konflux tooling has a known delay in publishing trusted bundles.
+      exception_template_category: unsupported_task
+
+  - id: trusted_task.trusted.missing_buildah
+    type: conforma_violation
+    title: "One of buildah/buildah-remote/buildah-oci-ta/buildah-remote-oci-ta tasks is missing"
+    description: >-
+      Most likely caused by an outdated Konflux container image reference.
+      The procedure to fix is the same as for 'not built by a trusted task'.
+    conforma_rule_codes:
+      - trusted_task.trusted
+    aliases:
+      - "missing buildah"
+      - "buildah task missing"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "One of \"buildah\", \"buildah-remote\", \"buildah-oci-ta\", \"buildah-remote-oci-ta\" tasks is missing"
+    fix_steps:
+      - action: "Update the Konflux task bundle SHA to a recent version in konflux-central"
+      - action: "Rebuild the component container image in Konflux"
+
+  - id: trusted_task.trusted.untrusted_version
+    type: conforma_violation
+    title: "Untrusted version of PipelineTask included in the build chain"
+    description: >-
+      The error message itself specifies which task needs updating and provides
+      the target SHA. Update the mentioned task's container image reference
+      to the suggested version in konflux-central.
+    conforma_rule_codes:
+      - trusted_task.trusted
+    aliases:
+      - "untrusted version"
+      - "upgrade the task version"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "The untrusted version of PipelineTask \"XXXX\" was included in the build chain comprised of: ..... Please upgrade the task version to: sha256:..."
+    fix_steps:
+      - action: "Update the task's container image reference to the SHA suggested in the error message, in konflux-central"
+      - action: "Rebuild the component in Konflux"
+
+  - id: no_conforma_report_in_slack
+    type: operational_issue
+    title: "No Conforma report/notification in Slack"
+    description: >-
+      There may be problems with running the conforma-reporter GitHub Action.
+      This is NOT a conforma policy violation but an infrastructure issue that
+      prevents results from being reported.
+    aliases:
+      - "no slack report"
+      - "missing conforma notification"
+      - "no conforma report"
+    classification:
+      resolution_path: operational
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: false
+    symptoms:
+      - "No results appearing in #rhoai-konflux-poc-notifications Slack channel"
+      - "conforma-reporter GitHub Action failing"
+    fix_steps:
+      - action: "Check the conforma-reporter GitHub Action latest run and history for failures"
+        reference: "https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml"
+      - action: "Investigate and fix the workflow failure (snapshot creation, parsing results, Slack notification)"
+
+  - id: fbc_fips_check_missing
+    type: conforma_violation
+    title: "One of fbc-fips-check/fbc-fips-check-oci-ta tasks is missing"
+    description: >-
+      This error appears for FBC fragment conforma check. The FIPS check normally
+      runs as part of the rhoai-fbc-fragment build but takes 3-4 hours on recent
+      releases. Due to this, the FIPS task is disabled on CI (on-push) builds and
+      runs only on nightly ('on-schedule') builds. If conforma highlights the FIPS
+      check missing for CI builds, it can be ignored. If it appears on nightly
+      reports, it needs investigation.
+    conforma_rule_codes:
+      - test.no_failed_tests
+    aliases:
+      - "fips check missing"
+      - "fbc-fips-check missing"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: false
+    symptoms:
+      - "One of \"fbc-fips-check\", \"fbc-fips-check-oci-ta\" tasks is missing"
+    fix_steps:
+      - action: "If this appears on CI (on-push) builds only -- it can be ignored (FIPS is disabled for push builds)"
+      - action: "If this appears on nightly (on-schedule) reports -- investigate the fbc-fips-check task in the nightly pipeline"
+      - action: "Check the 'when' condition for fbc-fips-check-oci-ta in the fbc-fragment-build.yaml pipeline in konflux-central"
+        reference: "https://issues.redhat.com/browse/KONFLUX-9956"
+
+  - id: rpm_signature.allowed
+    type: conforma_violation
+    title: "Signing key is not one of the allowed keys"
+    description: >-
+      Only software meeting these criteria can be part of RHOAI: (1) software
+      built by Red Hat (signed by key 199e2f91fd431d51), (2) software from
+      external sources where we can include the source code in the source
+      container image, (3) software from an external source with a formal
+      agreement (e.g., Intel, NVIDIA). The component team should be contacted
+      and resolution options explored.
+    conforma_rule_codes:
+      - rpm_signature.allowed
+    aliases:
+      - "rpm signature"
+      - "signing key"
+      - "rpm signing"
+      - "allowed key"
+      - "not one of the allowed keys"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: high
+      requires_rebuild: true
+    symptoms:
+      - "Signing key \"XXX\" is not one of the allowed keys: [\"199e2f91fd431d51\"]"
+    fix_steps:
+      - action: "Contact the component team and explore resolution options"
+      - action: "Option 1: Install the RPMs from a Red Hat repository"
+      - action: "Option 2: Install the RPMs from RH AIPCC or RHAIIS"
+      - action: "Option 3: If unavailable from Red Hat, build the RPMs from source"
+      - action: "Option 4 (last resort): Ensure a valid legal support agreement with the vendor and request a conforma exception"
+      - action: "Check the 3rd-party packages spreadsheet for existing work items"
+        reference: "https://docs.google.com/spreadsheets/d/1o2j87H-k33eBsDcxR4oeqpNJJZe_TqHarnEBw-PqepM/edit?gid=1354667519#gid=1354667519"
+      - action: "After resolution, rebuild the component in Konflux"
+    exception_context:
+      when_to_exception: >-
+        When none of the code-fix options are possible. Requires a legal
+        agreement between Red Hat and the vendor of the packages. Use the
+        conforma-exception skill with the rpm_signature_thirdparty template.
+      exception_template_category: rpm_signature_thirdparty
+
+  - id: rpm_packages.unique_version
+    type: conforma_violation
+    title: "Mismatched versions of RPM found across different arches"
+    description: >-
+      This violation appears for container images built for multiple CPU
+      architectures. It means one arch has a different version of an RPM
+      than another. This can happen if a newer RPM version was released
+      during the build window, or if the Dockerfile has conditional logic
+      installing different versions per arch.
+    conforma_rule_codes:
+      - rpm_packages.unique_version
+    aliases:
+      - "unique version"
+      - "rpm version"
+      - "version mismatch"
+      - "multi-arch version"
+      - "mismatched versions"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "Mismatched versions of the \"XXX\" RPM were found across different arches"
+    fix_steps:
+      - action: "First, rebuild the component to confirm the issue is persistent (not just unfortunate timing)"
+      - action: "Check if the Dockerfile.konflux has IF/THEN or other conditional logic per architecture"
+      - action: "Highlight to the component team -- they need to ensure the same RPM version is installed across all architectures"
+      - action: "Component team may need DevOps support for locking RPM versions"
+
+  - id: rpm_repo_id_check
+    type: conforma_violation
+    title: "RPM repo id check failed: unknown or disallowed repository_id"
+    description: >-
+      Repository IDs used in the component's Dockerfile must include the
+      architecture in their name (e.g., ubi-9-for-x86_64-baseos-rpms
+      instead of ubi-9-baseos-rpms). The names must match the allowed
+      repository IDs in the Konflux policy.
+    conforma_rule_codes:
+      - sbom.allowed
+    aliases:
+      - "repo id check"
+      - "repository_id"
+      - "disallowed repository"
+      - "unknown repository"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "RPM repo id check failed: An RPM component in the SBOM specified an unknown or disallowed repository_id"
+    fix_steps:
+      - action: "Fix the repository IDs in the component's repo file (e.g., ubi.repo) to include architecture"
+        reference: "https://konflux-ci.dev/docs/troubleshooting/releases/#unknown-or-invalid-repository_id"
+      - action: "Example: change [ubi-9-baseos-rpms] to [ubi-9-for-x86_64-baseos-rpms]"
+      - action: "Check all allowed repo IDs"
+        reference: "https://github.com/release-engineering/rhtap-ec-policy/blob/main/data/known_rpm_repositories.yml"
+      - action: "Rebuild the rpms.lock.yaml file"
+        reference: "https://konflux-ci.dev/docs/building/prefetching-dependencies/#rpm"
+      - action: "Commit/merge the changes and rebuild the component in Konflux"
+
+  - id: tasks.required_untrusted_task_found
+    type: conforma_violation
+    title: "Task is or will be unsupported -- upgrade to a newer version"
+    description: >-
+      The component was built with a task that is (or will be) outdated/expired.
+      Renovate is configured to automatically bump digests to the newest SHA for
+      each Konflux task in konflux-central pipelines. It raises a PR and
+      auto-merges it. However, sometimes the PR is not merged automatically.
+    conforma_rule_codes:
+      - tasks.required_untrusted_task_found
+    aliases:
+      - "required untrusted task"
+      - "unsupported task"
+      - "deprecated task"
+      - "upgrade to a newer version"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "Task \"XXX\" is used by pipeline task \"YYY\" is or will be unsupported as of YYYY-MM-DD. Upgrade to a newer version of the Task."
+    fix_steps:
+      - action: "Check for unmerged Renovate PRs in konflux-central for the affected rhoai version"
+        reference: "https://github.com/red-hat-data-services/konflux-central/pulls"
+      - action: "Verify the task bundle digest is recent (check on quay.io, should be less than 3-4 weeks old)"
+      - action: "If an open Renovate PR exists and the digest is recent, merge it"
+      - action: "If no PR exists, manually update the SHA to the latest image for the given tag in konflux-central"
+      - action: "Rebuild the affected components in Konflux (components are NOT automatically rebuilt when SHAs change in konflux-central)"
+
+  - id: test.no_failed_tests.fbc_fips_check_erred
+    type: conforma_violation
+    title: "The Task fbc-fips-check-oci-ta from the build Pipeline reports a test erred"
+    description: >-
+      FIPS check task reported an error. Need to investigate the detailed logs
+      from the rhoai-fbc-fragment build in Konflux (not the conforma run).
+      Note that CI (on-push) builds may not have FIPS check enabled due to
+      it taking 2-4 hours.
+    conforma_rule_codes:
+      - test.no_failed_tests
+    aliases:
+      - "fips check erred"
+      - "fbc-fips-check erred"
+      - "fips test erred"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: false
+      typical_owner: component_team
+      estimated_effort: high
+      requires_rebuild: false
+    symptoms:
+      - "The Task \"fbc-fips-check-oci-ta\" from the build Pipeline reports a test erred"
+    fix_steps:
+      - action: "Find the most recent successful rhoai-fbc-fragment build in Konflux (not the conforma run)"
+      - action: "If no fips-check on the most recent build, find the most recent 'on-schedule' build"
+      - action: "Go to Logs -> Task Runs -> fbc-fips-check-oci-ta -> Download the log"
+      - action: "Filter the log to remove known false positives"
+        reference: "grep -i error *fbc-fips-check-oci-ta.log | grep -viE 'go binary is not CGO_ENABLED|executable is not dynamically linked|Error parsing image name.*registry.redhat.io|Error: run failed|error resolving name for image ref registry.redhat.io/'"
+      - action: "Investigate remaining errors and coordinate with the component team"
+      - action: "Check images-mirror-set.yaml for missing mappings if errors relate to image download failures"
+        reference: "https://github.com/red-hat-data-services/RHOAI-Build-Config/blob/rhoai-3.2/.tekton/images-mirror-set.yaml"
+
+  - id: version_label_mismatch
+    type: operational_issue
+    title: "Version label X does not match expected Y"
+    description: >-
+      The conforma-reporter GitHub workflow checks if all container images on
+      quay.io have the correct Version label before creating a snapshot. If
+      some images don't have the expected label, this error appears. Usually
+      resolved by rebuilding the component in Konflux.
+    aliases:
+      - "version label mismatch"
+      - "version label does not match"
+    classification:
+      resolution_path: operational
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "Version label v3.4.0 does not match expected v3.4.0-ea.1"
+    fix_steps:
+      - action: "Rebuild the component in Konflux -- this will publish the container image with correct labels to quay.io"
+
+  - id: test.no_failed_tests.fbc_target_index_pruning
+    type: conforma_violation
+    title: "The Task fbc-target-index-pruning-check reports a failed test"
+    description: >-
+      The conforma report doesn't give details of the failed test itself.
+      Need to check the rhoai-fbc-fragment build logs in Konflux. Often
+      caused by channel resets (e.g., beta channel reset). Requires a
+      self-service FBC exception with image digests for all supported OCP versions.
+    conforma_rule_codes:
+      - "test.no_failed_tests:fbc-target-index-pruning-check"
+    aliases:
+      - "fbc-target-index-pruning-check"
+      - "pruning check failed"
+      - "target index pruning"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: false
+    symptoms:
+      - "The Task \"fbc-target-index-pruning-check\" from the build Pipeline reports a failed test"
+    fix_steps:
+      - action: "Check the most recent successful rhoai-fbc-fragment build in Konflux for fbc-target-index-pruning-check logs"
+      - action: "Search the log for lines containing '!FAILURE!'"
+      - action: "Confirm with Rishab Prasad if this is caused by a channel reset (e.g., beta channel)"
+      - action: "If confirmed, add image refs to the self-service FBC exception file"
+        reference: "https://$GITLAB_HOST/releng/konflux-release-data/-/blob/main/exceptions/fbc-rhoai-prod.yaml"
+      - action: "Get image digests using skopeo for all supported OCP versions (e.g., 4.19, 4.20, 4.21)"
+      - action: "Merge the change on GitLab (DevOps has write/merge access to this file)"
+    exception_context:
+      when_to_exception: >-
+        This violation typically requires a self-service FBC exception rather than
+        a code fix. DevOps has merge access to the exceptions file directly.
+      exception_template_category: fbc_pruning_test
+
+  - id: prefetch_dependencies.mode_not_permissive
+    type: conforma_violation
+    title: "Prefetch-dependencies mode is permissive"
+    description: >-
+      The prefetch-dependencies task mode should not be set to 'permissive'.
+      Change it to a secure value in the PipelineRun YAML.
+    conforma_rule_codes:
+      - prefetch_dependencies.mode_not_permissive
+    aliases:
+      - "permissive prefetch"
+      - "permissive prefetch mode"
+      - "mode not permissive"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "Prefetch dependencies task has mode set to permissive"
+    fix_steps:
+      - action: "Change the prefetch-dependencies task mode from 'permissive' to a secure value in the PipelineRun YAML"
+        where: "Component .tekton/ directory or konflux-central pipeline"
+      - action: "Rebuild the component in Konflux"
+
+  - id: prefetch_dependencies.package_registry_proxy_enabled
+    type: conforma_violation
+    title: "Package registry proxy not enabled"
+    description: >-
+      The prefetch-dependencies task should have the package registry proxy
+      enabled for secure dependency resolution.
+    conforma_rule_codes:
+      - prefetch_dependencies.package_registry_proxy_enabled
+    aliases:
+      - "package registry"
+      - "registry proxy"
+      - "package registry proxy"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "Package registry proxy is not enabled for prefetch-dependencies"
+    fix_steps:
+      - action: "Set enable-package-registry-proxy=true in the prefetch-dependencies task parameters"
+        where: "Component .tekton/ directory or konflux-central pipeline"
+      - action: "Rebuild the component in Konflux"
+
+known_false_alerts:
+  - id: fbc_single_component_no_failed_tests
+    title: "FBC single component failures (no_failed_tests)"
+    description: >-
+      FBC single component failures can usually be ignored because FIPS checks
+      don't run for push pipelines, only for scheduled (nightly) builds.
+    applies_to: "rhoai-fbc-fragment"
+    conforma_rule_codes:
+      - test.no_failed_tests
+    action: ignore
+    condition: >-
+      Only ignore for single-component conforma runs (on-push). Investigate
+      if this appears in the full conforma-reporter (Slack) reports.
+
+  - id: odh_llama_stack_core_no_builds
+    title: "Odh-llama-stack-core-rhel9 not showing builds"
+    description: >-
+      In rhoai-2.24 and 2.25, odh-llama-stack-core-rhel9 was built by the
+      AIPCC team, not by us in Konflux. The component exists in our tenant
+      but has no builds. Alerts about unknown build status or unknown conforma
+      are expected.
+    applies_to: "odh-llama-stack-core-rhel9"
+    action: ignore
+    condition: >-
+      Only applies to rhoai-2.24 and rhoai-2.25. Component exists in tenant
+      but was never actually built nor tested by our team.
+
+  - id: odh_vllm_gaudi_signing_key
+    title: "Odh-vllm-gaudi-v2-25 signing key violation"
+    description: >-
+      Odh-vllm-gaudi-v2-25 throws a signing key violation (key 05b555b38483c65d).
+      There is an existing exception covering this.
+    applies_to: "odh-vllm-gaudi-v2-25"
+    conforma_rule_codes:
+      - rpm_signature.allowed
+    action: ignore
+    condition: >-
+      Covered by existing exception. See the 3rd-party packages spreadsheet.
+    reference: "https://docs.google.com/spreadsheets/d/1o2j87H-k33eBsDcxR4oeqpNJJZe_TqHarnEBw-PqepM/edit?gid=1354667519#gid=1354667519"
+
+  - id: odh_th06_disallowed_registry
+    title: "Odh-th06-* disallowed registry errors"
+    description: >-
+      The odh-th06 images from distributed workflows throw a violation on
+      single-conforma checks due to using workbench images for their base.
+      Conforma flags this as a disallowed registry even though the base image
+      references are updated through nudging. This should NOT appear in full
+      conforma reports.
+    applies_to: "odh-th06-*"
+    action: ignore
+    condition: >-
+      Only ignore for single-component conforma runs. If this appears in full
+      conforma reports, the auto-nudging updates of base image references are
+      likely broken.
+    reference: "https://redhat-internal.slack.com/archives/C04PZ7H0VA8/p1768489979230979?thread_ts=1765380381.393849&cid=C04PZ7H0VA8"
+
+  - id: fbc_no_failed_tests_push
+    title: "no_failed_tests in rhoai-fbc-fragment on push builds"
+    description: >-
+      FIPS checks are not run as part of rhoai-fbc-fragment push builds because
+      they take 4+ hours. The lack of FIPS check results is highlighted as a
+      conforma violation on push builds. The nightly (on-schedule) conforma
+      report should NOT have this violation.
+    applies_to: "rhoai-fbc-fragment"
+    conforma_rule_codes:
+      - test.no_failed_tests
+    action: ignore
+    condition: >-
+      Only ignore for on-push/CI builds. Nightly (on-schedule) reports should
+      not have this violation -- investigate if they do.
+
+# Fallback references for violation code prefixes not yet in the violations list.
+# Used by generate_resolution_guide.py when a violation has no exact catalog match.
+# Matching: longest code_prefix wins (e.g. "sbom_spdx.allowed" beats "sbom_spdx").
+fallback_references:
+  - code_prefix: "sbom_spdx.disallowed_package_attributes"
+    title: "SBOM/SPDX disallowed package attributes"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/"
+      - "https://github.com/release-engineering/rhtap-ec-policy/tree/main/data"
+    guidance: >-
+      Packages in the SBOM have attributes not permitted by the EC policy.
+      Check the EC policy data for the list of disallowed attributes and update
+      the image build to avoid them. This is often a systemic issue requiring
+      Konflux-level tooling improvements rather than per-component fixes.
+
+  - code_prefix: "sbom_spdx.allowed_package_sources"
+    title: "SBOM/SPDX disallowed package source"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/"
+      - "https://github.com/release-engineering/rhtap-ec-policy/tree/main/data"
+    guidance: >-
+      A package in the SBOM comes from a source not in the allowed list.
+      Investigate which packages are flagged and either remove them or source
+      them from an allowed repository. Rebuild after fixing.
+
+  - code_prefix: "sbom_spdx"
+    title: "SBOM/SPDX compliance"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/#sbom-rules"
+      - "https://github.com/release-engineering/rhtap-ec-policy/tree/main/data"
+    guidance: >-
+      General SBOM/SPDX policy violation. Check the EC policy data for the
+      specific rule requirements and update the image accordingly.
+
+  - code_prefix: "source_image.exists"
+    title: "Source container image must exist"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/"
+    guidance: >-
+      The source container image was not published alongside the binary image.
+      Rebuild the component in Konflux — it should automatically produce the
+      source image. If the issue persists after rebuild, investigate the build
+      pipeline configuration for source-build task inclusion.
+
+  - code_prefix: "source_image"
+    title: "Source container image"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/releasing/release-policy/"
+    guidance: >-
+      Source container image policy violation. Rebuild the component —
+      Konflux auto-publishes the source image. Investigate pipeline config
+      if the issue persists.
+
+  - code_prefix: "tasks.successful_pipeline_tasks"
+    title: "All pipeline tasks must succeed"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/building/pipelines/"
+    guidance: >-
+      One or more tasks in the build pipeline did not complete successfully.
+      Check Konflux build logs for the failing task. A rebuild may resolve
+      transient failures. If persistent, investigate the pipeline configuration.
+
+  - code_prefix: "tasks"
+    title: "Pipeline task execution"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/building/pipelines/"
+    guidance: >-
+      General pipeline task policy violation. Check Konflux build logs for the
+      failing or misconfigured task.
+
+  - code_prefix: "test.no_failed_tests"
+    title: "No tests may fail"
+    doc_urls:
+      - "https://konflux-ci.dev/docs/building/pipelines/"
+    guidance: >-
+      A test task in the build pipeline reported a failure. Check Konflux build
+      logs to identify which test failed and coordinate with the component team
+      to fix it. If the failure is for fbc-fips-check on a push build, it may
+      be a known false positive (FIPS only runs on nightly builds).

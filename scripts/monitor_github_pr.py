@@ -46,14 +46,13 @@ import os
 import re
 import sys
 import time
-from urllib.parse import urlparse
 
 from github import Auth, Github, GithubException
 
 POLL_INTERVAL_S = 60  # seconds between status checks
 
 # Check-run conclusions that map to "pipeline failed"
-_FAILED_CONCLUSIONS    = {"failure", "timed_out", "action_required"}
+_FAILED_CONCLUSIONS = {"failure", "timed_out", "action_required"}
 _CANCELLED_CONCLUSIONS = {"cancelled"}
 
 
@@ -277,15 +276,21 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--pr-url", required=True, metavar="URL",
+        "--pr-url",
+        required=True,
+        metavar="URL",
         help="Full GitHub PR web URL (e.g. https://github.com/owner/repo/pull/42)",
     )
     parser.add_argument(
-        "--timeout", type=int, default=60, metavar="MINUTES",
+        "--timeout",
+        type=int,
+        default=60,
+        metavar="MINUTES",
         help="Polling timeout in minutes (default: 60). Ignored in --check-only mode.",
     )
     parser.add_argument(
-        "--check-only", action="store_true",
+        "--check-only",
+        action="store_true",
         help="Print current PR state and exit immediately without polling.",
     )
     args = parser.parse_args()
@@ -295,7 +300,7 @@ def main() -> None:
 
     owner, repo_name, pr_number = parse_pr_url(args.pr_url)
 
-    print(f"Connecting to GitHub...", file=sys.stderr)
+    print("Connecting to GitHub...", file=sys.stderr)
     g = get_github_client(github_token)
 
     print(f"Fetching PR #{pr_number} from {owner}/{repo_name}...", file=sys.stderr)

@@ -1,0 +1,635 @@
+#!/usr/bin/env python3
+"""Parse conforma violation and warnings report CSVs into a structured YAML index.
+
+Reads CSV files (one per release) from a directory, extracts full rule codes
+deterministically from the message column, filters violations and warnings,
+and outputs a structured YAML file.
+
+Warnings represent policies not yet enforced.  Once a warning's
+``effective_on`` date passes, it becomes an enforced violation.  Warnings
+with enforcement dates within a configurable threshold (default: 21 days /
+3 weeks) are surfaced as **warnings becoming violations** in the output,
+giving teams time to act before enforcement begins.
+
+Violation CSVs are named ``{release}.csv``, warnings CSVs are named
+``{release}-warnings.csv``.  Both are expected in the same ``--reports-dir``.
+
+The output is wrapped in a ``violation_data`` top-level key for future
+handover document embedding.
+
+Usage:
+    python3 scripts/parse_violations.py \\
+      --reports-dir /tmp/conforma-reports \\
+      --output /tmp/conforma-violations.yaml
+"""
+
+from __future__ import annotations
+
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
+import argparse
+import csv
+import re
+import sys
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import yaml
+
+
+# ---------------------------------------------------------------------------
+# Rule code extraction: deterministic regex patterns per rule family
+# ---------------------------------------------------------------------------
+
+_RULE_EXTRACTORS: list[tuple[str, re.Pattern]] = [
+    # rpm_signature.allowed -> extract 16-char hex key ID from message
+    ("rpm_signature.allowed", re.compile(r"([0-9a-fA-F]{16})(?![0-9a-fA-F])")),
+    # test.no_failed_tests -> extract test/task name from message
+    ("test.no_failed_tests", re.compile(r"(?:task|test)\s+['\"]?(\S+?)['\"]?\s+(?:failed|did not)")),
+]
+
+
+def extract_full_rule_code(code: str, message: str) -> str:
+    """Extract the full rule code including suffix from the message.
+
+    For rules with known suffix patterns (e.g. rpm_signature.allowed),
+    parses the message to find the suffix and returns code:suffix.
+    For rules without suffixes, returns the base code as-is.
+    """
+    for prefix, pattern in _RULE_EXTRACTORS:
+        if code.startswith(prefix):
+            match = pattern.search(message)
+            if match:
+                suffix = match.group(1)
+                return f"{code}:{suffix}"
+            return code
+
+    if ":" in code:
+        return code
+
+    return code
+
+
+# ---------------------------------------------------------------------------
+# Defensive YAML serialization
+# ---------------------------------------------------------------------------
+
+
+class _QuotedStr(str):
+    """String subclass that forces YAML double-quoting."""
+
+
+def _quoted_str_representer(dumper: yaml.Dumper, data: _QuotedStr) -> yaml.ScalarNode:
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
+
+
+def _safe_yaml_dump(data: dict, comment_header: str = "") -> str:
+    """Dump data to YAML with defensive quoting for timestamps, rule codes, URLs.
+
+    All string values that could be misinterpreted by YAML (timestamps,
+    strings containing colons, URLs) are explicitly double-quoted.
+    """
+    safe_data = _quote_strings_recursively(data)
+
+    dumper = yaml.Dumper
+    dumper.add_representer(_QuotedStr, _quoted_str_representer)
+
+    body = yaml.dump(
+        safe_data,
+        Dumper=dumper,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+        width=200,
+    )
+
+    if comment_header:
+        return comment_header.rstrip("\n") + "\n\n" + body
+    return body
+
+
+def _needs_quoting(value: str) -> bool:
+    """Determine if a string needs explicit quoting in YAML."""
+    if not value:
+        return False
+    if re.match(r"^\d{4}-\d{2}-\d{2}", value):
+        return True
+    if ":" in value:
+        return True
+    if value.startswith("http://") or value.startswith("https://"):
+        return True
+    if value.startswith("#"):
+        return True
+    if value.lower() in ("true", "false", "yes", "no", "null", "on", "off"):
+        return True
+    return False
+
+
+def _quote_strings_recursively(obj):
+    """Walk a data structure and wrap strings that need quoting."""
+    if isinstance(obj, str):
+        if _needs_quoting(obj):
+            return _QuotedStr(obj)
+        return obj
+    if isinstance(obj, dict):
+        result = {}
+        for k, v in obj.items():
+            safe_key = _QuotedStr(k) if isinstance(k, str) and _needs_quoting(k) else k
+            result[safe_key] = _quote_strings_recursively(v)
+        return result
+    if isinstance(obj, list):
+        return [_quote_strings_recursively(item) for item in obj]
+    return obj
+
+
+# ---------------------------------------------------------------------------
+# CSV parsing
+# ---------------------------------------------------------------------------
+
+
+def parse_csv_file(csv_path: Path, release: str) -> list[dict]:
+    """Parse a single CSV file, returning violation records."""
+    records = []
+    with open(csv_path, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            row_type = (row.get("type") or "").strip().lower()
+            if row_type != "violation":
+                continue
+
+            code = (row.get("code") or "").strip()
+            message = (row.get("message") or "").strip()
+            component = (row.get("component_name") or "").strip()
+            title = (row.get("title") or "").strip()
+
+            if not code or not component:
+                continue
+
+            full_rule = extract_full_rule_code(code, message)
+            records.append(
+                {
+                    "release": release,
+                    "component_name": component,
+                    "rule": full_rule,
+                    "base_code": code,
+                    "title": title,
+                    "message": message,
+                }
+            )
+
+    return records
+
+
+DEFAULT_UPCOMING_THRESHOLD_DAYS = 21
+
+
+def _parse_date(date_str: str) -> datetime | None:
+    """Parse a date string from CSV into a timezone-aware datetime.
+
+    Handles ISO-8601 dates (``2026-01-15``, ``2026-01-15T00:00:00Z``)
+    and returns None for empty or unparseable values.
+    """
+    if not date_str:
+        return None
+    clean = date_str.strip()
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(clean, fmt)
+            return dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def parse_warnings_csv_file(
+    csv_path: Path,
+    release: str,
+    threshold_days: int = DEFAULT_UPCOMING_THRESHOLD_DAYS,
+    reference_date: datetime | None = None,
+) -> list[dict]:
+    """Parse a warnings CSV file, returning records for warnings becoming violations.
+
+    Warnings are policies not yet enforced.  A warning is included when its
+    ``effective_on`` enforcement date is in the future but within
+    ``threshold_days`` of the reference date (defaults to now) — meaning
+    it will become an enforced violation soon.  Warnings with no parseable
+    ``effective_on`` or with dates beyond the threshold are excluded.
+    """
+    now = reference_date or datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=threshold_days)
+    records = []
+
+    with open(csv_path, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            row_type = (row.get("type") or "").strip().lower()
+            if row_type != "warning":
+                continue
+
+            code = (row.get("code") or "").strip()
+            message = (row.get("message") or "").strip()
+            component = (row.get("component_name") or "").strip()
+            title = (row.get("title") or "").strip()
+            effective_on_str = (row.get("effective_on") or "").strip()
+
+            if not code or not component:
+                continue
+
+            effective_dt = _parse_date(effective_on_str)
+            if effective_dt is None:
+                continue
+
+            if effective_dt > cutoff:
+                continue
+
+            days_remaining = (effective_dt - now).days
+            full_rule = extract_full_rule_code(code, message)
+            records.append(
+                {
+                    "release": release,
+                    "component_name": component,
+                    "rule": full_rule,
+                    "base_code": code,
+                    "title": title,
+                    "message": message,
+                    "effective_on": effective_on_str,
+                    "days_until_effective": max(days_remaining, 0),
+                }
+            )
+
+    return records
+
+
+CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
+
+
+def _build_report_url(release: str) -> str:
+    """Build a GitHub URL to the violations report for a release."""
+    return f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{release}/prod/release_day/conforma-violations-report.csv"
+
+
+def _build_warnings_report_url(release: str) -> str:
+    """Build a GitHub URL to the warnings report for a release."""
+    return f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{release}/prod/release_day/conforma-warnings-report.csv"
+
+
+def _build_upcoming_violations_section(
+    upcoming_records: list[dict],
+    releases: list[str],
+    threshold_days: int,
+) -> dict:
+    """Build the upcoming_violations section from warnings becoming violations."""
+    if not upcoming_records:
+        return {}
+
+    by_rule: dict[str, dict] = {}
+    by_component: dict[str, dict] = defaultdict(lambda: {"rules": set(), "releases": set()})
+
+    for rec in upcoming_records:
+        rule = rec["rule"]
+        release = rec["release"]
+        component = rec["component_name"]
+        effective_on = rec["effective_on"]
+        days_left = rec["days_until_effective"]
+
+        if rule not in by_rule:
+            by_rule[rule] = {
+                "title": rec["title"],
+                "base_code": rec["base_code"],
+                "releases": defaultdict(set),
+                "effective_on": effective_on,
+                "days_until_effective": days_left,
+            }
+        else:
+            existing_dt = _parse_date(by_rule[rule]["effective_on"])
+            new_dt = _parse_date(effective_on)
+            if existing_dt and new_dt and new_dt < existing_dt:
+                by_rule[rule]["effective_on"] = effective_on
+                by_rule[rule]["days_until_effective"] = days_left
+
+        by_rule[rule]["releases"][release].add(component)
+        by_component[component]["rules"].add(rule)
+        by_component[component]["releases"].add(release)
+
+    upcoming_by_rule = {}
+    for rule, info in sorted(by_rule.items()):
+        rule_entry = {
+            "title": info["title"],
+            "base_code": info["base_code"],
+            "effective_on": info["effective_on"],
+            "days_until_effective": info["days_until_effective"],
+            "releases": {},
+        }
+        for release in releases:
+            components = info["releases"].get(release, set())
+            if components:
+                rule_entry["releases"][release] = sorted(components)
+        upcoming_by_rule[rule] = rule_entry
+
+    upcoming_by_component = {}
+    for comp, info in sorted(by_component.items()):
+        comp_releases = sorted(info["releases"])
+        upcoming_by_component[comp] = {
+            "release": comp_releases[0] if len(comp_releases) == 1 else comp_releases,
+            "rules": sorted(info["rules"]),
+        }
+
+    upcoming_summary = {}
+    for release in releases:
+        release_records = [r for r in upcoming_records if r["release"] == release]
+        if not release_records:
+            continue
+        unique_rules = set(r["rule"] for r in release_records)
+        unique_components = set(r["component_name"] for r in release_records)
+        dates = [r["effective_on"] for r in release_records if r["effective_on"]]
+        earliest = min(dates) if dates else ""
+        upcoming_summary[release] = {
+            "total_upcoming": len(release_records),
+            "unique_rules": len(unique_rules),
+            "unique_components": len(unique_components),
+            "earliest_deadline": earliest,
+        }
+
+    warnings_report_urls = {release: _build_warnings_report_url(release) for release in releases}
+
+    return {
+        "threshold_days": threshold_days,
+        "warnings_report_urls": warnings_report_urls,
+        "summary": upcoming_summary,
+        "by_rule": upcoming_by_rule,
+        "by_component": upcoming_by_component,
+    }
+
+
+def build_violations_index(
+    all_records: list[dict],
+    releases: list[str],
+    failed_releases: list[dict] | None = None,
+    report_dates: dict[str, str] | None = None,
+    upcoming_records: list[dict] | None = None,
+    upcoming_threshold_days: int = DEFAULT_UPCOMING_THRESHOLD_DAYS,
+) -> dict:
+    """Build the structured violations index from parsed records.
+
+    When ``upcoming_records`` is provided (from warnings CSV parsing), an
+    ``upcoming_violations`` section is included — these are warnings that
+    will become enforced violations once their ``effective_on`` date passes.
+    """
+    by_rule: dict[str, dict] = {}
+    by_component: dict[str, dict] = defaultdict(lambda: {"rules": set(), "releases": set()})
+
+    for rec in all_records:
+        rule = rec["rule"]
+        release = rec["release"]
+        component = rec["component_name"]
+
+        if rule not in by_rule:
+            by_rule[rule] = {
+                "title": rec["title"],
+                "base_code": rec["base_code"],
+                "releases": defaultdict(set),
+            }
+        by_rule[rule]["releases"][release].add(component)
+
+        by_component[component]["rules"].add(rule)
+        by_component[component]["releases"].add(release)
+
+    violations_by_rule = {}
+    for rule, info in sorted(by_rule.items()):
+        rule_entry = {
+            "title": info["title"],
+            "base_code": info["base_code"],
+            "releases": {},
+        }
+        for release in releases:
+            components = info["releases"].get(release, set())
+            if components:
+                rule_entry["releases"][release] = sorted(components)
+        violations_by_rule[rule] = rule_entry
+
+    violations_by_component = {}
+    for comp, info in sorted(by_component.items()):
+        comp_releases = sorted(info["releases"])
+        violations_by_component[comp] = {
+            "release": comp_releases[0] if len(comp_releases) == 1 else comp_releases,
+            "rules": sorted(info["rules"]),
+        }
+
+    summary = {}
+    for release in releases:
+        release_records = [r for r in all_records if r["release"] == release]
+        unique_rules = set(r["rule"] for r in release_records)
+        unique_components = set(r["component_name"] for r in release_records)
+        summary[release] = {
+            "total_violations": len(release_records),
+            "unique_rules": len(unique_rules),
+            "unique_components": len(unique_components),
+        }
+
+    report_urls = {release: _build_report_url(release) for release in releases}
+    dates = report_dates or {}
+    report_created_at = {rel: dates.get(rel, "") for rel in releases if dates.get(rel)}
+
+    result = {
+        "violation_data": {
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "releases": releases,
+            "report_urls": report_urls,
+            "report_created_at": report_created_at,
+            "summary": summary,
+            "violations_by_rule": violations_by_rule,
+            "violations_by_component": violations_by_component,
+        }
+    }
+
+    if failed_releases:
+        result["violation_data"]["failed_releases"] = failed_releases
+
+    if upcoming_records:
+        upcoming_section = _build_upcoming_violations_section(upcoming_records, releases, upcoming_threshold_days)
+        if upcoming_section:
+            result["violation_data"]["upcoming_violations"] = upcoming_section
+
+    return result
+
+
+def _enrich_with_catalog(index: dict) -> bool:
+    """Add jira_component to each violations_by_component entry.
+
+    Uses component_catalog_ops to resolve Konflux component names to Jira
+    Components.  Returns True if enrichment succeeded.
+    """
+    import component_catalog_ops
+
+    vdata = index.get("violation_data", {})
+    by_component = vdata.get("violations_by_component", {})
+    upcoming_by_comp = vdata.get("upcoming_violations", {}).get("by_component", {})
+
+    all_names = sorted(set(list(by_component.keys()) + list(upcoming_by_comp.keys())))
+    if not all_names:
+        return True
+
+    catalog = component_catalog_ops.load_catalog()
+    mapping = component_catalog_ops.resolve_jira_components(all_names, catalog)
+
+    for comp in by_component:
+        by_component[comp]["jira_component"] = mapping.get(comp)
+    for comp in upcoming_by_comp:
+        upcoming_by_comp[comp]["jira_component"] = mapping.get(comp)
+
+    unmapped = [n for n, v in mapping.items() if v is None]
+    if unmapped:
+        print(
+            f"  {len(unmapped)} components could not be mapped to Jira Components: {', '.join(unmapped[:5])}",
+            file=sys.stderr,
+        )
+
+    return True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Parse conforma violation and warnings CSVs into structured YAML")
+    parser.add_argument(
+        "--reports-dir",
+        required=True,
+        help="Directory containing per-release CSV files ({release}.csv and {release}-warnings.csv)",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Output YAML file path",
+    )
+    parser.add_argument(
+        "--failed-releases-json",
+        default=None,
+        help='JSON array of releases that failed to fetch (e.g. \'[{"release":"rhoai-3.5","error":"branch not found"}]\')',
+    )
+    parser.add_argument(
+        "--report-dates-json",
+        default=None,
+        help="JSON mapping release->ISO-8601 date when the report was last committed",
+    )
+    parser.add_argument(
+        "--upcoming-threshold-days",
+        type=int,
+        default=DEFAULT_UPCOMING_THRESHOLD_DAYS,
+        help=f"Warnings enforced within this many days are flagged as becoming violations (default: {DEFAULT_UPCOMING_THRESHOLD_DAYS})",
+    )
+    parser.add_argument(
+        "--no-warnings",
+        action="store_true",
+        default=False,
+        help="Skip parsing warnings CSVs",
+    )
+    parser.add_argument(
+        "--no-catalog",
+        action="store_true",
+        default=False,
+        help="Skip Jira Component enrichment from component-maturity catalog (for CI/testing only)",
+    )
+    args = parser.parse_args()
+
+    if not args.no_catalog:
+        import component_catalog_ops
+
+        print("Loading component-maturity catalog...", file=sys.stderr)
+        cat_result = component_catalog_ops.ensure_catalog_repo()
+        if not cat_result["ok"]:
+            print(
+                f"Error: component-maturity catalog unavailable: {cat_result['error']}\n"
+                "VPN and GitLab auth are required. Use --no-catalog to skip (CI/testing only).",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"  Catalog ready at {cat_result['path']}", file=sys.stderr)
+
+    reports_dir = Path(args.reports_dir)
+    if not reports_dir.is_dir():
+        print(f"Error: reports directory not found: {reports_dir}", file=sys.stderr)
+        return 1
+
+    violation_csv_files = sorted(f for f in reports_dir.glob("*.csv") if not f.name.endswith("-warnings.csv"))
+    if not violation_csv_files:
+        print(f"Error: no violation CSV files found in {reports_dir}", file=sys.stderr)
+        return 1
+
+    all_records: list[dict] = []
+    releases: list[str] = []
+
+    for csv_path in violation_csv_files:
+        release = csv_path.stem
+        releases.append(release)
+        print(f"Parsing {csv_path.name}...", file=sys.stderr)
+        records = parse_csv_file(csv_path, release)
+        all_records.extend(records)
+        print(f"  {len(records)} violations", file=sys.stderr)
+
+    upcoming_records: list[dict] = []
+    if not args.no_warnings:
+        warning_csv_files = sorted(reports_dir.glob("*-warnings.csv"))
+        for csv_path in warning_csv_files:
+            release = csv_path.stem.removesuffix("-warnings")
+            print(f"Parsing warnings {csv_path.name}...", file=sys.stderr)
+            warnings = parse_warnings_csv_file(csv_path, release, threshold_days=args.upcoming_threshold_days)
+            upcoming_records.extend(warnings)
+            print(
+                f"  {len(warnings)} warnings becoming violations within {args.upcoming_threshold_days} days",
+                file=sys.stderr,
+            )
+
+    import json as _json
+
+    failed_releases = None
+    if args.failed_releases_json:
+        failed_releases = _json.loads(args.failed_releases_json)
+
+    report_dates = None
+    if args.report_dates_json:
+        report_dates = _json.loads(args.report_dates_json)
+
+    index = build_violations_index(
+        all_records,
+        releases,
+        failed_releases,
+        report_dates,
+        upcoming_records=upcoming_records or None,
+        upcoming_threshold_days=args.upcoming_threshold_days,
+    )
+
+    catalog_enriched = False
+    if not args.no_catalog:
+        print("Enriching with Jira Component ownership...", file=sys.stderr)
+        catalog_enriched = _enrich_with_catalog(index)
+    index["violation_data"]["catalog_enriched"] = catalog_enriched
+
+    comment_parts = [
+        "# conforma-analyze violations output",
+        f"# Generated: {index['violation_data']['generated_at']}",
+        f"# Releases checked: {', '.join(releases)}",
+    ]
+    if upcoming_records:
+        comment_parts.append(
+            f"# Warnings becoming violations within {args.upcoming_threshold_days} days: {len(upcoming_records)}"
+        )
+    comment_header = "\n".join(comment_parts)
+
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(_safe_yaml_dump(index, comment_header), encoding="utf-8")
+
+    total = len(all_records)
+    rules = len(index["violation_data"]["violations_by_rule"])
+    upcoming_count = len(upcoming_records)
+    msg = f"\nDone. {total} violations, {rules} unique rules across {len(releases)} releases"
+    if upcoming_count:
+        upcoming_rules = len(index["violation_data"].get("upcoming_violations", {}).get("by_rule", {}))
+        msg += f", {upcoming_count} warnings becoming violations ({upcoming_rules} rules)"
+    msg += f" -> {output_path}"
+    print(msg, file=sys.stderr)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

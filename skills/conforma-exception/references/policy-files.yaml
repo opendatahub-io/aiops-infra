@@ -1,0 +1,45 @@
+# Mapping of (component_type, environment) to GitLab policy file paths
+# within the releng/konflux-release-data repository.
+#
+# Routing logic:
+# - FBC fragment component -> {ec_policy_dir}/fbc-*-{env}.yaml
+# - Any other component -> {ec_policy_dir}/registry-*-{env}.yaml
+# - Self-service eligible -> exceptions/{type}-*-{env}.yaml
+#
+# Path resolution:
+#   Paths are now resolved automatically by tenant discovery. The system
+#   discovers which files exist in the EC policy directory and matches them
+#   by type prefix (registry/fbc) and environment suffix (prod/stage).
+#
+#   See: python3 scripts/tenant_discovery.py --tenant <name> --human
+
+gitlab_project: ${GITLAB_PROJECT}
+gitlab_host: ${GITLAB_HOST}
+default_branch: main
+
+# Paths below are auto-discovered from the tenant's cluster config.
+# Set via: tenant discovery -> KRD_EC_POLICY_DIR env var
+# Or manually: KRD_CLUSTER_DOMAIN -> derived path
+#
+# Pattern: ${KRD_EC_POLICY_DIR}/{type}-*-{env}.yaml
+# Example: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/registry-rhoai-prod.yaml
+paths:
+  standing_exceptions:
+    pattern: "${KRD_EC_POLICY_DIR}/{type}-*-{env}.yaml"
+    resolution: "Matched from KRD_EC_POLICY_FILES env (comma-separated list of discovered files)"
+    types: ["registry", "fbc"]
+    environments: ["prod", "stage"]
+
+  self_service:
+    pattern: "exceptions/{type}-*-{env}.yaml"
+    resolution: "Matched from KRD_SELF_SERVICE_FILES env (comma-separated list of discovered files)"
+    types: ["registry", "fbc"]
+    environments: ["prod", "stage"]
+
+# FBC detection: component name contains 'fbc' (case-insensitive)
+fbc_detection_pattern: "(?i)fbc"
+
+# Self-service eligible rules (auto-detected from exception_templates.yaml workflow)
+self_service_rules:
+  - schedule.weekday_restriction
+  - "test.no_failed_tests:fbc-target-index-pruning-check"

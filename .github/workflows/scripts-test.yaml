@@ -1,0 +1,32 @@
+name: Scripts Tests
+
+on:
+  push:
+    branches: [main]
+    paths: ["scripts/**", "tests/unit/**", "tests/conftest.py", "pyproject.toml"]
+  pull_request:
+    branches: [main]
+    paths: ["scripts/**", "tests/unit/**", "tests/conftest.py", "pyproject.toml"]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/unit/ -k "_ops" --cov --cov-report=term-missing
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/integration/ -m integration

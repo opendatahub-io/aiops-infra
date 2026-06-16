@@ -15,6 +15,7 @@ Usage:
     --jira-details <component_onboarding_details.json> \
     --pipeline-state <pipeline_state.json>
 """
+
 import argparse
 import json
 import re
@@ -26,39 +27,39 @@ from pathlib import Path
 # "done" labels: always set to "done" (overrides pr_raised/mr_raised)
 LABEL_MAP: dict[str, tuple[str, str]] = {
     # raised labels
-    "quay-mr-raised":          ("quay",             "mr_raised"),
-    "krd-mr-raised":       ("krd",              "mr_raised"),
-    "okc-pr-raised":           ("okc",              "pr_raised"),
-    "rkc-pr-raised":           ("okc",              "pr_raised"),
-    "rkc-pull-pr-raised":      ("pull_pipelines",   "pr_raised"),
-    "operator-pr-raised":      ("operator",         "pr_raised"),
-    "bundle-pr-raised":        ("bundle",           "pr_raised"),
-    "delivery-repo-mr-raised": ("delivery_repo",    "mr_raised"),
-    "product-listing-mr-raised": ("product_listing","mr_raised"),
-    "auto-merge-pr-raised":    ("auto_merge",       "pr_raised"),
-    "renovate-pr-raised":      ("renovate",         "pr_raised"),
+    "quay-mr-raised": ("quay", "mr_raised"),
+    "krd-mr-raised": ("krd", "mr_raised"),
+    "okc-pr-raised": ("okc", "pr_raised"),
+    "rkc-pr-raised": ("okc", "pr_raised"),
+    "rkc-pull-pr-raised": ("pull_pipelines", "pr_raised"),
+    "operator-pr-raised": ("operator", "pr_raised"),
+    "bundle-pr-raised": ("bundle", "pr_raised"),
+    "delivery-repo-mr-raised": ("delivery_repo", "mr_raised"),
+    "product-listing-mr-raised": ("product_listing", "mr_raised"),
+    "auto-merge-pr-raised": ("auto_merge", "pr_raised"),
+    "renovate-pr-raised": ("renovate", "pr_raised"),
     # done labels
-    "quay-mr-merged":            ("quay",             "done"),
-    "krd-mr-merged":         ("krd",              "done"),
-    "okc-pr-merged":             ("okc",              "done"),
-    "rkc-pr-merged":             ("okc",              "done"),
-    "rkc-pull-changes-done":     ("pull_pipelines",   "done"),
-    "operator-pr-merged":        ("operator",         "done"),
-    "bundle-changes-done":          ("bundle",           "done"),
-    "delivery-repo-created":     ("delivery_repo",    "done"),
-    "delivery-repo-exists":      ("delivery_repo",    "done"),
-    "product-listing-created":   ("product_listing",  "done"),
-    "product-listing-exists":    ("product_listing",  "done"),
-    "auto-merge-setup-done":     ("auto_merge",       "done"),
-    "renovate-changes-done":     ("renovate",         "done"),
-    "renovate-sync-triggered":      ("renovate_sync",       "done"),
-    "renovate-sync-done":           ("renovate_sync",       "done"),
-    "tekton-pr-raised":             ("onboarder_workflow",  "pr_raised"),
-    "onboarder-workflow-triggered": ("onboarder_workflow",  "pr_raised"),
-    "tekton-pr-merged":             ("onboarder_workflow",  "done"),
+    "quay-mr-merged": ("quay", "done"),
+    "krd-mr-merged": ("krd", "done"),
+    "okc-pr-merged": ("okc", "done"),
+    "rkc-pr-merged": ("okc", "done"),
+    "rkc-pull-changes-done": ("pull_pipelines", "done"),
+    "operator-pr-merged": ("operator", "done"),
+    "bundle-changes-done": ("bundle", "done"),
+    "delivery-repo-created": ("delivery_repo", "done"),
+    "delivery-repo-exists": ("delivery_repo", "done"),
+    "product-listing-created": ("product_listing", "done"),
+    "product-listing-exists": ("product_listing", "done"),
+    "auto-merge-setup-done": ("auto_merge", "done"),
+    "renovate-changes-done": ("renovate", "done"),
+    "renovate-sync-triggered": ("renovate_sync", "done"),
+    "renovate-sync-done": ("renovate_sync", "done"),
+    "tekton-pr-raised": ("onboarder_workflow", "pr_raised"),
+    "onboarder-workflow-triggered": ("onboarder_workflow", "pr_raised"),
+    "tekton-pr-merged": ("onboarder_workflow", "done"),
     # validate
-    "yaml-attached":             ("validate",         "done"),
-    "validation-successful":     ("validate",         "done"),
+    "yaml-attached": ("validate", "done"),
+    "validation-successful": ("validate", "done"),
 }
 
 # ── URL extraction ────────────────────────────────────────────────────────────
@@ -82,11 +83,11 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
 #
 # All patterns: (step_key, url_field, url_regex).
 STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
-    ("quay",           "mr_url",  re.compile(r"app-interface/-/merge_requests/", re.I)),
-    ("krd",            "mr_url",  re.compile(r"konflux-release-data/-/merge_requests/", re.I)),
-    ("operator",       "pr_url",  re.compile(r"(?:opendatahub-operator|rhods-operator)/pull/", re.I)),
-    ("bundle",         "pr_url",  re.compile(r"(?:ODH|RHOAI)-Build-Config/pull/", re.I)),
-    ("auto_merge",     "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I)),
+    ("quay", "mr_url", re.compile(r"app-interface/-/merge_requests/", re.I)),
+    ("krd", "mr_url", re.compile(r"konflux-release-data/-/merge_requests/", re.I)),
+    ("operator", "pr_url", re.compile(r"(?:opendatahub-operator|rhods-operator)/pull/", re.I)),
+    ("bundle", "pr_url", re.compile(r"(?:ODH|RHOAI)-Build-Config/pull/", re.I)),
+    ("auto_merge", "pr_url", re.compile(r"rhods-devops-infra/pull/", re.I)),
 ]
 
 # Shared URL patterns — multiple steps share the same repo URL pattern.
@@ -100,16 +101,36 @@ STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
 # natural-language fallbacks for older comments posted before the tag was
 # added.
 SHARED_URL_PATTERNS: list[tuple[str, str, re.Pattern, re.Pattern]] = [
-    ("delivery_repo",   "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
-                                   re.compile(r"\[step:delivery_repo\]|delivery.repo", re.I)),
-    ("product_listing", "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
-                                   re.compile(r"\[step:product_listing\]|product.listing", re.I)),
-    ("okc",             "pr_url",  re.compile(r"konflux-central/pull/", re.I),
-                                   re.compile(r"\[step:okc\]|add.+Konflux\s+PipelineRun", re.I)),
-    ("pull_pipelines",  "pr_url",  re.compile(r"konflux-central/pull/", re.I),
-                                   re.compile(r"\[step:pull_pipelines\]|pull.request\s+PipelineRun", re.I)),
-    ("renovate",        "pr_url",  re.compile(r"konflux-central/pull/", re.I),
-                                   re.compile(r"\[step:renovate\]|enable\s+Renovate", re.I)),
+    (
+        "delivery_repo",
+        "mr_url",
+        re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
+        re.compile(r"\[step:delivery_repo\]|delivery.repo", re.I),
+    ),
+    (
+        "product_listing",
+        "mr_url",
+        re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
+        re.compile(r"\[step:product_listing\]|product.listing", re.I),
+    ),
+    (
+        "okc",
+        "pr_url",
+        re.compile(r"konflux-central/pull/", re.I),
+        re.compile(r"\[step:okc\]|add.+Konflux\s+PipelineRun", re.I),
+    ),
+    (
+        "pull_pipelines",
+        "pr_url",
+        re.compile(r"konflux-central/pull/", re.I),
+        re.compile(r"\[step:pull_pipelines\]|pull.request\s+PipelineRun", re.I),
+    ),
+    (
+        "renovate",
+        "pr_url",
+        re.compile(r"konflux-central/pull/", re.I),
+        re.compile(r"\[step:renovate\]|enable\s+Renovate", re.I),
+    ),
 ]
 
 # Steps whose PR targets a variable repo (no URL pattern possible).
@@ -128,8 +149,12 @@ _RUN_URL_RE = re.compile(r"https://github\.com/[^\s/]+/[^\s/]+/actions/runs/\d+"
 # Workflow run URL patterns — (step_key, url_field, url_regex, keyword_regex).
 # Extracted separately from PR/MR URLs since they use a different URL shape.
 WORKFLOW_RUN_PATTERNS: list[tuple[str, str, re.Pattern, re.Pattern]] = [
-    ("renovate_sync", "run_url", re.compile(r"konflux-central/actions/runs/", re.I),
-                                 re.compile(r"\[step:renovate_sync\]|sync.renovate.configs", re.I)),
+    (
+        "renovate_sync",
+        "run_url",
+        re.compile(r"konflux-central/actions/runs/", re.I),
+        re.compile(r"\[step:renovate_sync\]|sync.renovate.configs", re.I),
+    ),
 ]
 
 
