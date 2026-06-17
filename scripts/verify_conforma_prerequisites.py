@@ -10,10 +10,8 @@ Checks (in order):
   6. Jira authentication (API token + email for coverage search)
   7. Slack authentication (slackdump binary + session) — OPTIONAL
 
-Slack is optional because it requires more complex setup (manual token/cookie
-extraction from browser DevTools) compared to other services which use simple
-API tokens. The workflow can proceed without Slack — the coverage table will
-omit Slack thread references.
+Slack is optional. The workflow can proceed without it — the violation coverage
+table will not include links to related Slack discussions about violations.
 
 Exit codes:
   0 — all required checks pass (optional checks may show warnings)
@@ -280,20 +278,24 @@ def _check_slack_auth() -> dict:
             "ok": False,
             "name": "slack",
             "optional": True,
-            "error": "slackdump not installed",
+            "error": "slackdump is not installed.",
             "fix": (
-                "Run: bash scripts/install_slackdump.sh\n"
-                "  Then authenticate — see: skills/slack-auth/SKILL.md (Method A: manual token/cookie)"
+                "Without Slack, the violation coverage table will not include "
+                "links to related Slack discussions about violations.\n"
+                "If you'd like Slack search, ask me to guide you through "
+                "the installation and setup."
             ),
         }
     return {
         "ok": False,
         "name": "slack",
         "optional": True,
-        "error": error,
+        "error": "No Slack auth credentials found.",
         "fix": (
-            "Authenticate slackdump — see: skills/slack-auth/SKILL.md (Method A: manual token/cookie)\n"
-            "  Requires extracting token+cookie from browser DevTools (more involved than other services)"
+            "Without Slack, the violation coverage table will not include "
+            "links to related Slack discussions about violations.\n"
+            "If you'd like Slack search, ask me to guide you through "
+            "the setup — it takes about 2 minutes."
         ),
     }
 

@@ -106,3 +106,36 @@ class TestSearchExistingExceptions:
         result = mod.search_existing_exceptions("hermetic_task.hermetic", str(tmp_path))
         assert result["checked"] is True
         assert result["permanent_count"] == 1
+
+    def test_finds_volatile_exceptions_in_policy_file(self, tmp_path, monkeypatch):
+        """Volatile (volatileCriteria) exceptions must be found, not just permanent ones.
+
+        Regression guard: the import of _find_existing_exceptions from
+        create_gitlab_mr must succeed, otherwise volatile exceptions are
+        silently invisible and coverage reports are wrong.
+        """
+        monkeypatch.delenv("KONFLUX_CLUSTER_DOMAIN", raising=False)
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "policy")
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy_file = policy_dir / "registry-rhoai-prod.yaml"
+        policy_file.write_text(
+            "volatileCriteria:\n"
+            "          - value: rpm_signature.allowed:abc123\n"
+            "            componentNames:\n"
+            "              - odh-foo-v3-5-ea-1\n"
+            '            effectiveUntil: "2099-01-01T00:00:00Z"\n'
+            "            reference: https://issues.redhat.com/browse/TEST-1\n"
+        )
+
+        result = mod.search_existing_exceptions(
+            "rpm_signature.allowed:abc123", str(tmp_path)
+        )
+        assert result["checked"] is True
+        assert result["count"] >= 1, (
+            "Volatile exceptions not found — _find_existing_exceptions import "
+            "from create_gitlab_mr is likely broken"
+        )
+        exc = result["existing_exceptions"][0]
+        assert exc["componentNames"] == ["odh-foo-v3-5-ea-1"]
+        assert "2099" in exc["effectiveUntil"]

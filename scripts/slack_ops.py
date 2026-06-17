@@ -116,7 +116,7 @@ def verify_auth() -> dict:
             "user": None,
             "team": None,
             "team_url": "",
-            "error": ("No slackdump auth credentials found in ~/.cache/slackdump/. Run: slackdump login"),
+            "error": "No slackdump auth credentials found in ~/.cache/slackdump/.",
         }
 
     workspace = _workspace_name()

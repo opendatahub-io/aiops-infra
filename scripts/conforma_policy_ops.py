@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -98,10 +99,19 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
     found_in = []
     permanent_exclusions = []
 
+    _find_existing_exceptions = None
     try:
         from create_gitlab_mr import _find_existing_exceptions
     except ImportError:
-        _find_existing_exceptions = None
+        _exception_scripts = Path(__file__).resolve().parent.parent / "skills" / "conforma-exception" / "scripts"
+        if _exception_scripts.is_dir():
+            sys.path.insert(0, str(_exception_scripts))
+            try:
+                from create_gitlab_mr import _find_existing_exceptions
+            except ImportError:
+                pass
+            finally:
+                sys.path.pop(0)
 
     for yaml_file in policy_dir.glob("*.yaml"):
         content = yaml_file.read_text(encoding="utf-8")

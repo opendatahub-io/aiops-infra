@@ -34,6 +34,8 @@ _DEFAULT_PROJECT = "data-hub/component-maturity"
 _VERSION_SUFFIX_RE = re.compile(r"-v\d+-\d+(-ea-\d+)?$")
 _OS_SUFFIX_RE = re.compile(r"-(?:rhel|ubi)\d+$")
 
+_QUERY_SKILL_SUBPATH = Path(".claude") / "skills" / "software-catalog-query" / "scripts" / "query.py"
+
 
 def _gitlab_host() -> str:
     host = os.environ.get("GITLAB_HOST", "")
@@ -44,6 +46,41 @@ def _gitlab_host() -> str:
 
 def _catalog_project() -> str:
     return os.environ.get("COMPONENT_CATALOG_PROJECT", _DEFAULT_PROJECT)
+
+
+def _restore_query_skill(target: Path) -> None:
+    """Restore the software-catalog-query skill from git history if missing.
+
+    The upstream component-maturity repo removed this directory in commit
+    d056d07 (2026-06-16).  We need query.py + reference JSONs for Jira
+    Component resolution, so we restore them from the last commit that
+    contained the files.  A full (unshallow) fetch is required first.
+    """
+    query_script = target / _QUERY_SKILL_SUBPATH
+    if query_script.is_file():
+        return
+
+    skill_dir = str(_QUERY_SKILL_SUBPATH.parent.parent.parent)  # .claude/skills/software-catalog-query
+
+    result = subprocess.run(
+        ["git", "-C", str(target), "log", "--all", "--diff-filter=D",
+         "--format=%H", "-1", "--", f"{skill_dir}/"],
+        capture_output=True, text=True, timeout=30,
+    )
+    delete_sha = result.stdout.strip()
+    if not delete_sha:
+        return
+
+    parent_sha = f"{delete_sha}~1"
+    subprocess.run(
+        ["git", "-C", str(target), "fetch", "--unshallow"],
+        capture_output=True, timeout=120,
+    )
+    subprocess.run(
+        ["git", "-C", str(target), "checkout", parent_sha, "--", f"{skill_dir}/"],
+        capture_output=True, text=True, timeout=30,
+        check=True,
+    )
 
 
 def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
@@ -64,6 +101,7 @@ def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
                 ["git", "-C", str(target), "pull", "--ff-only"],
                 timeout=60,
             )
+            _restore_query_skill(target)
             return {"ok": True, "path": str(target), "error": None}
         except subprocess.CalledProcessError as exc:
             return {"ok": False, "path": str(target), "error": f"git pull failed: {exc.stderr.strip()}"}
@@ -78,9 +116,10 @@ def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
 
     try:
         gitlab_ops.run_git(
-            ["git", "clone", "--depth", "1", clone_url, str(target)],
+            ["git", "clone", clone_url, str(target)],
             timeout=120,
         )
+        _restore_query_skill(target)
         return {"ok": True, "path": str(target), "error": None}
     except subprocess.CalledProcessError as exc:
         return {"ok": False, "path": str(target), "error": f"git clone failed: {exc.stderr.strip()}"}
