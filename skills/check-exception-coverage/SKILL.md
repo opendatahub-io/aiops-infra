@@ -1,6 +1,6 @@
 ---
 name: check-exception-coverage
-description: Check if existing policy exceptions and open MRs cover specific components for a violation rule.
+description: Check if existing policy exceptions and open Merge Requests cover specific components for a violation rule.
 allowed-tools: Bash(python3:*)
 user-invocable: true
 ---

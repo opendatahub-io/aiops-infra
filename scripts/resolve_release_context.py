@@ -182,10 +182,9 @@ def _format_resolved(
     if links and links.get("policy_dir"):
         policy_dir_text = f"[{policy_dir}]({links['policy_dir']})"
 
-    policy_files_text = ""
+    policy_file_links = []
     if links and links.get("policy_files"):
-        file_links = [f"[{f['name']}]({f['url']})" for f in links["policy_files"]]
-        policy_files_text = ", ".join(file_links)
+        policy_file_links = [f"[{f['name']}]({f['url']})" for f in links["policy_files"]]
 
     lines = [
         "### Conforma Workflow \u2014 Context Confirmation",
@@ -198,11 +197,12 @@ def _format_resolved(
         f"| **Cluster domain** | {cluster_text} |",
         f"| **Tenant** | {tenant} |",
         f"| **Conforma policy dir** | {policy_dir_text} |",
-    ]
-    if policy_files_text:
-        lines.append(f"| **Conforma policy files** | {policy_files_text} |")
-    lines.extend([
         f"| **Environment** | prod |",
+    ]
+    if policy_file_links:
+        files_cell = ", ".join(policy_file_links)
+        lines.append(f"| **Policy files** | {files_cell} |")
+    lines.extend([
         "",
         "*Source: GitLab tree (konflux-release-data, main branch)*",
     ])

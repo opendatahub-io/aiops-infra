@@ -48,7 +48,7 @@ flowchart TD
 |-------|---------|--------|
 | `conforma-analyze` | Parse violation CSVs into YAML index, trace history | Exists |
 | `conforma-report-fetch` | Fetch conforma reports: CSV from GitHub, JSON from Tekton | Exists |
-| `conforma-exception` | Create/extend/manage/view/review exceptions (Jira, GitLab MRs, linking, expired exception assessment) | Exists |
+| `conforma-exception` | Create/extend/manage/view/review exceptions (Jira, GitLab Merge Requests, linking, expired exception assessment) | Exists |
 | `conforma-remedy` | Find and apply fixes to underlying violations | Planned |
 | `conforma-docs` | Full-text search across conforma documentation and runbooks | Planned |
 | `conforma-release-readiness` | "Can version X ship?" — detailed breakdown and verdict | Planned |
@@ -115,7 +115,7 @@ These `conforma_*_ops.py` modules encapsulate cross-skill conforma logic used by
 - `jira_ops.create_issue(project, summary, description, issue_type)` — creates any ticket
 
 **Domain-specific shared** (goes in `conforma_*_ops.py`):
-- `conforma_mr_ops.search_open_exception_mrs(rule)` — searches konflux-release-data MRs
+- `conforma_mr_ops.search_open_exception_mrs(rule)` — searches konflux-release-data Merge Requests
 - `conforma_policy_ops.check_existing_exception_gate(rule, components)` — coverage gate
 - `conforma_jira_ops.prefetch_open_jira_tickets(rules, releases)` — batch Jira search
 

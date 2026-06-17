@@ -23,6 +23,7 @@ import sys
 import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 
 import component_alias_ops
@@ -32,6 +33,96 @@ import conforma_policy_ops
 import conforma_slack_ops
 import jira_ops
 import slack_ops
+
+
+_GATE_STATUS_MAP: dict[str, tuple[str, str | None]] = {
+    "permanent": ("fully_covered", "permanently excluded"),
+    "blocked": ("fully_covered", "already covered"),
+    "partial": ("partially_covered", None),
+    "passed": ("not_covered", "not covered — resolve in code first, exception as last resort"),
+    "skipped": ("not_covered", "not covered — resolve in code first, exception as last resort"),
+    "error": ("not_covered", "not covered — exception check failed, manual review needed"),
+}
+
+
+def _map_gate_status(
+    gate: dict, rule: str, all_components: list, uncovered: list
+) -> tuple[str, str]:
+    """Map a gate check status to a coverage classification.
+
+    Raises ValueError on unrecognised statuses so new gate statuses are never
+    silently misclassified.
+    """
+    gate_status = gate["status"]
+    if gate_status not in _GATE_STATUS_MAP:
+        raise ValueError(
+            f"Unknown gate status '{gate_status}' for rule '{rule}'. "
+            f"Add it to _GATE_STATUS_MAP in violations_coverage.py."
+        )
+    coverage, coverage_label = _GATE_STATUS_MAP[gate_status]
+    if coverage_label is None:
+        coverage_label = f"{len(uncovered)} of {len(all_components)} uncovered"
+    return coverage, coverage_label
+
+
+def _extract_exception_expiry(gate: dict) -> dict:
+    """Extract effectiveUntil dates from active exceptions in a gate result.
+
+    Returns:
+        {
+            "is_permanent": bool,
+            "earliest_expiry": str | None,  # ISO date (YYYY-MM-DD) of soonest expiry
+            "latest_expiry": str | None,     # ISO date (YYYY-MM-DD) of latest expiry
+            "expiry_dates": list[str],       # all unique dates sorted ascending
+            "display_expiry": str,           # human-readable label for the table
+        }
+    """
+    permanent = gate.get("permanent_exclusions", [])
+    if permanent or gate.get("status") == "permanent":
+        return {
+            "is_permanent": True,
+            "earliest_expiry": None,
+            "latest_expiry": None,
+            "expiry_dates": [],
+            "display_expiry": "permanent (no expiry)",
+        }
+
+    active = gate.get("active_exceptions", [])
+    dates: list[datetime] = []
+    for exc in active:
+        eu = exc.get("effectiveUntil")
+        if eu:
+            try:
+                eu_str = eu.strip('"').strip("'")
+                eu_dt = datetime.fromisoformat(eu_str.replace("Z", "+00:00"))
+                dates.append(eu_dt)
+            except (ValueError, TypeError):
+                pass
+
+    if not dates:
+        return {
+            "is_permanent": False,
+            "earliest_expiry": None,
+            "latest_expiry": None,
+            "expiry_dates": [],
+            "display_expiry": "",
+        }
+
+    dates_sorted = sorted(set(dates))
+    date_strs = [d.strftime("%Y-%m-%d") for d in dates_sorted]
+
+    if len(dates_sorted) == 1:
+        display = f"expires {date_strs[0]}"
+    else:
+        display = f"expires {date_strs[0]} — {date_strs[-1]}"
+
+    return {
+        "is_permanent": False,
+        "earliest_expiry": date_strs[0],
+        "latest_expiry": date_strs[-1],
+        "expiry_dates": date_strs,
+        "display_expiry": display,
+    }
 
 
 def _log(msg: str) -> None:
@@ -72,43 +163,84 @@ def _build_search_urls(
     }
 
 
-def _summarize_next_steps(
+def _determine_status_and_next_steps(
     coverage: str,
     open_mrs: list[dict],
     jira_tickets: list[dict],
     uncovered_count: int,
-) -> str:
-    """Build a context-sensitive Next Steps hint for the coverage table."""
-    suffix = " — see resolution guide"
+) -> tuple[str, str]:
+    """Determine the Status and Next Steps for a violation row.
 
-    if coverage == "fully_covered":
-        return f"covered by existing exceptions{suffix}"
-
+    Returns (status_label, next_steps_label).
+    """
     has_exception_mr = any(
         mr.get("suggestion") in ("fully_covered", "extend_mr")
         and mr.get("mr_type", "exception") == "exception"
         for mr in open_mrs
     )
     has_remedy_mr = any(mr.get("mr_type") == "remedy" for mr in open_mrs)
-    has_jira = bool(jira_tickets)
 
-    parts: list[str] = []
-    if has_exception_mr and has_remedy_mr:
-        parts.append("exception + remedy Merge Requests open")
-    elif has_exception_mr:
-        parts.append("exception Merge Request open")
-    elif has_remedy_mr:
-        parts.append("remedy Merge Request open")
+    if coverage == "fully_covered":
+        return "Exception granted, violation should disappear on next Conforma run", "Use `conforma-violations-scan` to rerun validation and verify the violation is gone"
 
     if coverage == "partially_covered":
-        parts.append(f"{uncovered_count} component(s) still uncovered")
-    elif not parts:
-        if has_jira:
-            parts.append("Jira tracked, needs fix or exception")
-        else:
-            parts.append("untracked, needs fix or exception")
+        if has_exception_mr:
+            return (
+                "Partially covered, exception Merge Request pending",
+                f"Work with ProdSec to get Merge Request merged ({uncovered_count} component(s) uncovered)",
+            )
+        return (
+            f"Partially covered ({uncovered_count} uncovered)",
+            "Fix in code or request exception — see resolution guide",
+        )
 
-    return ", ".join(parts) + suffix
+    if has_exception_mr and has_remedy_mr:
+        return "Exception + remedy Merge Requests pending", "Work with ProdSec to get Merge Requests merged"
+    if has_exception_mr:
+        return "Exception Merge Request pending", "Work with ProdSec to get Merge Request merged"
+    if has_remedy_mr:
+        return "Remedy Merge Request pending", "Merge fix, rebuild, and verify compliance"
+
+    if jira_tickets:
+        return "Tracked in Jira, no exception", "Fix in code or request exception — see resolution guide"
+
+    return "No coverage", "Fix in code or request exception — see resolution guide"
+
+
+_CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
+
+
+def _load_report_metadata(release: str | None, metadata_file: str | None) -> dict:
+    """Build report metadata dict for the table header.
+
+    Reads from fetch-metadata.json when available, falls back to release name.
+    """
+    meta: dict = {"release": release or "unknown"}
+    if not metadata_file:
+        return meta
+
+    path = Path(metadata_file)
+    if not path.exists():
+        return meta
+
+    try:
+        data = json.load(path.open(encoding="utf-8"))
+        rel_data = data.get("releases", {}).get(release or "", {})
+        source_path = rel_data.get("source_path", "")
+        created_at = rel_data.get("created_at", "")
+        source_sha = rel_data.get("source_sha", "")
+        if source_path:
+            ref = source_sha or release or ""
+            meta["source_url"] = (
+                f"https://github.com/{_CONFORMA_REPORTER_REPO}/blob/{ref}/{source_path}"
+            )
+            meta["source_path"] = source_path
+        if created_at:
+            meta["created_at"] = created_at
+    except (json.JSONDecodeError, KeyError):
+        pass
+
+    return meta
 
 
 def check_violations_coverage(
@@ -117,6 +249,7 @@ def check_violations_coverage(
     environment: str = "prod",
     require_jira: bool = True,
     require_slack: bool = True,
+    metadata_file: str | None = None,
 ) -> dict:
     """Batch coverage check: read a violations YAML and check each violation's components
     against existing exceptions in the policy file.
@@ -274,15 +407,8 @@ def check_violations_coverage(
         covered = gate.get("covered_components", [])
         uncovered = gate.get("uncovered_components", [])
 
-        if gate["status"] == "blocked":
-            coverage = "fully_covered"
-            coverage_label = "already covered"
-        elif gate["status"] == "partial":
-            coverage = "partially_covered"
-            coverage_label = f"{len(uncovered)} of {len(all_components)} uncovered"
-        else:
-            coverage = "not_covered"
-            coverage_label = "not covered — resolve in code first, exception as last resort"
+        coverage, coverage_label = _map_gate_status(gate, rule, all_components, uncovered)
+        exception_expiry = _extract_exception_expiry(gate)
 
         open_mrs = gate.get("open_merge_requests", [])
 
@@ -354,17 +480,24 @@ def check_violations_coverage(
                 else f"[manual search]({search_urls['slack']})"
             )
 
-        next_steps = _summarize_next_steps(coverage, open_mrs, jira_tickets, len(uncovered))
+        status_label, next_steps = _determine_status_and_next_steps(
+            coverage, open_mrs, jira_tickets, len(uncovered)
+        )
 
         uncov_labels = []
         for c in uncovered:
             jc = component_owners.get(c)
             uncov_labels.append(f"{c} ({jc})" if jc else c)
 
-        if len(uncov_labels) <= 3:
-            display_components = ", ".join(uncov_labels)
+        all_labels = []
+        for c in all_components:
+            jc = component_owners.get(c)
+            all_labels.append(f"{c} ({jc})" if jc else c)
+
+        if len(all_labels) <= 3:
+            display_components = ", ".join(all_labels)
         else:
-            display_components = ", ".join(uncov_labels[:3]) + f" ... +{len(uncovered) - 3} more"
+            display_components = ", ".join(all_labels[:3]) + f" ... +{len(all_components) - 3} more"
 
         entry = {
             "rule": rule,
@@ -376,6 +509,7 @@ def check_violations_coverage(
             "covered_count": len(covered),
             "uncovered_count": len(uncovered),
             "display_components": display_components,
+            "exception_expiry": exception_expiry,
             "open_merge_requests": open_mrs,
             "open_mr_label": mr_label,
             "open_mr_search_url": search_urls["mr"],
@@ -383,9 +517,10 @@ def check_violations_coverage(
             "open_jira_label": jira_label,
             "open_jira_search_url": search_urls["jira"],
             "next_steps": next_steps,
+            "status_label": status_label,
             "coverage": coverage,
             "coverage_label": coverage_label,
-            "status": gate["status"],
+            "gate_status": gate["status"],
             "analyzed_release": analyzed_release,
         }
         if require_slack:
@@ -406,7 +541,11 @@ def check_violations_coverage(
         f"{summary['partially_covered']} partial, {summary['not_covered']} uncovered"
     )
 
-    md_table = _render_violations_markdown_table(results, summary, include_slack=require_slack)
+    report_meta = _load_report_metadata(analyzed_release, metadata_file)
+
+    md_table = _render_violations_markdown_table(
+        results, summary, include_slack=require_slack, report_meta=report_meta,
+    )
 
     output = {
         "violations_source": violations_yaml_path,
@@ -420,25 +559,48 @@ def check_violations_coverage(
     return output
 
 
-def _render_violations_markdown_table(results: list[dict], summary: dict, include_slack: bool = False) -> str:
+def _render_violations_markdown_table(
+    results: list[dict],
+    summary: dict,
+    include_slack: bool = False,
+    report_meta: dict | None = None,
+) -> str:
     """Pre-render a markdown table from violations coverage results.
 
-    Columns: #, Rule, Violations, Components, Open Merge Requests, Open Jira, [Slack,] Next Steps.
-    Each Merge Request entry is annotated with its type (exception/remedy).
+    Columns: #, Rule, Violations, Components, Open Merge Requests, Open Jira,
+    [Slack,] Status, Next Steps.
     """
-    lines = [
+    meta = report_meta or {}
+    lines: list[str] = []
+
+    # Report header
+    header_parts = [f"**Release**: `{meta.get('release', 'unknown')}`"]
+    source_path = meta.get("source_path")
+    source_url = meta.get("source_url")
+    if source_path and source_url:
+        header_parts.append(f"**Source**: [{source_path}]({source_url})")
+    elif source_path:
+        header_parts.append(f"**Source**: {source_path}")
+    created_at = meta.get("created_at")
+    if created_at:
+        header_parts.append(f"**Report date**: {created_at}")
+    lines.append(" | ".join(header_parts))
+    lines.append("")
+
+    lines.append(
         f"**Summary**: {summary['total_violations']} unique rules — "
         f"{summary['fully_covered']} fully covered, "
         f"{summary['partially_covered']} partially covered, "
-        f"{summary['not_covered']} not covered.",
-        "",
-    ]
+        f"{summary['not_covered']} not covered."
+    )
+    lines.append("")
+
     if include_slack:
-        lines.append("| # | Rule | Violations | Components | Open Merge Requests | Open Jira | Slack | Next Steps |")
-        lines.append("|---|------|------------|-----------|---------------------|-----------|-------|------------|")
+        lines.append("| # | Rule | Violations | Components | Open Merge Requests | Open Jira | Slack | Status | Next Steps |")
+        lines.append("|---|------|------------|-----------|---------------------|-----------|-------|--------|------------|")
     else:
-        lines.append("| # | Rule | Violations | Components | Open Merge Requests | Open Jira | Next Steps |")
-        lines.append("|---|------|------------|-----------|---------------------|-----------|------------|")
+        lines.append("| # | Rule | Violations | Components | Open Merge Requests | Open Jira | Status | Next Steps |")
+        lines.append("|---|------|------------|-----------|---------------------|-----------|--------|------------|")
 
     for i, v in enumerate(results, 1):
         rule = f"`{v['rule']}`"
@@ -446,12 +608,17 @@ def _render_violations_markdown_table(results: list[dict], summary: dict, includ
         comps = v["display_components"]
         mr = v["open_mr_label"] or "—"
         jira = v["open_jira_label"] or "—"
+        status = v["status_label"]
+        expiry = v.get("exception_expiry", {})
+        expiry_display = expiry.get("display_expiry", "")
+        if expiry_display:
+            status = f"Exception granted ({expiry_display}), violation should disappear on next Conforma run"
         ns = v["next_steps"]
         if include_slack:
             slack = v.get("open_slack_label") or "—"
-            lines.append(f"| {i} | {rule} | {viol_count} | {comps} | {mr} | {jira} | {slack} | {ns} |")
+            lines.append(f"| {i} | {rule} | {viol_count} | {comps} | {mr} | {jira} | {slack} | {status} | {ns} |")
         else:
-            lines.append(f"| {i} | {rule} | {viol_count} | {comps} | {mr} | {jira} | {ns} |")
+            lines.append(f"| {i} | {rule} | {viol_count} | {comps} | {mr} | {jira} | {status} | {ns} |")
 
     lines.append("")
     lines.append("*See the **Violation Resolution Guide** section below for full resolution details per violation.*")
@@ -466,6 +633,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--environment", default="prod")
     parser.add_argument("--require-jira", type=lambda v: v.lower() in ("true", "1", "yes"), default=True)
     parser.add_argument("--require-slack", type=lambda v: v.lower() in ("true", "1", "yes"), default=True)
+    parser.add_argument("--metadata-file", default=None, help="Path to fetch-metadata.json for report header")
     return parser.parse_args()
 
 
@@ -477,6 +645,7 @@ def main() -> int:
         environment=args.environment,
         require_jira=args.require_jira,
         require_slack=args.require_slack,
+        metadata_file=args.metadata_file,
     )
     print(json.dumps(result, indent=2))
     return 1 if "error" in result else 0

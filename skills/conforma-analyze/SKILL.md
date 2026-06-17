@@ -230,14 +230,16 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
-  --environment prod > "$RUNDIR/coverage.json"
+  --environment prod \
+  --metadata-file "$RUNDIR/fetch-metadata.json" > "$RUNDIR/coverage.json"
 
 # Without Slack (when not configured):
 python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
   --environment prod \
-  --require-slack false > "$RUNDIR/coverage.json"
+  --require-slack false \
+  --metadata-file "$RUNDIR/fetch-metadata.json" > "$RUNDIR/coverage.json"
 ```
 
    Pass the violations YAML from step 4 as input. The coverage table is the primary deliverable; the statistical breakdown from step 5 can be presented as supplementary detail below it.

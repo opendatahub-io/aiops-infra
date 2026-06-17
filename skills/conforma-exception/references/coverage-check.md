@@ -35,17 +35,17 @@ python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --environment prod > "$RUNDIR/coverage.json"
 ```
 
-This checks all violations against existing exceptions in the policy file, searches for open MRs, open Jira tickets, and Slack threads — all in one pass.
+This checks all violations against existing exceptions in the policy file, searches for open Merge Requests, open Jira tickets, and Slack threads — all in one pass.
 
 For CI-only environments (no Slack access), disable with `--require-slack false`. This should **never** be used in the interactive conforma-analyze workflow.
 
 ## Presenting Results
 
-The JSON output contains a `markdown_table` field — a pre-rendered markdown table with columns: `#`, `Rule`, `Components`, `Open MRs`, `Open Jira`, `Slack`, `Next Steps`.
+The JSON output contains a `markdown_table` field — a pre-rendered markdown table with columns: `#`, `Rule`, `Components`, `Open Merge Requests`, `Open Jira`, `Slack`, `Next Steps`.
 
 **Print `markdown_table` verbatim as the primary output to the user.** This is the main deliverable when analyzing a report.
 
-The `Next Steps` column always displays "see resolution guide below" — a static pointer to the **Violation Resolution Guide** section. Full resolution details (including all approval steps, MR actions, and linked Jira tickets) are assembled by the agent in the Violation Resolution Guide section that follows the table, using the structured JSON fields (`open_merge_requests`, `open_jira_tickets`, `open_slack_threads`, coverage status, and violation catalog data).
+The `Next Steps` column always displays "see resolution guide below" — a static pointer to the **Violation Resolution Guide** section. Full resolution details (including all approval steps, Merge Request actions, and linked Jira tickets) are assembled by the agent in the Violation Resolution Guide section that follows the table, using the structured JSON fields (`open_merge_requests`, `open_jira_tickets`, `open_slack_threads`, coverage status, and violation catalog data).
 
 Rules:
 - Do NOT reconstruct the table from individual JSON fields — always use the pre-rendered `markdown_table`
@@ -55,9 +55,9 @@ Rules:
 
 ## Search Query Links
 
-Every data source column (Open MRs, Open Jira, Slack) includes a clickable `[search](url)` link that opens the same query in the corresponding web UI:
+Every data source column (Open Merge Requests, Open Jira, Slack) includes a clickable `[search](url)` link that opens the same query in the corresponding web UI:
 
-- **Open MRs**: Links to GitLab MR search filtered by the rule code
+- **Open Merge Requests**: Links to GitLab Merge Request search filtered by the rule code
 - **Open Jira**: Links to a JQL search for conforma-violation tickets matching the rule
 - **Slack**: Links to the workspace search for the rule code
 
@@ -65,19 +65,19 @@ When results exist, the search link is appended after them. When no results exis
 
 The JSON output includes `open_mr_search_url`, `open_jira_search_url`, and `open_slack_search_url` fields for each violation.
 
-## Open MR Coverage Analysis
+## Open Merge Request Coverage Analysis
 
-The output includes an `open_merge_requests` list for each violation. Each entry contains per-MR coverage data (the agent MUST NOT call `glab api` directly — all GitLab API interaction is encapsulated in the scripts):
+The output includes an `open_merge_requests` list for each violation. Each entry contains per-Merge Request coverage data (the agent MUST NOT call `glab api` directly — all GitLab API interaction is encapsulated in the scripts):
 
-- `mr_components`: components the MR already covers
-- `covered`: overlap between MR components and the requested components
-- `missing`: requested components not yet in the MR
+- `mr_components`: components the Merge Request already covers
+- `covered`: overlap between Merge Request components and the requested components
+- `missing`: requested components not yet in the Merge Request
 - `suggestion`: one of `"extend_mr"`, `"fully_covered"`, or `"no_overlap"`
 
 Present these as:
-- **`extend_mr`**: "Open MR !{iid} covers {N} of {M} components. Missing: {list}. Consider extending the existing MR."
-- **`fully_covered`**: "Open MR !{iid} covers all {M} components. Creating a new MR would be a duplicate."
-- **`no_overlap`**: The MR is for a different set of components (likely a different RHOAI version). Proceed normally.
+- **`extend_mr`**: "Open Merge Request !{iid} covers {N} of {M} components. Missing: {list}. Consider extending the existing Merge Request."
+- **`fully_covered`**: "Open Merge Request !{iid} covers all {M} components. Creating a new Merge Request would be a duplicate."
+- **`no_overlap`**: The Merge Request is for a different set of components (likely a different RHOAI version). Proceed normally.
 
 ## Open Jira Ticket Coverage
 
