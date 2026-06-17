@@ -32,7 +32,7 @@ This is the fix for the `hermetic_task.hermetic` violation shown above. By addin
 
 ## Exceptions
 
-An exception is a temporary waiver that allows a component to pass Conforma verification despite having an active violation. Exceptions are stored as YAML blocks in the `konflux-release-data` GitLab repository's policy files, using the [VolatileCriteria](https://conforma.dev/docs/policy/packages/release_volatile_config.html) schema. The specific policy file paths are derived from your site config's `KRD_CLUSTER_DOMAIN` setting.
+An exception is a temporary waiver that allows a component to pass Conforma verification despite having an active violation. Exceptions are stored as YAML blocks in the `konflux-release-data` GitLab repository's policy files, using the [VolatileCriteria](https://conforma.dev/docs/policy/packages/release_volatile_config.html) schema. The specific policy file paths are derived from `KONFLUX_CLUSTER_DOMAIN` (auto-discovered from your Konflux tenant).
 
 ```yaml
 # EnterpriseContractPolicy/<your-policy-file>.yaml

@@ -66,7 +66,7 @@ def sample_catalog(tmp_path):
                 "code_prefix": "sbom_spdx.disallowed_package_attributes",
                 "title": "SBOM disallowed attributes",
                 "doc_urls": ["https://example.com/sbom-rules"],
-                "guidance": "Check EC policy for allowed attributes.",
+                "guidance": "Check Conforma policy for allowed attributes.",
             },
             {
                 "code_prefix": "sbom_spdx",
@@ -310,7 +310,7 @@ class TestGenerateResolutionGuide:
 
         assert "Not in violation catalog" in content
         assert "https://example.com/sbom-rules" in content
-        assert "Check EC policy for allowed attributes" in content
+        assert "Check Conforma policy for allowed attributes" in content
 
     def test_missing_files_raise_errors(self, tmp_path, sample_catalog):
         with pytest.raises(FileNotFoundError, match="Violations YAML not found"):

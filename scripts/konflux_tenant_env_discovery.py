@@ -1,26 +1,30 @@
-"""Tenant-based auto-discovery for Konflux release infrastructure (dual-mode: CLI + importable).
+"""Konflux tenant environment discovery (dual-mode: CLI + importable).
 
-Given a tenant name, discovers clusters, policy files, and RPA directories
+Given a tenant name, discovers the user's Konflux and Conforma environment:
+clusters, Conforma policy files, RPA directories, and self-service exception paths
 from the konflux-release-data GitLab repository using the Tree API.
+
+This is the primary method for configuring aiops-infra infrastructure.
+Users only need to provide GITLAB_HOST and TENANT — everything else
+(cluster domain, API URLs, policy paths) is auto-discovered.
 
 Exit codes:
     0  — discovery succeeded (JSON on stdout)
     1  — general/unexpected error
-    7  — connectivity not confirmed (run --check-connectivity first)
     8  — tenant not found in any cluster
     9  — GitLab API error (network, auth, rate limit)
     10 — multiple clusters found, user must set preferred_cluster
 
 Usage as library:
-    import tenant_discovery
-    ctx = tenant_discovery.discover("rhoai-tenant", preferred_cluster="stone-prod-p02")
+    import konflux_tenant_env_discovery
+    ctx = konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-prod-p02")
 
 Usage as CLI:
-    python3 scripts/tenant_discovery.py --tenant rhoai-tenant
-    python3 scripts/tenant_discovery.py --tenant rhoai-tenant --preferred-cluster stone-prod-p02
-    python3 scripts/tenant_discovery.py --tenant rhoai-tenant --refresh
-    python3 scripts/tenant_discovery.py --tenant rhoai-tenant --export
-    python3 scripts/tenant_discovery.py --tenant rhoai-tenant --human
+    python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant
+    python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant --preferred-cluster stone-prod-p02
+    python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant --refresh
+    python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant --export
+    python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant --human
 """
 
 from __future__ import annotations
@@ -49,8 +53,8 @@ class TenantContext:
     tenant: str
     cluster: DiscoveredCluster
     all_clusters: list[DiscoveredCluster]
-    ec_policy_dir: str
-    ec_policy_files: list[str]
+    conforma_policy_dir: str
+    conforma_policy_files: list[str]
     rpa_dir: str
     rpa_subdirs: list[str]
     self_service_dir: str
@@ -90,14 +94,14 @@ def _get_gitlab_project():
     ssl_verify = os.environ.get("GITLAB_SSL_VERIFY", "true").lower() not in ("false", "0", "no")
 
     try:
-        gl = gitlab_mod.Gitlab(url=f"https://{host}", private_token=token, ssl_verify=ssl_verify)
+        gl = gitlab_mod.Gitlab(url=f"https://{host}", private_token=token, ssl_verify=ssl_verify, timeout=15)
         gl.auth()
         project = gl.projects.get(project_path)
         return project
     except Exception as exc:
         if "CERTIFICATE_VERIFY_FAILED" in str(exc) and ssl_verify:
             try:
-                gl = gitlab_mod.Gitlab(url=f"https://{host}", private_token=token, ssl_verify=False)
+                gl = gitlab_mod.Gitlab(url=f"https://{host}", private_token=token, ssl_verify=False, timeout=15)
                 gl.auth()
                 project = gl.projects.get(project_path)
                 return project
@@ -163,8 +167,8 @@ def _read_cache(tenant: str, preferred_cluster: str | None) -> TenantContext | N
             tenant=data["tenant"],
             cluster=cluster,
             all_clusters=all_clusters,
-            ec_policy_dir=data["ec_policy_dir"],
-            ec_policy_files=data["ec_policy_files"],
+            conforma_policy_dir=data["conforma_policy_dir"],
+            conforma_policy_files=data["conforma_policy_files"],
             rpa_dir=data["rpa_dir"],
             rpa_subdirs=data["rpa_subdirs"],
             self_service_dir=data["self_service_dir"],
@@ -189,7 +193,7 @@ def discover(
     preferred_cluster: str | None = None,
     refresh: bool = False,
 ) -> TenantContext:
-    """Run tenant discovery against konflux-release-data via GitLab Tree API.
+    """Run Konflux tenant environment discovery against konflux-release-data via GitLab Tree API.
 
     Args:
         tenant: Tenant name (e.g. "rhoai-tenant")
@@ -202,14 +206,6 @@ def discover(
     Raises:
         DiscoveryError with appropriate exit_code on failure
     """
-    import site_config
-
-    if not site_config.connectivity_confirmed():
-        raise DiscoveryError(
-            "Connectivity not confirmed. Run: python3 scripts/site_config.py --check-connectivity",
-            exit_code=7,
-        )
-
     if not refresh:
         cached = _read_cache(tenant, preferred_cluster)
         if cached is not None:
@@ -272,19 +268,19 @@ def discover(
         available = ", ".join(c.cluster_id for c in discovered_clusters)
         raise DiscoveryError(
             f"Tenant '{tenant}' exists on multiple clusters: {available}\n"
-            f"Set preferred_cluster in site-config.yaml or pass --preferred-cluster.",
+            f"Set PREFERRED_KONFLUX_CLUSTER in .work/.env or pass --preferred-cluster.",
             exit_code=10,
         )
 
     # Step 7a: List EnterpriseContractPolicy files
-    ec_policy_dir = f"config/{selected_cluster.cluster_domain}/product/EnterpriseContractPolicy"
+    conforma_policy_dir = f"config/{selected_cluster.cluster_domain}/product/EnterpriseContractPolicy"
     try:
-        ec_items = _list_tree(project, ec_policy_dir)
-        ec_policy_files = sorted(
-            item["name"] for item in ec_items if item.get("type") == "blob" and item["name"].endswith(".yaml")
+        conforma_items = _list_tree(project, conforma_policy_dir)
+        conforma_policy_files = sorted(
+            item["name"] for item in conforma_items if item.get("type") == "blob" and item["name"].endswith(".yaml")
         )
     except DiscoveryError:
-        ec_policy_files = []
+        conforma_policy_files = []
 
     # Step 7b: List ReleasePlanAdmission subdirectories
     rpa_dir = f"config/{selected_cluster.cluster_domain}/product/ReleasePlanAdmission"
@@ -312,8 +308,8 @@ def discover(
         tenant=tenant,
         cluster=selected_cluster,
         all_clusters=discovered_clusters,
-        ec_policy_dir=ec_policy_dir,
-        ec_policy_files=ec_policy_files,
+        conforma_policy_dir=conforma_policy_dir,
+        conforma_policy_files=conforma_policy_files,
         rpa_dir=rpa_dir,
         rpa_subdirs=rpa_subdirs,
         self_service_dir=self_service_dir,
@@ -338,8 +334,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        import site_config
-        site_config.load()
+        import konflux_environment
+        konflux_environment.load()
     except Exception:
         pass
 
@@ -350,19 +346,19 @@ def main() -> int:
         return exc.exit_code
 
     if args.export:
-        print(f'export KRD_CLUSTER_DOMAIN="{ctx.cluster.cluster_domain}"')
-        print(f'export KRD_EC_POLICY_DIR="{ctx.ec_policy_dir}"')
-        print(f'export KRD_RPA_SUBPATH="{ctx.rpa_dir}"')
+        print(f'export KONFLUX_CLUSTER_DOMAIN="{ctx.cluster.cluster_domain}"')
+        print(f'export KONFLUX_CONFORMA_POLICY_DIR="{ctx.conforma_policy_dir}"')
+        print(f'export KONFLUX_RPA_SUBPATH="{ctx.rpa_dir}"')
         if ctx.rpa_subdirs:
-            print(f'export KRD_RPA_SUBPATH="{ctx.rpa_dir}/{ctx.rpa_subdirs[0]}"')
+            print(f'export KONFLUX_RPA_SUBPATH="{ctx.rpa_dir}/{ctx.rpa_subdirs[0]}"')
         return 0
 
     if args.human:
         print(f"Tenant:           {ctx.tenant}")
         print(f"Selected cluster: {ctx.cluster.cluster_id} ({ctx.cluster.cluster_domain})")
         print(f"All clusters:     {', '.join(c.cluster_id for c in ctx.all_clusters)}")
-        print(f"EC policy dir:    {ctx.ec_policy_dir}")
-        print(f"EC policy files:  {', '.join(ctx.ec_policy_files) or '(none)'}")
+        print(f"Conforma policy dir:    {ctx.conforma_policy_dir}")
+        print(f"Conforma policy files:  {', '.join(ctx.conforma_policy_files) or '(none)'}")
         print(f"RPA dir:          {ctx.rpa_dir}")
         print(f"RPA products:     {', '.join(ctx.rpa_subdirs) or '(none)'}")
         print(f"Self-service dir: {ctx.self_service_dir}")

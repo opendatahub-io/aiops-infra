@@ -46,9 +46,9 @@ class TestParseUrl:
         }
 
     def test_gitlab_https_url(self):
-        result = git_ops.parse_url("https://gitlab.cee.redhat.com/group/project.git")
+        result = git_ops.parse_url("https://gitlab.example.com/group/project.git")
         assert result == {
-            "host": "gitlab.cee.redhat.com",
+            "host": "gitlab.example.com",
             "repo_path": "group/project",
             "scheme": "https",
         }
@@ -86,7 +86,7 @@ class TestClassifyPlatform:
     def test_host_containing_gitlab(self, monkeypatch):
         monkeypatch.delenv("GITLAB_HOST", raising=False)
         monkeypatch.delenv("GL_HOST", raising=False)
-        assert git_ops._classify_platform("gitlab.cee.redhat.com") == "gitlab"
+        assert git_ops._classify_platform("gitlab.example.com") == "gitlab"
 
     def test_unknown_host(self, monkeypatch):
         monkeypatch.delenv("GITLAB_HOST", raising=False)
@@ -131,7 +131,7 @@ class TestDetectRemote:
         with patch.object(
             git_ops.subprocess,
             "run",
-            return_value=_completed(stdout="https://gitlab.cee.redhat.com/group/repo\n"),
+            return_value=_completed(stdout="https://gitlab.example.com/group/repo\n"),
         ):
             result = git_ops.detect_remote()
 

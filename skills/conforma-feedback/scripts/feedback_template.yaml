@@ -51,3 +51,48 @@ body_template: |
   ## Additional Context
 
   {additional_context}
+
+infra_issue:
+  title_template: "[infra] {skill_name}: {title_hint}"
+  labels:
+    - conforma
+    - conforma-skill
+    - infrastructure
+    - bug
+  body_template: |
+    ## Infrastructure Failure
+
+    | Field | Value |
+    |-------|-------|
+    | **Skill** | {skill_name} |
+    | **Workflow step** | {workflow_step} |
+    | **Script** | `{script_path}` |
+    | **Error type** | {error_type} |
+    | **Severity** | {severity} |
+
+    ## Error
+
+    ```
+    {error_message}
+    ```
+
+    ## Full Traceback
+
+    ```
+    {traceback}
+    ```
+
+    {root_cause_section}
+
+    ## Reproduction
+
+    ```bash
+    {reproduction_command}
+    ```
+
+    ## Environment
+
+    - **Python:** {python_version}
+    - **OS:** {os_info}
+    - **Platform:** {platform} ({host})
+    - **Repository:** {repo_path}

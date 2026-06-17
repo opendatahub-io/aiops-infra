@@ -31,7 +31,7 @@ python3 scripts/conforma_policy_ops.py check-gate \
 ## Prerequisites
 
 - GitLab auth: `glab auth status --hostname "$GITLAB_HOST"`
-- Environment variables: `GITLAB_HOST`, `GITLAB_TOKEN`, `KRD_CLUSTER_DOMAIN` or `KRD_EC_POLICY_DIR`
+- Environment variables: `GITLAB_HOST`, `GITLAB_TOKEN`, `KONFLUX_CLUSTER_DOMAIN` or `KONFLUX_CONFORMA_POLICY_DIR`
 
 ## Output
 

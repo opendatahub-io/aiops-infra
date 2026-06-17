@@ -40,9 +40,9 @@ def main():
     lines.append(f"  dockerfile_path: {args.dockerfile_path}")
 
     dockerfile_name = args.dockerfile_path.split("/")[-1]
-    if product == "RHOAI" and "Dockerfile.konflux" not in dockerfile_name:
+    if product == "RHOAI" and dockerfile_name != "Dockerfile.konflux":
         print(
-            f"ERROR: For RHOAI, the Dockerfile name must contain 'Dockerfile.konflux' (got '{dockerfile_name}')",
+            f"ERROR: For RHOAI, the Dockerfile name must be exactly 'Dockerfile.konflux' (got '{dockerfile_name}')",
             file=sys.stderr,
         )
         sys.exit(1)

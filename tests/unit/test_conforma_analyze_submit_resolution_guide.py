@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -20,14 +20,15 @@ def sample_guide(tmp_path):
 
 class TestDryRun:
     def test_dry_run_does_not_call_api(self, sample_guide):
-        with patch.object(mod, "_gh_api") as mock_api:
+        with patch.object(mod.requests, "get") as mock_get, patch.object(mod.requests, "put") as mock_put:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
                 target_dir="prod/release_day",
                 dry_run=True,
             )
-            mock_api.assert_not_called()
+            mock_get.assert_not_called()
+            mock_put.assert_not_called()
 
         assert result["dry_run"] is True
         assert result["committed"] is False
@@ -58,8 +59,11 @@ class TestFileNotFound:
 
 class TestBranchCheck:
     def test_branch_not_found(self, sample_guide):
-        with patch.object(mod, "_gh_api") as mock_api:
-            mock_api.return_value = (1, '{"message": "Not Found"}')
+        branch_resp = MagicMock(status_code=404)
+        with (
+            patch.object(mod, "_get_github_token", return_value="token"),
+            patch.object(mod.requests, "get", return_value=branch_resp),
+        ):
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-99.99",
@@ -72,26 +76,26 @@ class TestBranchCheck:
 
 class TestCreateNewFile:
     def test_creates_file_when_not_exists(self, sample_guide):
-        def mock_gh_api(endpoint, method="GET", input_data=None):
-            if method == "GET" and "branches" in endpoint:
-                return (0, '{"name": "rhoai-3.5-ea.2"}')
-            if method == "GET" and "contents" in endpoint:
-                return (1, '{"message": "Not Found"}')
-            if method == "PUT":
-                return (
-                    0,
-                    json.dumps(
-                        {
-                            "content": {
-                                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/prod/release_day/conforma-violations-resolution-guide.md",
-                                "sha": "abc123",
-                            }
-                        }
-                    ),
-                )
-            return (1, "")
+        branch_resp = MagicMock(status_code=200)
+        contents_resp = MagicMock(status_code=404)
+        put_resp = MagicMock(status_code=201)
+        put_resp.json.return_value = {
+            "content": {
+                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/prod/release_day/conforma-violations-resolution-guide.md",
+                "sha": "abc123",
+            }
+        }
 
-        with patch.object(mod, "_gh_api", side_effect=mock_gh_api):
+        def mock_get(url, **kwargs):
+            if "branches" in url:
+                return branch_resp
+            return contents_resp
+
+        with (
+            patch.object(mod, "_get_github_token", return_value="token"),
+            patch.object(mod.requests, "get", side_effect=mock_get),
+            patch.object(mod.requests, "put", return_value=put_resp),
+        ):
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
@@ -106,29 +110,27 @@ class TestCreateNewFile:
 class TestUpdateExistingFile:
     def test_updates_file_with_sha(self, sample_guide):
         existing_sha = "existingsha456"
+        branch_resp = MagicMock(status_code=200)
+        contents_resp = MagicMock(status_code=200)
+        contents_resp.json.return_value = {"sha": existing_sha}
+        put_resp = MagicMock(status_code=200)
+        put_resp.json.return_value = {
+            "content": {
+                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/guide.md",
+                "sha": "newsha789",
+            }
+        }
 
-        def mock_gh_api(endpoint, method="GET", input_data=None):
-            if method == "GET" and "branches" in endpoint:
-                return (0, '{"name": "rhoai-3.5-ea.2"}')
-            if method == "GET" and "contents" in endpoint:
-                return (0, json.dumps({"sha": existing_sha}))
-            if method == "PUT":
-                payload = json.loads(input_data)
-                assert payload["sha"] == existing_sha
-                return (
-                    0,
-                    json.dumps(
-                        {
-                            "content": {
-                                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/guide.md",
-                                "sha": "newsha789",
-                            }
-                        }
-                    ),
-                )
-            return (1, "")
+        def mock_get(url, **kwargs):
+            if "branches" in url:
+                return branch_resp
+            return contents_resp
 
-        with patch.object(mod, "_gh_api", side_effect=mock_gh_api):
+        with (
+            patch.object(mod, "_get_github_token", return_value="token"),
+            patch.object(mod.requests, "get", side_effect=mock_get),
+            patch.object(mod.requests, "put", return_value=put_resp) as mock_put,
+        ):
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
@@ -137,20 +139,28 @@ class TestUpdateExistingFile:
 
         assert result["committed"] is True
         assert result["overwritten"] is True
+        payload = mock_put.call_args[1]["json"]
+        assert payload["sha"] == existing_sha
 
 
 class TestErrorHandling:
     def test_api_error_returns_error_dict(self, sample_guide):
-        def mock_gh_api(endpoint, method="GET", input_data=None):
-            if method == "GET" and "branches" in endpoint:
-                return (0, '{"name": "rhoai-3.5-ea.2"}')
-            if method == "GET" and "contents" in endpoint:
-                return (1, "")
-            if method == "PUT":
-                return (1, '{"message": "Validation Failed"}')
-            return (1, "")
+        branch_resp = MagicMock(status_code=200)
+        contents_resp = MagicMock(status_code=404)
+        put_resp = MagicMock(status_code=422)
+        put_resp.json.return_value = {"message": "Validation Failed"}
+        put_resp.text = "Validation Failed"
 
-        with patch.object(mod, "_gh_api", side_effect=mock_gh_api):
+        def mock_get(url, **kwargs):
+            if "branches" in url:
+                return branch_resp
+            return contents_resp
+
+        with (
+            patch.object(mod, "_get_github_token", return_value="token"),
+            patch.object(mod.requests, "get", side_effect=mock_get),
+            patch.object(mod.requests, "put", return_value=put_resp),
+        ):
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",

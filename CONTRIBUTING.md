@@ -239,7 +239,7 @@ and OpenShift domain names.
 
 **If the hook blocks your commit:**
 - Replace the hardcoded value with an environment variable (e.g. `$GITLAB_HOST`)
-- See `.work/site-config.example.yaml` for the full list of configurable variables
+- See `.work/.env.example` for the full list of configurable variables
 - See `tests/check_no_internal_refs.py` for the exact forbidden patterns
 
 The same check runs as a pytest test (`tests/unit/test_no_internal_refs.py`) in CI.
@@ -300,7 +300,7 @@ The `.work/` directory:
 - Is gitignored (never committed)
 - Contains `.env` for secrets and API tokens
 - Contains transient skill working data (clones, temp files)
-- Is loaded automatically by `_setup_env.py` and `site_config.load()`
+- Is loaded automatically by `_setup_env.py` and `konflux_environment.load()`
 
 When writing skills or scripts that need auth, always reference `.work/.env` as the token location and point users to the relevant `-auth` skill for setup instructions.
 

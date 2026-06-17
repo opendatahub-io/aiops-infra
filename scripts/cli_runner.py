@@ -40,6 +40,8 @@ def run(
     env: Mapping[str, str] | None = None,
 ) -> dict:
     """Run command. Returns {"returncode": int, "stdout": str, "stderr": str, "timed_out": bool}."""
+    if not cmd:
+        return {"returncode": 1, "stdout": "", "stderr": "empty command", "timed_out": False}
     try:
         completed = subprocess.run(
             list(cmd),

@@ -35,6 +35,13 @@ When presenting violations to the user:
 - Consult [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) for the `exception_context.when_to_exception` field to determine if an exception is appropriate for the given violation type
 - For violations with `classification.resolution_path: code_fix`, redirect to the **conforma-remedy** skill first
 
+## Naming Conventions
+
+- **Never use the word "product"** in variable names, environment variables, config keys, or code concepts within this skill. The term is too vague and overloaded.
+- Use **`application_slug`** when referring to the identifier that selects which set of policy files belongs to the current application (e.g. `rhoai` in `registry-rhoai-prod.yaml`).
+- Environment variable: `KONFLUX_APPLICATION_SLUG`. Site-config key: `application_slug`.
+- If the application slug is unavailable and multiple policy files match a generic pattern, the agent MUST ask the user to choose — never silently pick one.
+
 ## Prerequisites
 
 **Setup:** See [README.md](README.md) for installation and one-time authentication setup.
@@ -250,6 +257,8 @@ The preflight output includes a `decision` field evaluated deterministically by 
 
 The agent has NO discretion to override a `proceed: false` decision. Only the user can re-run with `--rule` override or manually modify the policy file.
 
+**Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md).
+
 ## Workflow Routing
 
 Workflow routing (which Jira projects, how many tickets, assignees, MR target) is defined per-category in `exception_templates.yaml`. The orchestrator reads the `workflow` steps from the matched category and executes them in order.
@@ -418,7 +427,7 @@ if [ -d .work/konflux-release-data/.git ]; then
   git -C .work/konflux-release-data reset --hard origin/main
 else
   GITLAB_TOKEN=$(glab config get token --host "$GITLAB_HOST")
-  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
+  git -c "http.extraheader=Authorization: Bearer ${GITLAB_TOKEN}" clone --depth 1 "https://${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
 fi
 ```
 
@@ -473,7 +482,7 @@ When multiple open MRs exist for the same violation, present each independently.
 
 ### Open Jira Ticket Coverage
 
-The `--check-violations-coverage` script also searches for open Jira tickets (RHOAIENG, PSX, OCPEXCEPT) with the `conforma-violation` label that match each violation rule. This is a single batch query, not per-violation. Each violation entry includes:
+The `--check-violations-coverage` script also searches for open Jira tickets (RHOAIENG, PSX, OCPEXCEPT, PRODSECRM) with the `conforma-violation` label that match each violation rule. This is a single batch query, not per-violation. Each violation entry includes:
 
 - `open_jira_tickets`: list of matching tickets with `key`, `status`, `summary`, `url`
 - `open_jira_label`: pre-formatted markdown links for display (empty if none)
@@ -501,7 +510,7 @@ Component names are validated against `--rhoai-version`:
 All Konflux component names include a version suffix (e.g. `-v2-25`, `-v3-3`, `-v3-5-ea-1`). Names ending in `-rhel9` or `-ubi9` without a version suffix are container image names produced by those components -- they must NOT be used in `componentNames` fields in exception GitLab Merge Requests. The validation script rejects container image names and suggests the correct Konflux component name format.
 
 To find correct component names, check the ReleasePlanAdmission files:
-`config/${KRD_CLUSTER_DOMAIN}/product/ReleasePlanAdmission/rhoai/rhoai-onprem-vX-Y-components-prod.yaml`
+`config/${KONFLUX_CLUSTER_DOMAIN}/product/ReleasePlanAdmission/rhoai/rhoai-onprem-vX-Y-components-prod.yaml`
 
 ## Dry-Run Mode
 
@@ -607,7 +616,7 @@ Each script validates inputs and exits non-zero on failure. The orchestrator sto
 
 - Invalid RHOAI version format
 - Component name / version mismatch
-- `--effective-until-date` not a future date
+- `--effective-until` not a future date
 - `acli` or `glab` not authenticated
 - GitLab Merge Request creation failure (permissions, branch conflict)
 - Jira ticket creation failure (permissions, invalid project)

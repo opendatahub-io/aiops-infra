@@ -1,7 +1,7 @@
 ---
 name: conforma-docs
 description: Full-text search across Conforma documentation, policy rules, exception process docs, and runbooks.
-allowed-tools: Bash(python3:*)
+allowed-tools: Bash(python3:*),WebFetch
 user-invocable: true
 ---
 
@@ -95,7 +95,7 @@ This skill does NOT own exception-related content. All exception documentation (
 ## Reference Data
 
 This skill indexes content from across the conforma skill suite:
-- `conforma-docs/references/what-is-conforma.md` — product-agnostic Conforma overview (site-config aware)
+- `conforma-docs/references/what-is-conforma.md` — product-agnostic Conforma overview
 - `conforma-docs/references/what-is-conforma-details.md` — detailed concept explanations (violations, remedies, exceptions, release readiness) with examples
 - `conforma-exception/references/conforma-release-policy-rules.yaml` — all policy rules with codes, names, and upstream doc URLs
 - `conforma-exception/references/conforma-exception-overview.md` — what exceptions are

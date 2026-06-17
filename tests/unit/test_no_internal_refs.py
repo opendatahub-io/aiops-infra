@@ -34,8 +34,8 @@ class TestNoInternalRefs:
                     lines.append(f"  {rel_path}:{line_no} [{description}] {preview}")
             lines.append("")
             lines.append(
-                "Use environment variables ($GITLAB_HOST, $KRD_CLUSTER_DOMAIN, etc.) "
-                "or site-config.yaml instead of hardcoded values."
+                "Use environment variables ($GITLAB_HOST, $KONFLUX_CLUSTER_DOMAIN, etc.) "
+                "or .work/.env instead of hardcoded values."
             )
             pytest.fail("\n".join(lines))
 

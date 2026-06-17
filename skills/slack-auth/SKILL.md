@@ -35,7 +35,7 @@ This checks:
 - `slackdump` binary is installed and on PATH
 - Auth credentials exist in `~/.cache/slackdump/`
 - The session is still valid
-- `SLACK_WORKSPACE_URL` is available (from site-config) for building search links
+- `SLACK_WORKSPACE_URL` is available (from infrastructure discovery or `.work/.env`) for building search links
 
 ## First-Time Setup
 
@@ -94,12 +94,12 @@ slackdump workspace new https://redhat-internal.slack.com
 
 This opens a browser window for interactive login. Works well on native Linux/macOS with a display server, but **will not work** in WSL without a Linux browser, Docker containers, CI, or headless servers.
 
-### 3. Set workspace URL (site-config)
+### 3. Set workspace URL
 
-Ensure `SLACK_WORKSPACE_URL` is available via site-config. If using the team's remote config, this is automatic. Otherwise:
+Ensure `SLACK_WORKSPACE_URL` is available. If auto-discovery populates it, no action needed. Otherwise add to `.work/.env`:
 
-```bash
-python3 scripts/site_config.py --write-local slack.workspace_url=https://redhat-internal.slack.com
+```
+SLACK_WORKSPACE_URL=https://redhat-internal.slack.com
 ```
 
 ### 4. Verify
@@ -166,10 +166,10 @@ slackdump workspace import .work/.slack-secrets && rm -f .work/.slack-secrets
 
 `SLACK_WORKSPACE_URL` is not set. Search links in coverage reports won't be clickable.
 
-**Fix:**
+**Fix:** Add to `.work/.env`:
 
-```bash
-python3 scripts/site_config.py --write-local slack.workspace_url=https://redhat-internal.slack.com
+```
+SLACK_WORKSPACE_URL=https://redhat-internal.slack.com
 ```
 
 ## Environment Variables

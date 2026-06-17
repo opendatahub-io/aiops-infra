@@ -1,6 +1,6 @@
 ---
 name: conforma-analyze
-description: Fetch and expose RHOAI Conforma violation report data from conforma-reporter. Trace when specific violations appeared or disappeared via CSV git history. Knows about violations only -- not exceptions, policy files, Jira, or GitLab MRs.
+description: Fetch and expose RHOAI Conforma violation report data from conforma-reporter. Trace when specific violations appeared or disappeared via CSV git history. Knows about violations only -- not exceptions, policy files, Jira, or GitLab Merge Requests.
 allowed-tools: Bash(python3:*,bash:*,git:*)
 user-invocable: true
 ---
@@ -20,6 +20,9 @@ Prohibited actions — the agent MUST NEVER:
 - Summarize or paraphrase CSV contents manually instead of running the scripts
 - Present partial results as a "quick summary" before completing all steps
 - Invent or compose analysis output that was not produced by the deterministic scripts
+- Interpret, reformat, or summarize script output
+
+**Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md). In short: plain-text output goes in a code block (copy-to-clipboard), markdown output is rendered directly. Content is always verbatim — no LLM interpretation. If output is not informative enough, the fix belongs in the script.
 
 If the user only asks "does a report exist?" — answer the existence question (branch check + fetch attempt) and then **ask** whether to run the full analysis. Never produce partial analysis output as a substitute for the full workflow.
 
@@ -46,13 +49,13 @@ python3 scripts/verify_conforma_prerequisites.py --fix
 This single command verifies:
 - Python dependencies installed
 - `.work/.env` exists with tokens
-- Site-config loaded (GITLAB_HOST, KRD_CLUSTER_DOMAIN)
+- Infrastructure discovered (GITLAB_HOST, KONFLUX_CLUSTER_DOMAIN)
 - GitHub authentication (conforma-reporter access)
 - GitLab authentication (VPN + token)
 - Jira authentication (token + email)
 - Slack authentication (slackdump + session)
 
-**All checks must pass** before proceeding to the workflow. If any fail, the `--fix` flag shows remediation instructions.
+**All checks must pass** before proceeding to the workflow. If any fail, the `--fix` flag shows remediation instructions. For first-time setup, the primary path is infrastructure discovery (GITLAB_HOST + TENANT) — see the conforma [README.md](README.md).
 
 **Component-maturity catalog** (required for Jira Component enrichment): The parse step enriches every component with its owning Jira Component from the component-maturity catalog. This requires VPN and GitLab auth. The parse script will clone/refresh the catalog automatically and fail hard if the catalog is unreachable:
 
@@ -97,18 +100,28 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
 
 **Important**: Steps 1–9 use a shared `$RUNDIR` variable set in step 3. All intermediate outputs live in this directory. The `$RELEASE` variable is determined in step 2.
 
-1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py`. If exit code is non-zero, **stop immediately** — do not proceed with partial auth. The user must fix failures before the workflow can continue. The script loads `.work/.env` automatically and checks all required services (GitHub, GitLab, Jira).
+1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py --format markdown`. If exit code is non-zero, **stop immediately** — do not proceed with partial auth. Render the script's markdown output **directly** (not in a code block) — it contains individually-copyable fix commands. Do NOT interpret, reformat, summarize, or add your own explanation of the failures — the script output is self-explanatory and designed to be user-facing. The user must fix failures before the workflow can continue.
 
-   **Slack is optional.** If only Slack shows a warning (exit code is still 0), inform the user:
-   > Slack is not configured. Setting it up requires extracting token/cookie from browser DevTools (more involved than other services). The coverage table will omit Slack thread references. To set it up later, see `skills/slack-auth/SKILL.md`.
-   >
-   > Proceed without Slack?
+   **Slack is optional.** If the script exits 0 but shows a Slack warning, render the script output directly (which already explains the situation) and ask "Proceed without Slack?" If the user wants Slack, follow the `slack-auth` skill's Agent Workflow. Otherwise, continue — pass `--require-slack false` to `violations_coverage.py` in step 6.
 
-   If the user wants Slack, follow the `slack-auth` skill's Agent Workflow. Otherwise, continue — pass `--require-slack false` to `violations_coverage.py` in step 6.
+2. **Resolve release context**: Run the context resolution script. Extract the release identifier from the user's query (e.g., "rhoai-3.5-ea.1", "3.4", "3.5 ea 1") and pass it to the script. If the user provided a GitHub URL, extract the branch from the `/blob/<branch>/` segment and use that as the query.
 
-2. **Releases**: If the user provided a URL, extract the release branch from it (see above) and set `RELEASE=rhoai-X.Y`. If the user said "rhoai-3.4" or just "3.4", set `RELEASE=rhoai-3.4`. Otherwise, the fetch script (step 3) auto-detects supported releases by fetching [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) from `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases.
+   ```bash
+   python3 scripts/resolve_release_context.py --query "<extracted_release_text>"
+   ```
 
-   If auto-detection fails (e.g. network issue, repo access), the script errors out and instructs the user to provide `--releases` manually.
+   Parse the JSON output. Present the `confirmation_display` field **verbatim as markdown** (NOT in a code block) so that embedded links are clickable.
+
+   Then act on the `status` field:
+   - **`"resolved"`**: Use AskQuestion to confirm: "Proceed with these details?" (options: Yes / No, change something). On "Yes", set: `RELEASE=<.release>`, `KONFLUX_APP=<.konflux_app>`.
+   - **`"ambiguous"`**: Use AskQuestion with the numbered candidates from `candidates[]`. After the user selects, re-run with `--query "<selected_version_dir>"` to get a "resolved" result.
+   - **`"not_found"`** or **`"error"`**: Present the `confirmation_display` verbatim and **stop**. Do NOT attempt to guess or proceed without a resolved context.
+
+   If the user did not mention any release and you cannot extract one from their query, use `--list` to show available versions and ask the user to pick:
+
+   ```bash
+   python3 scripts/resolve_release_context.py --list
+   ```
 
 3. **Fetch reports**: Create a timestamped output directory and fetch CSVs. **Both violations and warnings CSVs are fetched by default**. The `$RUNDIR` variable is used by ALL subsequent steps — never change it mid-workflow:
 
@@ -158,55 +171,46 @@ python3 skills/conforma-analyze/scripts/parse_violations.py \
   --no-catalog
 ```
 
-5. **Analyze and present**: Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` to include Jira Component ownership annotations from step 4:
+5. **Analyze and present**: Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` for ownership, `--metadata-file` and `--release` for the report header and staleness check:
 
 ```bash
-# Text summary with ownership (default):
+# Text summary with ownership + report header (default):
 python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
-  --reports-dir .work/20260604-123000 \
-  --violations-yaml .work/20260604-123000/violations.yaml
+  --reports-dir "$RUNDIR" \
+  --violations-yaml "$RUNDIR/violations.yaml" \
+  --metadata-file "$RUNDIR/fetch-metadata.json" \
+  --release "$RELEASE"
 
-# Markdown report with ownership:
+# Markdown report with ownership + report header:
 python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
-  --reports-dir .work/20260604-123000 \
-  --violations-yaml .work/20260604-123000/violations.yaml \
+  --reports-dir "$RUNDIR" \
+  --violations-yaml "$RUNDIR/violations.yaml" \
+  --metadata-file "$RUNDIR/fetch-metadata.json" \
+  --release "$RELEASE" \
   --format markdown \
-  --output .work/20260604-123000/conforma-analysis.md
+  --output "$RUNDIR/conforma-analysis.md"
 
 # JSON (for programmatic consumption):
 python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
-  --reports-dir .work/20260604-123000 \
-  --violations-yaml .work/20260604-123000/violations.yaml \
+  --reports-dir "$RUNDIR" \
+  --violations-yaml "$RUNDIR/violations.yaml" \
   --format json \
-  --output .work/20260604-123000/conforma-analysis.json
-
-# Analyze a single CSV directly (no ownership without --violations-yaml):
-python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
-  --csv .work/20260604-123000/rhoai-3.5-ea.1.csv
+  --output "$RUNDIR/conforma-analysis.json"
 ```
 
-   The analysis script covers:
+   The script automatically prepends a report header (source CSV URL + generation date) and a staleness warning (if the report is >3 days old) when `--metadata-file` is provided.
+
+   The analysis covers:
    - Totals and breakdown by violation code (count, %, affected components)
    - Root cause extraction (untrusted task names, signing keys)
    - Per-component violation patterns (code combinations)
-   - Effective date enforcement deadlines
    - **Warnings becoming violations** — policies nearing their enforcement date (within 21 days by default)
    - Prioritized remediation recommendations with resolution %
    - **Jira Component ownership** — when `--violations-yaml` is provided, component names are annotated with their owning Jira Component (e.g. `odh-vllm-rhel9 (vLLM)`)
 
-   Present the output to the user. For the `--format text` output, display it directly. For markdown, render it as the response.
+   **Presentation**: `--format text` output → present in a code block. `--format markdown` output → render as markdown (not in a code block).
 
-   **Report header**: Always present the report source as a clickable GitHub URL at the top of your output. Construct it from the branch and CSV path: `https://github.com/red-hat-data-services/conforma-reporter/blob/{branch}/{csv_path}`. Example:
-
-   > **Report**: [`prod/release_day/conforma-violations-report.csv`](https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.5-ea.1/prod/release_day/conforma-violations-report.csv) (generated 2026-06-03)
-
-   **Stale report warning**: Check the `created_at` timestamp returned by the fetch script (step 3) for each release. If the report is **more than 3 days old** relative to the current date, display a prominent warning to the user:
-
-   > ⚠️ **Stale report**: The report for `{release}` was generated on {created_at date} ({N} days ago). Consider re-running the [conforma-reporter workflow](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to get an up-to-date report, then re-run this analysis with the conforma AI skill.
-
-   This ensures the user is aware they may be looking at outdated violation data and can trigger a fresh scan before making decisions based on the results.
-
-6. **Cross-reference with exceptions, open MRs, open Jira, and Slack**: After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open merge requests, open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
+6. **Cross-reference with exceptions, open Merge Requests, open Jira, and Slack**: After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open Merge Requests (classified as *exception* or *remedy*), open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
 
    **Target version checking (HARDCODED — always performed)**: Every Jira ticket found is automatically classified by its `fixVersion` relevance to the currently-analyzed release. Tickets are annotated as:
    - (no annotation) — fixVersion targets the currently analyzed release
@@ -238,11 +242,13 @@ python3 skills/conforma-analyze/scripts/violations_coverage.py \
 
    Pass the violations YAML from step 4 as input. The coverage table is the primary deliverable; the statistical breakdown from step 5 can be presented as supplementary detail below it.
 
-   To display the coverage table to the user, extract it from the JSON:
+   To extract the coverage table for display:
 
 ```bash
 python3 -c "import json,sys; print(json.load(sys.stdin)['markdown_table'])" < "$RUNDIR/coverage.json"
 ```
+
+   **Presentation**: The `markdown_table` is markdown — render it directly (not in a code block).
 
 7. **Violation Resolution Guide**: After presenting the coverage table, the resolution guide is generated deterministically by script. The guide is both presented to the user and saved to a file for submission (step 9). See step 8 for the generation command. While the guide is being generated, present the coverage table `markdown_table` from step 6 to the user as the immediate output.
 
@@ -252,6 +258,7 @@ python3 -c "import json,sys; print(json.load(sys.stdin)['markdown_table'])" < "$
 # Extract metadata from fetch output
 SOURCE_PATH=$(python3 -c "import json; d=json.load(open('$RUNDIR/fetch-metadata.json')); print(d['releases']['$RELEASE']['source_path'])")
 CREATED_AT=$(python3 -c "import json; d=json.load(open('$RUNDIR/fetch-metadata.json')); print(d['releases']['$RELEASE']['created_at'])")
+SOURCE_SHA=$(python3 -c "import json; d=json.load(open('$RUNDIR/fetch-metadata.json')); print(d['releases']['$RELEASE'].get('source_sha', ''))")
 
 python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
@@ -260,16 +267,13 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
   --release "$RELEASE" \
   --source-path "$SOURCE_PATH" \
   --source-created-at "$CREATED_AT" \
+  --source-sha "$SOURCE_SHA" \
   --output "$RUNDIR/conforma-violations-resolution-guide.md"
 ```
 
-   **Present the generated guide content to the user.** This MUST happen before step 9 — the user must see the full report before being asked about submission. Never run step 9 in parallel with presenting the guide. The guide includes:
-   - Metadata header (generation date, source CSV link)
-   - Summary metrics
-   - Coverage table (verbatim from step 6)
-   - Per-violation resolution guide (from catalog + fallback references)
-   - Warnings becoming violations (if any)
-   - Statistical breakdown
+   **Present the generated guide content to the user.** This MUST happen before step 9 — the user must see the full report before being asked about submission. Never run step 9 in parallel with presenting the guide.
+
+   **Presentation**: The guide is a `.md` file — render it as markdown (not in a code block).
 
 9. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit to conforma-reporter?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The script pushes to the same branch and directory as the source CSV:
 
@@ -314,7 +318,7 @@ If the user's phrase does not match any alias in the catalog, first run `analyze
 
 ### Steps
 
-1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py`. Stop if any check fails.
+1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py --format markdown`. If exit code is non-zero, render the markdown output directly and stop. Do not interpret or reformat.
 
 2. **Resolve the violation code**: Map the user's phrase to an exact `--code` value using the `aliases` field in [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml).
 

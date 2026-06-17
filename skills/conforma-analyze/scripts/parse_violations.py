@@ -42,27 +42,43 @@ import yaml
 # Rule code extraction: deterministic regex patterns per rule family
 # ---------------------------------------------------------------------------
 
-_RULE_EXTRACTORS: list[tuple[str, re.Pattern]] = [
+# Each extractor is (rule_prefix, [(field, pattern), ...]).
+# Fields are tried in order; first match wins.  Supported fields: "message", "description".
+_RULE_EXTRACTORS: list[tuple[str, list[tuple[str, re.Pattern]]]] = [
     # rpm_signature.allowed -> extract 16-char hex key ID from message
-    ("rpm_signature.allowed", re.compile(r"([0-9a-fA-F]{16})(?![0-9a-fA-F])")),
-    # test.no_failed_tests -> extract test/task name from message
-    ("test.no_failed_tests", re.compile(r"(?:task|test)\s+['\"]?(\S+?)['\"]?\s+(?:failed|did not)")),
+    ("rpm_signature.allowed", [
+        ("message", re.compile(r"([0-9a-fA-F]{16})(?![0-9a-fA-F])")),
+    ]),
+    # test.no_failed_tests -> extract task name from description (primary) or message (fallback)
+    # Description contains the exact EC exclude entry: add "test.no_failed_tests:<task-name>"
+    # Message contains: The Task "<task-name>" from the build Pipeline reports a failed test
+    ("test.no_failed_tests", [
+        ("description", re.compile(r'test\.no_failed_tests:([^"]+)')),
+        ("message", re.compile(r'[Tt]ask\s+"([^"]+)"')),
+    ]),
 ]
 
 
-def extract_full_rule_code(code: str, message: str) -> str:
-    """Extract the full rule code including suffix from the message.
+def extract_full_rule_code(code: str, message: str, description: str = "") -> str:
+    """Extract the full rule code including suffix from CSV fields.
 
-    For rules with known suffix patterns (e.g. rpm_signature.allowed),
-    parses the message to find the suffix and returns code:suffix.
+    For rules with known suffix patterns, parses the description and/or
+    message to find the suffix and returns code:suffix.
     For rules without suffixes, returns the base code as-is.
+
+    The description field is preferred when available because the EC engine
+    embeds the exact exclude entry (e.g. "test.no_failed_tests:task-name")
+    which matches the policy exclusion format directly.
     """
-    for prefix, pattern in _RULE_EXTRACTORS:
+    fields = {"message": message, "description": description}
+    for prefix, patterns in _RULE_EXTRACTORS:
         if code.startswith(prefix):
-            match = pattern.search(message)
-            if match:
-                suffix = match.group(1)
-                return f"{code}:{suffix}"
+            for field_name, pattern in patterns:
+                text = fields.get(field_name, "")
+                if text:
+                    match = pattern.search(text)
+                    if match:
+                        return f"{code}:{match.group(1)}"
             return code
 
     if ":" in code:
@@ -160,13 +176,14 @@ def parse_csv_file(csv_path: Path, release: str) -> list[dict]:
 
             code = (row.get("code") or "").strip()
             message = (row.get("message") or "").strip()
+            description = (row.get("description") or "").strip()
             component = (row.get("component_name") or "").strip()
             title = (row.get("title") or "").strip()
 
             if not code or not component:
                 continue
 
-            full_rule = extract_full_rule_code(code, message)
+            full_rule = extract_full_rule_code(code, message, description)
             records.append(
                 {
                     "release": release,
@@ -229,6 +246,7 @@ def parse_warnings_csv_file(
 
             code = (row.get("code") or "").strip()
             message = (row.get("message") or "").strip()
+            description = (row.get("description") or "").strip()
             component = (row.get("component_name") or "").strip()
             title = (row.get("title") or "").strip()
             effective_on_str = (row.get("effective_on") or "").strip()
@@ -244,7 +262,7 @@ def parse_warnings_csv_file(
                 continue
 
             days_remaining = (effective_dt - now).days
-            full_rule = extract_full_rule_code(code, message)
+            full_rule = extract_full_rule_code(code, message, description)
             records.append(
                 {
                     "release": release,
@@ -389,7 +407,9 @@ def build_violations_index(
                 "title": rec["title"],
                 "base_code": rec["base_code"],
                 "releases": defaultdict(set),
+                "count": 0,
             }
+        by_rule[rule]["count"] += 1
         by_rule[rule]["releases"][release].add(component)
 
         by_component[component]["rules"].add(rule)
@@ -400,6 +420,7 @@ def build_violations_index(
         rule_entry = {
             "title": info["title"],
             "base_code": info["base_code"],
+            "count": info["count"],
             "releases": {},
         }
         for release in releases:

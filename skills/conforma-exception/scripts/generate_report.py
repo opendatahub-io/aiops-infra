@@ -217,17 +217,19 @@ def _append_matrix_table(
     releases: list[str],
     is_all: bool,
     report_created_at: dict[str, str] | None = None,
+    report_urls: dict[str, str] | None = None,
 ) -> None:
     """Append an exception/release matrix table to the lines list."""
     date_col = "Effective Until" if is_all else "Expired"
     dates = report_created_at or {}
+    urls = report_urls or {}
     rel_headers = []
     for rel in releases:
         label = rel.replace("rhoai-", "")
         created = dates.get(rel, "")
         if created:
             label += f" ({created[:10]})"
-        rel_headers.append(f"[{label}]({_build_report_url(rel)})")
+        rel_headers.append(f"[{label}]({urls.get(rel, _build_report_url(rel))})")
     header = f"| Exception | Component(s) | Rule | {date_col} | Ref | " + " | ".join(rel_headers) + " | Action |"
     sep = "|:----------|:-------------|:-----|:--------|:----" + "|:------:" * len(releases) + "|:-------|"
     lines.append(header)
@@ -367,14 +369,14 @@ def generate_markdown(data: dict) -> str:
         lines.append("")
         lines.append("Violations resolved in all checked releases -- these exceptions can be deleted now.")
         lines.append("")
-        _append_matrix_table(lines, removable, releases, is_all, report_created_at)
+        _append_matrix_table(lines, removable, releases, is_all, report_created_at, report_urls)
         lines.append("")
 
     # --- Exception / Release Matrix ---
     lines.append("## Exception / Release Matrix")
     lines.append("")
 
-    _append_matrix_table(lines, exceptions, releases, is_all, report_created_at)
+    _append_matrix_table(lines, exceptions, releases, is_all, report_created_at, report_urls)
     lines.append("")
 
     # --- Detailed component lists ---

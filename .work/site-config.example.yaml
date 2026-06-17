@@ -1,19 +1,21 @@
 # Site Configuration for aiops-infra
 # ====================================
 #
-# Automatic setup (recommended for RHOAI team):
-#   If you have `gh` access to red-hat-data-services/rhods-devops-infra,
-#   the team's config is fetched automatically. No manual setup needed.
-#   Run `python3 scripts/site_config.py --show-source` to verify.
-#   Run `python3 scripts/site_config.py --refresh` to force a re-fetch.
-#
-# Tenant-based setup (recommended for discovery):
-#   Set `tenant` below and `gitlab.host`. The system auto-discovers cluster_domain,
-#   policy paths, and RPA directories from the konflux-release-data GitLab repo.
+# Infrastructure discovery (recommended):
+#   Set `gitlab.host` and `tenant` below. The system auto-discovers
+#   cluster_domain, API URLs, policy paths, and RPA directories from
+#   the konflux-release-data GitLab repo via the Tree API.
 #   Steps:
 #     1. Fill in gitlab.host and tenant below
-#     2. Run: python3 scripts/site_config.py --check-connectivity
-#     3. Run: python3 scripts/tenant_discovery.py --tenant <name> --human
+#     2. Run: python3 scripts/site_config.py --write-local gitlab.host=HOST tenant=NAME
+#     3. Run: python3 scripts/site_config.py --check-connectivity
+#     4. Verify: python3 scripts/konflux_tenant_env_discovery.py --tenant NAME --human
+#
+# Remote auto-fetch (fallback):
+#   If you have `gh` access to red-hat-data-services/rhods-devops-infra,
+#   the team's full config can be fetched automatically.
+#   Run `python3 scripts/site_config.py --refresh` to fetch/re-fetch.
+#   Run `python3 scripts/site_config.py --show-source` to verify.
 #
 # Manual setup (for custom or offline use):
 #   Copy this file to ~/.config/aiops-infra/site-config.yaml and fill in values.
@@ -55,7 +57,7 @@ konflux:
   # KONFLUX_NAMESPACE — target namespace on the Konflux cluster
   namespace: ""
 
-  # KRD_CLUSTER_DOMAIN — cluster domain segment (the primary Konflux identifier)
+  # KONFLUX_CLUSTER_DOMAIN — cluster domain segment (the primary Konflux identifier)
   #   Used to derive repo paths, API URLs, and Tekton routes. Example: my-cluster.abcd.p1
   #   Paths derived:  config/<domain>/product/EnterpriseContractPolicy/
   #   API derived:    https://api.<domain>.openshiftapps.com:6443
@@ -66,6 +68,13 @@ component_catalog:
   # COMPONENT_CATALOG_PROJECT — GitLab project path for the component-maturity
   # catalog (on $GITLAB_HOST). Provides component-name to Jira-component mapping.
   gitlab_project: "data-hub/component-maturity"
+
+# APPLICATION_SLUG — identifies which policy files belong to this application
+#   Used to select the correct Conforma policy files in multi-application tenants.
+#   Example: "rhoai" matches registry-rhoai-prod.yaml, fbc-rhoai-prod.yaml.
+#   Usually auto-derived from Konflux tenant env discovery (RPA subdirectory name).
+#   Only set manually if the tenant has multiple application subdirectories.
+application_slug: ""
 
 slack:
   # SLACK_WORKSPACE_URL — Slack workspace base URL (used to build search links)

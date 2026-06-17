@@ -8,7 +8,7 @@
 
 Conforma runs as a `verify` task inside a Konflux release [PipelineRun](https://tekton.dev/docs/pipelines/pipelineruns/). It is not part of the build itself — it runs after the image is built, signed, and attested. The policy engine examines the build attestation — a signed [SLSA](https://slsa.dev) provenance document that records everything about how the image was produced (the source commit, the build tasks that ran, whether the build had network access, the full list of packages pulled in such as RPMs, Python packages, Go modules, and npm dependencies, plus the resulting [SBOM](https://www.ntia.gov/page/software-bill-materials)) — to check whether the build process followed the required practices.
 
-```
+```text
 ┌─ Build (Konflux / Tekton) ───────────────────┐   ┌─ Provenance ──────────┐
 │                                               │   │                       │
 │  ┌────────┐    ┌───────────┐    ┌──────────┐  │   │  ┌─────────────────┐  │
@@ -42,11 +42,11 @@ Conforma runs as a `verify` task inside a Konflux release [PipelineRun](https://
 
 The build pipeline produces a container image with a signed [SLSA](https://slsa.dev) attestation. Conforma evaluates this attestation against the [`redhat` rule collection](https://conforma.dev/docs/policy/release_policy.html), cross-referenced with any approved exceptions in the `konflux-release-data` GitLab repo. If all rules pass (or violations are covered by valid exceptions), the release proceeds. Otherwise, the release is blocked.
 
-Many teams also run Conforma verification on a recurring schedule (e.g. daily) via a reporter workflow that creates snapshots of all component images for each active release, evaluates them against the same policy rules, and posts violation reports. This provides a continuous view of release readiness between actual releases, allowing teams to catch and address violations before they become release blockers. Your team's reporter configuration is defined in your site config.
+Many teams also run Conforma verification on a recurring schedule (e.g. daily) via a reporter workflow that creates snapshots of all component images for each active release, evaluates them against the same policy rules, and posts violation reports. This provides a continuous view of release readiness between actual releases, allowing teams to catch and address violations before they become release blockers.
 
 ## Your Environment
 
-The specific infrastructure details — which Konflux cluster, which GitLab instance hosts `konflux-release-data`, which reporter workflow to use — come from your team's **site config** (`site-config.yaml`). This keeps the skills portable across products and teams. Run `python3 scripts/site_config.py` to verify your configuration, or see `.work/site-config.example.yaml` for the available settings.
+The specific infrastructure details — which Konflux cluster, which GitLab instance hosts `konflux-release-data`, which reporter workflow to use — are **auto-discovered** from your GitLab host and Konflux tenant name. This keeps the skills portable across products and teams. Run `python3 scripts/verify_conforma_prerequisites.py --fix` to check your setup. If auto-discovery doesn't work, add the required variables to `.work/.env` manually.
 
 ## Key Concepts
 

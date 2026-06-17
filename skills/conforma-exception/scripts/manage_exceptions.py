@@ -198,23 +198,29 @@ def _fuzzy_image_match(search_term: str, image_url: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _get_ec_policy_dir() -> str:
-    """Resolve the EC policy directory path at call time (not import time)."""
-    domain = os.environ.get("KRD_CLUSTER_DOMAIN", "")
+def _get_conforma_policy_dir() -> str:
+    """Resolve the Conforma policy directory path at call time (not import time)."""
+    domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
     if domain:
         return f"config/{domain}/product/EnterpriseContractPolicy"
-    return os.environ.get("KRD_EC_POLICY_DIR", "")
+    return os.environ.get("KONFLUX_CONFORMA_POLICY_DIR", "")
+
+
+def _get_application_slug() -> str:
+    """Get the application slug from env, defaulting to 'rhoai'."""
+    return os.environ.get("KONFLUX_APPLICATION_SLUG", "rhoai")
 
 
 def _get_policy_files(clone_dir: Path, environment: str) -> list[Path]:
-    """Get all RHOAI policy files for the given environment."""
-    ec_dir = _get_ec_policy_dir()
-    if not ec_dir:
+    """Get policy files for the configured product and environment."""
+    conforma_dir = _get_conforma_policy_dir()
+    if not conforma_dir:
         return []
-    policy_dir = clone_dir / ec_dir
+    policy_dir = clone_dir / conforma_dir
     if not policy_dir.is_dir():
         return []
-    return sorted(p for p in policy_dir.glob(f"*rhoai*{environment}*.yaml") if p.is_file())
+    app_slug = _get_application_slug()
+    return sorted(p for p in policy_dir.glob(f"*{app_slug}*{environment}*.yaml") if p.is_file())
 
 
 def _extract_comment_header(lines: list[str], block_start: int, indent: str) -> list[str]:
@@ -368,7 +374,8 @@ def scan_self_service_exceptions(clone_dir: Path, environment: str) -> list[dict
         return []
 
     results: list[dict] = []
-    for yaml_file in sorted(exceptions_dir.glob(f"*rhoai*{environment}*.yaml")):
+    app_slug = _get_application_slug()
+    for yaml_file in sorted(exceptions_dir.glob(f"*{app_slug}*{environment}*.yaml")):
         if not yaml_file.is_file():
             continue
         rel_path = str(yaml_file.relative_to(clone_dir))
@@ -456,10 +463,10 @@ def search_exceptions_for_components(
     try:
         if clone_dir and clone_dir.is_dir():
             repo_dir = clone_dir
-            ec_dir = _get_ec_policy_dir()
-            if ec_dir and not (clone_dir / ec_dir).is_dir():
+            conforma_dir = _get_conforma_policy_dir()
+            if conforma_dir and not (clone_dir / conforma_dir).is_dir():
                 alt = clone_dir / "repo"
-                if ec_dir and (alt / ec_dir).is_dir():
+                if conforma_dir and (alt / conforma_dir).is_dir():
                     repo_dir = alt
             if refresh:
                 _refresh_clone(repo_dir)
@@ -641,12 +648,12 @@ def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
     Returns (repo_dir, is_temp) where is_temp indicates whether caller
     should clean up.
     """
-    ec_policy_dir = _get_ec_policy_dir()
+    conforma_policy_dir = _get_conforma_policy_dir()
     if clone_dir and clone_dir.is_dir():
         repo_dir = clone_dir
-        if ec_policy_dir and not (clone_dir / ec_policy_dir).is_dir():
+        if conforma_policy_dir and not (clone_dir / conforma_policy_dir).is_dir():
             alt = clone_dir / "repo"
-            if ec_policy_dir and (alt / ec_policy_dir).is_dir():
+            if conforma_policy_dir and (alt / conforma_policy_dir).is_dir():
                 repo_dir = alt
             else:
                 repo_dir = None
@@ -660,7 +667,7 @@ def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
     dest = workdir / "repo"
     repo_url = _get_authenticated_repo_url()
 
-    policy_parent = str(Path(ec_policy_dir).parent) if ec_policy_dir else ""
+    policy_parent = str(Path(conforma_policy_dir).parent) if conforma_policy_dir else ""
     sparse_paths = [p for p in [policy_parent, "exceptions"] if p]
     _run_git(
         [

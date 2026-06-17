@@ -81,7 +81,7 @@ Present these as:
 
 ## Open Jira Ticket Coverage
 
-The output also includes `open_jira_tickets` for each violation — open RHOAIENG, PSX, or OCPEXCEPT tickets with the `conforma-violation` label that match the violation rule. When present, show them alongside the MR coverage. This is informational (does not block exception creation) but prevents creating duplicate Jira tickets.
+The output also includes `open_jira_tickets` for each violation — open RHOAIENG, PSX, OCPEXCEPT, or PRODSECRM tickets with the `conforma-violation` label that match the violation rule. When present, show them alongside the Merge Request coverage. This is informational (does not block exception creation) but prevents creating duplicate Jira tickets.
 
 ## Slack Thread Coverage
 

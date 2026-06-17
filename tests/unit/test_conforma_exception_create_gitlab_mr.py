@@ -2,29 +2,46 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 import create_gitlab_mr as mod
 
-TEST_EC_POLICY_DIR = "config/test-cluster.example.p1/product/EnterpriseContractPolicy"
+TEST_CONFORMA_POLICY_DIR = "config/test-cluster.example.p1/product/EnterpriseContractPolicy"
+
+RHOAI_CONFORMA_FILES = [
+    "fbc-rhoai-prod.yaml",
+    "fbc-rhoai-stage.yaml",
+    "registry-rhoai-prod.yaml",
+    "registry-rhoai-stage.yaml",
+]
+
+MULTI_PRODUCT_CONFORMA_FILES = [
+    "fbc-rhoai-prod.yaml",
+    "fbc-rhoai-stage.yaml",
+    "registry-ai-containers-preview-prod.yaml",
+    "registry-ai-containers-prod.yaml",
+    "registry-rhoai-chart-prod.yaml",
+    "registry-rhoai-prod.yaml",
+    "registry-rhoai-stage.yaml",
+]
+
+RHOAI_SELF_SERVICE_FILES = [
+    "fbc-rhoai-prod.yaml",
+    "fbc-rhoai-stage.yaml",
+    "registry-rhoai-prod.yaml",
+    "registry-rhoai-stage.yaml",
+]
 
 
 @pytest.fixture(autouse=True)
-def _patch_ec_policy_dir():
-    with patch.object(mod, "_EC_POLICY_DIR", TEST_EC_POLICY_DIR):
-        with patch.object(
-            mod,
-            "POLICY_PATHS",
-            {
-                ("registry", "prod"): f"{TEST_EC_POLICY_DIR}/registry-rhoai-prod.yaml",
-                ("registry", "stage"): f"{TEST_EC_POLICY_DIR}/registry-rhoai-stage.yaml",
-                ("fbc", "prod"): f"{TEST_EC_POLICY_DIR}/fbc-rhoai-prod.yaml",
-                ("fbc", "stage"): f"{TEST_EC_POLICY_DIR}/fbc-rhoai-stage.yaml",
-            },
-        ):
-            yield
+def _patch_conforma_policy_dir(monkeypatch):
+    monkeypatch.setattr(mod, "_CONFORMA_POLICY_DIR", TEST_CONFORMA_POLICY_DIR)
+    monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", TEST_CONFORMA_POLICY_DIR)
+    monkeypatch.setenv("KONFLUX_APPLICATION_SLUG", "rhoai")
+    monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES", ",".join(RHOAI_CONFORMA_FILES))
+    monkeypatch.setenv("KONFLUX_SELF_SERVICE_FILES", ",".join(RHOAI_SELF_SERVICE_FILES))
 
 
 SAMPLE_POLICY_CONTENT = """\
@@ -80,11 +97,46 @@ class TestGetTargetFile:
         path = mod.get_target_file("fbc", "stage", is_self_service=True)
         assert path == "exceptions/fbc-rhoai-stage.yaml"
 
-    def test_unknown_key_falls_back(self):
+    def test_unknown_type_falls_back_to_glob(self, monkeypatch):
+        monkeypatch.delenv("KONFLUX_CONFORMA_POLICY_FILES", raising=False)
         policy = mod.get_target_file("unknown", "unknown", is_self_service=False)
-        assert policy.endswith("registry-rhoai-prod.yaml")
-        self_service = mod.get_target_file("unknown", "unknown", is_self_service=True)
-        assert self_service == "exceptions/fbc-rhoai-prod.yaml"
+        assert "unknown-*-unknown.yaml" in policy
+
+
+class TestApplicationSlugFiltering:
+    """Application slug must disambiguate when multiple apps share the EC dir."""
+
+    def test_app_slug_selects_rhoai(self, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES", ",".join(MULTI_PRODUCT_CONFORMA_FILES))
+        monkeypatch.setenv("KONFLUX_APPLICATION_SLUG", "rhoai")
+        path = mod.get_target_file("registry", "prod", is_self_service=False)
+        assert path.endswith("registry-rhoai-prod.yaml")
+
+    def test_app_slug_selects_ai_containers_preview(self, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES", ",".join(MULTI_PRODUCT_CONFORMA_FILES))
+        monkeypatch.setenv("KONFLUX_APPLICATION_SLUG", "ai-containers-preview")
+        path = mod.get_target_file("registry", "prod", is_self_service=False)
+        assert path.endswith("registry-ai-containers-preview-prod.yaml")
+
+    def test_ambiguous_raises_without_app_slug(self, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES", ",".join(MULTI_PRODUCT_CONFORMA_FILES))
+        monkeypatch.delenv("KONFLUX_APPLICATION_SLUG", raising=False)
+        with pytest.raises(mod.AmbiguousPolicyFileError) as exc_info:
+            mod.get_target_file("registry", "prod", is_self_service=False)
+        assert "registry-ai-containers-preview-prod.yaml" in exc_info.value.candidates
+        assert "registry-rhoai-prod.yaml" in exc_info.value.candidates
+
+    def test_single_match_works_without_app_slug(self, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES", ",".join(RHOAI_CONFORMA_FILES))
+        monkeypatch.delenv("KONFLUX_APPLICATION_SLUG", raising=False)
+        path = mod.get_target_file("registry", "prod", is_self_service=False)
+        assert path.endswith("registry-rhoai-prod.yaml")
+
+    def test_fbc_unambiguous_with_app_slug(self, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES", ",".join(MULTI_PRODUCT_CONFORMA_FILES))
+        monkeypatch.setenv("KONFLUX_APPLICATION_SLUG", "rhoai")
+        path = mod.get_target_file("fbc", "prod", is_self_service=False)
+        assert path.endswith("fbc-rhoai-prod.yaml")
 
 
 class TestGenerateExceptionYaml:
@@ -343,3 +395,141 @@ class TestMrTitleEnvPrefix:
         specs = [{"version": "rhoai-3.3"}]
         title = mod._build_mr_title_consolidated("hermetic_task.hermetic", specs, environment="stage")
         assert title.startswith("[stage] [RHOAI]")
+
+
+class TestSyncMrDescription:
+    """_sync_mr_description must update title + description on the open MR."""
+
+    @patch("create_gitlab_mr.gitlab_ops")
+    def test_updates_existing_mr(self, mock_ops):
+        mock_ops.find_mr.return_value = [
+            {"mr_iid": 42, "mr_url": "https://gitlab.example.com/mr/42"}
+        ]
+        mock_ops.update_mr.return_value = {
+            "mr_url": "https://gitlab.example.com/mr/42"
+        }
+
+        result = mod._sync_mr_description(
+            "my-branch", "New Title", "New body text"
+        )
+
+        mock_ops.find_mr.assert_called_once_with(
+            mod.GITLAB_PROJECT, source_branch="my-branch", state="opened"
+        )
+        mock_ops.update_mr.assert_called_once_with(
+            mod.GITLAB_PROJECT, 42, title="New Title", description="New body text"
+        )
+        assert result == {"mr_url": "https://gitlab.example.com/mr/42"}
+
+    @patch("create_gitlab_mr.gitlab_ops")
+    def test_returns_none_when_no_mr_found(self, mock_ops):
+        mock_ops.find_mr.return_value = []
+
+        result = mod._sync_mr_description(
+            "nonexistent-branch", "Title", "Body"
+        )
+
+        assert result is None
+        mock_ops.update_mr.assert_not_called()
+
+    @patch("create_gitlab_mr.gitlab_ops")
+    def test_returns_none_when_find_mr_errors(self, mock_ops):
+        mock_ops.find_mr.return_value = [{"error": "API failure"}]
+
+        result = mod._sync_mr_description(
+            "my-branch", "Title", "Body"
+        )
+
+        assert result is None
+        mock_ops.update_mr.assert_not_called()
+
+
+class TestMrBodyContent:
+    """MR body builders must include all version/component details."""
+
+    def test_consolidated_body_lists_all_versions(self):
+        specs = [
+            {"version": "rhoai-3.3", "components": ["comp-v3-3"], "effective_until": "2026-10-01T00:00:00Z"},
+            {"version": "rhoai-3.4", "components": ["comp-v3-4"], "effective_until": "2026-08-01T00:00:00Z"},
+            {"version": "rhoai-3.5-ea.1", "components": ["comp-v3-5-ea-1"], "effective_until": "2026-10-05T00:00:00Z"},
+        ]
+        body = mod._build_mr_body_consolidated(
+            rule="rpm_signature.allowed:abc",
+            version_specs=specs,
+            target_file="config/test/registry-rhoai-prod.yaml",
+        )
+        assert "`rhoai-3.3`" in body
+        assert "`rhoai-3.4`" in body
+        assert "`rhoai-3.5-ea.1`" in body
+        assert "`comp-v3-3`" in body
+        assert "`comp-v3-4`" in body
+        assert "`comp-v3-5-ea-1`" in body
+        assert "2026-10-05T00:00:00Z" in body
+
+    def test_single_body_includes_components(self):
+        body = mod._build_mr_body(
+            rule="hermetic_task.hermetic",
+            components=["dash-v3-4", "model-v3-4"],
+            rhoai_version="rhoai-3.4",
+            effective_until="2026-12-01T00:00:00Z",
+            target_file="config/test/registry-rhoai-prod.yaml",
+        )
+        assert "`dash-v3-4`" in body
+        assert "`model-v3-4`" in body
+        assert "`rhoai-3.4`" in body
+
+
+class TestValidateRepoRelativePath:
+    """_validate_repo_relative_path rejects traversal and absolute paths."""
+
+    def test_normal_relative_path_passes(self):
+        result = mod._validate_repo_relative_path("config/cluster/product/registry-rhoai-prod.yaml")
+        assert result == "config/cluster/product/registry-rhoai-prod.yaml"
+
+    def test_normalizes_redundant_separators(self):
+        result = mod._validate_repo_relative_path("config//cluster///file.yaml")
+        assert result == "config/cluster/file.yaml"
+
+    def test_normalizes_safe_dotdot(self):
+        result = mod._validate_repo_relative_path("config/a/../b/file.yaml")
+        assert result == "config/b/file.yaml"
+
+    def test_rejects_absolute_path(self):
+        with pytest.raises(ValueError, match="not repo-relative"):
+            mod._validate_repo_relative_path("/etc/passwd")
+
+    def test_rejects_dotdot_escaping_root(self):
+        with pytest.raises(ValueError, match="not repo-relative"):
+            mod._validate_repo_relative_path("../../etc/passwd")
+
+    def test_rejects_deep_traversal(self):
+        with pytest.raises(ValueError, match="not repo-relative"):
+            mod._validate_repo_relative_path("config/../../etc/passwd")
+
+    def test_rejects_bare_dotdot(self):
+        with pytest.raises(ValueError, match="not repo-relative"):
+            mod._validate_repo_relative_path("..")
+
+    def test_exceptions_dir_passes(self):
+        result = mod._validate_repo_relative_path("exceptions/registry-rhoai-prod.yaml")
+        assert result == "exceptions/registry-rhoai-prod.yaml"
+
+    def test_dot_path_passes(self):
+        result = mod._validate_repo_relative_path("./config/file.yaml")
+        assert result == "config/file.yaml"
+
+
+class TestGetTargetFilePathValidation:
+    """get_target_file validates the resolved path."""
+
+    def test_rejects_traversal_in_policy_dir(self, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "/etc/evil")
+        monkeypatch.delenv("KONFLUX_CONFORMA_POLICY_FILES", raising=False)
+        with pytest.raises(ValueError, match="not repo-relative"):
+            mod.get_target_file("registry", "prod", is_self_service=False)
+
+    def test_rejects_dotdot_in_policy_dir(self, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "../../etc")
+        monkeypatch.delenv("KONFLUX_CONFORMA_POLICY_FILES", raising=False)
+        with pytest.raises(ValueError, match="not repo-relative"):
+            mod.get_target_file("registry", "prod", is_self_service=False)

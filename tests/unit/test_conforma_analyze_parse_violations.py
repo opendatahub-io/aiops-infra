@@ -26,6 +26,36 @@ class TestExtractFullRuleCode:
         result = parse_violations.extract_full_rule_code(code, message)
         assert result == "test.no_failed_tests:my-test-task"
 
+    def test_test_no_failed_tests_from_description(self):
+        code = "test.no_failed_tests"
+        message = 'The Task "deprecated-image-check" from the build Pipeline reports a failed test'
+        description = (
+            'Produce a violation if any non-informative tests have their result set to "FAILED". '
+            'To exclude this rule add "test.no_failed_tests:deprecated-image-check" to the '
+            '`exclude` section of the policy configuration.'
+        )
+        result = parse_violations.extract_full_rule_code(code, message, description)
+        assert result == "test.no_failed_tests:deprecated-image-check"
+
+    def test_test_no_failed_tests_description_preferred_over_message(self):
+        code = "test.no_failed_tests"
+        message = 'task "wrong-name" failed'
+        description = 'add "test.no_failed_tests:correct-name" to the `exclude` section'
+        result = parse_violations.extract_full_rule_code(code, message, description)
+        assert result == "test.no_failed_tests:correct-name"
+
+    def test_test_no_failed_tests_message_fallback_real_format(self):
+        code = "test.no_failed_tests"
+        message = 'The Task "fbc-target-index-pruning-check" from the build Pipeline reports a failed test'
+        result = parse_violations.extract_full_rule_code(code, message)
+        assert result == "test.no_failed_tests:fbc-target-index-pruning-check"
+
+    def test_test_no_failed_tests_no_description_no_message_match(self):
+        code = "test.no_failed_tests"
+        message = "Some unrecognized format"
+        result = parse_violations.extract_full_rule_code(code, message)
+        assert result == "test.no_failed_tests"
+
     def test_code_already_has_suffix(self):
         code = "some.rule:existing-suffix"
         message = "Irrelevant message"

@@ -1,0 +1,21 @@
+# Component Rename Aliases
+#
+# Each alias group lists full Konflux component names that refer to the same
+# logical component across renames.  The coverage pipeline treats any two
+# names in the same group as equivalent when matching violations against
+# exceptions and open MRs.
+#
+# Format:
+#   alias_groups:
+#     - names: [full-name-a, full-name-b, ...]
+#       note: "short explanation of the rename"
+#
+# Names are matched exactly as they appear in violation reports and exception
+# files.  When a new release or rename happens, add a line to the relevant
+# group (or create a new group).
+
+alias_groups:
+  - names:
+      - odh-ogx-core-v3-5-ea-1
+      - odh-llama-cpp-server-v3-5-ea-1
+    note: "ogx is the new name for llama, renamed in rhoai-3.5"

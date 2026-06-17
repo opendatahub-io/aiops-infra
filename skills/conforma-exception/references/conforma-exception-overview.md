@@ -18,7 +18,7 @@ Concretely, an exception is a YAML entry added to a Conforma Policy file in the 
 Key fields:
 
 - **`value`** — the Conforma rule being waived (e.g. `hermetic_task.hermetic`, `rpm_signature.allowed:...`, `fips-check`)
-- **`componentNames`** — the Konflux component names the waiver applies to. Conforma also supports `imageUrl` for scoping by container image reference, but this skill exclusively uses `componentNames` for precision and maintainability
+- **`componentNames`** — the Konflux component names the waiver applies to (primary scoping key). Conforma also supports `imageRef` for scoping by container image reference — this skill uses `imageRef` for specific cases like `schedule.weekday_restriction` where image-level scoping is required, and `componentNames` for all other exceptions
 - **`effectiveUntil`** — the expiry date in RFC 3339 format, after which the rule is enforced again
 - **`reference`** — the PSX or OCPEXCEPT Jira ticket URL that authorized the exception through the Product Security approval workflow
 

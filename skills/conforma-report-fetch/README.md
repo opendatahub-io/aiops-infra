@@ -11,4 +11,4 @@ The Tekton JSON mode requires extra tools beyond the shared suite prerequisites:
 - **VPN**: Connected to the corporate VPN
 - **`oc` CLI**: Installed and authenticated to the Konflux cluster (`oc login --server=$KONFLUX_INTERNAL_API`)
 - **`jq`**: Installed (used for JSON parsing)
-- **Environment variables**: `TEKTON_RESULTS_DOMAIN`, `KONFLUX_NAMESPACE` (see SKILL.md for details)
+- **Environment variables**: `TEKTON_RESULTS_API_DOMAIN`, `KONFLUX_NAMESPACE` (see SKILL.md for details)

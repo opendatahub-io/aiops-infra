@@ -1,6 +1,6 @@
 ---
 name: conforma-release-readiness
-description: "Answer 'Can RHOAI version X ship?' with a detailed breakdown: blocking violations, exception coverage, expiring exceptions, pending MRs, and a ship/no-ship verdict."
+description: "Answer 'Can RHOAI version X ship?' with a detailed breakdown: blocking violations, exception coverage, expiring exceptions, pending Merge Requests, and a ship/no-ship verdict."
 allowed-tools: Bash(python3:*,gh:*,glab:*,git:*)
 user-invocable: true
 ---
@@ -21,8 +21,10 @@ This skill is part of the conforma suite in [aiops-infra](https://github.com/ope
 2. Fetches all active exceptions from konflux-release-data
 3. Cross-references: which violations have valid exception coverage?
 4. Checks exception expiry dates (warns if expiring within 14 days)
-5. Checks pending MRs (exceptions in-flight but not yet merged)
+5. Checks pending Merge Requests (exceptions in-flight but not yet merged)
 6. Produces verdict: **SHIP** / **NO-SHIP** with detailed breakdown
+
+**Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md).
 
 ## Workflow
 
@@ -54,7 +56,7 @@ The readiness check produces:
 | **Blocking violations** | Violations with no exception coverage |
 | **Covered violations** | Violations with active exception coverage |
 | **Expiring soon** | Exceptions expiring within 14 days of target date |
-| **Pending MRs** | Exception MRs not yet merged |
+| **Pending Merge Requests** | Exception Merge Requests not yet merged |
 | **Summary** | "X of Y violations covered, Z blocking" |
 
 ## Examples

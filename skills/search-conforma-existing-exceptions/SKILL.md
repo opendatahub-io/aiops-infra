@@ -27,7 +27,7 @@ python3 scripts/conforma_policy_ops.py search-exceptions \
 ## Prerequisites
 
 - GitLab auth: `glab auth status --hostname "$GITLAB_HOST"` (for cloning the repo if no `--clone-dir`)
-- Environment variables: `KRD_CLUSTER_DOMAIN` or `KRD_EC_POLICY_DIR`
+- Environment variables: `KONFLUX_CLUSTER_DOMAIN` or `KONFLUX_CONFORMA_POLICY_DIR`
 
 ## Output
 

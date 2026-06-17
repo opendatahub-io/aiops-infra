@@ -61,19 +61,20 @@ class TestRenderViolationsMarkdownTable:
         md = mod._render_violations_markdown_table(results, summary, include_slack=False)
         assert "Slack" not in md
 
-    def test_next_steps_is_static_string(self):
+    def test_next_steps_renders_in_table(self):
         results = [
             {
                 "rule": "test.rule",
                 "display_components": "comp-v1",
                 "open_mr_label": "",
                 "open_jira_label": "",
-                "next_steps": "see resolution guide below",
+                "next_steps": "untracked, needs fix or exception — see resolution guide",
             }
         ]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         md = mod._render_violations_markdown_table(results, summary)
-        assert "see resolution guide below" in md
+        assert "see resolution guide" in md
+        assert "untracked" in md
 
     def test_footer_references_violation_guide(self):
         results = [
@@ -88,3 +89,86 @@ class TestRenderViolationsMarkdownTable:
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         md = mod._render_violations_markdown_table(results, summary)
         assert "Violation Resolution Guide" in md
+
+    def test_violation_count_column(self):
+        results = [
+            {
+                "rule": "test.rule",
+                "violation_count": 5,
+                "display_components": "comp-v1",
+                "open_mr_label": "",
+                "open_jira_label": "",
+                "next_steps": "see resolution guide",
+            }
+        ]
+        summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
+        md = mod._render_violations_markdown_table(results, summary)
+        assert "| 5 |" in md
+
+    def test_column_header_says_merge_requests(self):
+        results = [
+            {
+                "rule": "test.rule",
+                "display_components": "comp-v1",
+                "open_mr_label": "",
+                "open_jira_label": "",
+                "next_steps": "see resolution guide below",
+            }
+        ]
+        summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
+        md = mod._render_violations_markdown_table(results, summary)
+        assert "Open Merge Requests" in md
+        assert "Open MRs" not in md
+
+
+class TestSummarizeNextSteps:
+    """Tests for _summarize_next_steps context-sensitive hints."""
+
+    def test_fully_covered(self):
+        result = mod._summarize_next_steps("fully_covered", [], [], 0)
+        assert "covered by existing exceptions" in result
+        assert "resolution guide" in result
+
+    def test_not_covered_no_mr_no_jira(self):
+        result = mod._summarize_next_steps("not_covered", [], [], 3)
+        assert "untracked" in result
+        assert "needs fix or exception" in result
+
+    def test_not_covered_with_jira(self):
+        tickets = [{"key": "RHOAIENG-1", "status": "Open"}]
+        result = mod._summarize_next_steps("not_covered", [], tickets, 3)
+        assert "Jira tracked" in result
+        assert "needs fix or exception" in result
+
+    def test_not_covered_with_exception_mr(self):
+        mrs = [{"suggestion": "fully_covered", "mr_type": "exception", "iid": 1}]
+        result = mod._summarize_next_steps("not_covered", mrs, [], 3)
+        assert "exception Merge Request open" in result
+
+    def test_not_covered_with_remedy_mr(self):
+        mrs = [{"suggestion": "no_overlap", "mr_type": "remedy", "iid": 2}]
+        result = mod._summarize_next_steps("not_covered", mrs, [], 3)
+        assert "remedy Merge Request open" in result
+
+    def test_not_covered_with_both_mr_types(self):
+        mrs = [
+            {"suggestion": "fully_covered", "mr_type": "exception", "iid": 1},
+            {"suggestion": "no_overlap", "mr_type": "remedy", "iid": 2},
+        ]
+        result = mod._summarize_next_steps("not_covered", mrs, [], 3)
+        assert "exception + remedy Merge Requests open" in result
+
+    def test_partially_covered_with_uncovered_count(self):
+        mrs = [{"suggestion": "extend_mr", "mr_type": "exception", "iid": 1}]
+        result = mod._summarize_next_steps("partially_covered", mrs, [], 5)
+        assert "5 component(s) still uncovered" in result
+        assert "exception Merge Request open" in result
+
+    def test_partially_covered_no_mr(self):
+        result = mod._summarize_next_steps("partially_covered", [], [], 2)
+        assert "2 component(s) still uncovered" in result
+
+    def test_all_results_end_with_resolution_guide(self):
+        for cov in ["fully_covered", "partially_covered", "not_covered"]:
+            result = mod._summarize_next_steps(cov, [], [], 1)
+            assert result.endswith("— see resolution guide")

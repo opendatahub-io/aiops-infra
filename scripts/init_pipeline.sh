@@ -56,9 +56,9 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
   fi
 
   # krd depends on quay (both); also delivery_repo for RHOAI
-  KRD_DEPENDS_ON='["quay"]'
+  RELEASE_DATA_DEPENDS_ON='["quay"]'
   if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
-    KRD_DEPENDS_ON='["quay", "delivery_repo"]'
+    RELEASE_DATA_DEPENDS_ON='["quay", "delivery_repo"]'
   fi
 
   # okc depends on krd for RHOAI; no dependency for ODH
@@ -116,7 +116,7 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     "krd": {
       "status": "pending",
       "mr_url": "",
-      "depends_on": ${KRD_DEPENDS_ON},
+      "depends_on": ${RELEASE_DATA_DEPENDS_ON},
       "label_raised": "krd-mr-raised",
       "label_done": "krd-mr-merged"
     },

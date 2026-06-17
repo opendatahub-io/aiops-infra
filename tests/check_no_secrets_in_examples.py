@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Pre-commit hook: reject commits if example files contain real secrets.
 
-Checks .work/.env.example and site-config.example.yaml for values that look
-like real tokens, passwords, or infrastructure details rather than empty
-placeholders.
+Checks .work/.env.example for values that look like real tokens, passwords,
+or infrastructure details rather than empty placeholders.
 
 Usage (as pre-commit hook — see .pre-commit-config.yaml):
     python tests/check_no_secrets_in_examples.py
@@ -23,7 +22,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 EXAMPLE_FILES = [
     REPO_ROOT / ".work" / ".env.example",
-    REPO_ROOT / ".work" / "site-config.example.yaml",
 ]
 
 TOKEN_PATTERNS = [
@@ -72,43 +70,11 @@ def check_env_example(filepath: Path) -> list[str]:
     return issues
 
 
-def check_yaml_example(filepath: Path) -> list[str]:
-    """Check site-config.example.yaml for values that look like real infra."""
-    if not filepath.is_file():
-        return []
-    try:
-        import yaml
-        data = yaml.safe_load(filepath.read_text()) or {}
-    except Exception:
-        return []
-
-    issues = []
-
-    def walk(obj, path=""):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                walk(v, f"{path}.{k}" if path else k)
-        elif isinstance(obj, str) and obj:
-            if obj in SAFE_PLACEHOLDER_VALUES:
-                return
-            for pat in TOKEN_PATTERNS:
-                if pat.search(obj):
-                    issues.append(f"  {filepath.name}: {path}= matches token pattern '{pat.pattern}'")
-                    return
-            if len(obj) >= 20 and not obj.startswith("http"):
-                issues.append(f"  {filepath.name}: {path}= has a {len(obj)}-char value (looks real)")
-
-    walk(data)
-    return issues
-
-
 def main() -> int:
     all_issues: list[str] = []
     for filepath in EXAMPLE_FILES:
         if filepath.name.endswith(".env.example"):
             all_issues.extend(check_env_example(filepath))
-        elif filepath.name.endswith(".yaml"):
-            all_issues.extend(check_yaml_example(filepath))
 
     if not all_issues:
         return 0

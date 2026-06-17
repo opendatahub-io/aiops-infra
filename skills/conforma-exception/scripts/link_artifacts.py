@@ -35,7 +35,7 @@ WORK_DIR = _SKILL_DIR / ".work"
 
 
 def _ensure_jira_env() -> None:
-    """Ensure jira env vars are available (site_config.load() already handles this)."""
+    """Ensure jira env vars are available (konflux_environment.load() already handles this)."""
     pass
 
 

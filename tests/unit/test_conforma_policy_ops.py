@@ -2,7 +2,50 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import conforma_policy_ops as mod
+
+
+class TestResolveRepoDir:
+    def test_returns_none_when_policy_dir_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        assert mod._resolve_repo_dir(tmp_path) is None
+
+    def test_returns_candidate_when_policy_dir_exists(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        policy_dir = tmp_path / "config" / "stone-prod-p02.hjvn.p1" / "product" / "EnterpriseContractPolicy"
+        policy_dir.mkdir(parents=True)
+        assert mod._resolve_repo_dir(tmp_path) == tmp_path
+
+    def test_returns_repo_subdir_when_nested(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        policy_dir = tmp_path / "repo" / "config" / "stone-prod-p02.hjvn.p1" / "product" / "EnterpriseContractPolicy"
+        policy_dir.mkdir(parents=True)
+        assert mod._resolve_repo_dir(tmp_path) == tmp_path / "repo"
+
+    def test_returns_none_when_no_env_vars(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("KONFLUX_CLUSTER_DOMAIN", raising=False)
+        monkeypatch.delenv("KONFLUX_CONFORMA_POLICY_DIR", raising=False)
+        assert mod._resolve_repo_dir(tmp_path) is None
+
+
+class TestRefreshClone:
+    @patch("conforma_policy_ops._refresh_workdir_clone")
+    def test_calls_refresh_when_repo_dir_found(self, mock_refresh, tmp_path, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        policy_dir = tmp_path / "config" / "stone-prod-p02.hjvn.p1" / "product" / "EnterpriseContractPolicy"
+        policy_dir.mkdir(parents=True)
+        result = mod.refresh_clone(tmp_path)
+        assert result == tmp_path
+        mock_refresh.assert_called_once_with(tmp_path)
+
+    @patch("conforma_policy_ops._refresh_workdir_clone")
+    def test_returns_none_when_no_policy_dir(self, mock_refresh, tmp_path, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        result = mod.refresh_clone(tmp_path)
+        assert result is None
+        mock_refresh.assert_not_called()
 
 
 class TestCheckPermanentExclusions:
@@ -46,15 +89,15 @@ class TestSearchExistingExceptions:
         assert result["checked"] is False
 
     def test_returns_not_checked_when_no_env_vars(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("KRD_CLUSTER_DOMAIN", raising=False)
-        monkeypatch.delenv("KRD_EC_POLICY_DIR", raising=False)
+        monkeypatch.delenv("KONFLUX_CLUSTER_DOMAIN", raising=False)
+        monkeypatch.delenv("KONFLUX_CONFORMA_POLICY_DIR", raising=False)
         result = mod.search_existing_exceptions("hermetic_task.hermetic", str(tmp_path))
         assert result["checked"] is False
-        assert "KRD_CLUSTER_DOMAIN" in result["reason"]
+        assert "KONFLUX_CLUSTER_DOMAIN" in result["reason"]
 
     def test_finds_permanent_exclusion_in_policy_file(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("KRD_CLUSTER_DOMAIN", raising=False)
-        monkeypatch.setenv("KRD_EC_POLICY_DIR", "policy")
+        monkeypatch.delenv("KONFLUX_CLUSTER_DOMAIN", raising=False)
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "policy")
         policy_dir = tmp_path / "policy"
         policy_dir.mkdir()
         policy_file = policy_dir / "registry-rhoai-prod.yaml"

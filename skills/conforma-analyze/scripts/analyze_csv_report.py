@@ -625,6 +625,72 @@ def format_json(result: AnalysisResult, component_owners: dict[str, str | None] 
     return json.dumps(data, indent=2, default=list)
 
 
+CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
+CONFORMA_REPORTER_WORKFLOW = (
+    f"https://github.com/{CONFORMA_REPORTER_REPO}/actions/workflows/conforma-reporter.yaml"
+)
+STALENESS_THRESHOLD_DAYS = 3
+
+
+def _build_report_header(metadata_file: str, release: str, fmt: str) -> str:
+    """Build a report header (and staleness warning if applicable) from fetch metadata.
+
+    Returns a string to prepend to the analysis output. Empty string if metadata
+    cannot be loaded or release is not found in it.
+    """
+    try:
+        metadata = json.loads(Path(metadata_file).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"WARNING: Could not read metadata file {metadata_file}: {exc}", file=sys.stderr)
+        return ""
+
+    release_meta = metadata.get("releases", {}).get(release)
+    if not release_meta:
+        return ""
+
+    source_path = release_meta.get("source_path", "")
+    created_at = release_meta.get("created_at", "")
+    source_sha = release_meta.get("source_sha", "")
+
+    if not source_path:
+        return ""
+
+    ref = source_sha or release
+    source_url = f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{ref}/{source_path}"
+    created_display = created_at[:10] if created_at else "(unknown date)"
+
+    lines: list[str] = []
+
+    if fmt == "markdown":
+        lines.append(f"**Report**: [{source_path}]({source_url}) (generated {created_display})")
+    else:
+        lines.append(f"Report: {source_path} (generated {created_display})")
+
+    if created_at:
+        try:
+            created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            age_days = (datetime.now(timezone.utc) - created_dt).days
+            if age_days > STALENESS_THRESHOLD_DAYS:
+                if fmt == "markdown":
+                    lines.append("")
+                    lines.append(
+                        f"> **Stale report**: The report for `{release}` was generated "
+                        f"{age_days} days ago ({created_display}). Consider re-running the "
+                        f"[conforma-reporter workflow]({CONFORMA_REPORTER_WORKFLOW}) to get "
+                        f"an up-to-date report, then re-run this analysis."
+                    )
+                else:
+                    lines.append(
+                        f"WARNING: Report is {age_days} days old ({created_display}). "
+                        f"Re-run the conforma-reporter workflow for fresh data."
+                    )
+        except (ValueError, TypeError):
+            pass
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Analyze conforma violation and warnings reports")
     input_group = parser.add_mutually_exclusive_group(required=True)
@@ -663,6 +729,16 @@ def main() -> int:
         "--violations-yaml",
         default=None,
         help="Path to enriched violations YAML (from parse_violations.py) to read jira_component ownership data",
+    )
+    parser.add_argument(
+        "--metadata-file",
+        default=None,
+        help="Path to fetch-metadata.json — enables report header and staleness check in output",
+    )
+    parser.add_argument(
+        "--release",
+        default=None,
+        help="Release name (e.g. rhoai-3.5-ea.1) — used to look up metadata for report header",
     )
     args = parser.parse_args()
 
@@ -715,6 +791,15 @@ def main() -> int:
         "json": format_json,
     }
     output = formatters[args.format](result, **formatter_kwargs)
+
+    header = ""
+    if args.metadata_file and args.release:
+        header = _build_report_header(args.metadata_file, args.release, args.format)
+    elif args.metadata_file and not args.release:
+        print("WARNING: --metadata-file requires --release to look up metadata", file=sys.stderr)
+
+    if header:
+        output = header + output
 
     if args.output:
         output_path = Path(args.output)

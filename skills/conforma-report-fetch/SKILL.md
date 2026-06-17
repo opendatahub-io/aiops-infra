@@ -16,6 +16,8 @@ Fetch conforma reports from two independent sources:
 
 ---
 
+**Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md).
+
 ## 1. CSV Violation Reports (GitHub)
 
 > **Staleness warning:** CSV reports are generated on a schedule by the `conforma-reporter` CI job and committed to the repo. They can lag behind the live Konflux state by hours or days. When using CSV data, always inform the user of the report's `created_at` timestamp (returned by the fetch script) so they know how current it is. For the freshest data, use the Tekton JSON mode instead.
@@ -106,8 +108,8 @@ See [README.md](README.md) for shared prerequisites. Tekton mode requires these 
 - **`jq`**: Installed (used for JSON parsing and handover assembly)
 - **`curl`**, **`awk`**, **`sed`**: Standard Unix tools (used for API requests and log extraction)
 - **Namespace access**: Read access to the namespace specified by `KONFLUX_NAMESPACE`
-- **Environment variables** (via `site-config.yaml` or explicit export):
-  - `KRD_CLUSTER_DOMAIN` — Konflux cluster domain (Tekton route and API URL are derived from this)
+- **Environment variables** (via infrastructure discovery, or manually in `.work/.env`):
+  - `KONFLUX_CLUSTER_DOMAIN` — Konflux cluster domain (Tekton route and API URL are derived from this)
   - `KONFLUX_NAMESPACE` — target Konflux namespace
 
 ### Usage
@@ -130,9 +132,9 @@ skills/conforma-report-fetch/scripts/fetch_tekton_report.sh <pipelinerun-name> -
 | Variable | Description |
 |---|---|
 | `KONFLUX_TOKEN` | Optional. Bearer token for cluster auth. Falls back to `oc whoami -t` if unset. |
-| `KRD_CLUSTER_DOMAIN` | Required (unless `TEKTON_RESULTS_DOMAIN` is set). Cluster domain — Tekton route is derived automatically. |
+| `KONFLUX_CLUSTER_DOMAIN` | Required (unless `TEKTON_RESULTS_API_DOMAIN` is set). Cluster domain — Tekton route is derived automatically. |
 | `KONFLUX_NAMESPACE` | Required. Target Konflux namespace. |
-| `TEKTON_RESULTS_DOMAIN` | Optional. Overrides the Tekton Results hostname (derived from `KRD_CLUSTER_DOMAIN` by default). |
+| `TEKTON_RESULTS_API_DOMAIN` | Optional. Overrides the Tekton Results hostname (derived from `KONFLUX_CLUSTER_DOMAIN` by default). |
 
 ### Handover Output
 

@@ -46,8 +46,10 @@ import csv
 import io
 import json
 import os
+import posixpath
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 import requests
@@ -210,7 +212,14 @@ def trace_history(
 
     # 1 — resolve CSV path
     if csv_path_override:
-        csv_path = csv_path_override
+        normalized = posixpath.normpath(csv_path_override)
+        if normalized.startswith("..") or normalized.startswith("/") or "\\" in csv_path_override:
+            return {
+                "error": f"Unsafe CSV path: {csv_path_override!r}",
+                "release": release,
+                "code": code,
+            }
+        csv_path = normalized
         print(f"Using specified CSV path: {csv_path}", file=sys.stderr)
     else:
         print(f"Probing CSV path on {release}...", file=sys.stderr)
@@ -247,6 +256,14 @@ def trace_history(
         content = _fetch_csv_content(commit["sha"], csv_path)
         if content is None:
             print("  FETCH_FAILED", file=sys.stderr)
+            timeline.append({
+                "sha": sha_short,
+                "date": commit["date"],
+                "present": False,
+                "count": 0,
+                "components": [],
+                "fetch_failed": True,
+            })
             continue
 
         result = _check_violation_in_csv(content, code, component)
@@ -274,7 +291,9 @@ def trace_history(
         return {"error": "Could not fetch any commit content", "release": release, "code": code, "csv_path": csv_path}
 
     # 4 — derive summary fields
-    currently_present = timeline[0]["present"]
+    # Use the first non-failed entry for currently_present; if HEAD failed, mark unknown
+    first_reliable = next((e for e in timeline if not e.get("fetch_failed")), None)
+    currently_present = first_reliable["present"] if first_reliable else False
 
     last_seen = None
     disappeared_on = None
@@ -432,9 +451,15 @@ def main() -> int:
         default=None,
         help="Optional component name filter",
     )
+    def _positive_int(value: str) -> int:
+        n = int(value)
+        if n <= 0:
+            raise argparse.ArgumentTypeError(f"must be a positive integer, got {n}")
+        return n
+
     parser.add_argument(
         "--max-commits",
-        type=int,
+        type=_positive_int,
         default=100,
         help="Max commits to check (default: 100)",
     )

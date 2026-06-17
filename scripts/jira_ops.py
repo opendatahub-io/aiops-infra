@@ -15,9 +15,9 @@ if _scripts_dir not in sys.path:
 from jira import JIRA  # noqa: E402
 from jira.exceptions import JIRAError  # noqa: E402
 
-import site_config  # noqa: E402
+import konflux_environment  # noqa: E402
 
-site_config.load()
+konflux_environment.load()
 
 DEFAULT_JIRA_URL = "https://redhat.atlassian.net"
 
@@ -433,6 +433,7 @@ def main() -> None:
     update_issue_parser.add_argument("--key", required=True)
     update_issue_parser.add_argument("--summary")
     update_issue_parser.add_argument("--description")
+    update_issue_parser.add_argument("--labels", nargs="*", default=None)
 
     search_parser = sub.add_parser("search")
     search_parser.add_argument("--jql", required=True, help="JQL query string")
@@ -471,7 +472,7 @@ def main() -> None:
         comp_list = [c.strip() for c in args.components.split(",")] if args.components else None
         result = create_issue(args.project, args.summary, args.description, args.issue_type, components=comp_list)
     elif args.command == "update-issue":
-        result = update_issue(args.key, summary=args.summary, description=args.description)
+        result = update_issue(args.key, summary=args.summary, description=args.description, labels=args.labels)
     elif args.command == "search":
         field_list = [f.strip() for f in args.fields.split(",")] if args.fields else None
         result = search_issues(args.jql, max_results=args.max_results, fields=field_list)

@@ -245,7 +245,7 @@ aiops-infra/
     jira-auth/                # Jira auth troubleshooting (SKILL.md only)
     github-auth/              # GitHub auth troubleshooting (SKILL.md only)
     slack-auth/               # Slack auth troubleshooting (SKILL.md only)
-    references/               # Shared references (site-config-setup.md)
+    references/               # Shared references (infrastructure setup, output presentation)
   .claude/skills/             # Onboarding pipeline skills (17 existing)
   tests/                      # Unit + integration tests
   .github/workflows/          # CI: lint + test workflows

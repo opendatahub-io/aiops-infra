@@ -28,12 +28,12 @@ GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
 
 
 def _ensure_jira_env() -> None:
-    """Ensure jira env vars are available (site_config.load() already handles this)."""
+    """Ensure jira env vars are available (konflux_environment.load() already handles this)."""
     pass
 
 
 def _ensure_gitlab_env() -> None:
-    """Ensure gitlab env vars are available (site_config.load() already handles this)."""
+    """Ensure gitlab env vars are available (konflux_environment.load() already handles this)."""
     pass
 
 
@@ -166,7 +166,7 @@ def check_glab_push_access() -> dict:
 
 
 def _persist_token_if_needed(env_var: str, check_name: str, checks: list[dict]) -> None:
-    """No-op: tokens are managed via .work/.env and site_config.load()."""
+    """No-op: tokens are managed via .work/.env and konflux_environment.load()."""
     pass
 
 

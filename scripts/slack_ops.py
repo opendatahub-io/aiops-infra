@@ -26,9 +26,9 @@ _scripts_dir = str(Path(__file__).resolve().parent)
 if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
-import site_config  # noqa: E402
+import konflux_environment  # noqa: E402
 
-site_config.load()
+konflux_environment.load()
 
 SLACKDUMP_CACHE_DIR = Path.home() / ".cache" / "slackdump"
 
@@ -90,7 +90,7 @@ def _workspace_name() -> str:
 
 
 def _workspace_url() -> str:
-    """Get the Slack workspace URL from site-config (SLACK_WORKSPACE_URL env var)."""
+    """Get the Slack workspace URL from environment (SLACK_WORKSPACE_URL env var)."""
     return os.environ.get("SLACK_WORKSPACE_URL", "").rstrip("/")
 
 

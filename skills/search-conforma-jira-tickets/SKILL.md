@@ -1,13 +1,13 @@
 ---
 name: search-conforma-jira-tickets
-description: Search for open Jira tickets (RHOAIENG, PSX, OCPEXCEPT) related to conforma violations.
+description: Search for open Jira tickets (RHOAIENG, PSX, OCPEXCEPT, PRODSECRM) related to conforma violations.
 allowed-tools: Bash(python3:*)
 user-invocable: true
 ---
 
 # Search Conforma Jira Tickets
 
-Batch search for open Jira tickets with the `conforma-violation` label across RHOAIENG, PSX, and OCPEXCEPT projects. Matches tickets to violation rules by summary text with optional release version filtering.
+Batch search for open Jira tickets with the `conforma-violation` label across RHOAIENG, PSX, OCPEXCEPT, and PRODSECRM projects. Matches tickets to violation rules by summary text with optional release version filtering. PRODSECRM is the successor to PSX; both are searched for backward compatibility.
 
 ## Usage
 

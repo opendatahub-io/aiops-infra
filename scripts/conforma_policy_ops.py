@@ -36,6 +36,38 @@ def _refresh_workdir_clone(clone_dir: Path) -> None:
     )
 
 
+def _resolve_repo_dir(clone_dir: str | Path) -> Path | None:
+    """Resolve a clone_dir to the actual repo root containing the policy subdir."""
+    candidate = Path(clone_dir)
+    _krd_dom = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
+    policy_sub = (
+        f"config/{_krd_dom}/product/EnterpriseContractPolicy"
+        if _krd_dom
+        else os.environ.get("KONFLUX_CONFORMA_POLICY_DIR", "")
+    )
+    if not policy_sub:
+        return None
+    if (candidate / policy_sub).is_dir():
+        return candidate
+    if (candidate / "repo" / policy_sub).is_dir():
+        return candidate / "repo"
+    return None
+
+
+def refresh_clone(clone_dir: str | Path) -> Path | None:
+    """Fetch + hard-reset an existing clone once.
+
+    Call this once before a batch of ``check_existing_exception_gate()``
+    calls, then pass ``skip_refresh=True`` to each gate call.
+
+    Returns the resolved repo_dir, or None if the clone could not be located.
+    """
+    repo_dir = _resolve_repo_dir(clone_dir)
+    if repo_dir is not None:
+        _refresh_workdir_clone(repo_dir)
+    return repo_dir
+
+
 def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
     """Check if exception for this rule already exists in konflux-release-data.
 
@@ -51,14 +83,14 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
     if not search_dir.exists():
         return {"checked": False, "reason": "No local clone available"}
 
-    _krd_domain = os.environ.get("KRD_CLUSTER_DOMAIN", "")
+    _krd_domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
     _ec_dir = (
         f"config/{_krd_domain}/product/EnterpriseContractPolicy"
         if _krd_domain
-        else os.environ.get("KRD_EC_POLICY_DIR", "")
+        else os.environ.get("KONFLUX_CONFORMA_POLICY_DIR", "")
     )
     if not _ec_dir:
-        return {"checked": False, "reason": "KRD_CLUSTER_DOMAIN or KRD_EC_POLICY_DIR env var not set"}
+        return {"checked": False, "reason": "KONFLUX_CLUSTER_DOMAIN or KONFLUX_CONFORMA_POLICY_DIR env var not set"}
     policy_dir = search_dir / _ec_dir
     if not policy_dir.exists():
         return {"checked": False, "reason": f"Policy dir not found: {policy_dir}"}
@@ -141,12 +173,17 @@ def check_existing_exception_gate(
     clone_dir: str | None = None,
     environment: str = "prod",
     prefetched_mrs: list[dict] | None = None,
+    skip_refresh: bool = False,
+    aliases: dict[str, set[str]] | None = None,
 ) -> dict:
     """Hard gate: check if active exceptions already cover the requested components.
 
     Clones konflux-release-data (if needed), searches for existing exceptions
     matching the rule, and determines whether any active (non-expired) exception
     already covers the requested components.
+
+    When *aliases* is provided, component sets are expanded before intersection
+    so that renamed components (e.g. llama -> ogx) are recognised as equivalent.
 
     Returns:
         {
@@ -173,21 +210,12 @@ def check_existing_exception_gate(
 
     # Ensure clone exists and is fresh (fetch from remote).
     # Policy: never use a stale clone — always fetch, abort if unreachable.
+    # When skip_refresh=True, the caller has already called refresh_clone().
     repo_dir = None
     if clone_dir:
-        candidate = Path(clone_dir)
-        _krd_dom = os.environ.get("KRD_CLUSTER_DOMAIN", "")
-        policy_sub = (
-            f"config/{_krd_dom}/product/EnterpriseContractPolicy"
-            if _krd_dom
-            else os.environ.get("KRD_EC_POLICY_DIR", "")
-        )
-        if (candidate / policy_sub).is_dir():
-            repo_dir = candidate
-        elif (candidate / "repo" / policy_sub).is_dir():
-            repo_dir = candidate / "repo"
+        repo_dir = _resolve_repo_dir(clone_dir)
 
-        if repo_dir is not None:
+        if repo_dir is not None and not skip_refresh:
             try:
                 _refresh_workdir_clone(repo_dir)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
@@ -240,6 +268,7 @@ def check_existing_exception_gate(
             rule=rule,
             requested_components=components,
             mr_description=mr_info.get("description", ""),
+            aliases=aliases,
         )
         merged = {**mr_info, **coverage}
         merged.pop("description", None)
@@ -286,6 +315,14 @@ def check_existing_exception_gate(
 
     now = datetime.now(timezone.utc)
     requested = set(components)
+    _aliases = aliases or {}
+
+    if _aliases:
+        import component_alias_ops
+        requested_expanded = component_alias_ops.expand_component_set(requested, _aliases)
+    else:
+        requested_expanded = requested
+
     covered = set()
     active_exceptions = []
     seen_keys: set[str] = set()
@@ -315,7 +352,12 @@ def check_existing_exception_gate(
         seen_keys.add(dedup_key)
 
         if exc.get("has_componentNames") and exc_comps:
-            overlap = requested & exc_comps
+            if _aliases:
+                exc_comps_expanded = component_alias_ops.expand_component_set(exc_comps, _aliases)
+                expanded_overlap = requested_expanded & exc_comps_expanded
+                overlap = expanded_overlap & requested
+            else:
+                overlap = requested & exc_comps
             if overlap:
                 covered |= overlap
                 active_exceptions.append(

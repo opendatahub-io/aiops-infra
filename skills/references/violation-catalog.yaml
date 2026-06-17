@@ -573,8 +573,8 @@ fallback_references:
       - "https://konflux-ci.dev/docs/releasing/release-policy/"
       - "https://github.com/release-engineering/rhtap-ec-policy/tree/main/data"
     guidance: >-
-      Packages in the SBOM have attributes not permitted by the EC policy.
-      Check the EC policy data for the list of disallowed attributes and update
+      Packages in the SBOM have attributes not permitted by the Conforma policy.
+      Check the Conforma policy data for the list of disallowed attributes and update
       the image build to avoid them. This is often a systemic issue requiring
       Konflux-level tooling improvements rather than per-component fixes.
 
@@ -594,7 +594,7 @@ fallback_references:
       - "https://konflux-ci.dev/docs/releasing/release-policy/#sbom-rules"
       - "https://github.com/release-engineering/rhtap-ec-policy/tree/main/data"
     guidance: >-
-      General SBOM/SPDX policy violation. Check the EC policy data for the
+      General SBOM/SPDX policy violation. Check the Conforma policy data for the
       specific rule requirements and update the image accordingly.
 
   - code_prefix: "source_image.exists"

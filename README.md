@@ -12,64 +12,46 @@ uv sync --group dev        # or: pip install -e ".[dev]"
 pre-commit install
 ```
 
-## Site Configuration
+## Infrastructure Configuration
 
 This is a **public** repository. Internal infrastructure details (hostnames, cluster
 URLs, API endpoints) are never committed. Instead, skills read them from
-environment variables populated by a private site config file.
+environment variables populated from `.work/.env` and auto-discovery.
 
 ### Setup (one-time)
 
-1. Copy the template:
+Add your GitLab host and Konflux tenant to `.work/.env`:
 
-```bash
-mkdir -p ~/.config/aiops-infra
-cp .work/site-config.example.yaml ~/.config/aiops-infra/site-config.yaml
+```
+GITLAB_HOST=your-gitlab-host
+TENANT=your-tenant-name
 ```
 
-2. Fill in your organization's values (obtain from your team's internal docs).
+Everything else (`KONFLUX_CLUSTER_DOMAIN`, API URLs, policy paths) is auto-discovered from the `konflux-release-data` GitLab repository on first run.
 
-3. Verify:
+### Verify
 
 ```bash
-python3 scripts/site_config.py --validate
+python3 scripts/verify_conforma_prerequisites.py --fix
 ```
 
 ### How it works
 
 ```
-Public repo (git-tracked)          Private user config (NOT tracked)
-┌─────────────────────────┐        ┌───────────────────────────────────┐
-│ .work/site-config.      │ copy → │ ~/.config/aiops-infra/            │
-│   example.yaml          │        │   site-config.yaml                │
-│                         │        │     gitlab.host: <your-host>      │
-│ scripts/site_config.py  │ reads→ │     konflux.namespace: <ns>       │
-│   (config loader)       │        │     ...                           │
-│                         │        └───────────────────────────────────┘
-│ _setup_env.py           │
-│   (auto-loads on import)│
-└─────────────────────────┘
+.work/.env (git-ignored)              Auto-discovery
+┌───────────────────────────┐         ┌─────────────────────────────────┐
+│ GITLAB_HOST=...           │ ──┐     │ konflux_tenant_env_discovery.py │
+│ TENANT=...                │   ├──→  │   discovers KONFLUX_CLUSTER_DOMAIN  │
+│ GITHUB_TOKEN=...          │   │     │   + derived vars (cached 72h)   │
+│ GITLAB_TOKEN=...          │   │     └─────────────────────────────────┘
+│ JIRA_API_TOKEN=...        │ ──┘
+└───────────────────────────┘
 ```
 
-- `.work/site-config.example.yaml` documents every required variable with empty values
-- `scripts/site_config.py` loads the private config and populates environment variables
-- `_setup_env.py` auto-loads the site config when any skill script starts
+- `.work/.env` holds all user-provided values (secrets + infrastructure config)
+- `_setup_env.py` loads `.work/.env` and runs discovery when any skill script starts
 - Environment variables already set take precedence (CI can override via `export`)
-- The private `site-config.yaml` is git-ignored and never committed
-
-### Config search order
-
-1. Environment variables (highest priority, never overwritten)
-2. `$AIOPS_SITE_CONFIG` (explicit path override)
-3. `~/.config/aiops-infra/site-config.yaml` (user-level default)
-
-### CLI
-
-```bash
-python3 scripts/site_config.py              # show current config status
-python3 scripts/site_config.py --validate   # check all required vars are set
-python3 scripts/site_config.py --export     # print shell export statements
-```
+- If auto-discovery fails, add the required variables to `.work/.env` manually
 
 ## Repository Structure
 
@@ -84,4 +66,4 @@ python3 scripts/site_config.py --export     # print shell export statements
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — design principles, skill inventory, key decisions
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to write scripts, add tests, structure skills
-- [.work/site-config.example.yaml](.work/site-config.example.yaml) — all configurable infrastructure variables
+- [.work/.env.example](.work/.env.example) — all configurable infrastructure variables and secrets

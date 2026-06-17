@@ -6,6 +6,7 @@ import argparse
 import base64
 import json
 import re
+import shutil
 import subprocess
 
 import requests
@@ -14,11 +15,15 @@ GITHUB_API = "https://api.github.com"
 
 
 def _run_gh(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
+    gh_path = shutil.which("gh")
+    if not gh_path:
+        raise FileNotFoundError("'gh' CLI not found on PATH")
     return subprocess.run(
-        ["gh", *args],
+        [gh_path, *args],
         capture_output=True,
         text=True,
         timeout=timeout,
+        close_fds=True,
     )
 
 
@@ -48,18 +53,15 @@ def get_token() -> str:
 def verify_auth() -> dict:
     """Check GitHub authentication via API.
 
-    Works with or without the gh CLI — uses get_token() which checks
-    GITHUB_TOKEN / GH_TOKEN env vars before falling back to gh.
+    Uses get_token() which checks GITHUB_TOKEN / GH_TOKEN env vars,
+    falling back to `gh auth token` if the CLI happens to be installed.
     """
     token = get_token()
     if not token:
         return {
             "ok": False,
             "user": None,
-            "error": (
-                "No GitHub token found. Set GITHUB_TOKEN in .work/.env "
-                "or install gh CLI and run 'gh auth login'."
-            ),
+            "error": "No GitHub token found. Set GITHUB_TOKEN in .work/.env.",
         }
     try:
         resp = requests.get(
@@ -94,7 +96,7 @@ def create_pr(
     """
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
 
     try:
         resp = requests.post(
@@ -133,7 +135,7 @@ def get_file(repo: str, path: str, ref: str = "main") -> dict:
     """Get file content via GitHub API."""
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
 
     url = f"{GITHUB_API}/repos/{repo}/contents/{path.lstrip('/')}"
     try:
@@ -177,7 +179,7 @@ def get_repo(repo: str) -> dict:
     """Get repository metadata via GitHub API."""
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
 
     try:
         resp = requests.get(
@@ -213,7 +215,7 @@ def check_issues_enabled(repo: str) -> dict:
     """
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
 
     try:
         resp = requests.get(
@@ -246,7 +248,7 @@ def create_issue(
     """
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
 
     payload: dict = {"title": title, "body": body}
     if labels:
@@ -275,11 +277,65 @@ def create_issue(
         return {"error": f"GitHub API request failed: {exc}"}
 
 
+def search_issues(
+    repo: str,
+    labels: list[str] | None = None,
+    title_keywords: str | None = None,
+    state: str = "open",
+    max_results: int = 10,
+) -> dict:
+    """Search GitHub issues by label and title keywords.
+
+    Returns {"issues": [{"url", "title", "state", "created_at", "number"}], "total": int}
+    or {"error": str}.
+    """
+    token = get_token()
+    if not token:
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
+
+    qualifiers = [f"repo:{repo}", "is:issue", f"state:{state}"]
+    if labels:
+        for label in labels:
+            qualifiers.append(f'label:"{label}"')
+    if title_keywords:
+        qualifiers.append(f"{title_keywords} in:title")
+
+    query = " ".join(qualifiers)
+
+    try:
+        resp = requests.get(
+            f"{GITHUB_API}/search/issues",
+            params={"q": query, "per_page": min(max_results, 100)},
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return {"error": f"GitHub search API error {resp.status_code}: {resp.text[:300]}"}
+
+        data = resp.json()
+        issues = []
+        for item in data.get("items", [])[:max_results]:
+            issues.append({
+                "url": item.get("html_url", ""),
+                "title": item.get("title", ""),
+                "state": item.get("state", ""),
+                "created_at": item.get("created_at", ""),
+                "number": item.get("number"),
+            })
+        return {"issues": issues, "total": data.get("total_count", 0)}
+    except requests.RequestException as exc:
+        return {"error": f"GitHub API request failed: {exc}"}
+
+
 def check_workflow_run(repo: str, run_id: int | str) -> dict:
     """Check GitHub Actions workflow run status."""
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN or run 'gh auth login')"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
 
     try:
         resp = requests.get(
@@ -306,8 +362,8 @@ def check_workflow_run(repo: str, run_id: int | str) -> dict:
 
 
 def main() -> None:
-    import site_config
-    site_config.load()
+    import konflux_environment
+    konflux_environment.load()
 
     parser = argparse.ArgumentParser(description="GitHub primitives")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -338,6 +394,13 @@ def main() -> None:
     p_issue.add_argument("--body", required=True)
     p_issue.add_argument("--label", action="append", default=None, dest="labels")
 
+    p_search = sub.add_parser("search-issues")
+    p_search.add_argument("--repo", required=True)
+    p_search.add_argument("--label", action="append", default=None, dest="labels")
+    p_search.add_argument("--title-keywords", default=None)
+    p_search.add_argument("--state", default="open", choices=["open", "closed"])
+    p_search.add_argument("--max-results", type=int, default=10)
+
     p_run = sub.add_parser("check-workflow-run")
     p_run.add_argument("--repo", required=True)
     p_run.add_argument("--run-id", required=True)
@@ -356,6 +419,12 @@ def main() -> None:
         result = check_issues_enabled(args.repo)
     elif args.command == "create-issue":
         result = create_issue(args.repo, args.title, args.body, labels=args.labels)
+    elif args.command == "search-issues":
+        result = search_issues(
+            args.repo, labels=args.labels,
+            title_keywords=args.title_keywords,
+            state=args.state, max_results=args.max_results,
+        )
     elif args.command == "check-workflow-run":
         result = check_workflow_run(args.repo, args.run_id)
     else:

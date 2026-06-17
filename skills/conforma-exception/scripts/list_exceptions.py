@@ -41,7 +41,7 @@ _JIRA_HOSTS = {
     "redhat.atlassian.net": True,
 }
 
-_JIRA_KEY_RE = re.compile(r"((?:RHOAIENG|PSX|OCPEXCEPT|RHAIENG|RHAISTRAT|KONFLUX)-\d+)")
+_JIRA_KEY_RE = re.compile(r"((?:RHOAIENG|PSX|OCPEXCEPT|PRODSECRM|RHAIENG|RHAISTRAT|KONFLUX)-\d+)")
 _GITHUB_ISSUE_RE = re.compile(r"github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)")
 
 
@@ -212,6 +212,8 @@ _GITLAB_REPO_URL = f"https://{_GITLAB_HOST}/{_GITLAB_PROJECT}" if _GITLAB_HOST e
 def _policy_file_link(rel_path: str) -> str:
     """Return a clickable Markdown link to a policy file on GitLab."""
     name = Path(rel_path).name
+    if not _GITLAB_REPO_URL:
+        return f"`{name}`"
     url = f"{_GITLAB_REPO_URL}/-/blob/main/{rel_path}"
     return f"[`{name}`]({url})"
 

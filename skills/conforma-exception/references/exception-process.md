@@ -110,7 +110,7 @@ Stage exceptions follow a simplified workflow:
 
 ### Standing Exceptions
 
-Located under `config/${KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/`.
+Located under `config/${KONFLUX_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/`.
 These are K8s `EnterpriseContractPolicy` resources. Exceptions go under:
 
 ```yaml

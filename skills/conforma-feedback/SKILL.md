@@ -163,3 +163,147 @@ python3 skills/conforma-feedback/scripts/submit_feedback.py submit \
 ```
 
 Print the resulting issue URL to the user.
+
+---
+
+## Infrastructure Failure Mode (from-error)
+
+When a conforma skill workflow fails due to an infrastructure issue (not user
+error), the agent can use the `from-error` subcommand to generate and submit
+an issue without the interactive questionnaire. All context is passed via
+CLI flags -- the agent already has it from the failure.
+
+### When to use
+
+- Missing scripts or files in upstream repos (e.g., component-maturity changed structure)
+- Import errors from dependency changes
+- API contract changes (fields renamed, endpoints moved)
+- Persistent failures after correct token/auth setup
+
+### When NOT to use
+
+- User configuration errors (wrong token, missing `.work/.env`, VPN down)
+- Transient network failures
+- Expected failures documented in the skill (e.g., "some branches may not have CSVs")
+
+### Infrastructure failure workflow
+
+Follow these steps **in order**. Steps 0-1 are shared with the interactive workflow.
+
+```
+  ┌───────────────────────────┐
+  │ Script fails with error   │
+  └─────────────┬─────────────┘
+                ▼
+  ┌───────────────────────────┐
+  │ Step 0: detect repo       │
+  │ (same as interactive)     │
+  └─────────────┬─────────────┘
+                ▼
+  ┌───────────────────────────┐
+  │ Step 1: verify auth       │
+  │ (same as interactive)     │
+  └─────────────┬─────────────┘
+                ▼
+  ┌───────────────────────────┐
+  │ Step 2: classify error    │
+  │ (classify-error)          │
+  └──────┬──────────────┬─────┘
+         │              │
+     classified     not classified
+         │              │
+         ▼              ▼
+  ┌──────────────┐ ┌─────────────────┐
+  │ Auto-propose │ │ Agent interprets │
+  │ with pattern │ │ asks user to    │
+  │ metadata     │ │ confirm         │
+  └──────┬───────┘ └───────┬─────────┘
+         │                 │
+         ▼                 ▼
+  ┌───────────────────────────┐
+  │ Step 3: search duplicates │
+  │ (search-existing)         │
+  └──────┬──────────────┬─────┘
+         │              │
+     no matches     matches found
+         │              │
+         │              ▼
+         │     ┌─────────────────┐
+         │     │ Show matches,   │
+         │     │ ask: file       │
+         │     │ anyway or skip? │
+         │     └───────┬─────────┘
+         │             │
+         ▼             ▼
+  ┌───────────────────────────┐
+  │ Step 4: generate draft    │◀──┐
+  │ (from-error)              │   │
+  └─────────────┬─────────────┘   │
+                ▼                 │
+  ┌───────────────────────────┐   │
+  │ Step 5: user confirms?    │   │
+  └──────┬──────────────┬─────┘   │
+         │              │         │
+        yes           edit────────┘
+         │
+         ▼
+  ┌───────────────────────────┐
+  │ Step 6: submit issue      │
+  │ (same as interactive)     │
+  └─────────────┬─────────────┘
+                ▼
+  ┌───────────────────────────┐
+  │ Print issue URL           │
+  └───────────────────────────┘
+```
+
+### Step 2 -- Classify error
+
+```bash
+python3 skills/conforma-feedback/scripts/submit_feedback.py classify-error \
+    --exception-type "FileNotFoundError" \
+    --error-message "query.py not found at .work/component-maturity/..." \
+    --script-path "scripts/component_catalog_ops.py"
+```
+
+Returns `{"classified": true, "pattern_id": "...", "affected_skill": "...", "severity": "...", "title_hint": "...", "notes": "..."}` for known patterns, or `{"classified": false}` for unknown errors.
+
+- If `classified` is `true`: auto-propose filing an issue using the pattern metadata (skill, severity, title_hint). Tell the user which known pattern matched.
+- If `classified` is `false`: use agent judgment to determine if this is an infrastructure issue. If you believe it is, ask the user to confirm before proceeding. If the user declines, stop.
+
+### Step 3 -- Search for duplicates
+
+```bash
+python3 skills/conforma-feedback/scripts/submit_feedback.py search-existing \
+    --repo-path "<repo_path>" \
+    --platform "<platform>" \
+    --label infrastructure \
+    --title-keywords "<keywords from error>"
+```
+
+Returns `{"matches": [...], "total": N}`.
+
+- If `total > 0`: show the matching issues (URL + title) and ask the user: "Found N existing issue(s). File anyway or skip?"
+- If `total == 0`: proceed to Step 4.
+
+### Step 4 -- Generate draft
+
+```bash
+python3 skills/conforma-feedback/scripts/submit_feedback.py from-error \
+    --skill-name "<skill>" \
+    --workflow-step "<step description>" \
+    --script-path "<path/to/script.py>" \
+    --error-type "infrastructure" \
+    --error-message "<error text>" \
+    --traceback "<full traceback or N/A>" \
+    --reproduction-command "<the command that failed>" \
+    --severity "<critical|major|minor|cosmetic>" \
+    --root-cause "<optional AI analysis>"
+    --title-hint "<from classify-error or agent-chosen>"
+```
+
+Returns `title`, `body`, `labels`. Present the full draft to the user.
+
+### Steps 5-6 -- User review and submit
+
+Same as the interactive workflow (Steps 5-6 above).

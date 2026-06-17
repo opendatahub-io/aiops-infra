@@ -115,7 +115,7 @@ def _download_file_raw(csv_path: str, ref: str, output_file: Path) -> dict | Non
     """
     token = _get_github_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env or run 'gh auth login')"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
 
     url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{ref}/{csv_path}"
     try:
@@ -144,33 +144,92 @@ def _download_file_raw(csv_path: str, ref: str, output_file: Path) -> dict | Non
     return None
 
 
-def _fetch_last_commit_date(release: str, csv_path: str) -> str:
-    """Get the ISO-8601 date of the last commit that touched the CSV file."""
-    token = _get_github_token()
-    if not token:
-        return ""
+def _fetch_last_commit_info(release: str, csv_path: str) -> dict[str, str]:
+    """Get the date and SHA of the last commit that touched the CSV file.
 
-    url = (
-        f"https://api.github.com/repos/{CONFORMA_REPORTER_REPO}/commits"
-        f"?path={csv_path}&sha={release}&per_page=1"
-    )
+    Tries the GitHub REST API via ``requests`` first, then falls back to
+    ``gh api`` CLI (which handles proxy/auth through its own config).
+
+    Returns ``{"date": "<ISO-8601>", "sha": "<hex>"}`` on success,
+    or ``{"date": "", "sha": ""}`` on any failure (with a warning on stderr).
+    """
+    empty: dict[str, str] = {"date": "", "sha": ""}
+    token = _get_github_token()
+
+    # --- Primary: requests ---
+    if token:
+        url = (
+            f"https://api.github.com/repos/{CONFORMA_REPORTER_REPO}/commits"
+            f"?path={csv_path}&sha={release}&per_page=1"
+        )
+        try:
+            resp = requests.get(
+                url,
+                headers={
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                commits = resp.json()
+                if commits:
+                    return {
+                        "date": commits[0].get("commit", {}).get("committer", {}).get("date", ""),
+                        "sha": commits[0].get("sha", ""),
+                    }
+                print(f"  WARN: No commits found for {csv_path} on {release}", file=sys.stderr)
+            else:
+                print(
+                    f"  WARN: GitHub commits API returned {resp.status_code} for {csv_path} on {release}",
+                    file=sys.stderr,
+                )
+        except (requests.RequestException, KeyError, IndexError) as exc:
+            print(
+                f"  WARN: Failed to fetch commit metadata for {csv_path} on {release}: {exc}",
+                file=sys.stderr,
+            )
+
+    # --- Fallback: gh api (handles proxy/auth via its own config) ---
+    result = _fetch_last_commit_info_gh(release, csv_path)
+    if result["date"]:
+        return result
+    return empty
+
+
+def _fetch_last_commit_info_gh(release: str, csv_path: str) -> dict[str, str]:
+    """Get commit metadata via ``gh api`` CLI as a fallback.
+
+    The ``gh`` CLI uses its own auth token store and proxy handling,
+    which may succeed when ``requests`` fails (e.g. corporate proxy
+    blocking ``api.github.com`` but ``gh`` routing differently).
+    """
+    empty: dict[str, str] = {"date": "", "sha": ""}
+    gh = shutil.which("gh")
+    if not gh:
+        return empty
     try:
-        resp = requests.get(
-            url,
-            headers={
-                "Authorization": f"token {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+        proc = subprocess.run(
+            [
+                gh, "api",
+                f"/repos/{CONFORMA_REPORTER_REPO}/commits",
+                "-f", f"path={csv_path}",
+                "-f", f"sha={release}",
+                "-f", "per_page=1",
+                "--jq", ".[0] | .commit.committer.date + \"\\n\" + .sha",
+            ],
+            capture_output=True,
+            text=True,
             timeout=15,
         )
-        if resp.status_code == 200:
-            commits = resp.json()
-            if commits:
-                return commits[0].get("commit", {}).get("committer", {}).get("date", "")
-    except (requests.RequestException, KeyError, IndexError):
-        pass
-    return ""
+        if proc.returncode == 0 and proc.stdout.strip():
+            parts = proc.stdout.strip().split("\n", 1)
+            if len(parts) == 2:
+                return {"date": parts[0], "sha": parts[1]}
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        print(f"  WARN: gh api fallback also failed: {exc}", file=sys.stderr)
+    return empty
 
 
 def fetch_csv_for_release(release: str, output_dir: Path) -> dict:
@@ -186,14 +245,15 @@ def fetch_csv_for_release(release: str, output_dir: Path) -> dict:
     for csv_path in CSV_PATHS:
         err = _download_file_raw(csv_path, release, output_file)
         if err is None:
-            created_at = _fetch_last_commit_date(release, csv_path)
+            commit_info = _fetch_last_commit_info(release, csv_path)
             return {
                 "release": release,
                 "status": "fetched",
                 "path": str(output_file),
                 "size_bytes": output_file.stat().st_size,
                 "source_path": csv_path,
-                "created_at": created_at,
+                "created_at": commit_info["date"],
+                "source_sha": commit_info["sha"],
             }
         last_error = err["error"]
 
@@ -217,14 +277,15 @@ def fetch_warnings_csv_for_release(release: str, output_dir: Path) -> dict:
     for csv_path in WARNINGS_CSV_PATHS:
         err = _download_file_raw(csv_path, release, output_file)
         if err is None:
-            created_at = _fetch_last_commit_date(release, csv_path)
+            commit_info = _fetch_last_commit_info(release, csv_path)
             return {
                 "release": release,
                 "status": "fetched",
                 "path": str(output_file),
                 "size_bytes": output_file.stat().st_size,
                 "source_path": csv_path,
-                "created_at": created_at,
+                "created_at": commit_info["date"],
+                "source_sha": commit_info["sha"],
             }
         last_error = err["error"]
 
@@ -486,6 +547,7 @@ def main() -> int:
                 "path": r["path"],
                 "source_path": r.get("source_path", ""),
                 "created_at": r.get("created_at", ""),
+                "source_sha": r.get("source_sha", ""),
             }
             for r in succeeded
         },
@@ -501,6 +563,7 @@ def main() -> int:
                     "path": r["path"],
                     "source_path": r.get("source_path", ""),
                     "created_at": r.get("created_at", ""),
+                    "source_sha": r.get("source_sha", ""),
                 }
                 for r in warnings_succeeded
             },

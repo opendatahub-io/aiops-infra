@@ -2,37 +2,37 @@
 # within the releng/konflux-release-data repository.
 #
 # Routing logic:
-# - FBC fragment component -> {ec_policy_dir}/fbc-*-{env}.yaml
-# - Any other component -> {ec_policy_dir}/registry-*-{env}.yaml
+# - FBC fragment component -> {conforma_policy_dir}/fbc-*-{env}.yaml
+# - Any other component -> {conforma_policy_dir}/registry-*-{env}.yaml
 # - Self-service eligible -> exceptions/{type}-*-{env}.yaml
 #
 # Path resolution:
-#   Paths are now resolved automatically by tenant discovery. The system
-#   discovers which files exist in the EC policy directory and matches them
+#   Paths are now resolved automatically by Konflux tenant env discovery. The system
+#   discovers which files exist in the Conforma policy directory and matches them
 #   by type prefix (registry/fbc) and environment suffix (prod/stage).
 #
-#   See: python3 scripts/tenant_discovery.py --tenant <name> --human
+#   See: python3 scripts/konflux_tenant_env_discovery.py --tenant <name> --human
 
 gitlab_project: ${GITLAB_PROJECT}
 gitlab_host: ${GITLAB_HOST}
 default_branch: main
 
 # Paths below are auto-discovered from the tenant's cluster config.
-# Set via: tenant discovery -> KRD_EC_POLICY_DIR env var
-# Or manually: KRD_CLUSTER_DOMAIN -> derived path
+# Set via: Konflux tenant env discovery -> KONFLUX_CONFORMA_POLICY_DIR env var
+# Or manually: KONFLUX_CLUSTER_DOMAIN -> derived path
 #
-# Pattern: ${KRD_EC_POLICY_DIR}/{type}-*-{env}.yaml
+# Pattern: ${KONFLUX_CONFORMA_POLICY_DIR}/{type}-*-{env}.yaml
 # Example: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/registry-rhoai-prod.yaml
 paths:
   standing_exceptions:
-    pattern: "${KRD_EC_POLICY_DIR}/{type}-*-{env}.yaml"
-    resolution: "Matched from KRD_EC_POLICY_FILES env (comma-separated list of discovered files)"
+    pattern: "${KONFLUX_CONFORMA_POLICY_DIR}/{type}-*-{env}.yaml"
+    resolution: "Matched from KONFLUX_CONFORMA_POLICY_FILES env (comma-separated list of discovered files)"
     types: ["registry", "fbc"]
     environments: ["prod", "stage"]
 
   self_service:
     pattern: "exceptions/{type}-*-{env}.yaml"
-    resolution: "Matched from KRD_SELF_SERVICE_FILES env (comma-separated list of discovered files)"
+    resolution: "Matched from KONFLUX_SELF_SERVICE_FILES env (comma-separated list of discovered files)"
     types: ["registry", "fbc"]
     environments: ["prod", "stage"]
 

@@ -23,9 +23,9 @@ _scripts_dir = str(Path(__file__).resolve().parent)
 if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
-import site_config  # noqa: E402
+import konflux_environment  # noqa: E402
 
-site_config.load()
+konflux_environment.load()
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CLONE_DIR = _REPO_ROOT / ".work" / "component-maturity"
@@ -38,7 +38,7 @@ _OS_SUFFIX_RE = re.compile(r"-(?:rhel|ubi)\d+$")
 def _gitlab_host() -> str:
     host = os.environ.get("GITLAB_HOST", "")
     if not host:
-        raise RuntimeError("GITLAB_HOST not set. Run: python3 scripts/site_config.py --validate")
+        raise RuntimeError("GITLAB_HOST not set. Run: python3 scripts/konflux_environment.py --validate")
     return host
 
 

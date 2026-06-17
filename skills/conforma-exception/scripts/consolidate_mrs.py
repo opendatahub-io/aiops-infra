@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 from pathlib import Path
 
 import gitlab_ops
@@ -30,7 +31,7 @@ import jira_ops
 
 GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
 GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
-GITLAB_PROJECT_ENCODED = "releng%2Fkonflux-release-data"
+GITLAB_PROJECT_ENCODED = urllib.parse.quote(GITLAB_PROJECT, safe="")
 
 
 def _fetch_jira_title(ticket_key: str) -> str | None:
@@ -113,17 +114,19 @@ def extract_version_specs_from_mr(mr_iid: int, token: str) -> dict | None:
     path = f"projects/{GITLAB_PROJECT_ENCODED}/merge_requests/{mr_iid}/changes"
     data = _gitlab_api_get(path, token)
 
-    diff_text = ""
+    added_text = ""
     for change in data.get("changes", []):
-        diff_text += change.get("diff", "")
+        for line in change.get("diff", "").split("\n"):
+            if line.startswith("+") and not line.startswith("+++"):
+                added_text += line[1:] + "\n"
 
-    version_match = re.search(r"# impacted versions:\s*(\S+)", diff_text)
+    version_match = re.search(r"# impacted versions:\s*(\S+)", added_text)
     version = version_match.group(1).strip() if version_match else None
 
     components: list[str] = []
     in_components = False
-    for line in diff_text.split("\n"):
-        stripped = line.lstrip("+").strip()
+    for line in added_text.split("\n"):
+        stripped = line.strip()
         if "componentNames:" in stripped:
             in_components = True
             continue
@@ -135,7 +138,7 @@ def extract_version_specs_from_mr(mr_iid: int, token: str) -> dict | None:
             else:
                 in_components = False
 
-    eu_match = re.search(r'effectiveUntil:\s*"([^"]+)"', diff_text)
+    eu_match = re.search(r'effectiveUntil:\s*"([^"]+)"', added_text)
     effective_until = eu_match.group(1) if eu_match else None
 
     if not version or not components or not effective_until:
@@ -476,7 +479,6 @@ def consolidate(
         from create_gitlab_mr import (
             _build_mr_title_consolidated,
             _build_mr_body_consolidated,
-            _update_mr_metadata,
             get_target_file,
             detect_component_type,
         )
@@ -493,7 +495,7 @@ def consolidate(
             spreadsheet_url=spreadsheet_url,
             target_file=target_file,
         )
-        _update_mr_metadata(mr_iid=consolidated_iid, title=new_title, description=new_body)
+        gitlab_ops.update_mr(GITLAB_PROJECT, consolidated_iid, title=new_title, description=new_body)
 
     if dry_run:
         dry_out: dict = {

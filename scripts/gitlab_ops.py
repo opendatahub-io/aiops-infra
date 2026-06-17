@@ -42,6 +42,13 @@ def _ssl_verify() -> bool:
     return not skip
 
 
+def _redact_token(text: str, token: str) -> str:
+    """Remove token from text to prevent accidental credential leaks in logs/errors."""
+    if not token:
+        return text
+    return text.replace(token, "REDACTED")
+
+
 def discover_token(instance_url: str | None = None) -> str | None:
     """Discover GitLab token from GITLAB_TOKEN env or glab config."""
     token = os.environ.get("GITLAB_TOKEN")
@@ -65,23 +72,36 @@ def discover_token(instance_url: str | None = None) -> str | None:
     return None
 
 
-def git_env() -> dict[str, str]:
-    """Return an os.environ copy with GIT_SSL_NO_VERIFY set when GITLAB_SSL_VERIFY is disabled.
+def git_env(instance_url: str | None = None) -> dict[str, str]:
+    """Return an os.environ copy with git SSL and credential settings.
 
-    Use this for ALL subprocess git calls against internal GitLab to ensure
-    SSL verification settings are respected consistently.
+    Sets GIT_SSL_NO_VERIFY when GITLAB_SSL_VERIFY is disabled.
+    Provides GitLab authentication via GIT_CONFIG_* environment variables
+    (Authorization header), keeping the token out of URLs and command lines.
+    Use this for ALL subprocess git calls against internal GitLab.
     """
     env = os.environ.copy()
     if not _ssl_verify():
         env["GIT_SSL_NO_VERIFY"] = "1"
+    token = discover_token(instance_url)
+    if token:
+        idx = int(env.get("GIT_CONFIG_COUNT", "0"))
+        env["GIT_CONFIG_COUNT"] = str(idx + 1)
+        env[f"GIT_CONFIG_KEY_{idx}"] = "http.extraHeader"
+        env[f"GIT_CONFIG_VALUE_{idx}"] = f"Authorization: Bearer {token}"
     return env
 
 
 def authenticated_clone_url(project: str, instance_url: str | None = None) -> str:
-    """Build an authenticated git clone URL for a GitLab project.
+    """Build a git clone URL for a GitLab project, validating a token exists.
 
-    Returns a URL with embedded oauth2 token for non-interactive git operations.
-    Raises ValueError if no token is available.
+    Returns a plain HTTPS URL (no embedded credentials). Authentication is
+    provided via git_env() which injects an Authorization header through
+    GIT_CONFIG_* environment variables. Raises ValueError if no token is
+    available.
+
+    Callers must pass env=git_env() (or use run_git()) when executing
+    git commands with the returned URL.
     """
     url = _normalize_instance_url(instance_url)
     host = _host_from_url(url)
@@ -91,7 +111,7 @@ def authenticated_clone_url(project: str, instance_url: str | None = None) -> st
             f"No GitLab token found for {host}. "
             "Set GITLAB_TOKEN in .work/.env or configure glab."
         )
-    return f"https://oauth2:{token}@{host}/{project}.git"
+    return f"https://{host}/{project}.git"
 
 
 def run_git(
@@ -118,7 +138,11 @@ def run_git(
 
 
 def get_client(instance_url: str | None = None, token: str | None = None) -> gitlab.Gitlab:
-    """Get authenticated GitLab client."""
+    """Get authenticated GitLab client.
+
+    Falls back to ssl_verify=False when the server uses a self-signed or
+    corporate-CA certificate and GITLAB_SSL_VERIFY is not explicitly set.
+    """
     url = _normalize_instance_url(instance_url)
     resolved_token = token or discover_token(url)
     if not resolved_token:
@@ -127,9 +151,18 @@ def get_client(instance_url: str | None = None, token: str | None = None) -> git
             f"(~/.config/glab-cli/config.yml) for {_host_from_url(url)}"
         )
 
-    gl = gitlab.Gitlab(url=url, private_token=resolved_token, ssl_verify=_ssl_verify())
-    gl.auth()
-    return gl
+    ssl_verify = _ssl_verify()
+    try:
+        gl = gitlab.Gitlab(url=url, private_token=resolved_token, ssl_verify=ssl_verify, timeout=15)
+        gl.auth()
+        return gl
+    except Exception as exc:
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc) and ssl_verify:
+            warnings.filterwarnings("ignore", message="Unverified HTTPS request")
+            gl = gitlab.Gitlab(url=url, private_token=resolved_token, ssl_verify=False, timeout=15)
+            gl.auth()
+            return gl
+        raise
 
 
 def verify_auth(instance_url: str | None = None) -> dict:
@@ -161,46 +194,45 @@ def get_project(project_path: str, instance_url: str | None = None) -> dict:
         return {"error": str(exc)}
 
 
-def _authenticated_clone_url(http_url: str, token: str) -> str:
-    parsed = urlparse(http_url)
-    return f"{parsed.scheme}://oauth2:{token}@{parsed.netloc}{parsed.path}"
-
-
 def clone_repo(
     project_path: str,
     target_dir: str,
     branch: str | None = None,
     instance_url: str | None = None,
 ) -> dict:
-    """Clone a GitLab repo with an authenticated URL."""
+    """Clone a GitLab repo. Auth is provided via env, never in the URL."""
     url = _normalize_instance_url(instance_url)
-    try:
-        token = discover_token(url)
-        if not token:
-            return {"error": "GitLab token not found for clone"}
+    token = discover_token(url)
+    if not token:
+        return {"error": "GitLab token not found for clone"}
 
+    redact = lambda text: _redact_token(text, token)
+
+    try:
         gl = get_client(instance_url=url, token=token)
         project = gl.projects.get(project_path)
         clone_branch = branch or project.default_branch
-        auth_url = _authenticated_clone_url(project.http_url_to_repo, token)
+        clone_url = project.http_url_to_repo
 
         target = Path(target_dir)
         if target.exists() and any(target.iterdir()):
             return {"error": f"Target directory is not empty: {target_dir}"}
 
-        cmd = ["git", "clone", "--branch", clone_branch, auth_url, str(target)]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        cmd = ["git", "clone", "--branch", clone_branch, clone_url, str(target)]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=600, env=git_env(url),
+        )
         if result.returncode != 0:
-            detail = (result.stderr or result.stdout).strip()
+            detail = redact((result.stderr or result.stdout).strip())
             return {"error": f"git clone failed: {detail}"}
 
         return {"path": str(target.resolve()), "branch": clone_branch}
     except GitlabGetError as exc:
-        return {"error": f"Project not found: {project_path}: {exc}"}
+        return {"error": redact(f"Project not found: {project_path}: {exc}")}
     except subprocess.TimeoutExpired:
         return {"error": "git clone timed out"}
     except Exception as exc:
-        return {"error": str(exc)}
+        return {"error": redact(str(exc))}
 
 
 def _run_git(repo_dir: str, args: list[str], timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -210,6 +242,7 @@ def _run_git(repo_dir: str, args: list[str], timeout: int = 120) -> subprocess.C
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=git_env(),
     )
 
 

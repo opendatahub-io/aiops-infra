@@ -24,17 +24,17 @@ from typing import NamedTuple
 # RPA = ReleasePlanAdmission (primary source, version-specific files)
 # PDS = ProjectDevelopmentStream source files (fallback, uses {{.versionName}} placeholders)
 #       These are the authoritative source; the auto-generated/ folder is derived from them.
-# These are populated by tenant discovery or manual site-config.
-_KRD_CLUSTER_DOMAIN = os.environ.get("KRD_CLUSTER_DOMAIN", "")
-_KRD_CLUSTER_ID = os.environ.get("KRD_CLUSTER_ID", "")
-_TENANT = os.environ.get("TENANT", "")
-KRD_RPA_SUBPATH = os.environ.get(
-    "KRD_RPA_SUBPATH",
-    f"config/{_KRD_CLUSTER_DOMAIN}/product/ReleasePlanAdmission" if _KRD_CLUSTER_DOMAIN else "",
+# These are populated by Konflux tenant env discovery (or manually via .work/.env).
+_KONFLUX_CLUSTER_DOMAIN = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
+_KONFLUX_CLUSTER_ID = os.environ.get("KONFLUX_CLUSTER_ID", "")
+_TENANT = os.environ.get("KONFLUX_TENANT", "")
+KONFLUX_RPA_SUBPATH = os.environ.get(
+    "KONFLUX_RPA_SUBPATH",
+    f"config/{_KONFLUX_CLUSTER_DOMAIN}/product/ReleasePlanAdmission" if _KONFLUX_CLUSTER_DOMAIN else "",
 )
-KRD_PDS_SUBPATH = os.environ.get(
-    "KRD_PDS_SUBPATH",
-    f"tenants-config/cluster/{_KRD_CLUSTER_ID}/tenants/{_TENANT}" if _KRD_CLUSTER_ID and _TENANT else "",
+KONFLUX_PDS_SUBPATH = os.environ.get(
+    "KONFLUX_PDS_SUBPATH",
+    f"tenants-config/cluster/{_KONFLUX_CLUSTER_ID}/tenants/{_TENANT}" if _KONFLUX_CLUSTER_ID and _TENANT else "",
 )
 
 APPROVAL_THRESHOLD_VERSION = (3, 5, "ea", 1)
@@ -227,7 +227,7 @@ def lookup_component_names(
         clone_root = Path(".work/konflux-release-data")
     else:
         rpa_dir_path = Path(rpa_dir)
-        if rpa_dir_path.name == "rhoai" or KRD_RPA_SUBPATH.endswith(str(rpa_dir_path.relative_to(rpa_dir_path.anchor))):
+        if rpa_dir_path.name == "rhoai" or KONFLUX_RPA_SUBPATH.endswith(str(rpa_dir_path.relative_to(rpa_dir_path.anchor))):
             clone_root = rpa_dir_path
             while clone_root.name != "konflux-release-data" and clone_root != clone_root.parent:
                 clone_root = clone_root.parent
@@ -236,8 +236,14 @@ def lookup_component_names(
         else:
             clone_root = rpa_dir_path
 
-    rpa_path = clone_root / KRD_RPA_SUBPATH
-    pds_path = clone_root / KRD_PDS_SUBPATH
+    resolved_root = clone_root.resolve()
+    rpa_path = (resolved_root / KONFLUX_RPA_SUBPATH).resolve()
+    pds_path = (resolved_root / KONFLUX_PDS_SUBPATH).resolve()
+    if not rpa_path.is_relative_to(resolved_root) or not pds_path.is_relative_to(resolved_root):
+        raise ValueError(
+            f"Path traversal detected: rpa_path={rpa_path} or pds_path={pds_path} "
+            f"escapes clone_root={resolved_root}"
+        )
 
     results: dict[str, list[str]] = {}
     for ver_str in rhoai_versions:
@@ -356,7 +362,7 @@ def check_rhoaieng_ticket_type(rhoaieng_url: str | None) -> dict | None:
                 f"or (b) use as-is (non-standard). Confirm with user."
             )
         return info
-    except Exception as exc:
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
         return {"warning": f"Cannot validate {ticket_key} type: {exc}"}
 
 
@@ -507,8 +513,6 @@ def validate_all(args: argparse.Namespace) -> dict:
 
     rule_catalog_info = None
     if is_other_category:
-        from create_jira_ticket import lookup_rule_in_catalog
-
         rule_catalog_info = lookup_rule_in_catalog(args.rule)
 
     result = {

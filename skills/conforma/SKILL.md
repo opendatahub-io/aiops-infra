@@ -58,6 +58,7 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 ## Example Queries
 
 - "Show me the current violations for rhoai-3.5" → **conforma-analyze**
+- "What is conforma status for rhoai-3.5-ea.1?" → **conforma-analyze**
 - "Create an exception for hermetic_task.hermetic" → **conforma-exception**
 - "What expired exceptions do we have?" → **conforma-exception** (manage mode)
 - "Can rhoai-3.5 ship?" → **conforma-release-readiness**

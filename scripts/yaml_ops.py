@@ -67,6 +67,18 @@ def dump(data: dict, path: str | Path) -> dict:
     return {"path": str(file_path), "written": True}
 
 
+def _merge_into_ruamel(existing: Any, overlay: dict) -> Any:
+    """Deep-merge plain-dict overlay into a ruamel CommentedMap, preserving comments."""
+    if isinstance(existing, dict) and isinstance(overlay, dict):
+        for key, value in overlay.items():
+            if key in existing and isinstance(existing[key], dict) and isinstance(value, dict):
+                _merge_into_ruamel(existing[key], value)
+            else:
+                existing[key] = copy.deepcopy(value)
+        return existing
+    return copy.deepcopy(overlay)
+
+
 def dump_preserving_comments(data: dict, path: str | Path) -> dict:
     """Dump data to YAML file preserving comments (round-trip mode)."""
     yaml = _make_yaml()
@@ -80,9 +92,9 @@ def dump_preserving_comments(data: dict, path: str | Path) -> dict:
             existing = {}
         if not isinstance(existing, dict):
             raise ValueError(f"Cannot preserve comments for non-mapping root in {file_path}")
-        merged = merge(_to_plain(existing), data)
+        _merge_into_ruamel(existing, data)
         with file_path.open("w", encoding="utf-8") as handle:
-            yaml.dump(merged, handle)
+            yaml.dump(existing, handle)
     else:
         with file_path.open("w", encoding="utf-8") as handle:
             yaml.dump(data, handle)

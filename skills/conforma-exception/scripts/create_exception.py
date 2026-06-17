@@ -153,13 +153,13 @@ def list_exception_types(show_all: bool = False) -> dict:
     import yaml
 
     templates_file = SCRIPTS_DIR / "exception_templates.yaml"
-    with open(templates_file) as f:
+    with open(templates_file, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     catalog_path = SCRIPTS_DIR.parent / "references" / "conforma-release-policy-rules.yaml"
     total_catalog_rules = 0
     if catalog_path.is_file():
-        with open(catalog_path) as f:
+        with open(catalog_path, encoding="utf-8") as f:
             catalog = yaml.safe_load(f)
         total_catalog_rules = len(catalog.get("rules", []))
 

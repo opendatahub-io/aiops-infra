@@ -17,6 +17,7 @@ import getpass
 import json
 import os
 import platform
+import posixpath
 import re
 import subprocess
 import sys
@@ -24,9 +25,9 @@ import tempfile
 from pathlib import Path
 
 import gitlab_ops
-import site_config
+import konflux_environment
 
-site_config.require("gitlab")
+konflux_environment.require("gitlab")
 
 GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
 GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
@@ -403,66 +404,123 @@ def _get_gitlab_token() -> str | None:
 
 
 def _get_authenticated_repo_url(project: str = GITLAB_PROJECT) -> str:
-    """Build a clone URL with embedded token for non-interactive git."""
-    token = _get_gitlab_token()
-    if token:
-        return f"https://oauth2:{token}@{GITLAB_HOST}/{project}.git"
+    """Return a plain HTTPS clone URL (no embedded credentials)."""
     return f"https://{GITLAB_HOST}/{project}.git"
 
 
-_KRD_CLUSTER_DOMAIN = os.environ.get("KRD_CLUSTER_DOMAIN", "")
-_EC_POLICY_DIR = os.environ.get(
-    "KRD_EC_POLICY_DIR",
-    f"config/{_KRD_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy" if _KRD_CLUSTER_DOMAIN else "",
+def _validate_repo_relative_path(path_str: str, context: str = "policy file") -> str:
+    """Normalize a repo-relative path and reject any that would escape the repo root.
+
+    Prevents path traversal via absolute paths or ``..`` segments that resolve
+    outside the repository checkout directory.
+    """
+    normalized = posixpath.normpath(path_str)
+    if normalized.startswith("/") or normalized.startswith(".."):
+        raise ValueError(
+            f"Unsafe {context} path {path_str!r}: "
+            f"resolved to {normalized!r} which is not repo-relative"
+        )
+    return normalized
+
+
+_KONFLUX_CLUSTER_DOMAIN = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
+_CONFORMA_POLICY_DIR = os.environ.get(
+    "KONFLUX_CONFORMA_POLICY_DIR",
+    f"config/{_KONFLUX_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy" if _KONFLUX_CLUSTER_DOMAIN else "",
 )
 
 
-def _build_policy_paths() -> dict[tuple[str, str], str]:
-    """Build policy path mappings from discovered EC policy dir.
+class AmbiguousPolicyFileError(Exception):
+    """Raised when multiple policy files match and no application slug disambiguates."""
 
-    Uses the KRD_EC_POLICY_DIR env var (populated by discovery or manual config)
-    and matches files by type-prefix and environment-suffix patterns.
+    def __init__(self, component_type: str, environment: str, candidates: list[str]):
+        self.component_type = component_type
+        self.environment = environment
+        self.candidates = candidates
+        super().__init__(
+            f"Multiple policy files match {component_type}-*-{environment}.yaml: "
+            f"{', '.join(candidates)}. "
+            f"Set KONFLUX_APPLICATION_SLUG in .work/.env (or via Konflux tenant env discovery) "
+            f"to disambiguate, or pass --policy-file explicitly."
+        )
+
+
+def _get_application_slug() -> str | None:
+    """Get the application slug from env (set by Konflux tenant env discovery or .work/.env).
+
+    The application slug identifies which set of policy files belongs to the
+    current application (e.g. 'rhoai' matches registry-rhoai-prod.yaml).
     """
-    if not _EC_POLICY_DIR:
-        return {}
-    paths = {}
-    for comp_type in ("registry", "fbc"):
-        for env in ("prod", "stage"):
-            paths[(comp_type, env)] = f"{_EC_POLICY_DIR}/{comp_type}-*-{env}.yaml"
-    return paths
+    return os.environ.get("KONFLUX_APPLICATION_SLUG") or None
 
 
 def _resolve_policy_file(component_type: str, environment: str, discovered_files: list[str] | None = None) -> str:
-    """Resolve a policy file path from discovered file list or pattern.
+    """Resolve the target policy file, filtered by application slug.
 
-    If discovered_files are available (from KRD_EC_POLICY_FILES env), search for
-    a matching file. Otherwise fall back to pattern-based path.
+    Resolution order:
+      1. If KONFLUX_APPLICATION_SLUG is set, match exactly {type}-{slug}-{env}.yaml
+      2. If no slug, match {type}-*-{env}.yaml; raise if multiple
+      3. Fall back to glob pattern if no discovered files
     """
+    conforma_policy_dir = _get_conforma_policy_dir()
     if discovered_files:
         prefix = f"{component_type}-"
         suffix = f"-{environment}.yaml"
-        matches = [f for f in discovered_files if f.startswith(prefix) and f.endswith(suffix)]
-        if matches:
-            return f"{_EC_POLICY_DIR}/{matches[0]}"
+        type_env_matches = [f for f in discovered_files if f.startswith(prefix) and f.endswith(suffix)]
 
-    return f"{_EC_POLICY_DIR}/{component_type}-*-{environment}.yaml"
+        app_slug = _get_application_slug()
+        if app_slug:
+            exact = f"{component_type}-{app_slug}-{environment}.yaml"
+            if exact in type_env_matches:
+                return f"{conforma_policy_dir}/{exact}"
+            if type_env_matches:
+                return f"{conforma_policy_dir}/{type_env_matches[0]}"
+
+        if len(type_env_matches) == 1:
+            return f"{conforma_policy_dir}/{type_env_matches[0]}"
+        if len(type_env_matches) > 1:
+            raise AmbiguousPolicyFileError(component_type, environment, type_env_matches)
+
+    return f"{conforma_policy_dir}/{component_type}-*-{environment}.yaml"
 
 
 def _resolve_self_service_file(component_type: str, environment: str, discovered_files: list[str] | None = None) -> str:
-    """Resolve a self-service exception file path."""
+    """Resolve a self-service exception file, filtered by application slug."""
     if discovered_files:
         prefix = f"{component_type}-"
         suffix = f"-{environment}.yaml"
-        matches = [f for f in discovered_files if f.startswith(prefix) and f.endswith(suffix)]
-        if matches:
-            return f"exceptions/{matches[0]}"
+        type_env_matches = [f for f in discovered_files if f.startswith(prefix) and f.endswith(suffix)]
+
+        app_slug = _get_application_slug()
+        if app_slug:
+            exact = f"{component_type}-{app_slug}-{environment}.yaml"
+            if exact in type_env_matches:
+                return f"exceptions/{exact}"
+            if type_env_matches:
+                return f"exceptions/{type_env_matches[0]}"
+
+        if len(type_env_matches) == 1:
+            return f"exceptions/{type_env_matches[0]}"
+        if len(type_env_matches) > 1:
+            raise AmbiguousPolicyFileError(component_type, environment, type_env_matches)
 
     return f"exceptions/{component_type}-*-{environment}.yaml"
 
 
+def _get_conforma_policy_dir() -> str:
+    """Resolve Conforma policy dir at call time (env may change after import)."""
+    val = os.environ.get("KONFLUX_CONFORMA_POLICY_DIR", "")
+    if val:
+        return val
+    domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
+    if domain:
+        return f"config/{domain}/product/EnterpriseContractPolicy"
+    return _CONFORMA_POLICY_DIR
+
+
 def _get_discovered_ec_files() -> list[str] | None:
-    """Get the list of EC policy files from discovery (if available)."""
-    raw = os.environ.get("KRD_EC_POLICY_FILES", "")
+    """Get the list of Conforma policy files from discovery (if available)."""
+    raw = os.environ.get("KONFLUX_CONFORMA_POLICY_FILES", "")
     if raw:
         return [f.strip() for f in raw.split(",") if f.strip()]
     return None
@@ -470,7 +528,7 @@ def _get_discovered_ec_files() -> list[str] | None:
 
 def _get_discovered_self_service_files() -> list[str] | None:
     """Get the list of self-service exception files from discovery (if available)."""
-    raw = os.environ.get("KRD_SELF_SERVICE_FILES", "")
+    raw = os.environ.get("KONFLUX_SELF_SERVICE_FILES", "")
     if raw:
         return [f.strip() for f in raw.split(",") if f.strip()]
     return None
@@ -487,12 +545,14 @@ def detect_component_type(components: list[str]) -> str:
 def get_target_file(component_type: str, environment: str, is_self_service: bool) -> str:
     """Determine the target policy file path using discovery or pattern matching."""
     if is_self_service:
-        return _resolve_self_service_file(
+        path = _resolve_self_service_file(
             component_type, environment, _get_discovered_self_service_files()
         )
-    return _resolve_policy_file(
-        component_type, environment, _get_discovered_ec_files()
-    )
+    else:
+        path = _resolve_policy_file(
+            component_type, environment, _get_discovered_ec_files()
+        )
+    return _validate_repo_relative_path(path)
 
 
 def generate_exception_yaml(
@@ -806,7 +866,7 @@ def create_mr(
     """Clone repo, append exception, create MR."""
     component_type = detect_component_type(components)
     if policy_file:
-        target_file = policy_file
+        target_file = _validate_repo_relative_path(policy_file, "policy-file argument")
     else:
         target_file = get_target_file(component_type, environment, is_self_service)
 
@@ -1036,7 +1096,7 @@ def update_mr(
     """
     component_type = detect_component_type(components)
     if policy_file:
-        target_file = policy_file
+        target_file = _validate_repo_relative_path(policy_file, "policy-file argument")
     else:
         target_file = get_target_file(component_type, environment, is_self_service)
 
@@ -1156,6 +1216,22 @@ def update_mr(
             }
 
         mr_url = _extract_mr_url(push_result.stdout + push_result.stderr)
+
+        new_title = _build_mr_title(rule, rhoai_version, vendor_tag, environment)
+        new_body = _build_mr_body(
+            rule=rule,
+            components=components,
+            rhoai_version=rhoai_version,
+            effective_until=effective_until,
+            rhoaieng_url=rhoaieng_url,
+            reference_url=reference_url,
+            spreadsheet_url=spreadsheet_url,
+            target_file=target_file,
+        )
+        sync_result = _sync_mr_description(branch_name, new_title, new_body)
+        if sync_result and sync_result.get("mr_url") and not mr_url:
+            mr_url = sync_result["mr_url"]
+
         return {
             "status": "updated",
             "target_file": target_file,
@@ -1165,6 +1241,212 @@ def update_mr(
             "component_type": component_type,
             "apply_action": apply_result["action"],
             "apply_detail": apply_result["detail"],
+        }
+    except subprocess.CalledProcessError as exc:
+        return {
+            "status": "failed",
+            "error": f"Git operation failed: {exc.stderr or exc.stdout}",
+            "target_file": target_file,
+            "mr_url": None,
+        }
+    finally:
+        import shutil
+
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _sync_mr_description(
+    branch_name: str,
+    title: str,
+    body: str,
+) -> dict | None:
+    """Find the open MR for branch_name and update its title + description.
+
+    Returns the update result dict, or None if no open MR was found.
+    """
+    mrs = gitlab_ops.find_mr(GITLAB_PROJECT, source_branch=branch_name, state="opened")
+    if not mrs or mrs[0].get("error"):
+        return None
+    mr_iid = mrs[0]["mr_iid"]
+    return gitlab_ops.update_mr(GITLAB_PROJECT, mr_iid, title=title, description=body)
+
+
+def update_consolidated_mr(
+    branch_name: str,
+    rule: str,
+    version_specs: list[dict],
+    reference_url: str,
+    rhoaieng_url: str | None,
+    environment: str,
+    is_self_service: bool,
+    reference_title: str | None = None,
+    spreadsheet_url: str | None = None,
+    vendor_tag: str | None = None,
+    exception_risk: str | None = None,
+    exception_remediation: str | None = None,
+    policy_file: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Update an existing consolidated MR branch from current main.
+
+    Same pattern as update_mr() but for multi-version exception MRs.
+    After force-pushing, syncs the MR title and description to reflect
+    the current version_specs.
+    """
+    if not version_specs:
+        return {"status": "failed", "error": "No version_specs provided", "mr_url": None}
+
+    all_components = []
+    for spec in version_specs:
+        all_components.extend(spec["components"])
+    component_type = detect_component_type(all_components)
+    if policy_file:
+        target_file = _validate_repo_relative_path(policy_file, "policy-file argument")
+    else:
+        target_file = get_target_file(component_type, environment, is_self_service)
+
+    if dry_run:
+        yaml_blocks = []
+        for spec in version_specs:
+            block = generate_exception_yaml(
+                rule=rule,
+                components=spec["components"],
+                effective_until=spec["effective_until"],
+                reference_url=reference_url,
+                rhoaieng_url=rhoaieng_url,
+                rhoai_version=spec["version"],
+                is_self_service=is_self_service,
+                reference_title=reference_title,
+                spreadsheet_url=spreadsheet_url,
+            )
+            yaml_blocks.append({"version": spec["version"], "yaml": block})
+        return {
+            "status": "dry_run",
+            "target_file": target_file,
+            "yaml_blocks": yaml_blocks,
+            "branch": branch_name,
+            "component_type": component_type,
+            "versions": [s["version"] for s in version_specs],
+            "mr_url": None,
+        }
+
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    workdir = Path(tempfile.mkdtemp(prefix="conforma-exception-mr-update-consolidated-", dir=WORK_DIR))
+    try:
+        clone_dest = str(workdir / "repo")
+        repo_url = _get_authenticated_repo_url()
+        _run_git(
+            [
+                "git",
+                "clone",
+                "--depth=1",
+                "--branch",
+                DEFAULT_BRANCH,
+                "--filter=blob:none",
+                "--sparse",
+                repo_url,
+                clone_dest,
+            ],
+            timeout=300,
+        )
+        repo_dir = workdir / "repo"
+        policy_dir = str(Path(target_file).parent)
+        _run_git(["git", "sparse-checkout", "set", policy_dir], cwd=repo_dir)
+
+        _run_git(["git", "checkout", "-b", branch_name], cwd=repo_dir)
+
+        pf = repo_dir / target_file
+        if not pf.exists():
+            return {
+                "status": "failed",
+                "error": f"Target file not found: {target_file}",
+                "target_file": target_file,
+                "mr_url": None,
+            }
+
+        apply_results = []
+        for spec in version_specs:
+            yaml_block = generate_exception_yaml(
+                rule=rule,
+                components=spec["components"],
+                effective_until=spec["effective_until"],
+                reference_url=reference_url,
+                rhoaieng_url=rhoaieng_url,
+                rhoai_version=spec["version"],
+                is_self_service=is_self_service,
+                reference_title=reference_title,
+                spreadsheet_url=spreadsheet_url,
+            )
+            result = apply_exception_to_policy_file(
+                file_path=pf,
+                yaml_block=yaml_block,
+                is_self_service=is_self_service,
+                rule=rule,
+                components=spec["components"],
+                effective_until=spec["effective_until"],
+            )
+            apply_results.append(
+                {
+                    "version": spec["version"],
+                    "action": result["action"],
+                    "detail": result["detail"],
+                }
+            )
+
+        commit_msg = _build_commit_message_consolidated(
+            rule=rule,
+            version_specs=version_specs,
+            rhoaieng_url=rhoaieng_url,
+            reference_url=reference_url,
+            spreadsheet_url=spreadsheet_url,
+            target_file=target_file,
+            exception_risk=exception_risk,
+            exception_remediation=exception_remediation,
+        )
+
+        _run_git(["git", "add", target_file], cwd=repo_dir)
+        _run_git(["git", "commit", "-m", commit_msg], cwd=repo_dir)
+
+        push_result = subprocess.run(
+            ["git", "push", "--force", "origin", f"HEAD:{branch_name}"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=repo_dir,
+            env=gitlab_ops.git_env(),
+        )
+        if push_result.returncode != 0:
+            return {
+                "status": "failed",
+                "error": f"Force push failed: {push_result.stderr.strip()}",
+                "target_file": target_file,
+                "branch": branch_name,
+                "mr_url": None,
+            }
+
+        mr_url = _extract_mr_url(push_result.stdout + push_result.stderr)
+
+        new_title = _build_mr_title_consolidated(rule, version_specs, vendor_tag, environment)
+        new_body = _build_mr_body_consolidated(
+            rule=rule,
+            version_specs=version_specs,
+            rhoaieng_url=rhoaieng_url,
+            reference_url=reference_url,
+            spreadsheet_url=spreadsheet_url,
+            target_file=target_file,
+        )
+        sync_result = _sync_mr_description(branch_name, new_title, new_body)
+        if sync_result and sync_result.get("mr_url") and not mr_url:
+            mr_url = sync_result["mr_url"]
+
+        return {
+            "status": "updated",
+            "target_file": target_file,
+            "branch": branch_name,
+            "mr_url": mr_url,
+            "component_type": component_type,
+            "versions": [s["version"] for s in version_specs],
+            "apply_results": apply_results,
         }
     except subprocess.CalledProcessError as exc:
         return {
@@ -1209,7 +1491,7 @@ def create_consolidated_mr(
         all_components.extend(spec["components"])
     component_type = detect_component_type(all_components)
     if policy_file:
-        target_file = policy_file
+        target_file = _validate_repo_relative_path(policy_file, "policy-file argument")
     else:
         target_file = get_target_file(component_type, environment, is_self_service)
 
@@ -1469,7 +1751,18 @@ def _run_git(cmd: list[str], cwd: Path | None = None, timeout: int = 60) -> subp
     """Run a git command, raising on failure.
 
     Uses gitlab_ops.run_git() to respect GITLAB_SSL_VERIFY settings.
+    Injects Bearer token via http.extraheader for authenticated operations
+    (clone, push, fetch) so tokens are never embedded in URLs.
     """
+    token = _get_gitlab_token()
+    needs_auth = any(sub in cmd for sub in ("clone", "push", "fetch", "pull"))
+    if token and needs_auth:
+        git_idx = cmd.index("git") if "git" in cmd else 0
+        cmd = [
+            *cmd[: git_idx + 1],
+            "-c", f"http.extraheader=Authorization: Bearer {token}",
+            *cmd[git_idx + 1 :],
+        ]
     return gitlab_ops.run_git(cmd, cwd=cwd, timeout=timeout, check=True)
 
 
@@ -1492,7 +1785,7 @@ def remove_expired_mr(
 ) -> dict:
     """Create a GitLab MR that removes an expired exception from a policy file."""
     if policy_file:
-        target_file = policy_file
+        target_file = _validate_repo_relative_path(policy_file, "policy-file argument")
     else:
         comp_type = detect_component_type(components or [])
         target_file = get_target_file(comp_type, environment, is_self_service=False)
@@ -1697,7 +1990,7 @@ def modernize_exception_mr(
         all_components.extend(spec["components"])
 
     if policy_file:
-        target_file = policy_file
+        target_file = _validate_repo_relative_path(policy_file, "policy-file argument")
     else:
         comp_type = detect_component_type(all_components or old_components or [])
         target_file = get_target_file(comp_type, environment, is_self_service=False)
@@ -2110,23 +2403,41 @@ def main() -> int:
     # Consolidated mode: single MR for all versions
     if args.version_specs_json:
         version_specs = json.loads(args.version_specs_json)
-        result = create_consolidated_mr(
-            rule=args.rule,
-            version_specs=version_specs,
-            reference_url=args.reference_url,
-            rhoaieng_url=args.rhoaieng_url,
-            environment=args.environment,
-            is_self_service=args.self_service,
-            reference_title=args.reference_title,
-            spreadsheet_url=args.spreadsheet_url,
-            vendor_tag=args.vendor_tag,
-            exception_risk=args.exception_risk,
-            exception_remediation=args.exception_remediation,
-            policy_file=args.policy_file,
-            dry_run=args.dry_run,
-        )
+        if args.update_mr:
+            result = update_consolidated_mr(
+                branch_name=args.update_mr,
+                rule=args.rule,
+                version_specs=version_specs,
+                reference_url=args.reference_url,
+                rhoaieng_url=args.rhoaieng_url,
+                environment=args.environment,
+                is_self_service=args.self_service,
+                reference_title=args.reference_title,
+                spreadsheet_url=args.spreadsheet_url,
+                vendor_tag=args.vendor_tag,
+                exception_risk=args.exception_risk,
+                exception_remediation=args.exception_remediation,
+                policy_file=args.policy_file,
+                dry_run=args.dry_run,
+            )
+        else:
+            result = create_consolidated_mr(
+                rule=args.rule,
+                version_specs=version_specs,
+                reference_url=args.reference_url,
+                rhoaieng_url=args.rhoaieng_url,
+                environment=args.environment,
+                is_self_service=args.self_service,
+                reference_title=args.reference_title,
+                spreadsheet_url=args.spreadsheet_url,
+                vendor_tag=args.vendor_tag,
+                exception_risk=args.exception_risk,
+                exception_remediation=args.exception_remediation,
+                policy_file=args.policy_file,
+                dry_run=args.dry_run,
+            )
         print(json.dumps(result, indent=2))
-        return 0 if result["status"] in ("created", "dry_run") else 1
+        return 0 if result["status"] in ("created", "updated", "dry_run") else 1
 
     # Single-version mode (backward compatible)
     if not args.components or not args.effective_until or not args.rhoai_version:

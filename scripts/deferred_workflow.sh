@@ -43,15 +43,15 @@ echo "[deferred_workflow] Starting. Waiting for KRD and OKC to merge..."
 
 # Wait for both KRD and OKC steps to reach 'merged' status
 while true; do
-  KRD_STATUS=$(bash "$SCRIPTS_DIR/pipeline_state.sh" get --state "$PIPELINE_STATE" --step krd --field status 2>/dev/null || echo "pending")
+  RELEASE_DATA_STATUS=$(bash "$SCRIPTS_DIR/pipeline_state.sh" get --state "$PIPELINE_STATE" --step krd --field status 2>/dev/null || echo "pending")
   OKC_STATUS=$(bash "$SCRIPTS_DIR/pipeline_state.sh" get --state "$PIPELINE_STATE" --step okc --field status 2>/dev/null || echo "pending")
 
-  if [[ "$KRD_STATUS" == "merged" && "$OKC_STATUS" == "merged" ]]; then
+  if [[ "$RELEASE_DATA_STATUS" == "merged" && "$OKC_STATUS" == "merged" ]]; then
     echo "[deferred_workflow] KRD and OKC both merged. Triggering workflow..."
     break
   fi
 
-  echo "[deferred_workflow] KRD=$KRD_STATUS OKC=$OKC_STATUS — waiting 60s..."
+  echo "[deferred_workflow] KRD=$RELEASE_DATA_STATUS OKC=$OKC_STATUS — waiting 60s..."
   sleep 60
 done
 

@@ -1,13 +1,13 @@
 ---
 name: search-conforma-open-exception-mrs
-description: Search for open GitLab MRs in konflux-release-data that match a conforma violation rule.
+description: Search for open GitLab Merge Requests in konflux-release-data that match a conforma violation rule.
 allowed-tools: Bash(python3:*)
 user-invocable: true
 ---
 
-# Search Open Exception MRs
+# Search Open Exception Merge Requests
 
-Search for open merge requests in the konflux-release-data GitLab repository that mention a conforma violation rule. Performs two searches (full rule + suffix after `:`) and deduplicates by MR `iid`.
+Search for open Merge Requests in the konflux-release-data GitLab repository that mention a conforma violation rule. Performs two searches (full rule + suffix after `:`) and deduplicates by Merge Request `iid`.
 
 ## Usage
 
@@ -29,7 +29,7 @@ python3 scripts/conforma_mr_ops.py search-open-mrs --rule "rpm_signature.allowed
 
 ## Output
 
-JSON list of MR dicts:
+JSON list of Merge Request dicts:
 ```json
 [
   {

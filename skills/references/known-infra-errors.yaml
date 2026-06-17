@@ -1,0 +1,78 @@
+# Known infrastructure error patterns for deterministic classification.
+#
+# Used by submit_feedback.py classify-error to auto-detect infrastructure
+# issues (upstream repo changes, API contract changes, missing dependencies).
+#
+# Matching rules:
+#   exception_type: list of class names -- error's class must be in the list
+#   message_keywords: list of substrings -- ALL must appear (case-insensitive, AND logic)
+#   script_keywords: list of substrings -- ANY must appear in script path (OR logic)
+#
+# First matching pattern wins.
+
+patterns:
+  - id: component-maturity-query-missing
+    exception_type: ["FileNotFoundError", "RuntimeError"]
+    message_keywords: ["query.py"]
+    script_keywords: ["component_catalog_ops"]
+    affected_skill: conforma-analyze
+    severity: major
+    title_hint: "component-maturity query.py missing or moved"
+    notes: "component-maturity GitLab repo may have reorganized"
+
+  - id: policy-dir-missing
+    exception_type: ["FileNotFoundError"]
+    message_keywords: ["Policy dir not found"]
+    script_keywords: ["conforma_policy_ops"]
+    affected_skill: conforma-exception
+    severity: critical
+    title_hint: "konflux-release-data policy directory structure changed"
+
+  - id: csv-path-all-404
+    exception_type: ["RuntimeError"]
+    message_keywords: ["File not found", "CSV"]
+    script_keywords: ["fetch_csv_reports"]
+    affected_skill: conforma-analyze
+    severity: major
+    title_hint: "conforma-reporter CSV path changed"
+
+  - id: github-api-contract-change
+    exception_type: ["KeyError", "TypeError"]
+    message_keywords: ["Failed to parse"]
+    script_keywords: ["github_ops"]
+    affected_skill: "*"
+    severity: critical
+    title_hint: "GitHub API response shape changed"
+
+  - id: cli-output-format-change
+    exception_type: ["JSONDecodeError"]
+    message_keywords: ["Invalid JSON output"]
+    script_keywords: ["cli_runner"]
+    affected_skill: "*"
+    severity: major
+    title_hint: "CLI tool output format changed"
+
+  - id: git-fetch-unreachable
+    exception_type: ["CalledProcessError", "RuntimeError"]
+    message_keywords: ["git fetch failed", "remote unreachable"]
+    script_keywords: ["conforma_policy_ops", "manage_exceptions"]
+    affected_skill: "*"
+    severity: major
+    title_hint: "git remote unreachable after auth confirmed OK"
+    notes: "Only matches when auth is confirmed working -- not a VPN/config issue"
+
+  - id: release-data-yaml-shape-change
+    exception_type: ["KeyError", "TypeError", "YAMLError"]
+    message_keywords: ["rhoai-release-data"]
+    script_keywords: ["fetch_csv_reports"]
+    affected_skill: conforma-analyze
+    severity: critical
+    title_hint: "rhoai-release-data.yaml structure changed"
+
+  - id: target-file-not-found-in-policy-repo
+    exception_type: ["FileNotFoundError"]
+    message_keywords: ["Target file not found"]
+    script_keywords: ["create_gitlab_mr"]
+    affected_skill: conforma-exception
+    severity: critical
+    title_hint: "Policy file path changed in konflux-release-data"

@@ -44,24 +44,26 @@ class TestDownloadFileRaw:
         assert result is not None
         assert "token" in result["error"].lower()
 
-    def test_curl_failure(self, tmp_path):
+    def test_file_not_found(self, tmp_path):
         fetch_csv_reports._github_token_cache = "token123"
         output = tmp_path / "test.csv"
-        mock_result = MagicMock(returncode=22, stderr="404 Not Found")
-        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+        resp = MagicMock(status_code=404)
+        with patch("fetch_csv_reports.requests.get", return_value=resp):
             result = fetch_csv_reports._download_file_raw("path.csv", "main", output)
         assert result is not None
-        assert "404" in result["error"]
+        assert "not found" in result["error"].lower()
 
     def test_successful_download(self, tmp_path):
         fetch_csv_reports._github_token_cache = "token123"
         output = tmp_path / "test.csv"
-        output.write_text("type,component_name\nviolation,comp-a\n")
-
-        mock_result = MagicMock(returncode=0)
-        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+        csv_content = b"type,component_name\nviolation,comp-a\n"
+        resp = MagicMock(status_code=200)
+        resp.iter_content.return_value = [csv_content]
+        with patch("fetch_csv_reports.requests.get", return_value=resp):
             result = fetch_csv_reports._download_file_raw("path.csv", "main", output)
         assert result is None
+        assert output.exists()
+        assert output.stat().st_size > 0
 
     def teardown_method(self):
         fetch_csv_reports._github_token_cache = None
@@ -87,10 +89,13 @@ class TestFetchWarningsCsvForRelease:
                 return None
             return {"error": "not found"}
 
-        mock_date = MagicMock(returncode=0, stdout="2026-06-01T00:00:00Z\n")
+        commit_resp = MagicMock(status_code=200)
+        commit_resp.json.return_value = [
+            {"commit": {"committer": {"date": "2026-06-01T00:00:00Z"}}, "sha": "abc"}
+        ]
         with (
             patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download),
-            patch("fetch_csv_reports.subprocess.run", return_value=mock_date),
+            patch("fetch_csv_reports.requests.get", return_value=commit_resp),
         ):
             result = fetch_csv_reports.fetch_warnings_csv_for_release("rhoai-3.4", tmp_path)
         assert result["status"] == "fetched"
@@ -183,23 +188,25 @@ class TestFetchSupportedReleases:
         yaml_content = (
             "supported:\n  - rhoai-3.4:\n      branch: rhoai-3.4\n  - rhoai-3.5:\n      branch: rhoai-3.5-ea.1\n"
         )
-        mock_result = MagicMock(returncode=0, stdout=yaml_content.encode("utf-8"))
-        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+        resp = MagicMock(status_code=200)
+        resp.text = yaml_content
+        with patch("fetch_csv_reports.requests.get", return_value=resp):
             releases = fetch_csv_reports.fetch_supported_releases()
         assert "rhoai-3.4" in releases
         assert "rhoai-3.5-ea.1" in releases
 
-    def test_curl_failure(self):
+    def test_http_failure(self):
         fetch_csv_reports._github_token_cache = "token123"
-        mock_result = MagicMock(returncode=1, stdout=b"")
-        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+        resp = MagicMock(status_code=404)
+        with patch("fetch_csv_reports.requests.get", return_value=resp):
             releases = fetch_csv_reports.fetch_supported_releases()
         assert releases == []
 
     def test_invalid_yaml(self):
         fetch_csv_reports._github_token_cache = "token123"
-        mock_result = MagicMock(returncode=0, stdout=b"not: valid: yaml: [[[")
-        with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
+        resp = MagicMock(status_code=200)
+        resp.text = "not: valid: yaml: [[["
+        with patch("fetch_csv_reports.requests.get", return_value=resp):
             releases = fetch_csv_reports.fetch_supported_releases()
         assert releases == []
 
@@ -227,10 +234,13 @@ class TestFetchCsvForRelease:
                 return None
             return {"error": "not found"}
 
-        mock_date = MagicMock(returncode=0, stdout="2026-06-01T00:00:00Z\n")
+        commit_resp = MagicMock(status_code=200)
+        commit_resp.json.return_value = [
+            {"commit": {"committer": {"date": "2026-06-01T00:00:00Z"}}, "sha": "abc"}
+        ]
         with (
             patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download),
-            patch("fetch_csv_reports.subprocess.run", return_value=mock_date),
+            patch("fetch_csv_reports.requests.get", return_value=commit_resp),
         ):
             result = fetch_csv_reports.fetch_csv_for_release("rhoai-3.4", tmp_path)
         assert result["status"] == "fetched"

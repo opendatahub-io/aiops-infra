@@ -1,7 +1,7 @@
 """Auto-bootstrap for conforma-report-fetch skill scripts.
 
 Adds the repo-root ``scripts/`` directory to ``sys.path`` so that shared
-modules (``site_config``, ``github_ops``) can be imported directly.
+modules (``konflux_environment``, ``github_ops``) can be imported directly.
 
 Also ensures Python dependencies declared in ``pyproject.toml`` are installed
 (uses ``uv sync`` if available, falls back to ``pip install -e .``).
@@ -108,12 +108,12 @@ def _try_pip_install(repo_root: Path) -> None:
         pass
 
 
-def _load_site_config() -> None:
-    """Load site config to populate infra env vars if available."""
+def _load_konflux_environment() -> None:
+    """Load konflux environment to populate infra env vars if available."""
     try:
-        import site_config
+        import konflux_environment
 
-        site_config.load()
+        konflux_environment.load()
     except Exception:
         pass
 
@@ -133,7 +133,7 @@ def _bootstrap() -> Path:
     if scripts_dir not in sys.path:
         sys.path.insert(1, scripts_dir)
 
-    _load_site_config()
+    _load_konflux_environment()
 
     _BOOTSTRAPPED = True
     return root

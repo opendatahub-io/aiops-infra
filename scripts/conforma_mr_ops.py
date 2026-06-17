@@ -1,4 +1,4 @@
-"""conforma_mr_ops.py -- Conforma MR discovery primitives (dual-mode: CLI + importable)."""
+"""conforma_mr_ops.py -- Conforma Merge Request discovery primitives (dual-mode: CLI + importable)."""
 
 from __future__ import annotations
 
@@ -6,12 +6,21 @@ import argparse
 import json
 import os
 import re
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import gitlab_ops
 
 GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
 GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
+
+EXCEPTION_PATH_MARKERS = ("EnterpriseContractPolicy/", "exceptions/")
+"""File-path substrings that identify conforma registry (exception/policy)
+files.  A Merge Request whose diff touches any path matching these markers
+is classified as an **exception** Merge Request; all others are **remedy**."""
+
+_thread_local = threading.local()
 
 
 def _ensure_gitlab_env() -> None:
@@ -20,6 +29,19 @@ def _ensure_gitlab_env() -> None:
         token = gitlab_ops.discover_token()
         if token:
             os.environ["GITLAB_TOKEN"] = token
+
+
+def _get_project():
+    """Return a per-thread cached GitLab project handle.
+
+    Each thread gets its own ``gitlab.Gitlab`` client (``requests.Session``
+    is not thread-safe) but authenticates only once per thread lifetime.
+    """
+    if not hasattr(_thread_local, "project") or _thread_local.project is None:
+        _ensure_gitlab_env()
+        gl = gitlab_ops.get_client(instance_url=GITLAB_HOST)
+        _thread_local.project = gl.projects.get(GITLAB_PROJECT)
+    return _thread_local.project
 
 
 def _extract_image_base(image_url: str) -> str:
@@ -54,12 +76,27 @@ def image_url_covers_component(image_url: str, component_name: str) -> bool:
     return _extract_image_base(image_url) == _extract_component_base(component_name)
 
 
+def classify_mr_type(changes: list[dict]) -> str:
+    """Classify a Merge Request as ``exception`` or ``remedy`` from its diff.
+
+    Deterministic rule — based solely on changed file paths:
+
+    - ``exception``: at least one changed file matches
+      :data:`EXCEPTION_PATH_MARKERS` (conforma registry / policy files).
+    - ``remedy``: no changed files match those markers (component fix,
+      build-config change, or any other non-exception change).
+    """
+    for change in changes:
+        path = change.get("new_path", "")
+        if any(marker in path for marker in EXCEPTION_PATH_MARKERS):
+            return "exception"
+    return "remedy"
+
+
 def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
-    """List open MRs matching a search term via python-gitlab."""
-    _ensure_gitlab_env()
+    """List open Merge Requests matching a search term via python-gitlab."""
     try:
-        gl = gitlab_ops.get_client(instance_url=GITLAB_HOST)
-        project = gl.projects.get(GITLAB_PROJECT)
+        project = _get_project()
         mrs = project.mergerequests.list(
             state="opened",
             search=search_term,
@@ -85,7 +122,7 @@ def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
 
 
 def search_open_exception_mrs(rule: str) -> list[dict]:
-    """Search for open merge requests in konflux-release-data that mention this rule.
+    """Search for open Merge Requests in konflux-release-data that mention this rule.
 
     Performs two searches and merges results:
     1. Full rule string (e.g. ``rpm_signature.allowed:9386b48a1a693c5c``)
@@ -128,30 +165,79 @@ def search_open_exception_mrs(rule: str) -> list[dict]:
     return results
 
 
-def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
-    """Extract componentNames added for a given rule from a unified diff.
+GLOBAL_COVERAGE: list[str] = ["*"]
+"""Sentinel returned by ``_parse_components_from_diff`` when the rule is added
+without component scoping (permanent exclusion or global volatile exception).
+Callers must check ``"*" in result`` before computing set intersections."""
 
-    Scans ``+`` lines for a ``- value: <rule>`` pattern, then collects
-    subsequent ``componentNames:`` children.  Handles both policy indent
-    (10 spaces) and self-service / zero-indent by stripping leading
-    whitespace after removing the ``+`` prefix.
+
+def _parse_diff_lines(diff_text: str) -> list[tuple[str, bool]]:
+    """Parse a unified diff into ``(stripped_content, is_added)`` tuples.
+
+    Skips diff headers (``@@``, ``---``, ``+++``) and removed lines.
+    Context lines (space-prefixed) are included with ``is_added=False``
+    so callers can inspect the surrounding YAML structure.
     """
-    added_lines: list[str] = []
+    result: list[tuple[str, bool]] = []
     for raw in diff_text.splitlines():
-        if raw.startswith("+") and not raw.startswith("+++"):
-            added_lines.append(raw[1:])  # strip the leading '+'
+        if raw.startswith(("@@", "---", "+++")):
+            continue
+        if raw.startswith("-"):
+            continue
+        is_added = raw.startswith("+")
+        content = raw[1:] if raw and raw[0] in ("+", " ") else raw
+        result.append((content.strip(), is_added))
+    return result
 
+
+def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
+    """Extract componentNames for a given rule from a unified diff.
+
+    Processes both added (``+``) and context (`` ``) lines to correctly
+    detect component scoping even when ``componentNames:`` / ``imageUrl:``
+    are pre-existing context rather than new additions.
+
+    **Permanent exclusion** — bare ``- <rule>`` on an added line.  These
+    appear only in ``config.exclude`` (not ``volatileConfig``), which uses
+    the simple list format.  Structurally distinct from ``volatileConfig``
+    entries which always use ``- value: <rule>``.
+
+    **Global volatile exception** — ``- value: <rule>`` on an added line
+    with no ``componentNames:`` or ``imageUrl:`` among its sibling keys
+    (whether added or context).
+
+    Returns:
+      - Specific component names when ``componentNames:`` is present.
+      - :data:`GLOBAL_COVERAGE` (``["*"]``) when the rule is added without
+        component scoping.
+      - Empty list when the rule is not found in added lines.
+    """
+    lines = _parse_diff_lines(diff_text)
+
+    # --- Permanent exclusion: bare "- <rule>" on an added line ---
+    # config.exclude uses bare list items; volatileConfig uses "- value:" —
+    # these formats are structurally distinct in the policy schema.
+    for stripped, is_added in lines:
+        if is_added and (stripped == f"- {rule}" or stripped == f'- "{rule}"'):
+            return GLOBAL_COVERAGE
+
+    # --- Volatile exception: "- value: <rule>" on an added line ---
+    # Scan ALL subsequent lines (context included) for componentNames/imageUrl
+    # because the scoping keys may be pre-existing (unchanged) context.
     components: list[str] = []
     i = 0
-    while i < len(added_lines):
-        stripped = added_lines[i].strip()
-        if stripped == f"- value: {rule}" or stripped == f'- value: "{rule}"':
+    while i < len(lines):
+        stripped, is_added = lines[i]
+        if is_added and (stripped == f"- value: {rule}" or stripped == f'- value: "{rule}"'):
             i += 1
             in_component_names = False
-            while i < len(added_lines):
-                s = added_lines[i].strip()
+            has_component_scoping = False
+            while i < len(lines):
+                s, _ = lines[i]
                 if not s or s.startswith("- value:"):
                     break
+                if s.startswith("componentNames:") or s.startswith("imageUrl:"):
+                    has_component_scoping = True
                 if s == "componentNames:":
                     in_component_names = True
                     i += 1
@@ -165,6 +251,8 @@ def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
                 if in_component_names:
                     in_component_names = False
                 i += 1
+            if not has_component_scoping:
+                return GLOBAL_COVERAGE
         else:
             i += 1
 
@@ -240,10 +328,8 @@ class _MRCache:
 
     def prefetch(self, iids: list[int]) -> None:
         """Fetch diffs for all *iids* that are not already cached."""
-        _ensure_gitlab_env()
         try:
-            gl = gitlab_ops.get_client(instance_url=GITLAB_HOST)
-            project = gl.projects.get(GITLAB_PROJECT)
+            project = _get_project()
         except Exception:
             for iid in iids:
                 if not self.has(iid):
@@ -265,21 +351,31 @@ _mr_cache = _MRCache()
 
 
 def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
-    """Search for open MRs across all *rules* and prefetch their diffs.
+    """Search for open Merge Requests across all *rules* and prefetch their diffs.
 
     Returns a mapping of ``rule -> list[mr_info]`` (same shape as
-    ``search_open_exception_mrs`` output).  All unique MR diffs are
-    fetched once and stored in ``_mr_cache`` so that downstream calls
+    ``search_open_exception_mrs`` output).  All unique Merge Request diffs
+    are fetched once and stored in ``_mr_cache`` so that downstream calls
     to ``analyze_mr_component_coverage`` hit the cache instead of the API.
+
+    Rule searches run in parallel (each thread gets its own GitLab client
+    via ``_get_project()``).  Diff prefetch is sequential after all
+    searches complete.
     """
     rule_to_mrs: dict[str, list[dict]] = {}
     all_iids: set[int] = set()
 
-    for rule in rules:
-        mrs = search_open_exception_mrs(rule)
-        rule_to_mrs[rule] = mrs
-        for mr in mrs:
-            all_iids.add(mr["iid"])
+    with ThreadPoolExecutor(max_workers=min(len(rules), 4)) as pool:
+        futures = {pool.submit(search_open_exception_mrs, r): r for r in rules}
+        for future in as_completed(futures):
+            rule = futures[future]
+            try:
+                mrs = future.result()
+            except Exception:
+                mrs = []
+            rule_to_mrs[rule] = mrs
+            for mr in mrs:
+                all_iids.add(mr["iid"])
 
     _mr_cache.prefetch(sorted(all_iids))
     return rule_to_mrs
@@ -290,12 +386,26 @@ def _build_coverage_result(
     mr_components: list[str],
     requested_components: list[str],
     source: str,
+    aliases: dict[str, set[str]] | None = None,
 ) -> dict:
-    """Compute overlap between MR components and requested components."""
+    """Compute overlap between MR components and requested components.
+
+    When *aliases* is provided, expanded sets are intersected and the
+    result is mapped back to the original requested names.
+    """
     mr_set = set(mr_components)
     req_set = set(requested_components)
-    covered = sorted(mr_set & req_set)
-    missing = sorted(req_set - mr_set)
+
+    if aliases:
+        import component_alias_ops
+        mr_expanded = component_alias_ops.expand_component_set(mr_set, aliases)
+        req_expanded = component_alias_ops.expand_component_set(req_set, aliases)
+        expanded_overlap = mr_expanded & req_expanded
+        covered = sorted(expanded_overlap & req_set)
+        missing = sorted(req_set - set(covered))
+    else:
+        covered = sorted(mr_set & req_set)
+        missing = sorted(req_set - mr_set)
 
     if not covered:
         suggestion = "no_overlap"
@@ -319,17 +429,24 @@ def analyze_mr_component_coverage(
     rule: str,
     requested_components: list[str],
     mr_description: str = "",
+    aliases: dict[str, set[str]] | None = None,
 ) -> dict:
-    """Analyze which requested components an open MR already covers.
+    """Analyze which requested components an open Merge Request already covers.
 
-    Primary: parse the MR diff for added ``componentNames`` under the rule.
-    Fallback: parse the structured MR description (for MRs that only change
-    ``effectiveUntil`` or where the diff yields nothing).
+    Primary: parse the Merge Request diff for added ``componentNames`` under
+    the rule.
+    Fallback: parse the structured Merge Request description (for Merge
+    Requests that only change ``effectiveUntil`` or where the diff yields
+    nothing).
+
+    Each result includes ``mr_type`` (``"exception"`` or ``"remedy"``)
+    determined by :func:`classify_mr_type` from the diff file paths.
 
     Uses ``_mr_cache`` if the diff was prefetched; otherwise fetches on demand.
     """
     result_base: dict = {
         "mr_iid": mr_iid,
+        "mr_type": "exception",
         "mr_components": [],
         "covered": [],
         "missing": list(requested_components),
@@ -339,34 +456,43 @@ def analyze_mr_component_coverage(
 
     # --- Primary: diff parsing (cache-aware) ---
     diff_components: list[str] = []
+    changes: list[dict] = []
     if _mr_cache.has(mr_iid):
-        for change in _mr_cache.get_changes(mr_iid):
-            path = change.get("new_path", "")
-            if "EnterpriseContractPolicy/" in path or "exceptions/" in path:
-                diff_components.extend(_parse_components_from_diff(change.get("diff", ""), rule))
+        changes = _mr_cache.get_changes(mr_iid)
     else:
-        _ensure_gitlab_env()
         try:
-            gl = gitlab_ops.get_client(instance_url=GITLAB_HOST)
-            project = gl.projects.get(GITLAB_PROJECT)
+            project = _get_project()
             mr = project.mergerequests.get(mr_iid)
             changes_data = mr.changes()
             changes = changes_data.get("changes", [])
             _mr_cache.store(mr_iid, changes)
-            for change in changes:
-                path = change.get("new_path", "")
-                if "EnterpriseContractPolicy/" in path or "exceptions/" in path:
-                    diff_components.extend(_parse_components_from_diff(change.get("diff", ""), rule))
         except Exception:
-            result_base["coverage_error"] = "Failed to fetch MR diff"
+            result_base["coverage_error"] = "Failed to fetch Merge Request diff"
+
+    result_base["mr_type"] = classify_mr_type(changes)
+
+    for change in changes:
+        path = change.get("new_path", "")
+        if any(marker in path for marker in EXCEPTION_PATH_MARKERS):
+            diff_components.extend(_parse_components_from_diff(change.get("diff", ""), rule))
 
     if diff_components:
+        if "*" in diff_components:
+            return {
+                **result_base,
+                "mr_components": GLOBAL_COVERAGE,
+                "covered": sorted(requested_components),
+                "missing": [],
+                "source": "diff",
+                "suggestion": "fully_covered",
+            }
         mr_comps = sorted(set(diff_components))
         return _build_coverage_result(
             result_base,
             mr_comps,
             requested_components,
             source="diff",
+            aliases=aliases,
         )
 
     # --- Fallback: description parsing ---
@@ -379,13 +505,14 @@ def analyze_mr_component_coverage(
                 mr_comps,
                 requested_components,
                 source="description",
+                aliases=aliases,
             )
 
     return result_base
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Conforma MR discovery primitives")
+    parser = argparse.ArgumentParser(description="Conforma Merge Request discovery primitives")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_search = sub.add_parser("search-open-mrs")

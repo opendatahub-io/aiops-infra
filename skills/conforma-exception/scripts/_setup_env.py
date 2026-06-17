@@ -111,12 +111,12 @@ def _try_pip_install(repo_root: Path) -> None:
         pass
 
 
-def _load_site_config(root: Path) -> None:
-    """Load site config to populate infra env vars if available."""
+def _load_konflux_environment(root: Path) -> None:
+    """Load konflux environment to populate infra env vars if available."""
     try:
-        import site_config
+        import konflux_environment
 
-        site_config.load()
+        konflux_environment.load()
     except Exception:
         pass
 
@@ -136,7 +136,7 @@ def _bootstrap() -> Path:
     if scripts_dir not in sys.path:
         sys.path.insert(1, scripts_dir)
 
-    _load_site_config(root)
+    _load_konflux_environment(root)
 
     _BOOTSTRAPPED = True
     return root

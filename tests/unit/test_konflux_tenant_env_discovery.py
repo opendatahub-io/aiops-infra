@@ -1,4 +1,4 @@
-"""Tests for scripts/tenant_discovery.py — tenant-based auto-discovery."""
+"""Tests for scripts/konflux_tenant_env_discovery.py — Konflux tenant environment discovery."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import tenant_discovery
+import konflux_tenant_env_discovery
 
 
 @pytest.fixture
@@ -77,44 +77,23 @@ def _setup_multi_cluster_tenant(mock_project, tenant="rhoai-tenant"):
 
 
 @pytest.fixture
-def connectivity_confirmed_true(monkeypatch):
-    monkeypatch.setattr(tenant_discovery, "_import_site_config_connectivity", lambda: True)
-
-
-def _import_site_config_connectivity():
-    """Helper that tests can override."""
-    import site_config
-    return site_config.connectivity_confirmed()
-
-
-# Patch the discover function to use our helper
-@pytest.fixture(autouse=True)
-def _patch_connectivity_check(monkeypatch):
-    """By default, patch connectivity as confirmed for all tests."""
-    monkeypatch.setattr(
-        "site_config.connectivity_confirmed",
-        lambda: True,
-    )
-
-
-@pytest.fixture
 def cache_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(tenant_discovery, "DISCOVERY_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(konflux_tenant_env_discovery, "DISCOVERY_CACHE_DIR", tmp_path)
     return tmp_path
 
 
 class TestDiscoverSingleCluster:
     def test_basic_discovery(self, mock_project, cache_dir):
         _setup_single_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx = tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            ctx = konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         assert ctx.tenant == "rhoai-tenant"
         assert ctx.cluster.cluster_id == "stone-prod-p02"
         assert ctx.cluster.cluster_domain == "stone-prod-p02.hjvn.p1"
-        assert ctx.ec_policy_dir == "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
-        assert "registry-rhoai-prod.yaml" in ctx.ec_policy_files
-        assert "fbc-rhoai-prod.yaml" in ctx.ec_policy_files
+        assert ctx.conforma_policy_dir == "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
+        assert "registry-rhoai-prod.yaml" in ctx.conforma_policy_files
+        assert "fbc-rhoai-prod.yaml" in ctx.conforma_policy_files
         assert "rhoai" in ctx.rpa_subdirs
         assert ctx.self_service_dir == "exceptions"
         assert "registry-rhoai-prod.yaml" in ctx.self_service_files
@@ -122,8 +101,8 @@ class TestDiscoverSingleCluster:
 
     def test_writes_cache(self, mock_project, cache_dir):
         _setup_single_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         cache_file = cache_dir / "rhoai-tenant.json"
         assert cache_file.exists()
@@ -135,8 +114,8 @@ class TestDiscoverSingleCluster:
 class TestDiscoverMultipleClusters:
     def test_preferred_cluster_selects_correctly(self, mock_project, cache_dir):
         _setup_multi_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx = tenant_discovery.discover("rhoai-tenant", preferred_cluster="stone-stg-p01")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            ctx = konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-stg-p01")
 
         assert ctx.cluster.cluster_id == "stone-stg-p01"
         assert ctx.cluster.cluster_domain == "stone-stg-p01.abc.p1"
@@ -144,17 +123,17 @@ class TestDiscoverMultipleClusters:
 
     def test_no_preferred_cluster_errors(self, mock_project, cache_dir):
         _setup_multi_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            with pytest.raises(tenant_discovery.DiscoveryError) as exc_info:
-                tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            with pytest.raises(konflux_tenant_env_discovery.DiscoveryError) as exc_info:
+                konflux_tenant_env_discovery.discover("rhoai-tenant")
         assert exc_info.value.exit_code == 10
         assert "multiple clusters" in str(exc_info.value).lower()
 
     def test_wrong_preferred_cluster_errors(self, mock_project, cache_dir):
         _setup_multi_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            with pytest.raises(tenant_discovery.DiscoveryError) as exc_info:
-                tenant_discovery.discover("rhoai-tenant", preferred_cluster="nonexistent-cluster")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            with pytest.raises(konflux_tenant_env_discovery.DiscoveryError) as exc_info:
+                konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="nonexistent-cluster")
         assert exc_info.value.exit_code == 10
         assert "nonexistent-cluster" in str(exc_info.value)
 
@@ -169,28 +148,20 @@ class TestDiscoverTenantNotFound:
             return []
 
         mock_project.repository_tree.side_effect = tree_side_effect
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            with pytest.raises(tenant_discovery.DiscoveryError) as exc_info:
-                tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            with pytest.raises(konflux_tenant_env_discovery.DiscoveryError) as exc_info:
+                konflux_tenant_env_discovery.discover("rhoai-tenant")
         assert exc_info.value.exit_code == 8
 
 
 class TestDiscoverGitLabError:
     def test_exit_9_on_api_error(self, cache_dir):
         with patch.object(
-            tenant_discovery, "_get_gitlab_project", side_effect=tenant_discovery.DiscoveryError("API fail", 9)
+            konflux_tenant_env_discovery, "_get_gitlab_project", side_effect=konflux_tenant_env_discovery.DiscoveryError("API fail", 9)
         ):
-            with pytest.raises(tenant_discovery.DiscoveryError) as exc_info:
-                tenant_discovery.discover("rhoai-tenant")
+            with pytest.raises(konflux_tenant_env_discovery.DiscoveryError) as exc_info:
+                konflux_tenant_env_discovery.discover("rhoai-tenant")
         assert exc_info.value.exit_code == 9
-
-
-class TestDiscoverConnectivityNotConfirmed:
-    def test_exit_7_when_not_confirmed(self, cache_dir, monkeypatch):
-        monkeypatch.setattr("site_config.connectivity_confirmed", lambda: False)
-        with pytest.raises(tenant_discovery.DiscoveryError) as exc_info:
-            tenant_discovery.discover("rhoai-tenant")
-        assert exc_info.value.exit_code == 7
 
 
 class TestPagination:
@@ -224,8 +195,8 @@ class TestPagination:
             return []
 
         mock_project.repository_tree.side_effect = tree_side_effect
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx = tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            ctx = konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         assert ctx.cluster.cluster_id == "target-cluster"
         assert call_count["tenants"] == 101
@@ -251,8 +222,8 @@ class TestClusterDomainMatching:
             return []
 
         mock_project.repository_tree.side_effect = tree_side_effect
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx = tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            ctx = konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         assert ctx.cluster.cluster_domain == "stone-prod-p02.hjvn.p1.extra.segment"
         assert ctx.cluster.cluster_id == "stone-prod-p02"
@@ -276,8 +247,8 @@ class TestClusterDomainMatching:
             return []
 
         mock_project.repository_tree.side_effect = tree_side_effect
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx = tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            ctx = konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         assert ctx.cluster.cluster_id == "simple"
         assert ctx.cluster.cluster_domain == "simple"
@@ -307,11 +278,11 @@ class TestRawFileStorage:
             return []
 
         mock_project.repository_tree.side_effect = tree_side_effect
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx = tenant_discovery.discover("my-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            ctx = konflux_tenant_env_discovery.discover("my-tenant")
 
-        assert ctx.ec_policy_files == ["another-file.yaml", "weird-name_v2.yaml"]
-        assert "not-yaml.txt" not in ctx.ec_policy_files
+        assert ctx.conforma_policy_files == ["another-file.yaml", "weird-name_v2.yaml"]
+        assert "not-yaml.txt" not in ctx.conforma_policy_files
         assert ctx.rpa_subdirs == ["product-a", "product-b"]
         assert ctx.self_service_files == ["some-exception.yaml"]
 
@@ -319,31 +290,31 @@ class TestRawFileStorage:
 class TestCache:
     def test_uses_cache_when_fresh(self, mock_project, cache_dir):
         _setup_single_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx1 = tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            ctx1 = konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         mock_project.repository_tree.reset_mock()
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx2 = tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            ctx2 = konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         mock_project.repository_tree.assert_not_called()
         assert ctx2.cluster.cluster_id == ctx1.cluster.cluster_id
 
     def test_refresh_ignores_cache(self, mock_project, cache_dir):
         _setup_single_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            konflux_tenant_env_discovery.discover("rhoai-tenant")
 
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
             _setup_single_cluster_tenant(mock_project)
-            tenant_discovery.discover("rhoai-tenant", refresh=True)
+            konflux_tenant_env_discovery.discover("rhoai-tenant", refresh=True)
 
         assert mock_project.repository_tree.called
 
     def test_expired_cache_triggers_fresh_discovery(self, mock_project, cache_dir):
         _setup_single_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         cache_file = cache_dir / "rhoai-tenant.json"
         data = json.loads(cache_file.read_text())
@@ -353,20 +324,20 @@ class TestCache:
 
         mock_project.repository_tree.reset_mock()
         _setup_single_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            tenant_discovery.discover("rhoai-tenant")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         assert mock_project.repository_tree.called
 
     def test_preferred_cluster_change_invalidates_cache(self, mock_project, cache_dir):
         _setup_multi_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            tenant_discovery.discover("rhoai-tenant", preferred_cluster="stone-prod-p02")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-prod-p02")
 
         mock_project.repository_tree.reset_mock()
         _setup_multi_cluster_tenant(mock_project)
-        with patch.object(tenant_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx = tenant_discovery.discover("rhoai-tenant", preferred_cluster="stone-stg-p01")
+        with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
+            ctx = konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-stg-p01")
 
         assert mock_project.repository_tree.called
         assert ctx.cluster.cluster_id == "stone-stg-p01"

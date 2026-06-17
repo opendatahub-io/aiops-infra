@@ -59,21 +59,33 @@ bash scripts/install_slackdump.sh
 python3 scripts/verify_conforma_prerequisites.py --fix
 ```
 
-This single command checks: Python deps, `.work/.env`, site-config, GitHub auth, GitLab auth (requires VPN), Jira auth, and Slack auth. All must pass before running workflows. The `--fix` flag prints remediation steps for any failures.
+This single command checks: Python deps, `.work/.env`, infrastructure discovery, GitHub auth, GitLab auth (requires VPN), Jira auth, and Slack auth. All must pass before running workflows. The `--fix` flag prints remediation steps for any failures.
 
-## Site Configuration
+## Infrastructure Discovery
 
-Site-config (GitLab host, Konflux tenant, cluster domain) is loaded automatically:
+Infrastructure details (Konflux cluster domain, API URLs, Conforma policy paths, RPA directories) are discovered automatically from the `konflux-release-data` GitLab repository. You only need to provide two values — a GitLab hostname and a tenant name.
 
-1. From `~/.config/aiops-infra/site-config.yaml` if present
-2. Auto-fetched from `rhods-devops-infra` remote (requires `GITHUB_TOKEN`)
-3. From `.work/site-config.yaml` as a manual fallback
+### Setup: Add to .work/.env
 
-For first-time setup, the auto-fetch handles most users. To validate or debug:
+```
+GITLAB_HOST=your-gitlab-host
+TENANT=your-tenant-name
+```
+
+On the next run, `konflux_tenant_env_discovery.py` auto-discovers `KONFLUX_CLUSTER_DOMAIN` and all derived variables. Results are cached for 72 hours.
+
+To verify discovery works:
 
 ```bash
-python3 scripts/site_config.py --validate
-python3 scripts/site_config.py --check-connectivity   # requires VPN
+python3 scripts/konflux_tenant_env_discovery.py --tenant YOUR_TENANT --human
+```
+
+### If discovery fails
+
+If auto-discovery cannot work in your environment (e.g. no VPN, tenant not registered), add the required variables to `.work/.env` manually:
+
+```
+KONFLUX_CLUSTER_DOMAIN=your-cluster-domain
 ```
 
 ## Skills in the suite

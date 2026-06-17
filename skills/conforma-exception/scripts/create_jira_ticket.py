@@ -220,7 +220,7 @@ def resolve_template(
 
 
 def _ensure_jira_env() -> None:
-    """Ensure jira env vars are available (site_config.load() already handles this)."""
+    """Ensure jira env vars are available (konflux_environment.load() already handles this)."""
     pass
 
 
@@ -715,6 +715,7 @@ def _set_authorized_party_field(ticket_key: str, authorized_party: str) -> dict:
         pass
 
     if not account_id:
+        import urllib.parse
         import urllib.request
 
         creds = _jira_auth()
@@ -728,7 +729,7 @@ def _set_authorized_party_field(ticket_key: str, authorized_party: str) -> dict:
 
         search_url = (
             f"https://redhat.atlassian.net/rest/api/3/user/search"
-            f"?query={urllib.request.quote(authorized_party)}&maxResults=5"
+            f"?query={urllib.parse.quote(authorized_party)}&maxResults=5"
         )
         req = urllib.request.Request(
             search_url,
@@ -752,9 +753,6 @@ def _set_authorized_party_field(ticket_key: str, authorized_party: str) -> dict:
                 account_id = user["accountId"]
                 matched_name = user.get("displayName", "")
                 break
-        if not account_id and users:
-            account_id = users[0]["accountId"]
-            matched_name = users[0].get("displayName", "")
 
     if not account_id:
         return {
@@ -829,6 +827,30 @@ def _fill_psx_template(
         "description_status": desc_result.get("status", 0),
         "description_error": desc_result.get("error", ""),
         "authorized_party_set": ap_set,
+    }
+
+
+def _set_assignee(ticket_key: str, assignee: str) -> dict:
+    """Set the assignee via Jira user search + REST PUT."""
+    user_result = jira_ops.search_user(assignee)
+    if not user_result.get("found"):
+        return {
+            "action": "set_assignee",
+            "ticket_key": ticket_key,
+            "ok": False,
+            "error": f"user '{assignee}' not found",
+        }
+    account_id = user_result["account_id"]
+    put_result = _jira_rest_put(
+        f"issue/{ticket_key}",
+        {"fields": {"assignee": {"accountId": account_id}}},
+    )
+    return {
+        "action": "set_assignee",
+        "ticket_key": ticket_key,
+        "assignee": user_result.get("display_name", assignee),
+        "ok": put_result["ok"],
+        "error": put_result.get("error", ""),
     }
 
 
@@ -1118,6 +1140,11 @@ def create_ticket(
         )
     else:
         apply_result = {"operations": [], "verification": None}
+
+    # --- Post-creation: set assignee ---
+    if ticket_key and assignee:
+        assignee_result = _set_assignee(ticket_key, assignee)
+        apply_result.setdefault("operations", []).append(assignee_result)
 
     # --- Post-creation: set Jira Component (RHOAIENG only) ---
     if ticket_key and project == "RHOAIENG" and jira_components:
@@ -1526,7 +1553,7 @@ def reconcile_ticket(
     # Determine expected labels
     labels = [PROVENANCE_LABEL, VIOLATION_LABEL]
     if rule:
-        labels.append(f"Exception:{rule}")
+        labels.append(build_exception_label(rule, components))
 
     # --- Reconcile labels ---
     existing_labels = fields.get("labels", [])

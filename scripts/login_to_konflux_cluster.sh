@@ -31,6 +31,32 @@ CLUSTER_INSTANCE="${1:-external}"
 EXTERNAL_API="${KONFLUX_EXTERNAL_API:?Set KONFLUX_EXTERNAL_API to the external Konflux cluster API URL}"
 INTERNAL_API="${KONFLUX_INTERNAL_API:?Set KONFLUX_INTERNAL_API to the internal Konflux cluster API URL}"
 
+# Validate that API URLs are safe HTTPS endpoints before passing tokens to them.
+validate_api_url() {
+  local url="$1" label="$2"
+  # Must start with https://
+  if [[ ! "$url" =~ ^https:// ]]; then
+    die "$label must use https:// scheme (got: $url)"
+  fi
+  # Reject userinfo (user:pass@host)
+  if [[ "$url" =~ ^https://[^/]*@  ]]; then
+    die "$label must not contain userinfo (got: $url)"
+  fi
+  # Reject paths, query strings, or fragments beyond the host[:port]
+  local hostport="${url#https://}"
+  if [[ "$hostport" =~ [/?#] ]]; then
+    die "$label must be https://host[:port] only, no path/query/fragment (got: $url)"
+  fi
+  # Reject bare IP addresses (v4)
+  local host="${hostport%%:*}"
+  if [[ "$host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    die "$label must use a hostname, not an IP address (got: $url)"
+  fi
+}
+
+validate_api_url "$EXTERNAL_API" "KONFLUX_EXTERNAL_API"
+validate_api_url "$INTERNAL_API" "KONFLUX_INTERNAL_API"
+
 case "$CLUSTER_INSTANCE" in
   external) API_SERVER="$EXTERNAL_API" ;;
   internal) API_SERVER="$INTERNAL_API" ;;

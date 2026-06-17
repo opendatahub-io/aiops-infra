@@ -8,6 +8,24 @@ import re
 
 import jira_ops
 
+SEARCH_PROJECTS: list[str] = ["RHOAIENG", "PSX", "OCPEXCEPT", "PRODSECRM"]
+"""Jira projects searched for conforma-violation tickets.
+
+PRODSECRM is the successor to PSX.  PSX is retained for backward
+compatibility with the existing exception workflow.
+"""
+
+SEARCH_PROJECTS_JQL = f"project in ({', '.join(SEARCH_PROJECTS)})"
+"""Pre-formatted JQL clause for use in queries."""
+
+_VERSION_SUFFIX_RE = re.compile(r"-v\d+-\d+(-ea-\d+)?$")
+
+_RULE_FAMILY_KEYWORDS: dict[str, list[str]] = {
+    "hermetic_task": ["hermetic", "prefetch-dependencies", "network isolation"],
+    "rpm_signature": ["signing key", "rpm signature", "unsigned", "allowed keys"],
+    "test.no_failed_tests": ["failed test", "test failure"],
+}
+
 
 def _extract_ticket_key(url: str) -> str | None:
     match = re.search(r"([A-Z]+-\d+)", url)
@@ -35,6 +53,48 @@ def _extract_rule_from_summary(summary: str) -> str | None:
     if match:
         return match.group(1)
     return None
+
+
+def _strip_version_suffix(name: str) -> str:
+    """Strip Konflux version suffix: -v3-5, -v3-5-ea-1, -v2-25, etc."""
+    return _VERSION_SUFFIX_RE.sub("", name)
+
+
+def _infer_rule_from_text(text: str, rule: str) -> str:
+    """Infer whether *text* (summary + description) is about *rule*.
+
+    Returns "confirmed" if the rule code or rule-family keywords are found,
+    "unconfirmed" otherwise.
+    """
+    if not text:
+        return "unconfirmed"
+
+    extracted = _extract_rule_from_summary(text)
+    if extracted and extracted == rule:
+        return "confirmed"
+    if extracted and ":" in rule and extracted.startswith(rule.split(":")[0]):
+        if rule.split(":", 1)[1].lower() in text.lower():
+            return "confirmed"
+
+    text_lower = text.lower()
+
+    rule_family = rule.split(".")[0] if "." in rule else rule
+    if ":" in rule_family:
+        rule_family = rule_family.split(":")[0]
+
+    for family_prefix, keywords in _RULE_FAMILY_KEYWORDS.items():
+        if rule.startswith(family_prefix):
+            for kw in keywords:
+                if kw in text_lower:
+                    return "confirmed"
+            break
+
+    if ":" in rule:
+        suffix = rule.split(":", 1)[1].lower()
+        if suffix in text_lower:
+            return "confirmed"
+
+    return "unconfirmed"
 
 
 def _build_release_version_patterns(releases: list[str]) -> list[str]:
@@ -102,8 +162,13 @@ def classify_ticket_version_relevance(
     return "targets_future"
 
 
-def prefetch_open_jira_tickets(rules: list[str], releases: list[str] | None = None) -> dict[str, list[dict]]:
-    """Batch search for open Jira tickets (RHOAIENG, PSX, OCPEXCEPT) matching violations.
+def prefetch_open_jira_tickets(
+    rules: list[str],
+    releases: list[str] | None = None,
+    rule_to_components: dict[str, list[str]] | None = None,
+    aliases: dict[str, set[str]] | None = None,
+) -> dict[str, list[dict]]:
+    """Batch search for open Jira tickets matching violations.
 
     Does one broad JQL query to find all open conforma-violation tickets,
     then matches them to rules by summary text. When ``releases`` is provided,
@@ -111,12 +176,17 @@ def prefetch_open_jira_tickets(rules: list[str], releases: list[str] | None = No
     RHOAI versions (checked via target_versions/affected_versions text patterns
     in the ticket summary).
 
+    Pass 4 (component-name inference): When ``rule_to_components`` is provided,
+    rules still without tickets after passes 1-3 are searched by component name
+    (including aliases) with a ``text ~ "conforma"`` filter.  Tickets found this
+    way are annotated with ``match_source`` and ``inference_confidence``.
+
     Returns a mapping of ``rule -> list[ticket_info]``.
     """
     all_tickets: list[dict] = []
 
     jql = (
-        "project in (RHOAIENG, PSX, OCPEXCEPT) "
+        f"{SEARCH_PROJECTS_JQL} "
         "AND labels = 'conforma-violation' "
         "AND status not in (Closed, Resolved, Done)"
     )
@@ -153,7 +223,7 @@ def prefetch_open_jira_tickets(rules: list[str], releases: list[str] | None = No
     unmatched = [r for r, tickets in rule_to_tickets.items() if not tickets]
     for rule in unmatched:
         label_jql = (
-            f"project in (RHOAIENG, PSX, OCPEXCEPT) AND labels = '{rule}' "
+            f"{SEARCH_PROJECTS_JQL} AND labels = '{rule}' "
             f"AND status not in (Closed, Resolved, Done)"
         )
         label_result = jira_ops.search_issues(label_jql, max_results=50, fields=["key", "summary", "status", "issuetype", "fixVersions"])
@@ -171,6 +241,103 @@ def prefetch_open_jira_tickets(rules: list[str], releases: list[str] | None = No
                 if normalized["key"] not in existing_keys:
                     if not version_patterns or _ticket_matches_release(normalized, version_patterns):
                         rule_to_tickets[rule].append(normalized)
+
+    # Third pass: summary-based search for tickets without the
+    # conforma-violation label.  Many tickets are created manually
+    # (outside the conforma-exception skill) and lack the label.
+    still_unmatched = [r for r, tickets in rule_to_tickets.items() if not tickets]
+    for rule in still_unmatched:
+        rule_search_term = rule.split(":", 1)[1] if ":" in rule else rule
+        summary_jql = (
+            f"project in (RHOAIENG, PRODSECRM) "
+            f"AND status not in (Closed, Resolved, Done) "
+            f"AND summary ~ '{rule_search_term}'"
+        )
+        summary_result = jira_ops.search_issues(
+            summary_jql, max_results=50, fields=["key", "summary", "status", "issuetype", "fixVersions"]
+        )
+        if summary_result.get("issues"):
+            for ticket in summary_result["issues"]:
+                normalized = {
+                    "key": ticket["key"],
+                    "type": ticket.get("type", ""),
+                    "status": ticket.get("status", ""),
+                    "summary": ticket.get("summary", ""),
+                    "url": ticket["url"],
+                    "fix_versions": ticket.get("fix_versions", []),
+                }
+                existing_keys = {t["key"] for t in rule_to_tickets[rule]}
+                if normalized["key"] not in existing_keys:
+                    if not version_patterns or _ticket_matches_release(normalized, version_patterns):
+                        rule_to_tickets[rule].append(normalized)
+
+    # Fourth pass: component-name search with conforma filter.
+    # For rules still without tickets, search by component name (including
+    # aliases) and infer rule relevance from the ticket text.
+    if rule_to_components:
+        import component_alias_ops
+
+        pass4_unmatched = [r for r, tickets in rule_to_tickets.items() if not tickets]
+        all_existing_keys: set[str] = set()
+        for tickets in rule_to_tickets.values():
+            for t in tickets:
+                all_existing_keys.add(t["key"])
+
+        for rule in pass4_unmatched:
+            components = rule_to_components.get(rule, [])
+            if not components:
+                continue
+
+            comp_set = set(components)
+            if aliases:
+                comp_set = component_alias_ops.expand_component_set(comp_set, aliases)
+
+            stems = sorted({_strip_version_suffix(c) for c in comp_set})
+            if not stems:
+                continue
+
+            stem_clauses = " OR ".join(f'text ~ "\\"{s}\\""' for s in stems)
+            component_jql = (
+                f"{SEARCH_PROJECTS_JQL} "
+                f"AND status not in (Closed, Resolved, Done) "
+                f'AND text ~ "conforma" '
+                f"AND ({stem_clauses})"
+            )
+            comp_result = jira_ops.search_issues(
+                component_jql,
+                max_results=50,
+                fields=["key", "summary", "status", "issuetype", "fixVersions", "description"],
+            )
+            if not comp_result.get("issues"):
+                continue
+
+            for ticket in comp_result["issues"]:
+                if ticket["key"] in all_existing_keys:
+                    continue
+
+                inference_text = (ticket.get("summary", "") + " " + (ticket.get("description") or ""))
+                confidence = _infer_rule_from_text(inference_text, rule)
+
+                matched_stem = ""
+                text_lower = inference_text.lower()
+                for s in stems:
+                    if s.lower() in text_lower:
+                        matched_stem = s
+                        break
+
+                normalized = {
+                    "key": ticket["key"],
+                    "type": ticket.get("type", ""),
+                    "status": ticket.get("status", ""),
+                    "summary": ticket.get("summary", ""),
+                    "url": ticket["url"],
+                    "fix_versions": ticket.get("fix_versions", []),
+                    "match_source": "component_inference",
+                    "inference_confidence": confidence,
+                    "matched_component_stem": matched_stem,
+                }
+                rule_to_tickets[rule].append(normalized)
+                all_existing_keys.add(ticket["key"])
 
     return rule_to_tickets
 

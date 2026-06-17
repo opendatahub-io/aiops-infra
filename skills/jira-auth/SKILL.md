@@ -83,7 +83,7 @@ jira_token = ATATT3xxxxxxxxxxx
 
 ## Token Storage
 
-All secrets go in `.work/.env` (gitignored, loaded by `_setup_env.py` and `site_config.load()`):
+All secrets go in `.work/.env` (gitignored, loaded by `_setup_env.py` and `konflux_environment.load()`):
 
 ```
 # .work/.env — NOT committed to git

@@ -95,13 +95,13 @@ VPN may be required for the internal GitLab instance.
 | Variable | Purpose | Source |
 |----------|---------|--------|
 | `GITLAB_TOKEN` | Personal Access Token | `.work/.env` or glab config |
-| `GITLAB_HOST` | GitLab instance hostname | site-config.yaml |
+| `GITLAB_HOST` | GitLab instance hostname | `.work/.env` (auto-discovery uses this) |
 | `GL_HOST` | Alternative to `GITLAB_HOST` | — |
 | `GITLAB_SSL_VERIFY` | SSL certificate verification | `.work/.env` (default: `true`) |
 
 ## Token Storage
 
-Tokens are stored in `.work/.env` (gitignored, loaded by `_setup_env.py` and `site_config.load()`):
+Tokens are stored in `.work/.env` (gitignored, loaded by `_setup_env.py` and `konflux_environment.load()`):
 
 ```
 # .work/.env — NOT committed to git

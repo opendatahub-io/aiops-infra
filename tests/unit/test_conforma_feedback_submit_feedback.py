@@ -24,9 +24,9 @@ _GITHUB_REMOTE = {
 
 _GITLAB_REMOTE = {
     "platform": "gitlab",
-    "host": "gitlab.cee.redhat.com",
+    "host": "gitlab.example.com",
     "repo_path": "team/project",
-    "url": "https://gitlab.cee.redhat.com/team/project",
+    "url": "https://gitlab.example.com/team/project",
 }
 
 
@@ -148,7 +148,7 @@ class TestGatherContext:
             )
 
         assert result["platform"] == "gitlab"
-        assert result["host"] == "gitlab.cee.redhat.com"
+        assert result["host"] == "gitlab.example.com"
 
 
 class TestSubmit:

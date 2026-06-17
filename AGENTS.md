@@ -20,7 +20,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for how to write scripts, add tests, str
 
 ## Secrets Policy
 
-**NEVER ask the user to paste tokens, API keys, or credentials into the chat window.** Always instruct them to write secrets to `.work/.env` directly (using their editor or terminal). The `.work/` directory is gitignored and loaded automatically by `_setup_env.py` and `site_config.load()`. See [CONTRIBUTING.md](CONTRIBUTING.md#secrets-and-credentials-policy) for details.
+**NEVER ask the user to paste tokens, API keys, or credentials into the chat window.** Always instruct them to write secrets to `.work/.env` directly (using their editor or terminal). The `.work/` directory is gitignored and loaded automatically by `_setup_env.py` and `konflux_environment.load()`. See [CONTRIBUTING.md](CONTRIBUTING.md#secrets-and-credentials-policy) for details.
 
 ## Repository Clone Policy
 
@@ -32,8 +32,9 @@ When a deterministic script or skill workflow fails (import errors, missing depe
 
 1. **Stop** -- do not silently fall back to manual exploration, ad-hoc cloning, or AI-improvised alternatives.
 2. **Report** -- tell the user which script failed, the exact error, and what step of the workflow was interrupted.
-3. **Ask** -- present the user with two choices:
+3. **Ask** -- present the user with three choices:
    - **(Recommended)** Fix the underlying script/skill issue and retry the deterministic path.
+   - File a GitHub issue for the skill maintainer with full error context (uses `conforma-feedback` skill's `from-error` mode). Use `classify-error` first to check if the error matches a known infrastructure pattern.
    - Proceed with AI-assisted manual exploration, with the explicit warning that results may be incomplete, inconsistent, or different from the established workflow output.
 
 The deterministic scripted path is always the default. Manual exploration is a last resort that requires explicit user consent.

@@ -306,15 +306,59 @@ class TestGitEnv:
         env = gitlab_ops.git_env()
         assert "GIT_SSL_NO_VERIFY" not in env
 
+    def test_auth_header_when_token_available(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "test-token")
+        monkeypatch.delenv("GITLAB_SSL_VERIFY", raising=False)
+        monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
+        env = gitlab_ops.git_env()
+        assert env["GIT_CONFIG_COUNT"] == "1"
+        assert env["GIT_CONFIG_KEY_0"] == "http.extraHeader"
+        assert env["GIT_CONFIG_VALUE_0"] == "Authorization: Bearer test-token"
+
+    def test_no_auth_header_when_no_token(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        monkeypatch.delenv("GITLAB_SSL_VERIFY", raising=False)
+        monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
+        with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", tmp_path / "nonexistent.yml"):
+            env = gitlab_ops.git_env()
+        assert "GIT_CONFIG_COUNT" not in env
+
+    def test_auth_appends_to_existing_git_config(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "test-token")
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "user.name")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "Test User")
+        monkeypatch.delenv("GITLAB_SSL_VERIFY", raising=False)
+        env = gitlab_ops.git_env()
+        assert env["GIT_CONFIG_COUNT"] == "2"
+        assert env["GIT_CONFIG_KEY_0"] == "user.name"
+        assert env["GIT_CONFIG_KEY_1"] == "http.extraHeader"
+        assert env["GIT_CONFIG_VALUE_1"] == "Authorization: Bearer test-token"
+
+
+class TestRedactToken:
+    """Tests for _redact_token() — scrubs tokens from error text."""
+
+    def test_redacts_token(self):
+        result = gitlab_ops._redact_token("error with token123 in msg", "token123")
+        assert result == "error with REDACTED in msg"
+
+    def test_empty_token_no_op(self):
+        assert gitlab_ops._redact_token("some error message", "") == "some error message"
+
+    def test_no_match_unchanged(self):
+        assert gitlab_ops._redact_token("clean message", "absent") == "clean message"
+
 
 class TestAuthenticatedCloneUrl:
-    """Tests for authenticated_clone_url() — token resolution for git clone URLs."""
+    """Tests for authenticated_clone_url() — validates token and returns plain clone URL."""
 
-    def test_uses_env_token(self, monkeypatch):
+    def test_returns_plain_url(self, monkeypatch):
         monkeypatch.setenv("GITLAB_TOKEN", "my-token")
         monkeypatch.setenv("GITLAB_HOST", "gitlab.example.com")
         url = gitlab_ops.authenticated_clone_url("group/repo")
-        assert url == "https://oauth2:my-token@gitlab.example.com/group/repo.git"
+        assert url == "https://gitlab.example.com/group/repo.git"
+        assert "my-token" not in url
 
     def test_uses_glab_config_fallback(self, tmp_path, monkeypatch):
         monkeypatch.delenv("GITLAB_TOKEN", raising=False)
@@ -326,7 +370,8 @@ class TestAuthenticatedCloneUrl:
         )
         with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", config_path):
             url = gitlab_ops.authenticated_clone_url("org/project")
-        assert url == "https://oauth2:glab-token@gitlab.test.com/org/project.git"
+        assert url == "https://gitlab.test.com/org/project.git"
+        assert "glab-token" not in url
 
     def test_raises_when_no_token(self, tmp_path, monkeypatch):
         monkeypatch.delenv("GITLAB_TOKEN", raising=False)
@@ -342,7 +387,8 @@ class TestAuthenticatedCloneUrl:
         url = gitlab_ops.authenticated_clone_url(
             "team/repo", instance_url="https://custom.gitlab.io"
         )
-        assert url == "https://oauth2:custom-token@custom.gitlab.io/team/repo.git"
+        assert url == "https://custom.gitlab.io/team/repo.git"
+        assert "custom-token" not in url
 
 
 class TestRunGit:
@@ -389,8 +435,9 @@ class TestRunGit:
 
 
 class TestCloneRepo:
-    def test_success(self, tmp_path, monkeypatch):
+    def test_success_no_token_in_url(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GITLAB_TOKEN", "clone-token")
+        monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
         target_dir = tmp_path / "repo"
         project = _mock_project(default_branch="develop")
         gl = _mock_gl(project=project)
@@ -406,7 +453,10 @@ class TestCloneRepo:
         cmd = mock_run.call_args[0][0]
         assert cmd[0:3] == ["git", "clone", "--branch"]
         assert cmd[3] == "develop"
-        assert "oauth2:clone-token@" in cmd[4]
+        assert "clone-token" not in cmd[4]
+        assert "oauth2:" not in cmd[4]
+        call_env = mock_run.call_args[1]["env"]
+        assert call_env["GIT_CONFIG_VALUE_0"] == "Authorization: Bearer clone-token"
 
     def test_clone_failure(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GITLAB_TOKEN", "clone-token")
@@ -425,6 +475,28 @@ class TestCloneRepo:
 
         assert "error" in result
         assert "git clone failed" in result["error"]
+
+    def test_clone_error_redacts_token(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "secret-tok-123")
+        target_dir = tmp_path / "repo"
+        gl = _mock_gl()
+
+        with (
+            patch.object(gitlab_ops, "get_client", return_value=gl),
+            patch.object(
+                gitlab_ops.subprocess,
+                "run",
+                return_value=_completed(
+                    returncode=1,
+                    stderr="fatal: could not read secret-tok-123 from remote",
+                ),
+            ),
+        ):
+            result = gitlab_ops.clone_repo("group/repo", str(target_dir))
+
+        assert "error" in result
+        assert "secret-tok-123" not in result["error"]
+        assert "REDACTED" in result["error"]
 
 
 class TestPushBranch:

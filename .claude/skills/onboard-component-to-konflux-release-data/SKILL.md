@@ -74,21 +74,21 @@ echo "JIRA_URL : $JIRA_URL"
 echo "JIRA_ID  : $JIRA_ID"
 ```
 
-2. Resolve `KRD_URL` — execute this exact block; do NOT skip the `echo`:
+2. Resolve `RELEASE_DATA_URL` — execute this exact block; do NOT skip the `echo`:
 
    ```bash
-   KRD_URL="${KONFLUX_RELEASE_DATA_REPO_URL:-https://gitlab.cee.redhat.com/releng/konflux-release-data.git}"
+   RELEASE_DATA_URL="${KONFLUX_RELEASE_DATA_REPO_URL:-https://gitlab.cee.redhat.com/releng/konflux-release-data.git}"
    echo "KONFLUX_RELEASE_DATA_REPO_URL=${KONFLUX_RELEASE_DATA_REPO_URL:-(not set, using default)}"
-   echo "KRD_URL resolved to: $KRD_URL"
+   echo "RELEASE_DATA_URL resolved to: $RELEASE_DATA_URL"
    ```
 
-   **Never override or re-derive `KRD_URL` in later steps.**
+   **Never override or re-derive `RELEASE_DATA_URL` in later steps.**
 
-> **IMPORTANT — `KRD_URL` is the single source of truth for all Git operations.**
-> Use `$KRD_URL` for every Git operation in this skill: sparse clone (`--src-url`), push
+> **IMPORTANT — `RELEASE_DATA_URL` is the single source of truth for all Git operations.**
+> Use `$RELEASE_DATA_URL` for every Git operation in this skill: sparse clone (`--src-url`), push
 > remote (`origin`), MR source URL (`--src-url`), and MR destination URL (`--dest-url`).
-> **Never substitute a hardcoded URL or the upstream URL in place of `$KRD_URL`**, even if
-> `$KRD_URL` appears to point to a personal fork. The user configured it intentionally.
+> **Never substitute a hardcoded URL or the upstream URL in place of `$RELEASE_DATA_URL`**, even if
+> `$RELEASE_DATA_URL` appears to point to a personal fork. The user configured it intentionally.
 
 ---
 
@@ -215,7 +215,7 @@ Based on `PRODUCT_CONTEXT`, set these variables:
 | `KONFLUX_NAMESPACE` | `open-data-hub-tenant` | `rhoai-tenant` |
 | `SPARSE_PATHS` | `tenants-config/cluster/stone-prd-rh01/tenants/open-data-hub-tenant tenants-config/auto-generated/cluster/stone-prd-rh01/tenants/open-data-hub-tenant` | `tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant` |
 | `TARGET_YAML` | `tenants-config/cluster/stone-prd-rh01/tenants/open-data-hub-tenant/opendatahub-ci-components.yaml` | _(set in Step 8-RHOAI-0 after parsing `target_rhoai_version`)_ |
-| `KRD_APPLICATION` | `opendatahub-builds` | _(set in Step 8-RHOAI-0 after parsing `target_rhoai_version`)_ |
+| `RELEASE_DATA_APPLICATION` | `opendatahub-builds` | _(set in Step 8-RHOAI-0 after parsing `target_rhoai_version`)_ |
 | `QUAY_ORG` | `opendatahub` | `rhoai` |
 
 After setting `PRODUCT_CONTEXT`, recompute `KONFLUX_COMPONENT_NAME` for RHOAI. Skip this block if `PRODUCT_CONTEXT == "ODH"` (the `-ci` default from Step 3c is already correct).
@@ -275,7 +275,7 @@ if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
 fi
 
 PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash scripts/setup_gitlab_playpen.sh \
-  --src-url "$KRD_URL" \
+  --src-url "$RELEASE_DATA_URL" \
   --src-branch main \
   --dest-branch "<jira-id>" \
   --sparse-files "$SPARSE_PATHS")
@@ -319,7 +319,7 @@ metadata:
     build.appstudio.openshift.io/pipeline: '{"name":"docker-build-multi-platform-oci-ta","bundle":"latest"}'
   name: ${KONFLUX_COMPONENT_NAME}
 spec:
-  application: ${KRD_APPLICATION}
+  application: ${RELEASE_DATA_APPLICATION}
   componentName: ${KONFLUX_COMPONENT_NAME}
   containerImage: quay.io/${QUAY_ORG}/${COMPONENT_NAME}
   source:
@@ -383,15 +383,15 @@ echo "RPA_VAR      : $RPA_VAR"
 # Set TARGET_YAML for RHOAI — points to the ProjectDevelopmentStream file for this version
 TARGET_YAML="tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/${VERSION_NAME}/ProjectDevelopmentStream-${VERSION_NAME}.yaml"
 
-# Set KRD_APPLICATION for RHOAI based on whether this is an EA release
+# Set RELEASE_DATA_APPLICATION for RHOAI based on whether this is an EA release
 if [[ -n "$VERSION_N" ]]; then
-  KRD_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"
+  RELEASE_DATA_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"
 else
-  KRD_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}"
+  RELEASE_DATA_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}"
 fi
 
 echo "TARGET_YAML     : $TARGET_YAML"
-echo "KRD_APPLICATION : $KRD_APPLICATION"
+echo "RELEASE_DATA_APPLICATION : $RELEASE_DATA_APPLICATION"
 ```
 
 Also derive the context path used in the template:
@@ -651,15 +651,15 @@ Step 8 already committed and pushed all changes. Proceed directly to raising the
 
 ```bash
 MR_URL=$(GITLAB_SSL_VERIFY=false uv run --script scripts/raise_gitlab_mr.py \
-  --src-url "$KRD_URL" \
+  --src-url "$RELEASE_DATA_URL" \
   --src-branch "$DEST_BRANCH" \
-  --dest-url "$KRD_URL" \
+  --dest-url "$RELEASE_DATA_URL" \
   --dest-branch main \
   --title "Add $KONFLUX_COMPONENT_NAME Component for $COMPONENT_NAME" \
   --description "Add Konflux Component '$KONFLUX_COMPONENT_NAME' to $TARGET_YAML.
 
 Product: $PRODUCT_CONTEXT
-Application: $KRD_APPLICATION
+Application: $RELEASE_DATA_APPLICATION
 Container image: quay.io/$QUAY_ORG/$COMPONENT_NAME
 Source repo: $REPO_URL @ $REPO_BRANCH
 Jira: <jira-url>")
