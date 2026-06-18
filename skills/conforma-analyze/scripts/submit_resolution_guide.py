@@ -5,6 +5,13 @@ Pushes the generated resolution guide to the same branch and directory as the
 source violations CSV via the GitHub Contents API (direct commit).
 
 Usage:
+    # Derive target directory from fetch metadata (preferred):
+    python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \\
+      --guide-file .work/20260610-143449/conforma-violations-resolution-guide.md \\
+      --release rhoai-3.5-ea.2 \\
+      --metadata-file .work/20260610-143449/fetch-metadata.json
+
+    # Explicit target directory:
     python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \\
       --guide-file .work/20260610-143449/conforma-violations-resolution-guide.md \\
       --release rhoai-3.5-ea.2 \\
@@ -14,7 +21,7 @@ Usage:
     python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \\
       --guide-file .work/20260610-143449/conforma-violations-resolution-guide.md \\
       --release rhoai-3.5-ea.2 \\
-      --target-dir "prod/release_day" \\
+      --metadata-file .work/20260610-143449/fetch-metadata.json \\
       --dry-run
 """
 
@@ -85,13 +92,37 @@ def _check_branch_exists(repo: str, branch: str) -> bool:
         return False
 
 
+def _resolve_target_dir(metadata_file: str | None, release: str, target_dir: str | None) -> str | None:
+    """Derive target directory from metadata or explicit flag.
+
+    Returns the resolved target_dir string, or None on error.
+    """
+    if target_dir:
+        return target_dir
+
+    if not metadata_file:
+        return None
+
+    meta_path = Path(metadata_file)
+    if not meta_path.exists():
+        return None
+
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        source_path = meta["releases"][release]["source_path"]
+        return str(Path(source_path).parent)
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+
+
 def submit_resolution_guide(
     guide_file: str,
     release: str,
-    target_dir: str,
+    target_dir: str | None = None,
     repo: str = DEFAULT_REPO,
     message: str | None = None,
     dry_run: bool = False,
+    metadata_file: str | None = None,
 ) -> dict:
     """Submit the resolution guide to GitHub.
 
@@ -101,7 +132,15 @@ def submit_resolution_guide(
     if not guide_path.exists():
         return {"error": f"Guide file not found: {guide_file}", "committed": False}
 
-    target_path = f"{target_dir.rstrip('/')}/{DEFAULT_FILENAME}"
+    resolved_dir = _resolve_target_dir(metadata_file, release, target_dir)
+    if not resolved_dir:
+        return {
+            "error": "Could not determine target directory. "
+            "Provide --target-dir or --metadata-file with a valid release entry.",
+            "committed": False,
+        }
+
+    target_path = f"{resolved_dir.rstrip('/')}/{DEFAULT_FILENAME}"
     commit_message = message or f"Update conforma violations resolution guide for {release}"
 
     if dry_run:
@@ -182,13 +221,22 @@ def main() -> int:
     parser.add_argument("--release", required=True, help="Branch name (e.g. rhoai-3.5-ea.2)")
     parser.add_argument(
         "--target-dir",
-        required=True,
-        help="Directory in repo to place the file (e.g. prod/release_day)",
+        default=None,
+        help="Directory in repo to place the file (e.g. prod/release_day). "
+        "Optional when --metadata-file is provided.",
+    )
+    parser.add_argument(
+        "--metadata-file",
+        default=None,
+        help="Path to fetch-metadata.json — auto-derives target directory from source_path",
     )
     parser.add_argument("--repo", default=DEFAULT_REPO, help=f"GitHub repo (default: {DEFAULT_REPO})")
     parser.add_argument("--message", default=None, help="Commit message")
     parser.add_argument("--dry-run", action="store_true", help="Print what would be done without committing")
     args = parser.parse_args()
+
+    if not args.target_dir and not args.metadata_file:
+        parser.error("either --target-dir or --metadata-file is required")
 
     result = submit_resolution_guide(
         guide_file=args.guide_file,
@@ -197,6 +245,7 @@ def main() -> int:
         repo=args.repo,
         message=args.message,
         dry_run=args.dry_run,
+        metadata_file=args.metadata_file,
     )
 
     print(json.dumps(result, indent=2))

@@ -18,6 +18,23 @@ def sample_guide(tmp_path):
     return guide
 
 
+@pytest.fixture
+def sample_metadata(tmp_path):
+    """Create a sample fetch-metadata.json file."""
+    meta = tmp_path / "fetch-metadata.json"
+    meta.write_text(json.dumps({
+        "releases": {
+            "rhoai-3.5-ea.2": {
+                "path": ".work/20260610/rhoai-3.5-ea.2.csv",
+                "source_path": "prod/release_day/conforma-violations-report.csv",
+                "created_at": "2026-06-10T12:00:00Z",
+                "source_sha": "abc123",
+            }
+        }
+    }), encoding="utf-8")
+    return meta
+
+
 class TestDryRun:
     def test_dry_run_does_not_call_api(self, sample_guide):
         with patch.object(mod.requests, "get") as mock_get, patch.object(mod.requests, "put") as mock_put:
@@ -141,6 +158,75 @@ class TestUpdateExistingFile:
         assert result["overwritten"] is True
         payload = mock_put.call_args[1]["json"]
         assert payload["sha"] == existing_sha
+
+
+class TestResolveTargetDir:
+    def test_explicit_target_dir_wins(self, sample_metadata):
+        result = mod._resolve_target_dir(
+            metadata_file=str(sample_metadata),
+            release="rhoai-3.5-ea.2",
+            target_dir="custom/dir",
+        )
+        assert result == "custom/dir"
+
+    def test_derives_dir_from_metadata(self, sample_metadata):
+        result = mod._resolve_target_dir(
+            metadata_file=str(sample_metadata),
+            release="rhoai-3.5-ea.2",
+            target_dir=None,
+        )
+        assert result == "prod/release_day"
+
+    def test_returns_none_when_neither_provided(self):
+        result = mod._resolve_target_dir(
+            metadata_file=None, release="rhoai-3.5-ea.2", target_dir=None
+        )
+        assert result is None
+
+    def test_returns_none_for_missing_metadata_file(self, tmp_path):
+        result = mod._resolve_target_dir(
+            metadata_file=str(tmp_path / "nonexistent.json"),
+            release="rhoai-3.5-ea.2",
+            target_dir=None,
+        )
+        assert result is None
+
+    def test_returns_none_for_missing_release_key(self, sample_metadata):
+        result = mod._resolve_target_dir(
+            metadata_file=str(sample_metadata),
+            release="rhoai-99.99",
+            target_dir=None,
+        )
+        assert result is None
+
+    def test_returns_none_for_malformed_json(self, tmp_path):
+        bad = tmp_path / "bad.json"
+        bad.write_text("not json", encoding="utf-8")
+        result = mod._resolve_target_dir(
+            metadata_file=str(bad), release="rhoai-3.5-ea.2", target_dir=None
+        )
+        assert result is None
+
+
+class TestMetadataFileDryRun:
+    def test_dry_run_with_metadata_file(self, sample_guide, sample_metadata):
+        result = mod.submit_resolution_guide(
+            guide_file=str(sample_guide),
+            release="rhoai-3.5-ea.2",
+            metadata_file=str(sample_metadata),
+            dry_run=True,
+        )
+        assert result["dry_run"] is True
+        assert result["committed"] is False
+        assert result["target_path"] == "prod/release_day/conforma-violations-resolution-guide.md"
+
+    def test_error_when_no_target_dir_and_no_metadata(self, sample_guide):
+        result = mod.submit_resolution_guide(
+            guide_file=str(sample_guide),
+            release="rhoai-3.5-ea.2",
+        )
+        assert "error" in result
+        assert result["committed"] is False
 
 
 class TestErrorHandling:

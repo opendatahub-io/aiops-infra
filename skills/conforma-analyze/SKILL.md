@@ -277,13 +277,13 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
 
    **Presentation**: The guide is a `.md` file — render it as markdown (not in a code block).
 
-9. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit to conforma-reporter?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The script pushes to the same branch and directory as the source CSV:
+9. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit to conforma-reporter?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The script derives the target directory from `fetch-metadata.json` automatically:
 
 ```bash
 python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
   --guide-file "$RUNDIR/conforma-violations-resolution-guide.md" \
   --release "$RELEASE" \
-  --target-dir "$(dirname $SOURCE_PATH)"
+  --metadata-file "$RUNDIR/fetch-metadata.json"
 ```
 
    The script commits directly to the release branch. If submission fails (e.g. auth issue, branch protection), report the error but do not treat it as a workflow failure — the local guide file is still the primary deliverable.
@@ -294,7 +294,7 @@ python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
 python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
   --guide-file "$RUNDIR/conforma-violations-resolution-guide.md" \
   --release "$RELEASE" \
-  --target-dir "$(dirname $SOURCE_PATH)" \
+  --metadata-file "$RUNDIR/fetch-metadata.json" \
   --dry-run
 ```
 
