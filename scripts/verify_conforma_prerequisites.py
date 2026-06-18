@@ -280,8 +280,9 @@ def _check_slack_auth() -> dict:
             "optional": True,
             "error": "slackdump is not installed.",
             "fix": (
-                "Without Slack, the violation coverage table will not include "
-                "links to related Slack discussions about violations."
+                "Without Slack the Conforma Report is produced as normal but "
+                "it's missing links to Slack conversations that might be "
+                "related to the Conforma Violations."
             ),
         }
     return {
@@ -290,8 +291,9 @@ def _check_slack_auth() -> dict:
         "optional": True,
         "error": "No Slack auth credentials found.",
         "fix": (
-            "Without Slack, the violation coverage table will not include "
-            "links to related Slack discussions about violations."
+            "Without Slack the Conforma Report is produced as normal but "
+            "it's missing links to Slack conversations that might be "
+            "related to the Conforma Violations."
         ),
     }
 
