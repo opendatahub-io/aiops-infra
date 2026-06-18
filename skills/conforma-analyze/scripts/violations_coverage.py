@@ -181,7 +181,7 @@ def _determine_status_and_next_steps(
     has_remedy_mr = any(mr.get("mr_type") == "remedy" for mr in open_mrs)
 
     if coverage == "fully_covered":
-        return "Exception granted, violation should disappear on next Conforma run", "Use `conforma-violations-scan` to rerun validation and verify the violation is gone"
+        return "Exception granted, violation should disappear on next Conforma run", "Use `conforma-violations-scan` AI skill or [conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to rerun validation and verify the violation is gone"
 
     if coverage == "partially_covered":
         if has_exception_mr:

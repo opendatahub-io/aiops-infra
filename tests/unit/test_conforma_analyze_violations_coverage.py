@@ -284,7 +284,7 @@ class TestExtractExceptionExpiry:
             "open_mr_label": "",
             "open_jira_label": "",
             "status_label": "Exception granted, violation should disappear on next Conforma run",
-            "next_steps": "Use `conforma-violations-scan` to rerun validation and verify the violation is gone",
+            "next_steps": "Use `conforma-violations-scan` AI skill or [conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to rerun validation and verify the violation is gone",
         }
         summary = {"total_violations": 1, "fully_covered": 1, "partially_covered": 0, "not_covered": 0}
         md = mod._render_violations_markdown_table([row], summary)
