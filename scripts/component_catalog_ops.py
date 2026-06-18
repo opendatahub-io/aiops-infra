@@ -15,8 +15,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 _scripts_dir = str(Path(__file__).resolve().parent)
@@ -30,6 +32,7 @@ konflux_environment.load()
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CLONE_DIR = _REPO_ROOT / ".work" / "component-maturity"
 _DEFAULT_PROJECT = "data-hub/component-maturity"
+_SOFTWARE_CATALOG_PROJECT = "data-hub/software-catalog"
 
 _VERSION_SUFFIX_RE = re.compile(r"-v\d+-\d+(-ea-\d+)?$")
 _OS_SUFFIX_RE = re.compile(r"-(?:rhel|ubi)\d+$")
@@ -48,39 +51,48 @@ def _catalog_project() -> str:
     return os.environ.get("COMPONENT_CATALOG_PROJECT", _DEFAULT_PROJECT)
 
 
-def _restore_query_skill(target: Path) -> None:
-    """Restore the software-catalog-query skill from git history if missing.
+def _ensure_software_catalog(target: Path) -> None:
+    """Clone the software-catalog-query skill into the component-maturity tree.
 
-    The upstream component-maturity repo removed this directory in commit
-    d056d07 (2026-06-16).  We need query.py + reference JSONs for Jira
-    Component resolution, so we restore them from the last commit that
-    contained the files.  A full (unshallow) fetch is required first.
+    The upstream component-maturity repo moved this skill to a separate
+    GitLab project (data-hub/software-catalog) in commit d056d07
+    (2026-06-16).  The CI pipeline clones it during each run; we do the
+    same here for local use.
     """
+    import gitlab_ops
+
     query_script = target / _QUERY_SKILL_SUBPATH
     if query_script.is_file():
         return
 
-    skill_dir = str(_QUERY_SKILL_SUBPATH.parent.parent.parent)  # .claude/skills/software-catalog-query
+    skill_dest = target / _QUERY_SKILL_SUBPATH.parent.parent
 
-    result = subprocess.run(
-        ["git", "-C", str(target), "log", "--all", "--diff-filter=D",
-         "--format=%H", "-1", "--", f"{skill_dir}/"],
-        capture_output=True, text=True, timeout=30,
-    )
-    delete_sha = result.stdout.strip()
-    if not delete_sha:
-        return
+    project = os.environ.get("SOFTWARE_CATALOG_PROJECT", _SOFTWARE_CATALOG_PROJECT)
+    try:
+        clone_url = gitlab_ops.authenticated_clone_url(project)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Cannot clone software-catalog: {exc}"
+        ) from exc
 
-    parent_sha = f"{delete_sha}~1"
-    subprocess.run(
-        ["git", "-C", str(target), "fetch", "--unshallow"],
-        capture_output=True, timeout=120,
-    )
-    subprocess.run(
-        ["git", "-C", str(target), "checkout", parent_sha, "--", f"{skill_dir}/"],
-        capture_output=True, text=True, timeout=30,
-        check=True,
-    )
+    tmp_dir = tempfile.mkdtemp(prefix="software-catalog-")
+    try:
+        gitlab_ops.run_git(
+            ["git", "clone", "--depth", "1", clone_url, tmp_dir],
+            timeout=120,
+        )
+        src = Path(tmp_dir) / ".claude" / "skills" / "software-catalog-query"
+        if not src.is_dir():
+            raise RuntimeError(
+                f"software-catalog repo does not contain "
+                f".claude/skills/software-catalog-query/ — layout may have changed"
+            )
+        skill_dest.parent.mkdir(parents=True, exist_ok=True)
+        if skill_dest.exists():
+            shutil.rmtree(skill_dest)
+        shutil.copytree(src, skill_dest)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
@@ -101,12 +113,14 @@ def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
                 ["git", "-C", str(target), "pull", "--ff-only"],
                 timeout=60,
             )
-            _restore_query_skill(target)
+            _ensure_software_catalog(target)
             return {"ok": True, "path": str(target), "error": None}
         except subprocess.CalledProcessError as exc:
             return {"ok": False, "path": str(target), "error": f"git pull failed: {exc.stderr.strip()}"}
         except subprocess.TimeoutExpired:
             return {"ok": False, "path": str(target), "error": "git pull timed out"}
+        except RuntimeError as exc:
+            return {"ok": False, "path": str(target), "error": str(exc)}
 
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -119,12 +133,14 @@ def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
             ["git", "clone", clone_url, str(target)],
             timeout=120,
         )
-        _restore_query_skill(target)
+        _ensure_software_catalog(target)
         return {"ok": True, "path": str(target), "error": None}
     except subprocess.CalledProcessError as exc:
         return {"ok": False, "path": str(target), "error": f"git clone failed: {exc.stderr.strip()}"}
     except subprocess.TimeoutExpired:
         return {"ok": False, "path": str(target), "error": "git clone timed out"}
+    except RuntimeError as exc:
+        return {"ok": False, "path": str(target), "error": str(exc)}
 
 
 def _run_query(query_script: Path, tier: str) -> list[dict]:

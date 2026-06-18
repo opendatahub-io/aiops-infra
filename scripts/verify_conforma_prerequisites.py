@@ -281,9 +281,7 @@ def _check_slack_auth() -> dict:
             "error": "slackdump is not installed.",
             "fix": (
                 "Without Slack, the violation coverage table will not include "
-                "links to related Slack discussions about violations.\n"
-                "If you'd like Slack search, ask me to guide you through "
-                "the installation and setup."
+                "links to related Slack discussions about violations."
             ),
         }
     return {
@@ -293,9 +291,7 @@ def _check_slack_auth() -> dict:
         "error": "No Slack auth credentials found.",
         "fix": (
             "Without Slack, the violation coverage table will not include "
-            "links to related Slack discussions about violations.\n"
-            "If you'd like Slack search, ask me to guide you through "
-            "the setup — it takes about 2 minutes."
+            "links to related Slack discussions about violations."
         ),
     }
 

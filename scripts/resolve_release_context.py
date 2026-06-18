@@ -200,7 +200,7 @@ def _format_resolved(
         f"| **Environment** | prod |",
     ]
     if policy_file_links:
-        files_cell = ", ".join(policy_file_links)
+        files_cell = "<br>".join(f"• {link}" for link in policy_file_links)
         lines.append(f"| **Policy files** | {files_cell} |")
     lines.extend([
         "",
