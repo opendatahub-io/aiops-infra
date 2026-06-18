@@ -138,6 +138,81 @@ def _render_metadata_header(
     return "\n".join(lines)
 
 
+def _render_key_takeaways(
+    coverage_data: dict,
+    analysis_result: analysis.AnalysisResult,
+) -> str:
+    """Render the key takeaways section — the executive summary at the top."""
+    summary = coverage_data.get("summary", {})
+    violations = coverage_data.get("violations", [])
+    total_rules = summary.get("total_rules", len(violations))
+    fully_covered = summary.get("fully_covered", 0)
+    partially_covered = summary.get("partially_covered", 0)
+    not_covered = summary.get("not_covered", 0)
+
+    lines = ["## Key Takeaways", ""]
+
+    lines.append(
+        f"- **{fully_covered} of {total_rules} rules fully covered** by exceptions"
+    )
+
+    uncovered = [v for v in violations if v.get("coverage") == "not_covered"]
+    if uncovered:
+        parts = []
+        for v in uncovered:
+            comp_names = v.get("uncovered_components", [])
+            parts.append(
+                f"`{v['rule']}` ({len(comp_names)} component{'s' if len(comp_names) != 1 else ''})"
+            )
+        lines.append(f"- **{not_covered} rule{'s' if not_covered != 1 else ''} uncovered**: {', '.join(parts)}")
+
+    partial = [v for v in violations if v.get("coverage") == "partially_covered"]
+    if partial:
+        parts = []
+        for v in partial:
+            covered_count = v.get("covered_count", 0)
+            total_comps = v.get("total_components", 0)
+            parts.append(f"`{v['rule']}` ({covered_count}/{total_comps} covered)")
+        lines.append(
+            f"- **{partially_covered} rule{'s' if partially_covered != 1 else ''} partially covered**: "
+            + ", ".join(parts)
+        )
+
+    expiry_threshold_days = 14
+    now = datetime.now(timezone.utc)
+    expiring_soon = []
+    for v in violations:
+        if v.get("coverage") != "fully_covered":
+            continue
+        expiry = v.get("exception_expiry", {})
+        if expiry.get("is_permanent"):
+            continue
+        expiry_date_str = expiry.get("earliest_expiry")
+        if not expiry_date_str:
+            continue
+        try:
+            expiry_date = datetime.fromisoformat(expiry_date_str.replace("Z", "+00:00"))
+            days_left = (expiry_date.date() - now.date()).days
+            if days_left <= expiry_threshold_days:
+                expiring_soon.append((v["rule"], expiry_date.strftime("%Y-%m-%d"), days_left))
+        except (ValueError, TypeError):
+            continue
+
+    if expiring_soon:
+        expiring_soon.sort(key=lambda x: x[2])
+        parts = [f"`{rule}` (expires {date}, {days}d)" for rule, date, days in expiring_soon]
+        lines.append(f"- **Expiring soon**: {', '.join(parts)}")
+
+    if analysis_result.upcoming_violations:
+        lines.append(
+            f"- **{len(analysis_result.upcoming_violations)} warnings becoming violations** "
+            "within 21 days"
+        )
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _render_summary(coverage_data: dict, analysis_result: analysis.AnalysisResult) -> str:
     """Render the summary metrics section."""
     summary = coverage_data.get("summary", {})
@@ -506,6 +581,7 @@ def generate_resolution_guide(
     # Assemble sections
     sections = [
         _render_metadata_header(release, source_path, source_created_at, source_sha),
+        _render_key_takeaways(coverage_data, analysis_result),
         _render_summary(coverage_data, analysis_result),
         _render_coverage_table(coverage_data),
         _render_resolution_guide(coverage_data, catalog),

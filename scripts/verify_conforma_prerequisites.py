@@ -272,6 +272,12 @@ def _check_slack_auth() -> dict:
             "detail": f"Workspace: {result.get('team')} ({result.get('team_url', '')})",
         }
 
+    slack_fix_msg = (
+        "Without Slack the Conforma Report is produced as normal but "
+        "it will be missing links to Slack conversations that might be "
+        "related to the Conforma Violations."
+    )
+
     error = result.get("error", "Unknown error")
     if "not found" in error.lower() or "not installed" in error.lower():
         return {
@@ -279,22 +285,14 @@ def _check_slack_auth() -> dict:
             "name": "slack",
             "optional": True,
             "error": "slackdump is not installed.",
-            "fix": (
-                "Without Slack the Conforma Report is produced as normal but "
-                "it will be missing links to Slack conversations that might be "
-                "related to the Conforma Violations."
-            ),
+            "fix": slack_fix_msg,
         }
     return {
         "ok": False,
         "name": "slack",
         "optional": True,
         "error": "No Slack auth credentials found.",
-        "fix": (
-            "Without Slack the Conforma Report is produced as normal but "
-            "it will be missing links to Slack conversations that might be "
-            "related to the Conforma Violations."
-        ),
+        "fix": slack_fix_msg,
     }
 
 
