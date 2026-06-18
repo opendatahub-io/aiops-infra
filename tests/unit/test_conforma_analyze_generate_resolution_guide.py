@@ -327,6 +327,222 @@ class TestGenerateResolutionGuide:
             )
 
 
+class TestFullyCoveredViolation:
+    """Fully-excepted violations should show a compact block, not full remediation."""
+
+    @pytest.fixture
+    def fully_covered_coverage_json(self, tmp_path):
+        data = {
+            "summary": {
+                "fully_covered": 1,
+                "partially_covered": 0,
+                "not_covered": 0,
+                "total_violations": 1,
+            },
+            "violations": [
+                {
+                    "rule": "hermetic_task.hermetic",
+                    "title": "Task called with hermetic param set",
+                    "total_components": 2,
+                    "covered_components": ["comp-a-v3-5-ea-2", "comp-b-v3-5-ea-2"],
+                    "uncovered_components": [],
+                    "covered_count": 2,
+                    "uncovered_count": 0,
+                    "display_components": "comp-a-v3-5-ea-2, comp-b-v3-5-ea-2",
+                    "exception_expiry": {
+                        "is_permanent": False,
+                        "earliest_expiry": "2026-07-15",
+                        "latest_expiry": "2026-07-15",
+                        "expiry_dates": ["2026-07-15"],
+                        "display_expiry": "expires 2026-07-15",
+                    },
+                    "open_merge_requests": [],
+                    "open_mr_label": "",
+                    "open_jira_tickets": [],
+                    "open_jira_label": "",
+                    "open_slack_threads": [],
+                    "open_slack_label": "",
+                    "next_steps": "Use `conforma-violations-scan` to rerun validation and verify the violation is gone",
+                    "status_label": "Exception granted, violation should disappear on next Conforma run",
+                    "coverage": "fully_covered",
+                    "coverage_label": "already covered",
+                    "gate_status": "blocked",
+                    "violation_count": 2,
+                },
+            ],
+            "markdown_table": "| # | Rule |\n|---|------|\n| 1 | hermetic |",
+            "component_owners": {
+                "comp-a-v3-5-ea-2": "AI Safety",
+                "comp-b-v3-5-ea-2": "Model Runtimes",
+            },
+        }
+        path = tmp_path / "coverage.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_shows_exception_granted_not_fix_steps(
+        self, tmp_path, sample_violations_yaml, fully_covered_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(fully_covered_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+
+        assert "**Exception granted** (expires 2026-07-15)" in content
+        assert "conforma-violations-scan" in content
+        assert "conforma-remedy" in content
+        assert "Set hermetic=true" not in content
+        assert "**Resolution:**" not in content
+        assert "Exception only if" not in content
+
+    def test_permanent_exception_label(
+        self, tmp_path, sample_violations_yaml, sample_catalog
+    ):
+        data = {
+            "summary": {"fully_covered": 1, "partially_covered": 0, "not_covered": 0, "total_violations": 1},
+            "violations": [
+                {
+                    "rule": "rpm_signature.allowed:9386b48a1a693c5c",
+                    "title": "Allowed RPM signature key",
+                    "total_components": 1,
+                    "covered_components": ["comp-a-v3-5-ea-2"],
+                    "uncovered_components": [],
+                    "covered_count": 1,
+                    "uncovered_count": 0,
+                    "display_components": "comp-a-v3-5-ea-2",
+                    "exception_expiry": {
+                        "is_permanent": True,
+                        "earliest_expiry": None,
+                        "latest_expiry": None,
+                        "expiry_dates": [],
+                        "display_expiry": "permanent (no expiry)",
+                    },
+                    "open_merge_requests": [],
+                    "open_mr_label": "",
+                    "open_jira_tickets": [],
+                    "open_jira_label": "",
+                    "open_slack_threads": [],
+                    "open_slack_label": "",
+                    "next_steps": "Use `conforma-violations-scan` to rerun validation",
+                    "coverage": "fully_covered",
+                    "coverage_label": "already covered",
+                    "gate_status": "blocked",
+                    "violation_count": 1,
+                },
+            ],
+            "markdown_table": "| # | Rule |\n|---|------|\n| 1 | rpm_sig |",
+            "component_owners": {"comp-a-v3-5-ea-2": "AI Safety"},
+        }
+        cov_path = tmp_path / "coverage.json"
+        cov_path.write_text(json.dumps(data), encoding="utf-8")
+
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Bad sig",,rpm_signature.allowed,'
+            "RPM sig,desc,Fix sig\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(cov_path),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+
+        assert "**Exception granted** (permanent" in content
+        assert "Contact the component team" not in content
+
+
+class TestPartiallyCoveredViolation:
+    """Partially-covered violations should show a header + full remediation."""
+
+    @pytest.fixture
+    def partial_coverage_json(self, tmp_path):
+        data = {
+            "summary": {
+                "fully_covered": 0,
+                "partially_covered": 1,
+                "not_covered": 0,
+                "total_violations": 1,
+            },
+            "violations": [
+                {
+                    "rule": "hermetic_task.hermetic",
+                    "title": "Task called with hermetic param set",
+                    "total_components": 2,
+                    "covered_components": ["comp-a-v3-5-ea-2"],
+                    "uncovered_components": ["comp-b-v3-5-ea-2"],
+                    "covered_count": 1,
+                    "uncovered_count": 1,
+                    "display_components": "comp-a-v3-5-ea-2, comp-b-v3-5-ea-2",
+                    "open_merge_requests": [],
+                    "open_mr_label": "",
+                    "open_jira_tickets": [],
+                    "open_jira_label": "",
+                    "open_slack_threads": [],
+                    "open_slack_label": "",
+                    "next_steps": "Fix in code or request exception",
+                    "status_label": "Partially covered",
+                    "coverage": "partially_covered",
+                    "coverage_label": "partially covered",
+                    "gate_status": "error",
+                    "violation_count": 2,
+                },
+            ],
+            "markdown_table": "| # | Rule |\n|---|------|\n| 1 | hermetic |",
+            "component_owners": {
+                "comp-a-v3-5-ea-2": "AI Safety",
+                "comp-b-v3-5-ea-2": "Model Runtimes",
+            },
+        }
+        path = tmp_path / "coverage.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_shows_partial_header_and_fix_steps(
+        self, tmp_path, sample_violations_yaml, partial_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+            'violation,comp-b-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(partial_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+
+        assert "**Partially covered**: 1/2 components have exceptions" in content
+        assert "`comp-b-v3-5-ea-2`" in content
+        assert "Set hermetic=true" in content
+        assert "Exception only if" in content
+
+
 class TestMetadataHeader:
     def test_includes_release_and_source(self):
         header = mod._render_metadata_header(

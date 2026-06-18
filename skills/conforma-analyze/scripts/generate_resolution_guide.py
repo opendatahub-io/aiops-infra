@@ -172,7 +172,11 @@ def _render_coverage_table(coverage_data: dict) -> str:
 
 
 def _render_resolution_guide(coverage_data: dict, catalog: dict) -> str:
-    """Render the per-violation resolution guide section."""
+    """Render the per-violation resolution guide section.
+
+    Fully-covered violations get a compact "exception granted" block.
+    Partially- and not-covered violations get full remediation steps.
+    """
     violations = coverage_data.get("violations", [])
     component_owners = coverage_data.get("component_owners", {})
     lines = ["## Violation Resolution Guide", ""]
@@ -180,6 +184,7 @@ def _render_resolution_guide(coverage_data: dict, catalog: dict) -> str:
     for i, v in enumerate(violations, 1):
         rule = v["rule"]
         total_components = v["total_components"]
+        coverage = v.get("coverage", "not_covered")
 
         owner_teams = set()
         for comp in v.get("uncovered_components", []) + v.get("covered_components", []):
@@ -191,87 +196,160 @@ def _render_resolution_guide(coverage_data: dict, catalog: dict) -> str:
         lines.append(f"### {i}. `{rule}` — {total_components} components ({teams_str})")
         lines.append("")
 
-        catalog_entry = _match_catalog_entry(rule, catalog)
-
-        if catalog_entry:
-            _render_cataloged_violation(lines, catalog_entry, v)
+        if coverage == "fully_covered":
+            _render_excepted_violation(lines, v)
         else:
-            fallback = _match_fallback_reference(rule, catalog)
-            _render_uncataloged_violation(lines, v, fallback)
+            if coverage == "partially_covered":
+                _render_partial_coverage_header(lines, v)
 
-        # Known false alerts
-        all_comps = v.get("uncovered_components", []) + v.get("covered_components", [])
-        false_alert_comps = []
-        for comp in all_comps:
-            alert = _match_known_false_alert(rule, comp, catalog)
-            if alert:
-                false_alert_comps.append((comp, alert))
+            catalog_entry = _match_catalog_entry(rule, catalog)
+            if catalog_entry:
+                _render_cataloged_violation(lines, catalog_entry, v)
+            else:
+                fallback = _match_fallback_reference(rule, catalog)
+                _render_uncataloged_violation(lines, v, fallback)
 
-        if false_alert_comps:
-            lines.append("**Known false alerts:**")
-            for comp, alert in false_alert_comps:
-                lines.append(f"- `{comp}`: {alert['title']} — {alert.get('condition', '')}")
-            lines.append("")
-
-        open_mrs = v.get("open_merge_requests", [])
-        if open_mrs:
-            exception_mrs = [m for m in open_mrs if m.get("mr_type", "exception") == "exception"]
-            remedy_mrs = [m for m in open_mrs if m.get("mr_type") == "remedy"]
-
-            for group_label, group in [
-                ("Open Exception Merge Requests", exception_mrs),
-                ("Open Remedy Merge Requests", remedy_mrs),
-            ]:
-                if not group:
-                    continue
-                lines.append(f"**{group_label}:**")
-                for mr in group:
-                    iid = mr.get("iid", "?")
-                    url = mr.get("web_url", "")
-                    suggestion = mr.get("suggestion", "")
-                    covered = mr.get("covered", [])
-                    missing = mr.get("missing", [])
-                    if suggestion == "fully_covered":
-                        lines.append(f"- [!{iid}]({url}) — covers all components")
-                    elif suggestion == "extend_mr":
-                        lines.append(
-                            f"- [!{iid}]({url}) — covers {len(covered)}/{total_components}. "
-                            f"Missing: {', '.join(missing[:5])}"
-                            + (f" +{len(missing) - 5} more" if len(missing) > 5 else "")
-                        )
-                    else:
-                        lines.append(f"- [!{iid}]({url})")
-                lines.append("")
-
-        # Open Jira
-        open_jira = v.get("open_jira_tickets", [])
-        if open_jira:
-            lines.append("**Open Jira tickets:**")
-            for ticket in open_jira:
-                key = ticket.get("key", "")
-                url = ticket.get("url", "")
-                status = ticket.get("status", "")
-                summary = ticket.get("summary", "")
-                lines.append(f"- [{key}]({url}) ({status}): {summary[:80]}")
-            lines.append("")
-
-        # Slack threads
-        open_slack = v.get("open_slack_threads", [])
-        if open_slack:
-            lines.append("**Slack threads:**")
-            for thread in open_slack[:3]:
-                permalink = thread.get("permalink", "")
-                channel = thread.get("channel_name", "")
-                date = thread.get("date", "")
-                lines.append(f"- [#{channel}]({permalink}) ({date})")
-            if len(open_slack) > 3:
-                lines.append(f"- ... and {len(open_slack) - 3} more threads")
-            lines.append("")
+        _render_known_false_alerts(lines, rule, v, catalog)
+        _render_open_mrs(lines, v)
+        _render_open_jira(lines, v)
+        _render_slack_threads(lines, v)
 
         lines.append("---")
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _render_excepted_violation(lines: list[str], violation: dict) -> None:
+    """Render a compact block for a fully-excepted violation."""
+    expiry = violation.get("exception_expiry", {})
+    display_expiry = expiry.get("display_expiry", "")
+    is_permanent = expiry.get("is_permanent", False)
+
+    if is_permanent:
+        lines.append("**Exception granted** (permanent — no expiry)")
+    elif display_expiry:
+        lines.append(f"**Exception granted** ({display_expiry})")
+    else:
+        lines.append("**Exception granted**")
+    lines.append("")
+
+    next_steps = violation.get("next_steps", "")
+    if next_steps:
+        lines.append(f"**Next step**: {next_steps}")
+    else:
+        lines.append(
+            "**Next step**: Use `conforma-violations-scan` to rerun validation "
+            "and verify the violation no longer appears."
+        )
+    lines.append("")
+
+    rule = violation.get("rule", "")
+    lines.append(
+        f"> For the underlying remediation procedure (e.g. after the exception expires), "
+        f"use the `conforma-remedy` skill: *\"How to fix `{rule}`?\"*"
+    )
+    lines.append("")
+
+
+def _render_partial_coverage_header(lines: list[str], violation: dict) -> None:
+    """Render the partial-coverage header before full remediation steps."""
+    covered = violation.get("covered_count", 0)
+    total = violation.get("total_components", 0)
+    uncovered = violation.get("uncovered_components", [])
+
+    lines.append(
+        f"**Partially covered**: {covered}/{total} components have exceptions. "
+        f"{len(uncovered)} component(s) still need resolution:"
+    )
+    for comp in uncovered:
+        lines.append(f"- `{comp}`")
+    lines.append("")
+
+
+def _render_known_false_alerts(
+    lines: list[str], rule: str, violation: dict, catalog: dict
+) -> None:
+    """Render known false alerts for a violation's components."""
+    all_comps = violation.get("uncovered_components", []) + violation.get("covered_components", [])
+    false_alert_comps = []
+    for comp in all_comps:
+        alert = _match_known_false_alert(rule, comp, catalog)
+        if alert:
+            false_alert_comps.append((comp, alert))
+
+    if false_alert_comps:
+        lines.append("**Known false alerts:**")
+        for comp, alert in false_alert_comps:
+            lines.append(f"- `{comp}`: {alert['title']} — {alert.get('condition', '')}")
+        lines.append("")
+
+
+def _render_open_mrs(lines: list[str], violation: dict) -> None:
+    """Render open Merge Requests for a violation."""
+    total_components = violation.get("total_components", 0)
+    open_mrs = violation.get("open_merge_requests", [])
+    if not open_mrs:
+        return
+
+    exception_mrs = [m for m in open_mrs if m.get("mr_type", "exception") == "exception"]
+    remedy_mrs = [m for m in open_mrs if m.get("mr_type") == "remedy"]
+
+    for group_label, group in [
+        ("Open Exception Merge Requests", exception_mrs),
+        ("Open Remedy Merge Requests", remedy_mrs),
+    ]:
+        if not group:
+            continue
+        lines.append(f"**{group_label}:**")
+        for mr in group:
+            iid = mr.get("iid", "?")
+            url = mr.get("web_url", "")
+            suggestion = mr.get("suggestion", "")
+            covered = mr.get("covered", [])
+            missing = mr.get("missing", [])
+            if suggestion == "fully_covered":
+                lines.append(f"- [!{iid}]({url}) — covers all components")
+            elif suggestion == "extend_mr":
+                lines.append(
+                    f"- [!{iid}]({url}) — covers {len(covered)}/{total_components}. "
+                    f"Missing: {', '.join(missing[:5])}"
+                    + (f" +{len(missing) - 5} more" if len(missing) > 5 else "")
+                )
+            else:
+                lines.append(f"- [!{iid}]({url})")
+        lines.append("")
+
+
+def _render_open_jira(lines: list[str], violation: dict) -> None:
+    """Render open Jira tickets for a violation."""
+    open_jira = violation.get("open_jira_tickets", [])
+    if not open_jira:
+        return
+    lines.append("**Open Jira tickets:**")
+    for ticket in open_jira:
+        key = ticket.get("key", "")
+        url = ticket.get("url", "")
+        status = ticket.get("status", "")
+        summary = ticket.get("summary", "")
+        lines.append(f"- [{key}]({url}) ({status}): {summary[:80]}")
+    lines.append("")
+
+
+def _render_slack_threads(lines: list[str], violation: dict) -> None:
+    """Render Slack threads for a violation."""
+    open_slack = violation.get("open_slack_threads", [])
+    if not open_slack:
+        return
+    lines.append("**Slack threads:**")
+    for thread in open_slack[:3]:
+        permalink = thread.get("permalink", "")
+        channel = thread.get("channel_name", "")
+        date = thread.get("date", "")
+        lines.append(f"- [#{channel}]({permalink}) ({date})")
+    if len(open_slack) > 3:
+        lines.append(f"- ... and {len(open_slack) - 3} more threads")
+    lines.append("")
 
 
 def _render_cataloged_violation(lines: list[str], entry: dict, violation: dict) -> None:
