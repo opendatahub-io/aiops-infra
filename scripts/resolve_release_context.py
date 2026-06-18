@@ -142,11 +142,17 @@ def _build_links(
     gitlab_project: str,
     policy_files: list[str],
     app_slug: str,
+    tenant: str = "",
+    konflux_app: str = "",
 ) -> dict:
     """Build clickable URLs for cluster, policy dir, and policy files."""
     links: dict[str, str | list[dict[str, str]]] = {}
     if cluster_domain:
-        links["cluster_console"] = f"https://console-openshift-console.apps.{cluster_domain}/"
+        base = f"https://konflux-ui.apps.{cluster_domain}.openshiftapps.com"
+        if tenant and konflux_app:
+            links["cluster_console"] = f"{base}/application-pipeline/workspaces/{tenant}/applications/{konflux_app}"
+        else:
+            links["cluster_console"] = f"{base}/"
     if gitlab_host and policy_dir:
         links["policy_dir"] = (
             f"https://{gitlab_host}/{gitlab_project}/-/tree/main/{policy_dir}"
@@ -317,8 +323,10 @@ def resolve(query: str) -> dict:
         policy_files_raw = os.environ.get("KONFLUX_CONFORMA_POLICY_FILES", "")
         policy_files = [f.strip() for f in policy_files_raw.split(",") if f.strip()]
         app_slug = "rhoai"
+        konflux_app = version_to_konflux_app(v)
         links = _build_links(
             cluster_domain, policy_dir, gitlab_host, gitlab_project, policy_files, app_slug,
+            tenant=tenant, konflux_app=konflux_app,
         )
         display = _format_resolved(query, v, cluster_domain, tenant, policy_dir, links)
         return {
