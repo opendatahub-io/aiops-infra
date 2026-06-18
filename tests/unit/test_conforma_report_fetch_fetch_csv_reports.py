@@ -214,6 +214,74 @@ class TestFetchSupportedReleases:
         fetch_csv_reports._github_token_cache = None
 
 
+class TestMainRequiresReleasesOrAll:
+    """Layer 2 guardrail: fetch_csv_reports.main() refuses to run without --releases or --all."""
+
+    def setup_method(self):
+        fetch_csv_reports._github_token_cache = "token123"
+
+    def test_no_releases_no_all_exits_with_error(self, monkeypatch, capsys):
+        monkeypatch.setattr("sys.argv", ["fetch_csv_reports.py", "--output-dir", "/tmp/test"])
+        rc = fetch_csv_reports.main()
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "--releases" in captured.err
+        assert "--all" in captured.err
+
+    def test_all_flag_triggers_auto_detection(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("sys.argv", [
+            "fetch_csv_reports.py", "--all", "--output-dir", str(tmp_path),
+            "--metadata-file", str(tmp_path / "meta.json"),
+        ])
+        monkeypatch.setattr(
+            fetch_csv_reports, "fetch_supported_releases",
+            lambda: ["rhoai-3.5-ea.1"],
+        )
+
+        def mock_fetch(release, output_dir):
+            (output_dir / f"{release}.csv").write_text("type,component_name\nviolation,comp-a\n")
+            return {
+                "release": release, "status": "fetched",
+                "path": str(output_dir / f"{release}.csv"),
+                "size_bytes": 10, "source_path": "prod/release_day/report.csv",
+                "created_at": "", "source_sha": "",
+            }
+
+        monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", mock_fetch)
+        monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release",
+                            lambda r, d: {"release": r, "status": "failed", "error": "no warnings", "path": None})
+
+        rc = fetch_csv_reports.main()
+        assert rc == 0
+
+    def test_releases_flag_works(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("sys.argv", [
+            "fetch_csv_reports.py", "--releases", "rhoai-3.5-ea.1",
+            "--output-dir", str(tmp_path),
+            "--metadata-file", str(tmp_path / "meta.json"),
+        ])
+
+        def mock_fetch(release, output_dir):
+            (output_dir / f"{release}.csv").write_text("type,component_name\nviolation,comp-a\n")
+            return {
+                "release": release, "status": "fetched",
+                "path": str(output_dir / f"{release}.csv"),
+                "size_bytes": 10, "source_path": "prod/release_day/report.csv",
+                "created_at": "", "source_sha": "",
+            }
+
+        monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", mock_fetch)
+        monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release",
+                            lambda r, d: {"release": r, "status": "failed", "error": "no warnings", "path": None})
+
+        rc = fetch_csv_reports.main()
+        assert rc == 0
+        assert (tmp_path / "rhoai-3.5-ea.1.csv").exists()
+
+    def teardown_method(self):
+        fetch_csv_reports._github_token_cache = None
+
+
 class TestFetchCsvForRelease:
     def setup_method(self):
         fetch_csv_reports._github_token_cache = "token123"

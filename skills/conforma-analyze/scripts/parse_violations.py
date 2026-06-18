@@ -549,6 +549,14 @@ def main() -> int:
         default=False,
         help="Skip Jira Component enrichment from component-maturity catalog (for CI/testing only)",
     )
+    parser.add_argument(
+        "--release",
+        default=None,
+        help="Only parse CSVs for this specific release (e.g. rhoai-3.5-ea.1). "
+        "When set, only {release}.csv and {release}-warnings.csv are processed "
+        "from the reports directory; other CSVs are ignored. "
+        "This prevents accidentally analyzing all releases when only one was intended.",
+    )
     args = parser.parse_args()
 
     if not args.no_catalog:
@@ -570,7 +578,18 @@ def main() -> int:
         print(f"Error: reports directory not found: {reports_dir}", file=sys.stderr)
         return 1
 
-    violation_csv_files = sorted(f for f in reports_dir.glob("*.csv") if not f.name.endswith("-warnings.csv"))
+    if args.release:
+        target_csv = reports_dir / f"{args.release}.csv"
+        if not target_csv.exists():
+            print(
+                f"Error: no CSV found for release '{args.release}' "
+                f"(expected {target_csv})",
+                file=sys.stderr,
+            )
+            return 1
+        violation_csv_files = [target_csv]
+    else:
+        violation_csv_files = sorted(f for f in reports_dir.glob("*.csv") if not f.name.endswith("-warnings.csv"))
     if not violation_csv_files:
         print(f"Error: no violation CSV files found in {reports_dir}", file=sys.stderr)
         return 1
@@ -588,7 +607,11 @@ def main() -> int:
 
     upcoming_records: list[dict] = []
     if not args.no_warnings:
-        warning_csv_files = sorted(reports_dir.glob("*-warnings.csv"))
+        if args.release:
+            target_warn = reports_dir / f"{args.release}-warnings.csv"
+            warning_csv_files = [target_warn] if target_warn.exists() else []
+        else:
+            warning_csv_files = sorted(reports_dir.glob("*-warnings.csv"))
         for csv_path in warning_csv_files:
             release = csv_path.stem.removesuffix("-warnings")
             print(f"Parsing warnings {csv_path.name}...", file=sys.stderr)

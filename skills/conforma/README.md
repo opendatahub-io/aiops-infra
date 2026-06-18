@@ -11,3 +11,25 @@ pip install -e .   # or: uv sync
 ```
 
 Requires **Python 3.11+**. On first run, the skill's prerequisite check will guide you through configuring secrets and authentication.
+
+## Usage
+
+Open a Cursor chat and ask a conforma-related question. The `conforma` skill is the single entry point -- it routes your intent to the right sub-skill automatically.
+
+**Examples:**
+
+```
+what is conforma
+```
+
+```
+what's the conforma status for rhoai-3.4
+```
+
+```
+are there any blocking violations for rhoai-3.5-ea.1
+```
+
+```
+create an exception for rule xyz on component abc
+```

@@ -123,18 +123,19 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
    python3 scripts/resolve_release_context.py --list
    ```
 
-3. **Fetch reports**: Create a timestamped output directory and fetch CSVs. **Both violations and warnings CSVs are fetched by default**. The `$RUNDIR` variable is used by ALL subsequent steps — never change it mid-workflow:
+3. **Fetch reports**: Create a timestamped output directory and fetch CSVs. **Always pass `--releases $RELEASE`** to scope the fetch to the target release from step 2. The `$RUNDIR` variable is used by ALL subsequent steps — never change it mid-workflow:
 
 ```bash
 mkdir -p .work
 RUNDIR=".work/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RUNDIR"
 python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
+  --releases "$RELEASE" \
   --output-dir "$RUNDIR" \
   --metadata-file "$RUNDIR/fetch-metadata.json"
 ```
 
-   Override with explicit releases only if needed for a one-off check:
+   To fetch multiple specific releases (e.g. for cross-release comparison):
 
 ```bash
 python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
@@ -143,13 +144,23 @@ python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
   --metadata-file "$RUNDIR/fetch-metadata.json"
 ```
 
+   To fetch ALL supported releases (rare — only for full-portfolio audits):
+
+```bash
+python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
+  --all \
+  --output-dir "$RUNDIR" \
+  --metadata-file "$RUNDIR/fetch-metadata.json"
+```
+
    The output directory will contain `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release. The `fetch-metadata.json` contains `source_path` and `created_at` per release — needed by steps 8-9. Some in-development/EA branches may not have report CSVs yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
 
-4. **Parse violations and warnings**: Run on the **same timestamped directory from step 3** to produce the structured YAML. **Warnings CSVs are parsed by default** — any warning with an enforcement date within 21 days is included as a warning becoming a violation. The parse step also **enriches each component with its owning Jira Component** from the component-maturity catalog (requires VPN + GitLab auth). If the catalog is unreachable, the script fails hard — ensure VPN is active:
+4. **Parse violations and warnings**: Run on the **same timestamped directory from step 3** to produce the structured YAML. **Always pass `--release $RELEASE`** to ensure only the target release's CSVs are parsed (defense in depth — even if extra CSVs exist in the directory, they are ignored). **Warnings CSVs are parsed by default** — any warning with an enforcement date within 21 days is included as a warning becoming a violation. The parse step also **enriches each component with its owning Jira Component** from the component-maturity catalog (requires VPN + GitLab auth). If the catalog is unreachable, the script fails hard — ensure VPN is active:
 
 ```bash
 python3 skills/conforma-analyze/scripts/parse_violations.py \
   --reports-dir .work/20260604-123000 \
+  --release "$RELEASE" \
   --output .work/20260604-123000/violations.yaml
 ```
 
@@ -231,6 +242,7 @@ python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
   --environment prod \
+  --release "$RELEASE" \
   --metadata-file "$RUNDIR/fetch-metadata.json" > "$RUNDIR/coverage.json"
 
 # Without Slack (when not configured):
@@ -238,6 +250,7 @@ python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
   --environment prod \
+  --release "$RELEASE" \
   --require-slack false \
   --metadata-file "$RUNDIR/fetch-metadata.json" > "$RUNDIR/coverage.json"
 ```
@@ -277,7 +290,7 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
 
    **Presentation**: The guide is a `.md` file — render it as markdown (not in a code block).
 
-9. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit to conforma-reporter?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The script derives the target directory from `fetch-metadata.json` automatically:
+9. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit this resolution guide to the conforma-reporter GitHub repository (red-hat-data-services/conforma-reporter)?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The script derives the target directory from `fetch-metadata.json` automatically:
 
 ```bash
 python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \

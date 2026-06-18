@@ -220,6 +220,51 @@ class TestGateStatusMapping:
         assert cov == "not_covered"
 
 
+class TestReleaseOverride:
+    """Layer 3 defense: --release overrides auto-detected release in the report header."""
+
+    def test_report_header_uses_explicit_release(self):
+        meta = mod._load_report_metadata("rhoai-3.5-ea.1", None)
+        assert meta["release"] == "rhoai-3.5-ea.1"
+
+    def test_report_header_with_metadata_file(self, tmp_path):
+        import json
+
+        meta_file = tmp_path / "fetch-metadata.json"
+        meta_data = {
+            "releases": {
+                "rhoai-3.5-ea.1": {
+                    "source_path": "prod/release_day/conforma-violations-report.csv",
+                    "created_at": "2026-06-18T00:00:00Z",
+                    "source_sha": "abc123",
+                }
+            }
+        }
+        meta_file.write_text(json.dumps(meta_data))
+
+        result = mod._load_report_metadata("rhoai-3.5-ea.1", str(meta_file))
+        assert result["release"] == "rhoai-3.5-ea.1"
+        assert "source_url" in result
+        assert "rhoai-3.5-ea.1" not in result["source_url"]
+        assert "abc123" in result["source_url"]
+
+    def test_markdown_table_shows_correct_release(self):
+        results = [{
+            "rule": "test.rule",
+            "display_components": "comp-v1",
+            "exception_expiry": {},
+            "open_mr_label": "",
+            "open_jira_label": "",
+            "status_label": "No coverage",
+            "next_steps": "Fix in code",
+        }]
+        summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
+        meta = {"release": "rhoai-3.5-ea.1", "source_path": "prod/release_day/report.csv"}
+        md = mod._render_violations_markdown_table(results, summary, report_meta=meta)
+        assert "`rhoai-3.5-ea.1`" in md
+        assert "`rhoai-2.25`" not in md
+
+
 class TestExtractExceptionExpiry:
     """Tests for _extract_exception_expiry."""
 

@@ -250,6 +250,7 @@ def check_violations_coverage(
     require_jira: bool = True,
     require_slack: bool = True,
     metadata_file: str | None = None,
+    release: str | None = None,
 ) -> dict:
     """Batch coverage check: read a violations YAML and check each violation's components
     against existing exceptions in the policy file.
@@ -361,7 +362,7 @@ def check_violations_coverage(
                 prefetched_slack = result
     _log(f"All prefetches complete ({time.monotonic() - t_start:.1f}s)")
 
-    analyzed_release = releases[0] if releases else None
+    analyzed_release = release or (releases[0] if releases else None)
 
     # Refresh the policy clone once (not per rule).
     if clone_dir:
@@ -634,6 +635,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--require-jira", type=lambda v: v.lower() in ("true", "1", "yes"), default=True)
     parser.add_argument("--require-slack", type=lambda v: v.lower() in ("true", "1", "yes"), default=True)
     parser.add_argument("--metadata-file", default=None, help="Path to fetch-metadata.json for report header")
+    parser.add_argument(
+        "--release",
+        default=None,
+        help="Target release for the report header and Jira version relevance check. "
+        "When set, overrides the auto-detected release (first in violations YAML). "
+        "Use this to ensure the correct release appears in the coverage table header.",
+    )
     return parser.parse_args()
 
 
@@ -646,6 +654,7 @@ def main() -> int:
         require_jira=args.require_jira,
         require_slack=args.require_slack,
         metadata_file=args.metadata_file,
+        release=args.release,
     )
     print(json.dumps(result, indent=2))
     return 1 if "error" in result else 0

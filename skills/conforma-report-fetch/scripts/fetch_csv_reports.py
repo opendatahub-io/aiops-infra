@@ -444,7 +444,16 @@ def main() -> int:
     parser.add_argument(
         "--releases",
         default=None,
-        help="Comma-separated release branches (overrides auto-detection from rhods-devops-infra)",
+        help="Comma-separated release branches to fetch (required unless --all is used)",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        default=False,
+        dest="fetch_all",
+        help="Fetch all supported releases (auto-detected from rhods-devops-infra). "
+        "Without --releases or --all, the script refuses to run to prevent "
+        "accidentally fetching all releases when a specific one was intended.",
     )
     parser.add_argument(
         "--output-dir",
@@ -473,7 +482,7 @@ def main() -> int:
 
     if args.releases:
         releases = [r.strip() for r in args.releases.split(",") if r.strip()]
-    else:
+    elif args.fetch_all:
         print(
             f"Fetching supported releases from {RELEASE_DATA_REPO}...",
             file=sys.stderr,
@@ -491,6 +500,19 @@ def main() -> int:
             f"  Found {len(releases)} supported releases: {', '.join(releases)}",
             file=sys.stderr,
         )
+    else:
+        print(
+            "Error: specify --releases <release1,release2,...> or --all.\n"
+            "Refusing to auto-detect releases without explicit --all flag to "
+            "prevent accidentally fetching all releases when a specific one "
+            "was intended.\n"
+            "Examples:\n"
+            "  --releases rhoai-3.5-ea.1          # fetch one release\n"
+            "  --releases rhoai-3.4,rhoai-3.5     # fetch specific releases\n"
+            "  --all                               # fetch all supported releases",
+            file=sys.stderr,
+        )
+        return 1
 
     if not releases:
         print("Error: no releases specified", file=sys.stderr)

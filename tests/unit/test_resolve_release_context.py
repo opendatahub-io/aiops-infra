@@ -253,3 +253,27 @@ class TestConfirmationDisplay:
         assert "v3.5" in display
         assert "rhoai-tenant" in display
         assert "stone-prod-p02" in display
+
+
+class TestBuildLinks:
+    def test_cluster_console_includes_openshiftapps_domain(self):
+        links = mod._build_links(
+            cluster_domain="stone-prod-p02.hjvn.p1",
+            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.cee.redhat.com",
+            gitlab_project="releng/konflux-release-data",
+            policy_files=[],
+            app_slug="rhoai",
+        )
+        assert links["cluster_console"] == "https://console-openshift-console.apps.stone-prod-p02.hjvn.p1.openshiftapps.com/"
+
+    def test_cluster_console_not_set_without_domain(self):
+        links = mod._build_links(
+            cluster_domain="",
+            policy_dir="config/test",
+            gitlab_host="gitlab.example.com",
+            gitlab_project="test/project",
+            policy_files=[],
+            app_slug="rhoai",
+        )
+        assert "cluster_console" not in links

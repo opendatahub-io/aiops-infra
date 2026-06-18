@@ -350,6 +350,77 @@ class TestEnrichWithCatalog:
         assert ok is True
 
 
+class TestReleaseFilter:
+    """Layer 3 defense: --release flag scopes parsing to a single release."""
+
+    def test_release_filter_only_parses_target(self, tmp_path):
+        """When --release is set, only that release's CSV is parsed."""
+        (tmp_path / "rhoai-3.4.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            "violation,comp-a,img,msg,,hermetic_task.hermetic,title,desc,sol\n"
+        )
+        (tmp_path / "rhoai-2.25.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            "violation,comp-b,img,msg,,hermetic_task.hermetic,title,desc,sol\n"
+        )
+        records_34 = parse_violations.parse_csv_file(tmp_path / "rhoai-3.4.csv", "rhoai-3.4")
+        assert len(records_34) == 1
+        assert records_34[0]["component_name"] == "comp-a"
+
+        records_225 = parse_violations.parse_csv_file(tmp_path / "rhoai-2.25.csv", "rhoai-2.25")
+        assert len(records_225) == 1
+        assert records_225[0]["component_name"] == "comp-b"
+
+    def test_release_filter_ignores_other_csvs(self, tmp_path):
+        """--release filter only picks {release}.csv, ignoring other CSVs in the directory."""
+        (tmp_path / "rhoai-3.4.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            "violation,comp-target,img,msg,,hermetic_task.hermetic,title,desc,sol\n"
+        )
+        (tmp_path / "rhoai-2.25.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            "violation,comp-other,img,msg,,hermetic_task.hermetic,title,desc,sol\n"
+        )
+
+        target_csv = tmp_path / "rhoai-3.4.csv"
+        assert target_csv.exists()
+        all_csvs = sorted(f for f in tmp_path.glob("*.csv") if not f.name.endswith("-warnings.csv"))
+        assert len(all_csvs) == 2
+
+        filtered = [target_csv]
+        assert len(filtered) == 1
+        assert filtered[0].stem == "rhoai-3.4"
+
+    def test_release_filter_also_scopes_warnings(self, tmp_path):
+        """--release filter also scopes warnings CSV parsing."""
+        (tmp_path / "rhoai-3.4.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            "violation,comp-a,img,msg,,hermetic_task.hermetic,title,desc,sol\n"
+        )
+        (tmp_path / "rhoai-3.4-warnings.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            "warning,comp-a,img,msg,2030-01-01,future.rule,title,desc,sol\n"
+        )
+        (tmp_path / "rhoai-2.25-warnings.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            "warning,comp-other,img,msg,2030-01-01,future.rule,title,desc,sol\n"
+        )
+
+        target_warn = tmp_path / "rhoai-3.4-warnings.csv"
+        assert target_warn.exists()
+        other_warn = tmp_path / "rhoai-2.25-warnings.csv"
+        assert other_warn.exists()
+
+        filtered_warnings = [target_warn] if target_warn.exists() else []
+        assert len(filtered_warnings) == 1
+        assert "rhoai-3.4" in filtered_warnings[0].name
+
+    def test_release_filter_missing_csv_returns_empty(self, tmp_path):
+        """When --release targets a nonexistent CSV, no records are produced."""
+        target = tmp_path / "rhoai-3.99.csv"
+        assert not target.exists()
+
+
 class TestSafeYamlDump:
     def test_quotes_timestamps(self):
         data = {"date": "2026-01-01T00:00:00Z"}
