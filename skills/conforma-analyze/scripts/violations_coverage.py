@@ -622,7 +622,7 @@ def _render_violations_markdown_table(
             lines.append(f"| {i} | {rule} | {viol_count} | {comps} | {mr} | {jira} | {status} | {ns} |")
 
     lines.append("")
-    lines.append("*See the **Violation Resolution Guide** section below for full resolution details per violation.*")
+    lines.append("*See the **Resolution Guide** section below for full resolution details per violation.*")
 
     return "\n".join(lines)
 

@@ -45,7 +45,7 @@ Conforma violation reports MUST ONLY be analyzed through the full deterministic 
 
 - Produce ad-hoc or "quick" summaries of report data outside the prescribed workflow
 - Run analysis scripts with shortcuts (`--csv` directly, `| head`, `| tail`, truncation)
-- Skip workflow steps (fetch → parse → analyze with ownership → coverage check → resolution guide)
+- Skip workflow steps (fetch → parse → analyze with ownership → coverage check → generate resolution guide)
 - Manually read, interpret, or summarize CSV file contents
 - Present partial analysis output as a stand-in for the complete workflow output
 

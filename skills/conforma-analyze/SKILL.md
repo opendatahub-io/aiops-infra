@@ -16,7 +16,7 @@ Fetch and expose Conforma violation report data for RHOAI releases. This skill r
 Prohibited actions — the agent MUST NEVER:
 - Run `analyze_csv_report.py --csv <file>` directly to produce ad-hoc summaries
 - Truncate script output (e.g. `| head`, `| tail`, `2>&1 | head -N`)
-- Skip any workflow step (parse, analyze, coverage check, resolution guide)
+- Skip any workflow step (parse, analyze, coverage check, generate resolution guide)
 - Summarize or paraphrase CSV contents manually instead of running the scripts
 - Present partial results as a "quick summary" before completing all steps
 - Invent or compose analysis output that was not produced by the deterministic scripts
@@ -265,7 +265,7 @@ python3 -c "import json,sys; print(json.load(sys.stdin)['markdown_table'])" < "$
 
    **Presentation**: The `markdown_table` is markdown — render it directly (not in a code block).
 
-7. **Violation Resolution Guide**: After presenting the coverage table, the resolution guide is generated deterministically by script. The guide is both presented to the user and saved to a file for submission (step 9). See step 8 for the generation command. While the guide is being generated, present the coverage table `markdown_table` from step 6 to the user as the immediate output.
+7. **Resolution Guide**: After presenting the coverage table, the resolution guide is generated deterministically by script. The guide is both presented to the user and saved to a file for submission (step 9). See step 8 for the generation command. While the guide is being generated, present the coverage table `markdown_table` from step 6 to the user as the immediate output.
 
 8. **Generate the resolution guide**: Run the resolution guide generator on the intermediate outputs from steps 3-6. This produces a unified markdown file combining coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
 
@@ -275,6 +275,10 @@ SOURCE_PATH=$(python3 -c "import json; d=json.load(open('$RUNDIR/fetch-metadata.
 CREATED_AT=$(python3 -c "import json; d=json.load(open('$RUNDIR/fetch-metadata.json')); print(d['releases']['$RELEASE']['created_at'])")
 SOURCE_SHA=$(python3 -c "import json; d=json.load(open('$RUNDIR/fetch-metadata.json')); print(d['releases']['$RELEASE'].get('source_sha', ''))")
 
+# Extract policy config links from step 2 resolve output (RESOLVE_JSON)
+POLICY_DIR_URL=$(python3 -c "import json; print(json.loads('$RESOLVE_JSON').get('links',{}).get('policy_dir',''))")
+POLICY_FILES_JSON=$(python3 -c "import json; print(json.dumps(json.loads('$RESOLVE_JSON').get('links',{}).get('policy_files',[])))")
+
 python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --coverage-json "$RUNDIR/coverage.json" \
@@ -283,18 +287,20 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
   --source-path "$SOURCE_PATH" \
   --source-created-at "$CREATED_AT" \
   --source-sha "$SOURCE_SHA" \
-  --output "$RUNDIR/conforma-violations-resolution-guide.md"
+  --policy-dir-url "$POLICY_DIR_URL" \
+  --policy-files-json "$POLICY_FILES_JSON" \
+  --output "$RUNDIR/conforma-resolution-guide.md"
 ```
 
    **Present the generated guide content to the user.** This MUST happen before step 9 — the user must see the full report before being asked about submission. Never run step 9 in parallel with presenting the guide.
 
    **Presentation**: The guide is a `.md` file — render it as markdown (not in a code block).
 
-9. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit this resolution guide to the conforma-reporter GitHub repository (red-hat-data-services/conforma-reporter)?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The script derives the target directory from `fetch-metadata.json` automatically:
+9. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit this resolution guide to the conforma-reporter GitHub repository (red-hat-data-services/conforma-reporter)?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The guide is committed to the **root of the release branch** (e.g. `conforma-resolution-guide.md` at the repo root). Pass `--metadata-file` so the script can automatically clean up any legacy guide from the old `prod/release_day/` location:
 
 ```bash
 python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
-  --guide-file "$RUNDIR/conforma-violations-resolution-guide.md" \
+  --guide-file "$RUNDIR/conforma-resolution-guide.md" \
   --release "$RELEASE" \
   --metadata-file "$RUNDIR/fetch-metadata.json"
 ```
@@ -305,9 +311,8 @@ python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
 
 ```bash
 python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
-  --guide-file "$RUNDIR/conforma-violations-resolution-guide.md" \
+  --guide-file "$RUNDIR/conforma-resolution-guide.md" \
   --release "$RELEASE" \
-  --metadata-file "$RUNDIR/fetch-metadata.json" \
   --dry-run
 ```
 

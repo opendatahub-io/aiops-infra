@@ -45,13 +45,13 @@ The JSON output contains a `markdown_table` field — a pre-rendered markdown ta
 
 **Print `markdown_table` verbatim as the primary output to the user.** This is the main deliverable when analyzing a report.
 
-The `Next Steps` column always displays "see resolution guide below" — a static pointer to the **Violation Resolution Guide** section. Full resolution details (including all approval steps, Merge Request actions, and linked Jira tickets) are assembled by the agent in the Violation Resolution Guide section that follows the table, using the structured JSON fields (`open_merge_requests`, `open_jira_tickets`, `open_slack_threads`, coverage status, and violation catalog data).
+The `Next Steps` column always displays "see resolution guide below" — a static pointer to the **Resolution Guide** section. Full resolution details (including all approval steps, Merge Request actions, and linked Jira tickets) are assembled by the agent in the Resolution Guide section that follows the table, using the structured JSON fields (`open_merge_requests`, `open_jira_tickets`, `open_slack_threads`, coverage status, and violation catalog data).
 
 Rules:
 - Do NOT reconstruct the table from individual JSON fields — always use the pre-rendered `markdown_table`
 - Do NOT include a Coverage column — the `coverage_label` field exists in the JSON for programmatic use but is misleading when shown to users (it implies exceptions are the default resolution). The `next_steps` column is the single source of guidance.
-- Present a **Violation Resolution Guide** section after the table with full per-violation details (from `next_steps` JSON field + violation catalog enrichment)
-- Statistical breakdowns (violation counts, signing keys, per-component patterns) from `analyze_csv_report.py` can be presented as supplementary detail below the Violation Resolution Guide if useful.
+- Present a **Resolution Guide** section after the table with full per-violation details (from `next_steps` JSON field + violation catalog enrichment)
+- Statistical breakdowns (violation counts, signing keys, per-component patterns) from `analyze_csv_report.py` can be presented as supplementary detail below the Resolution Guide if useful.
 
 ## Search Query Links
 

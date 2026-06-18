@@ -1,4 +1,9 @@
-"""Tests for conforma-analyze submit_resolution_guide.py."""
+"""Tests for conforma-analyze submit_resolution_guide.py.
+
+The guide is always submitted to the root of the release branch
+(conforma-resolution-guide.md). Legacy guides in prod/release_day/ are
+cleaned up automatically when --metadata-file is provided.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ import submit_resolution_guide as mod
 @pytest.fixture
 def sample_guide(tmp_path):
     """Create a sample resolution guide file."""
-    guide = tmp_path / "conforma-violations-resolution-guide.md"
+    guide = tmp_path / "conforma-resolution-guide.md"
     guide.write_text("# Test Guide\n\nSome content.", encoding="utf-8")
     return guide
 
@@ -41,7 +46,6 @@ class TestDryRun:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
-                target_dir="prod/release_day",
                 dry_run=True,
             )
             mock_get.assert_not_called()
@@ -50,16 +54,15 @@ class TestDryRun:
         assert result["dry_run"] is True
         assert result["committed"] is False
         assert "rhoai-3.5-ea.2" in result["url"]
-        assert "conforma-violations-resolution-guide.md" in result["target_path"]
+        assert result["target_path"] == "conforma-resolution-guide.md"
 
-    def test_dry_run_uses_correct_path(self, sample_guide):
+    def test_dry_run_targets_root(self, sample_guide):
         result = mod.submit_resolution_guide(
             guide_file=str(sample_guide),
             release="rhoai-3.4",
-            target_dir="prod/future/build_type_latest",
             dry_run=True,
         )
-        assert result["target_path"] == "prod/future/build_type_latest/conforma-violations-resolution-guide.md"
+        assert result["target_path"] == "conforma-resolution-guide.md"
         assert result["branch"] == "rhoai-3.4"
 
 
@@ -68,7 +71,6 @@ class TestFileNotFound:
         result = mod.submit_resolution_guide(
             guide_file=str(tmp_path / "nonexistent.md"),
             release="rhoai-3.5-ea.2",
-            target_dir="prod/release_day",
         )
         assert "error" in result
         assert result["committed"] is False
@@ -84,7 +86,6 @@ class TestBranchCheck:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-99.99",
-                target_dir="prod/release_day",
             )
         assert "error" in result
         assert "not found" in result["error"].lower()
@@ -98,7 +99,7 @@ class TestCreateNewFile:
         put_resp = MagicMock(status_code=201)
         put_resp.json.return_value = {
             "content": {
-                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/prod/release_day/conforma-violations-resolution-guide.md",
+                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/conforma-resolution-guide.md",
                 "sha": "abc123",
             }
         }
@@ -116,7 +117,6 @@ class TestCreateNewFile:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
-                target_dir="prod/release_day",
             )
 
         assert result["committed"] is True
@@ -151,7 +151,6 @@ class TestUpdateExistingFile:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
-                target_dir="prod/release_day",
             )
 
         assert result["committed"] is True
@@ -160,73 +159,50 @@ class TestUpdateExistingFile:
         assert payload["sha"] == existing_sha
 
 
-class TestResolveTargetDir:
-    def test_explicit_target_dir_wins(self, sample_metadata):
-        result = mod._resolve_target_dir(
+class TestResolveOldPath:
+    def test_derives_old_path_from_metadata(self, sample_metadata):
+        result = mod._resolve_old_path(
             metadata_file=str(sample_metadata),
             release="rhoai-3.5-ea.2",
-            target_dir="custom/dir",
         )
-        assert result == "custom/dir"
+        assert result == "prod/release_day/conforma-violations-resolution-guide.md"
 
-    def test_derives_dir_from_metadata(self, sample_metadata):
-        result = mod._resolve_target_dir(
-            metadata_file=str(sample_metadata),
-            release="rhoai-3.5-ea.2",
-            target_dir=None,
-        )
-        assert result == "prod/release_day"
+    def test_returns_none_without_metadata(self):
+        assert mod._resolve_old_path(None, "rhoai-3.5-ea.2") is None
 
-    def test_returns_none_when_neither_provided(self):
-        result = mod._resolve_target_dir(
-            metadata_file=None, release="rhoai-3.5-ea.2", target_dir=None
-        )
-        assert result is None
-
-    def test_returns_none_for_missing_metadata_file(self, tmp_path):
-        result = mod._resolve_target_dir(
-            metadata_file=str(tmp_path / "nonexistent.json"),
-            release="rhoai-3.5-ea.2",
-            target_dir=None,
+    def test_returns_none_for_missing_file(self, tmp_path):
+        result = mod._resolve_old_path(
+            str(tmp_path / "nonexistent.json"), "rhoai-3.5-ea.2"
         )
         assert result is None
 
     def test_returns_none_for_missing_release_key(self, sample_metadata):
-        result = mod._resolve_target_dir(
-            metadata_file=str(sample_metadata),
-            release="rhoai-99.99",
-            target_dir=None,
-        )
+        result = mod._resolve_old_path(str(sample_metadata), "rhoai-99.99")
         assert result is None
 
     def test_returns_none_for_malformed_json(self, tmp_path):
         bad = tmp_path / "bad.json"
         bad.write_text("not json", encoding="utf-8")
-        result = mod._resolve_target_dir(
-            metadata_file=str(bad), release="rhoai-3.5-ea.2", target_dir=None
-        )
-        assert result is None
+        assert mod._resolve_old_path(str(bad), "rhoai-3.5-ea.2") is None
 
 
-class TestMetadataFileDryRun:
-    def test_dry_run_with_metadata_file(self, sample_guide, sample_metadata):
+class TestRootDirSubmission:
+    def test_always_targets_root(self, sample_guide):
         result = mod.submit_resolution_guide(
             guide_file=str(sample_guide),
             release="rhoai-3.5-ea.2",
-            metadata_file=str(sample_metadata),
             dry_run=True,
         )
-        assert result["dry_run"] is True
+        assert result["target_path"] == "conforma-resolution-guide.md"
         assert result["committed"] is False
-        assert result["target_path"] == "prod/release_day/conforma-violations-resolution-guide.md"
 
-    def test_error_when_no_target_dir_and_no_metadata(self, sample_guide):
+    def test_no_error_without_metadata(self, sample_guide):
         result = mod.submit_resolution_guide(
             guide_file=str(sample_guide),
             release="rhoai-3.5-ea.2",
+            dry_run=True,
         )
-        assert "error" in result
-        assert result["committed"] is False
+        assert "error" not in result
 
 
 class TestErrorHandling:
@@ -250,7 +226,6 @@ class TestErrorHandling:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
-                target_dir="prod/release_day",
             )
 
         assert "error" in result

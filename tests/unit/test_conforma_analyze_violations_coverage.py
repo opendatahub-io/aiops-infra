@@ -74,7 +74,7 @@ class TestRenderViolationsMarkdownTable:
         results = [self._make_row()]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         md = mod._render_violations_markdown_table(results, summary)
-        assert "Violation Resolution Guide" in md
+        assert "Resolution Guide" in md
 
     def test_violation_count_column(self):
         results = [self._make_row(violation_count=5)]
