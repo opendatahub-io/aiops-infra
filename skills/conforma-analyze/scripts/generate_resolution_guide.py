@@ -149,6 +149,7 @@ def _render_metadata_header(
 def _render_key_takeaways(
     coverage_data: dict,
     analysis_result: analysis.AnalysisResult,
+    tooling_health_data: dict | None = None,
 ) -> str:
     """Render the key takeaways section — the executive summary at the top."""
     summary = coverage_data.get("summary", {})
@@ -159,6 +160,11 @@ def _render_key_takeaways(
     not_covered = summary.get("not_covered", 0)
 
     lines = ["## Executive Summary", ""]
+
+    if tooling_health_data:
+        tooling_line = _tooling_health_executive_line(tooling_health_data)
+        if tooling_line:
+            lines.append(tooling_line)
 
     lines.append(
         f"- **{fully_covered} of {total_rules} rules fully covered** by exceptions"
@@ -317,6 +323,8 @@ def _render_excepted_violation(lines: list[str], violation: dict) -> None:
         lines.append("**Exception granted**")
     lines.append("")
 
+    _render_exception_details_table(lines, violation)
+
     next_steps = violation.get("next_steps", "")
     if next_steps:
         lines.append(f"**Next step**: {next_steps}")
@@ -336,6 +344,34 @@ def _render_excepted_violation(lines: list[str], violation: dict) -> None:
     lines.append("")
 
 
+def _render_exception_details_table(lines: list[str], violation: dict) -> None:
+    """Render per-component exception details table."""
+    details = violation.get("exception_details_by_component", [])
+    if not details:
+        return
+
+    has_any_url = any(d.get("url") for d in details)
+    if not has_any_url:
+        return
+
+    lines.append("**Exception coverage per component:**")
+    lines.append("")
+    lines.append("| Component | Expires | Exception |")
+    lines.append("|-----------|---------|-----------|")
+    for d in details:
+        comp = f"`{d['component']}`"
+        expires = d.get("effective_until") or "permanent"
+        if d.get("url"):
+            file_name = d.get("file", "")
+            line = d.get("line")
+            anchor = f"{file_name}#L{line}" if line else file_name
+            exc_link = f"[{anchor}]({d['url']})"
+        else:
+            exc_link = "not in policy files"
+        lines.append(f"| {comp} | {expires} | {exc_link} |")
+    lines.append("")
+
+
 def _render_partial_coverage_header(lines: list[str], violation: dict) -> None:
     """Render the partial-coverage header before full remediation steps."""
     covered = violation.get("covered_count", 0)
@@ -349,6 +385,8 @@ def _render_partial_coverage_header(lines: list[str], violation: dict) -> None:
     for comp in uncovered:
         lines.append(f"- `{comp}`")
     lines.append("")
+
+    _render_exception_details_table(lines, violation)
 
 
 def _render_known_false_alerts(
@@ -545,6 +583,83 @@ def _render_statistical_breakdown(
     return md
 
 
+def _render_tooling_health(tooling_health_data: dict) -> str:
+    """Render the Tooling Health section from tooling-health.json data."""
+    tools = tooling_health_data.get("tools", [])
+    if not tools:
+        return ""
+
+    lines = ["## Tooling Health", ""]
+    lines.append("| Tool | Status | Latest Run | Consecutive Failures | Last Success |")
+    lines.append("|------|--------|------------|---------------------|--------------|")
+
+    for tool in tools:
+        name = tool.get("name", "unknown")
+        health = tool.get("health", {})
+        status = health.get("status", "unknown").upper()
+        consecutive = health.get("consecutive_failures", 0)
+
+        latest_run = tool.get("latest_run")
+        if latest_run:
+            run_id = latest_run.get("id", "")
+            run_url = latest_run.get("url", "")
+            conclusion = latest_run.get("conclusion") or latest_run.get("status", "")
+            run_date = latest_run.get("updated_at", "")[:10]
+            latest_cell = f"[#{run_id}]({run_url}) -- {conclusion} ({run_date})"
+        else:
+            latest_cell = "N/A"
+
+        last_success = health.get("last_success")
+        if last_success:
+            ls_id = last_success.get("id", "")
+            ls_url = last_success.get("url", "")
+            ls_date = last_success.get("completed_at", "")[:10]
+            success_cell = f"[#{ls_id}]({ls_url}) ({ls_date})"
+        else:
+            success_cell = "None found"
+
+        lines.append(f"| {name} | {status} | {latest_cell} | {consecutive} | {success_cell} |")
+
+    unhealthy_tools = [t for t in tools if t.get("health", {}).get("status") in ("unhealthy", "error")]
+    if unhealthy_tools:
+        names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)
+        lines.extend([
+            "",
+            f"> The violation data in this report may be stale because the {names} workflow is failing.",
+        ])
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _tooling_health_executive_line(tooling_health_data: dict) -> str | None:
+    """Generate a one-liner for the Executive Summary when tooling is unhealthy."""
+    tools = tooling_health_data.get("tools", [])
+    unhealthy = [t for t in tools if t.get("health", {}).get("status") in ("unhealthy", "error")]
+    if not unhealthy:
+        return None
+
+    parts = []
+    for tool in unhealthy:
+        name = tool.get("name", "unknown")
+        health = tool.get("health", {})
+        last_success = health.get("last_success")
+        latest_run = tool.get("latest_run")
+
+        ls_info = ""
+        if last_success:
+            ls_date = last_success.get("completed_at", "")[:10]
+            ls_info = f", last success: {ls_date}"
+
+        run_link = ""
+        if latest_run and latest_run.get("url"):
+            run_link = f" [view run]({latest_run['url']})"
+
+        parts.append(f"{name} workflow failing{ls_info}{run_link}")
+
+    return f"- **Tooling unhealthy** -- {'; '.join(parts)}"
+
+
 def generate_resolution_guide(
     violations_yaml_path: str,
     coverage_json_path: str,
@@ -556,6 +671,7 @@ def generate_resolution_guide(
     source_sha: str = "",
     policy_dir_url: str = "",
     policy_files: list[dict[str, str]] | None = None,
+    tooling_health_path: str | None = None,
 ) -> str:
     """Generate the full resolution guide markdown content."""
     violations_yaml = Path(violations_yaml_path)
@@ -584,6 +700,16 @@ def generate_resolution_guide(
         if jc is not None:
             component_owners[comp] = jc
 
+    # Load tooling health data if provided
+    tooling_health_data: dict | None = None
+    if tooling_health_path:
+        th_path = Path(tooling_health_path)
+        if th_path.exists():
+            try:
+                tooling_health_data = json.loads(th_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+
     # Run statistical analysis
     records = analysis.load_reports_dir(reports)
     warnings = analysis.load_warnings_dir(reports)
@@ -592,7 +718,8 @@ def generate_resolution_guide(
     # Assemble sections
     sections = [
         _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files),
-        _render_key_takeaways(coverage_data, analysis_result),
+        _render_tooling_health(tooling_health_data) if tooling_health_data else "",
+        _render_key_takeaways(coverage_data, analysis_result, tooling_health_data),
         _render_summary(coverage_data, analysis_result),
         _render_coverage_table(coverage_data),
         _render_resolution_guide(coverage_data, catalog),
@@ -654,6 +781,11 @@ def main() -> int:
         default="",
         help='JSON array of {name, url} objects for policy config files (from resolve_release_context.py links.policy_files)',
     )
+    parser.add_argument(
+        "--tooling-health-json",
+        default=None,
+        help="Path to tooling-health.json from check_tooling_health.py (optional)",
+    )
     parser.add_argument("--output", required=True, help="Output file path")
     args = parser.parse_args()
 
@@ -678,6 +810,7 @@ def main() -> int:
             source_sha=args.source_sha,
             policy_dir_url=args.policy_dir_url,
             policy_files=policy_files,
+            tooling_health_path=args.tooling_health_json,
         )
     except FileNotFoundError as e:
         print(f"ERROR: {e}", file=sys.stderr)

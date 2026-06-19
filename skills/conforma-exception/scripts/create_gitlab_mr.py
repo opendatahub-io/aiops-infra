@@ -1289,7 +1289,7 @@ def update_consolidated_mr(
 ) -> dict:
     """Update an existing consolidated MR branch from current main.
 
-    Same pattern as update_mr() but for multi-version exception MRs.
+    Same pattern as update_mr() but for multi-version exception Merge Requests.
     After force-pushing, syncs the MR title and description to reflect
     the current version_specs.
     """

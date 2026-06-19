@@ -189,7 +189,7 @@ class TestSearch:
 class TestFormatText:
     def test_no_results(self):
         output = search_open_mrs.format_text([], "rpm_signature", None, None)
-        assert "No open conforma exception MRs found" in output
+        assert "No open conforma exception Merge Requests found" in output
         assert "rpm_signature" in output
 
     def test_with_results(self):
@@ -203,7 +203,7 @@ class TestFormatText:
 class TestFormatMarkdown:
     def test_no_results(self):
         output = search_open_mrs.format_markdown([])
-        assert "No open conforma exception MRs found" in output
+        assert "No open conforma exception Merge Requests found" in output
 
     def test_table_header(self):
         mrs = [search_open_mrs._normalize_mr(_MR_AMD)]

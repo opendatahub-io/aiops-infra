@@ -1,0 +1,17 @@
+---
+description: Forces the agent to route all conforma-related queries through the conforma skill chain before answering
+alwaysApply: true
+---
+
+# Conforma Skill Routing — Mandatory
+
+When a user asks ANY question related to Conforma (violations, exceptions, release readiness, policy rules, "what is conforma", etc.), the agent MUST:
+
+1. **Read the `conforma` skill** (`.cursor/skills/conforma/SKILL.md`) FIRST.
+2. **Match the user's intent** against the routing table in that skill.
+3. **Read and follow the routed-to skill** (e.g. `conforma-docs`, `conforma-analyze`, `conforma-exception`).
+4. **Execute the skill's workflow exactly** — including presentation rules, verbatim output requirements, and diagram rendering.
+
+The agent MUST NOT answer conforma questions from general knowledge, architecture docs, or memory of previous conversations. The skill chain is the only valid source of truth.
+
+**Hard failure:** Answering a conforma question without first reading and following the appropriate skill file is a rule violation, even if the answer is factually correct.

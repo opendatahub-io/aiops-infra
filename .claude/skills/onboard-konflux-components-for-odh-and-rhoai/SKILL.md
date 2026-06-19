@@ -456,13 +456,13 @@ fi
 
 ---
 
-## Step 11: Post Pending PRs/MRs Summary to Jira
+## Step 11: Post Pending Pull Requests / Merge Requests Summary to Jira
 
 **Only post a comment if something changed this run** (i.e., `NEWLY_MERGED` is non-empty OR
 at least one new PR/MR was raised in Step 8). If nothing changed, skip this step entirely —
 do not post any comment.
 
-When posting, include only the PRs/MRs that are **still pending** (status `pr_raised` or
+When posting, include only the Pull Requests / Merge Requests that are **still pending** (status `pr_raised` or
 `mr_raised`), not the full pipeline table. Tag the assignee if present.
 
 ```bash
@@ -524,7 +524,7 @@ echo "[orchestrator] All steps complete — Jira resolved with component-onboard
 
 Do not tag the assignee on the resolution comment.
 
-**If `ALL_DONE == "false"` and any PRs/MRs are pending:**
+**If `ALL_DONE == "false"` and any Pull Requests / Merge Requests are pending:**
 
 Transition Jira to "Review" (idempotent — safe to call if already in Review):
 
@@ -549,7 +549,7 @@ bash "scripts/raise_jira_review.sh" \
   Product        : <PRODUCT_CONTEXT>
   Jira           : <JIRA_URL>
 
-PRs / MRs:
+Pull Requests / Merge Requests:
   quay            : <steps.quay.status> — <steps.quay.mr_url or "not yet raised">
   krd             : <steps.krd.status> — <steps.krd.mr_url or "not yet raised">
   okc             : <steps.okc.status> — <steps.okc.pr_url or "not yet raised">
@@ -566,7 +566,7 @@ PRs / MRs:
 Newly merged this run : <NEWLY_MERGED or "none">
 State file            : $PIPELINE_STATE
 
-Re-run this skill after PRs/MRs are merged to advance the pipeline.
+Re-run this skill after Pull Requests / Merge Requests are merged to advance the pipeline.
 ```
 
 ---

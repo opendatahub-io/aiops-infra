@@ -8,7 +8,7 @@
 Monitor a GitLab merge request until it is merged, closed, or times out.
 
 Supports a --check-only mode that prints the current MR state and exits immediately
-(used by create-quay-repo SKILL.md to inspect existing MRs without polling).
+(used by create-quay-repo SKILL.md to inspect existing Merge Requests without polling).
 
 Authentication:
   GITLAB_USER   — required; GitLab username

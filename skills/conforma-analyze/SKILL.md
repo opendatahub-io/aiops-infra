@@ -98,7 +98,7 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
 
 ### Steps
 
-**Important**: Steps 1–9 use a shared `$RUNDIR` variable set in step 3. All intermediate outputs live in this directory. The `$RELEASE` variable is determined in step 2.
+**Important**: Steps 1–10 use a shared `$RUNDIR` variable set in step 3. All intermediate outputs live in this directory. The `$RELEASE` variable is determined in step 2.
 
 1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py --format markdown`. If exit code is non-zero, **stop immediately** — do not proceed with partial auth. Render the script's markdown output **directly** (not in a code block) — it contains individually-copyable fix commands. Do NOT interpret, reformat, summarize, or add your own explanation of the failures — the script output is self-explanatory and designed to be user-facing. The user must fix failures before the workflow can continue.
 
@@ -123,12 +123,29 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
    python3 scripts/resolve_release_context.py --list
    ```
 
-3. **Fetch reports**: Create a timestamped output directory and fetch CSVs. **Always pass `--releases $RELEASE`** to scope the fetch to the target release from step 2. The `$RUNDIR` variable is used by ALL subsequent steps — never change it mid-workflow:
+3. **Check tooling health**: Before fetching reports, check the health of conforma infrastructure tools. Create the `$RUNDIR` first (needed for output), then run the health check:
 
 ```bash
 mkdir -p .work
 RUNDIR=".work/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RUNDIR"
+python3 skills/conforma-tooling-health/scripts/check_tooling_health.py \
+  --release "$RELEASE" \
+  --output "$RUNDIR/tooling-health.json"
+```
+
+   Parse the JSON output and act on `overall_health`:
+
+   - **`"healthy"`** -- proceed silently to step 4 (fetch reports).
+   - **`"unhealthy"` or `"error"`** -- present the tooling health data (tool name, status, consecutive failures, last success URL) and use AskQuestion: "The conforma-reporter workflow is failing for this release (last success: DATE). The violation report may be stale or incomplete. Proceed with analysis anyway?" (options: "Yes, continue" / "No, stop here"). Only proceed to step 4 if the user confirms.
+   - **`"in_progress"`** -- present the in-progress run details and use AskQuestion: "A conforma-reporter run is currently in progress for this release. Options:" (choices: "Use the last completed report (generated DATE)" / "Wait for the current run to finish (up to 40 minutes)"). If the user chooses to wait, monitor the run using `python3 scripts/run_github_workflow.py monitor --repo-url https://github.com/red-hat-data-services/conforma-reporter --run-id RUN_ID --timeout 40 --poll-interval 60`, then re-run `check_tooling_health.py` to refresh status. If the run fails after waiting, fall back to the unhealthy prompt.
+   - **`"no_runs"`** -- warn ("No conforma-reporter runs found for this branch -- report may not exist") and proceed.
+
+   The `$RUNDIR` variable created here is used by ALL subsequent steps — never change it mid-workflow.
+
+4. **Fetch reports**: Fetch CSVs into the run directory created in step 3. **Always pass `--releases $RELEASE`** to scope the fetch to the target release from step 2:
+
+```bash
 python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
   --releases "$RELEASE" \
   --output-dir "$RUNDIR" \
@@ -155,7 +172,7 @@ python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
 
    The output directory will contain `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release. The `fetch-metadata.json` contains `source_path` and `created_at` per release — needed by steps 8-9. Some in-development/EA branches may not have report CSVs yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
 
-4. **Parse violations and warnings**: Run on the **same timestamped directory from step 3** to produce the structured YAML. **Always pass `--release $RELEASE`** to ensure only the target release's CSVs are parsed (defense in depth — even if extra CSVs exist in the directory, they are ignored). **Warnings CSVs are parsed by default** — any warning with an enforcement date within 21 days is included as a warning becoming a violation. The parse step also **enriches each component with its owning Jira Component** from the component-maturity catalog (requires VPN + GitLab auth). If the catalog is unreachable, the script fails hard — ensure VPN is active:
+5. **Parse violations and warnings**: Run on the **same timestamped directory from step 3** to produce the structured YAML. **Always pass `--release $RELEASE`** to ensure only the target release's CSVs are parsed (defense in depth — even if extra CSVs exist in the directory, they are ignored). **Warnings CSVs are parsed by default** — any warning with an enforcement date within 21 days is included as a warning becoming a violation. The parse step also **enriches each component with its owning Jira Component** from the component-maturity catalog (requires VPN + GitLab auth). If the catalog is unreachable, the script fails hard — ensure VPN is active:
 
 ```bash
 python3 skills/conforma-analyze/scripts/parse_violations.py \
@@ -182,7 +199,7 @@ python3 skills/conforma-analyze/scripts/parse_violations.py \
   --no-catalog
 ```
 
-5. **Analyze and present**: Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` for ownership, `--metadata-file` and `--release` for the report header and staleness check:
+6. **Analyze and present**: Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` for ownership, `--metadata-file` and `--release` for the report header and staleness check:
 
 ```bash
 # Text summary with ownership + report header (default):
@@ -221,7 +238,7 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 
    **Presentation**: `--format text` output → present in a code block. `--format markdown` output → render as markdown (not in a code block).
 
-6. **Cross-reference with exceptions, open Merge Requests, open Jira, and Slack**: After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open Merge Requests (classified as *exception* or *remedy*), open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
+7. **Cross-reference with exceptions, open Merge Requests, open Jira, and Slack**: After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open Merge Requests (classified as *exception* or *remedy*), open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
 
    **Target version checking (HARDCODED — always performed)**: Every Jira ticket found is automatically classified by its `fixVersion` relevance to the currently-analyzed release. Tickets are annotated as:
    - (no annotation) — fixVersion targets the currently analyzed release
@@ -237,12 +254,16 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
    **Save the output to a JSON file** for use by the resolution guide generator (step 8):
 
 ```bash
+# Extract policy file names from step 2 resolve output
+POLICY_FILES=$(python3 -c "import json; print(','.join(f['name'] for f in json.loads('$RESOLVE_JSON').get('links',{}).get('policy_files',[])))")
+
 # With Slack (when configured):
 python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir .work/konflux-release-data \
   --environment prod \
   --release "$RELEASE" \
+  --policy-files "$POLICY_FILES" \
   --metadata-file "$RUNDIR/fetch-metadata.json" > "$RUNDIR/coverage.json"
 
 # Without Slack (when not configured):
@@ -252,6 +273,7 @@ python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --environment prod \
   --release "$RELEASE" \
   --require-slack false \
+  --policy-files "$POLICY_FILES" \
   --metadata-file "$RUNDIR/fetch-metadata.json" > "$RUNDIR/coverage.json"
 ```
 
@@ -265,9 +287,9 @@ python3 -c "import json,sys; print(json.load(sys.stdin)['markdown_table'])" < "$
 
    **Presentation**: The `markdown_table` is markdown — render it directly (not in a code block).
 
-7. **Resolution Guide**: After presenting the coverage table, the resolution guide is generated deterministically by script. The guide is both presented to the user and saved to a file for submission (step 9). See step 8 for the generation command. While the guide is being generated, present the coverage table `markdown_table` from step 6 to the user as the immediate output.
+8. **Resolution Guide**: After presenting the coverage table, the resolution guide is generated deterministically by script. The guide is both presented to the user and saved to a file for submission (step 10). See step 9 for the generation command. While the guide is being generated, present the coverage table `markdown_table` from step 7 to the user as the immediate output.
 
-8. **Generate the resolution guide**: Run the resolution guide generator on the intermediate outputs from steps 3-6. This produces a unified markdown file combining coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
+9. **Generate the resolution guide**: Run the resolution guide generator on the intermediate outputs from steps 3-7. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
 
 ```bash
 # Extract metadata from fetch output
@@ -289,14 +311,15 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
   --source-sha "$SOURCE_SHA" \
   --policy-dir-url "$POLICY_DIR_URL" \
   --policy-files-json "$POLICY_FILES_JSON" \
+  --tooling-health-json "$RUNDIR/tooling-health.json" \
   --output "$RUNDIR/conforma-resolution-guide.md"
 ```
 
-   **Present the generated guide content to the user.** This MUST happen before step 9 — the user must see the full report before being asked about submission. Never run step 9 in parallel with presenting the guide.
+   **Present the generated guide content to the user.** This MUST happen before step 10 — the user must see the full report before being asked about submission. Never run step 10 in parallel with presenting the guide.
 
    **Presentation**: The guide is a `.md` file — render it as markdown (not in a code block).
 
-9. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit this resolution guide to the conforma-reporter GitHub repository (red-hat-data-services/conforma-reporter)?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The guide is committed to the **root of the release branch** (e.g. `conforma-resolution-guide.md` at the repo root). Pass `--metadata-file` so the script can automatically clean up any legacy guide from the old `prod/release_day/` location:
+10. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit this resolution guide to the conforma-reporter GitHub repository (red-hat-data-services/conforma-reporter)?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The guide is committed to the **root of the release branch** (e.g. `conforma-resolution-guide.md` at the repo root). Pass `--metadata-file` so the script can automatically clean up any legacy guide from the old `prod/release_day/` location:
 
 ```bash
 python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \

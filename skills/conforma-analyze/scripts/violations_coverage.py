@@ -125,6 +125,85 @@ def _extract_exception_expiry(gate: dict) -> dict:
     }
 
 
+def _build_component_exception_details(
+    gate: dict,
+    all_components: list[str],
+    policy_files: list[str] | None = None,
+) -> list[dict]:
+    """Build per-component exception details from the gate result.
+
+    Returns a list of dicts (one per component) with file, line, effective_until, and url.
+    Components not covered by any exception in the user's policy files get null fields.
+    """
+    host = conforma_mr_ops.GITLAB_HOST
+    project = conforma_mr_ops.GITLAB_PROJECT
+    allowed = {Path(f).name for f in policy_files} if policy_files else None
+
+    def _make_url(file_path: str | None, line: int | None) -> str | None:
+        if not host or not project or not file_path:
+            return None
+        if line:
+            return f"https://{host}/{project}/-/blob/main/{file_path}#L{line}"
+        return f"https://{host}/{project}/-/blob/main/{file_path}"
+
+    def _in_policy_files(file_path: str) -> bool:
+        if allowed is None:
+            return True
+        return Path(file_path).name in allowed
+
+    comp_details: dict[str, dict] = {}
+
+    permanent = gate.get("permanent_exclusions", [])
+    for exc in permanent:
+        file_path = exc.get("file", "")
+        if not _in_policy_files(file_path):
+            continue
+        line = exc.get("line")
+        for comp in all_components:
+            if comp not in comp_details:
+                comp_details[comp] = {
+                    "component": comp,
+                    "file": Path(file_path).name,
+                    "line": line,
+                    "effective_until": None,
+                    "url": _make_url(file_path, line),
+                }
+
+    active = gate.get("active_exceptions", [])
+    for exc in active:
+        file_path = exc.get("file", "")
+        if not _in_policy_files(file_path):
+            continue
+        line = exc.get("line")
+        effective_until = exc.get("effectiveUntil")
+        if effective_until:
+            effective_until = effective_until.strip('"').strip("'")[:10]
+        covered = exc.get("covers_components", [])
+        for comp in covered:
+            if comp not in comp_details:
+                comp_details[comp] = {
+                    "component": comp,
+                    "file": Path(file_path).name,
+                    "line": line,
+                    "effective_until": effective_until,
+                    "url": _make_url(file_path, line),
+                }
+
+    result = []
+    for comp in all_components:
+        if comp in comp_details:
+            result.append(comp_details[comp])
+        else:
+            result.append({
+                "component": comp,
+                "file": None,
+                "line": None,
+                "effective_until": None,
+                "url": None,
+            })
+    return result
+
+
 def _log(msg: str) -> None:
     """Progress message to stderr (never mixed with JSON stdout)."""
     print(msg, file=sys.stderr, flush=True)
@@ -251,6 +330,7 @@ def check_violations_coverage(
     require_slack: bool = True,
     metadata_file: str | None = None,
     release: str | None = None,
+    policy_files: list[str] | None = None,
 ) -> dict:
     """Batch coverage check: read a violations YAML and check each violation's components
     against existing exceptions in the policy file.
@@ -410,6 +490,7 @@ def check_violations_coverage(
 
         coverage, coverage_label = _map_gate_status(gate, rule, all_components, uncovered)
         exception_expiry = _extract_exception_expiry(gate)
+        exception_details = _build_component_exception_details(gate, all_components, policy_files=policy_files)
 
         open_mrs = gate.get("open_merge_requests", [])
 
@@ -511,6 +592,7 @@ def check_violations_coverage(
             "uncovered_count": len(uncovered),
             "display_components": display_components,
             "exception_expiry": exception_expiry,
+            "exception_details_by_component": exception_details,
             "open_merge_requests": open_mrs,
             "open_mr_label": mr_label,
             "open_mr_search_url": search_urls["mr"],
@@ -610,10 +692,13 @@ def _render_violations_markdown_table(
         mr = v["open_mr_label"] or "—"
         jira = v["open_jira_label"] or "—"
         status = v["status_label"]
-        expiry = v.get("exception_expiry", {})
-        expiry_display = expiry.get("display_expiry", "")
-        if expiry_display:
-            status = f"Exception granted ({expiry_display}), violation should disappear on next Conforma run"
+        covered_count = v.get("covered_count", 0)
+        total_count = v.get("total_components", 0)
+        if v.get("coverage") in ("fully_covered",) and covered_count and total_count:
+            status = f"Exception granted ({covered_count}/{total_count} components covered)"
+        elif v.get("coverage") == "partially_covered" and total_count:
+            uncovered = total_count - covered_count
+            status = f"Exception granted ({covered_count}/{total_count} components covered, {uncovered} uncovered)"
         ns = v["next_steps"]
         if include_slack:
             slack = v.get("open_slack_label") or "—"
@@ -642,11 +727,18 @@ def parse_args() -> argparse.Namespace:
         "When set, overrides the auto-detected release (first in violations YAML). "
         "Use this to ensure the correct release appears in the coverage table header.",
     )
+    parser.add_argument(
+        "--policy-files",
+        default=None,
+        help="Comma-separated list of policy file names (from resolve_release_context) "
+        "to scope exception URLs to. Only exceptions in these files will be linked.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    pf = [f.strip() for f in args.policy_files.split(",")] if args.policy_files else None
     result = check_violations_coverage(
         violations_yaml_path=args.violations_yaml,
         clone_dir=args.clone_dir,
@@ -655,6 +747,7 @@ def main() -> int:
         require_slack=args.require_slack,
         metadata_file=args.metadata_file,
         release=args.release,
+        policy_files=pf,
     )
     print(json.dumps(result, indent=2))
     return 1 if "error" in result else 0

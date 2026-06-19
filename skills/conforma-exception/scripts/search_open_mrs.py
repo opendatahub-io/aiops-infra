@@ -2,7 +2,7 @@
 """Search for open conforma exception Merge Requests in konflux-release-data.
 
 Usage:
-    # All open conforma exception MRs (broad search):
+    # All open conforma exception Merge Requests (broad search):
     python3 skills/conforma-exception/scripts/search_open_mrs.py
 
     # Filter by rule code (prefix or full):
@@ -92,7 +92,7 @@ def _parse_title(title: str) -> dict:
 def _fetch_mrs(
     rule: Optional[str] = None,
 ) -> list[dict]:
-    """Fetch open MRs from GitLab, optionally scoped to a rule."""
+    """Fetch open Merge Requests from GitLab, optionally scoped to a rule."""
     raw: list[dict] = []
     seen: set[int] = set()
 
@@ -127,7 +127,7 @@ def search(
     version: Optional[str] = None,
     author: Optional[str] = None,
 ) -> list[dict]:
-    """Search and filter open conforma exception MRs."""
+    """Search and filter open conforma exception Merge Requests."""
     raw = _fetch_mrs(rule=rule)
     mrs = [_normalize_mr(mr) for mr in raw]
 
@@ -161,9 +161,9 @@ def format_text(
     suffix = f" ({', '.join(filters)})" if filters else ""
 
     if not mrs:
-        return f"No open conforma exception MRs found{suffix}."
+        return f"No open conforma exception Merge Requests found{suffix}."
 
-    lines = [f"Found {len(mrs)} open conforma exception MR(s){suffix}:", ""]
+    lines = [f"Found {len(mrs)} open conforma exception Merge Request(s){suffix}:", ""]
     for mr in mrs:
         p = mr.get("parsed", {})
         lines.append(f"  !{mr['iid']}  {mr['author']}  {mr['created_at'][:10]}")
@@ -182,7 +182,7 @@ def format_text(
 
 def format_markdown(mrs: list[dict]) -> str:
     if not mrs:
-        return "No open conforma exception MRs found."
+        return "No open conforma exception Merge Requests found."
 
     lines = [
         "| MR | Rule | Vendor | Versions | Author | Created |",
@@ -204,7 +204,7 @@ def format_markdown(mrs: list[dict]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=("Search for open conforma exception MRs in konflux-release-data (GitLab)")
+        description=("Search for open conforma exception Merge Requests in konflux-release-data (GitLab)")
     )
     parser.add_argument(
         "--rule",

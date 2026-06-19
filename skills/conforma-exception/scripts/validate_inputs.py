@@ -106,7 +106,7 @@ def check_image_name_vs_component_name(component: str) -> str | None:
 
     Container image names (e.g. -rhel9, -ubi9 suffixed) are not Konflux
     component names. Konflux component names always end in -vX-Y (e.g. -v2-25,
-    -v3-3, -v3-5-ea-1) and are the correct identifiers for exception MRs.
+    -v3-3, -v3-5-ea-1) and are the correct identifiers for exception Merge Requests.
     """
     if re.search(r"-rhel\d+$", component) or re.search(r"-ubi\d+$", component):
         if not re.search(r"v\d+-\d+", component):

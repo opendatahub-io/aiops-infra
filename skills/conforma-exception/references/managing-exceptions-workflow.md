@@ -234,7 +234,7 @@ python3 skills/conforma-exception/scripts/generate_report.py \
   --action-plan-output "$RUN_DIR/action-plan.json"
 ```
 
-Present the markdown report to the user. The action plan JSON contains a sorted list of actionable items (removals first, then narrows, then extensions, then modernizations) with all data needed to create MRs. Exceptions with `keep` action are excluded from the action plan since they require no MR.
+Present the markdown report to the user. The action plan JSON contains a sorted list of actionable items (removals first, then narrows, then extensions, then modernizations) with all data needed to create Merge Requests. Exceptions with `keep` action are excluded from the action plan since they require no Merge Request.
 
 5. **Interactive action loop**: After presenting the report, announce that you will walk through each exception one by one for user confirmation. Read the action plan JSON and iterate over each action item in order.
 

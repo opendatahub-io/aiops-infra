@@ -120,7 +120,7 @@ flowchart LR
 
     subgraph JIRA[Jira - State Tracking]
         J1[Labels<br>updated]:::jiraNode
-        J2[PRs/MRs<br>linked]:::jiraNode
+        J2[Pull Requests / Merge Requests<br>linked]:::jiraNode
         J3[Jira to Review]:::done
         J1 --> J2 --> J3
     end

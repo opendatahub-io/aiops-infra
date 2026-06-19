@@ -9,7 +9,7 @@ posts a progress update to Jira. Re-running it for the same Jira is safe and exp
 The orchestrator does not edit files or raise PRs directly. Instead it:
 
 1. Calls [validate-component-onboarding-jira](validate-component-onboarding-jira.md) as a pre-flight check.
-2. Reads the current state of all tracked PRs/MRs from Jira labels and GitHub/GitLab APIs.
+2. Reads the current state of all tracked Pull Requests / Merge Requests from Jira labels and GitHub/GitLab APIs.
 3. Determines which steps are unblocked (all `depends_on` steps are merged/done).
 4. Invokes the relevant child skill for each unblocked step.
 5. Posts a consolidated progress table to the Jira ticket as a comment.
@@ -61,7 +61,7 @@ Each run appends a table like the following to the Jira ticket (only when someth
 | Condition | Jira transition |
 |-----------|----------------|
 | First step starts | `Open -> In Progress` |
-| All PRs/MRs raised, some pending merge | `In Progress -> Review` |
+| All Pull Requests / Merge Requests raised, some pending merge | `In Progress -> Review` |
 | All steps complete | `Review -> Resolved` |
 
 ## Invocation

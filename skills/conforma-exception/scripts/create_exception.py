@@ -134,7 +134,7 @@ def _extract_example_links(cat: dict) -> dict:
 
     mr_links: list[dict] = []
     if find.get("gitlab_mr_search"):
-        mr_links.append({"label": "Search MRs", "url": find["gitlab_mr_search"]})
+        mr_links.append({"label": "Search Merge Requests", "url": find["gitlab_mr_search"]})
     for ex in examples:
         if ex.get("mr"):
             m = re.search(r"/merge_requests/(\d+)", ex["mr"])

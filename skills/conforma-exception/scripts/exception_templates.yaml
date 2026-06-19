@@ -3,7 +3,7 @@
 # Each category maps to a rule pattern and provides:
 #   1. workflow — ordered list of Jira/MR steps the orchestrator executes
 #   2. template text — scope, risk, remediation, impact fields with placeholders
-#   3. find_examples — pre-built search URLs for Jira tickets and GitLab MRs (not used by code)
+#   3. find_examples — pre-built search URLs for Jira tickets and GitLab Merge Requests (not used by code)
 #   4. example_tickets — historical Jira+MR pairs created before the conforma-exception AI skill (not used by code)
 #   5. reference_examples — past real-world cases for human reference (not used by code)
 #

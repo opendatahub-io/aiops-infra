@@ -128,7 +128,7 @@ flowchart TD
     subgraph JIRA_STATE["JIRA — State & Progress Tracking"]
         direction LR
         J1["Labels set per step-`in-progress` / `needs-review`-`completed`"]:::jiraNode
-        J2["PRs/MRs linked-in Jira comments-Full audit trail"]:::jiraNode
+        J2["Pull Requests / Merge Requests linked-in Jira comments-Full audit trail"]:::jiraNode
         J3["Jira → **Review**-when all PRs raised-Human review & merge cycle"]:::jiraNode
         J1 --> J2 --> J3
     end
@@ -150,7 +150,7 @@ flowchart TD
 **How it advances over time**
 
 ```
-Tick 1  →  Raises all newly-unblocked PRs/MRs, exits
+Tick 1  →  Raises all newly-unblocked Pull Requests / Merge Requests, exits
 Tick 2  →  Detects what merged, raises next batch, exits
 Tick N  →  All PRs merged → posts summary → Jira → Resolved
 ```

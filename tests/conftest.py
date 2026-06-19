@@ -24,6 +24,7 @@ def _add_skill_scripts(skill_name: str) -> None:
 _add_skill_scripts("conforma-analyze")
 _add_skill_scripts("conforma-exception")
 _add_skill_scripts("conforma-report-fetch")
+_add_skill_scripts("conforma-tooling-health")
 
 
 # ── Shared fixtures ──────────────────────────────────────────────────────

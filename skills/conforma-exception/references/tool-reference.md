@@ -33,12 +33,12 @@ The report groups exceptions into sections by expiry status:
 - **Expiring within N days** — approaching deadline
 - **Expiring YYYY-MM-DD** — one section per remaining date, sorted chronologically
 
-## Searching Open Exception MRs
+## Searching Open Exception Merge Requests
 
-When the user asks about open/pending conforma exception Merge Requests (e.g. "are there open MRs for rpm_signature?", "show me open exception MRs", "any pending MRs for rhoai-3.4?"), use `search_open_mrs.py`. **Do NOT call `glab api` directly** — the script handles GitLab auth, search, title parsing, and structured output.
+When the user asks about open/pending conforma exception Merge Requests (e.g. "are there open Merge Requests for rpm_signature?", "show me open exception Merge Requests", "any pending Merge Requests for rhoai-3.4?"), use `search_open_mrs.py`. **Do NOT call `glab api` directly** — the script handles GitLab auth, search, title parsing, and structured output.
 
 ```bash
-# All open conforma exception MRs:
+# All open conforma exception Merge Requests:
 python3 skills/conforma-exception/scripts/search_open_mrs.py
 
 # Filter by rule code (prefix or full):
@@ -67,7 +67,7 @@ python3 skills/conforma-exception/scripts/search_open_mrs.py --format json
 
 ### How it works
 
-The script reuses `_glab_get_mrs()` from `preflight_check.py` (python-gitlab with glab CLI fallback). When `--rule` is given, it searches by the full rule, by any suffix after `:`, and by the rule family prefix (e.g. `rpm_signature` from `rpm_signature.allowed:9386b48a`). Without `--rule`, it performs a broad search for MRs with "Conforma exception" in the title.
+The script reuses `_glab_get_mrs()` from `preflight_check.py` (python-gitlab with glab CLI fallback). When `--rule` is given, it searches by the full rule, by any suffix after `:`, and by the rule family prefix (e.g. `rpm_signature` from `rpm_signature.allowed:9386b48a`). Without `--rule`, it performs a broad search for Merge Requests with "Conforma exception" in the title.
 
 Standard MR titles (e.g. `[AMD] [RHOAI] Conforma exception: rpm_signature.allowed:9386b48a for rhoai-3.3, rhoai-3.4`) are parsed to extract vendor, rule, and version fields for structured output. Non-standard titles still appear but with fewer parsed fields.
 
@@ -75,11 +75,11 @@ Standard MR titles (e.g. `[AMD] [RHOAI] Conforma exception: rpm_signature.allowe
 
 | User question | Command |
 |---------------|---------|
-| "Are there open MRs for rpm_signature?" | `--rule rpm_signature` |
-| "Any pending exception MRs for rhoai-3.4?" | `--version rhoai-3.4` |
-| "Show me all open conforma exception MRs" | *(no filters)* |
-| "Open MRs for hermetic build exceptions?" | `--rule hermetic_task` |
-| "What's my open exception MRs?" | `--author <username>` |
+| "Are there open Merge Requests for rpm_signature?" | `--rule rpm_signature` |
+| "Any pending exception Merge Requests for rhoai-3.4?" | `--version rhoai-3.4` |
+| "Show me all open conforma exception Merge Requests" | *(no filters)* |
+| "Open Merge Requests for hermetic build exceptions?" | `--rule hermetic_task` |
+| "What's my open exception Merge Requests?" | `--author <username>` |
 
 ## Adding Jira Watchers
 

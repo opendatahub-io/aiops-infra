@@ -124,7 +124,7 @@ The resolved exception text flows into all workflow artifacts: RHOAIENG Jira vio
    - **APPROVAL GATE** (prod only): After the approval step, checks whether the ticket is approved. If not, halts. Use `--skip-approval-gate` to override (requires explicit user confirmation).
    - `prodsec_form_submission` *(track: exception_approval, prod only)*: Generates ProdSec Google Form pre-fill URL for user submission.
    - `psx_exception_jira` *(track: exception_approval, prod only)*: Creates OCPEXCEPT Jira Task for FIPS exceptions.
-   - `exception_merge_request` *(track: exception_approval)*: Creates the GitLab MR. Title prefixed with `[prod]` or `[stage]`. Stage MRs are self-service (target `exceptions/` dir).
+   - `exception_merge_request` *(track: exception_approval)*: Creates the GitLab Merge Request. Title prefixed with `[prod]` or `[stage]`. Stage Merge Requests are self-service (target `exceptions/` dir).
 5. **Link artifacts** (`link_artifacts.py`): Links violation->remediation (Related), violation->approval (Related), approval->ProdSec (Blocks). MR linked to all tickets via remote link + comment.
 
 ### Three-Ticket Jira Model

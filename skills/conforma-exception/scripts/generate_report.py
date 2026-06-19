@@ -445,8 +445,8 @@ def build_action_plan(data: dict) -> dict:
     """Build a machine-readable action plan from the assessment data.
 
     Returns a JSON-serializable dict with structured action items the
-    agent can iterate over to create MRs. Excludes "keep" actions since
-    they require no MR.
+    agent can iterate over to create Merge Requests. Excludes "keep" actions since
+    they require no Merge Request.
     """
     exceptions = data.get("assessed_exceptions", [])
     generated_at = data.get("generated_at", "unknown")

@@ -4,9 +4,9 @@
 
 The ODH/RHOAI component onboarding workflow is implemented as a **suite of modular Claude Code skills**, each responsible for one discrete step of the pipeline. A component team member first runs the `create-component-onboarding-jira` skill to create the Jira ticket and capture onboarding parameters. From there, the process is **fully automated** — a GitLab CI pipeline in this project runs every two hours, discovers all eligible open Jira issues, and triggers the `onboard-konflux-components-for-odh-and-rhoai` wrapper skill for each one via Claude Code running in CI.
 
-Each CI run is **short-lived and non-blocking**: the wrapper checks what has merged since the last run, raises PRs/MRs for any newly-unblocked steps, posts a Jira update, and exits immediately — it never waits for reviews or merges. The scheduler provides the polling cadence; the job itself completes in minutes. The ticket transitions to "Resolved" automatically once all PRs and MRs are merged and detected on a subsequent run.
+Each CI run is **short-lived and non-blocking**: the wrapper checks what has merged since the last run, raises Pull Requests / Merge Requests for any newly-unblocked steps, posts a Jira update, and exits immediately — it never waits for reviews or merges. The scheduler provides the polling cadence; the job itself completes in minutes. The ticket transitions to "Resolved" automatically once all Pull Requests and Merge Requests are merged and detected on a subsequent run.
 
-The skill supports both **ODH** and **RHOAI** onboarding from a single invocation. ODH and RHOAI share a common core pipeline (Steps 1–8) but diverge on product-specific steps: for RHOAI, `create-rhoai-delivery-repo` runs early (before `onboard-component-to-konflux-release-data`) and additional steps handle product listing, auto-merge, and Renovate enablement; for ODH, a deferred GitHub Actions workflow is triggered once both `krd` and `okc` are merged. The skill is **fully idempotent**: re-running it any number of times for the same Jira issue is safe — completed steps are always skipped, already-raised PRs/MRs are never duplicated, and state is restored from Jira labels if the local file is absent.
+The skill supports both **ODH** and **RHOAI** onboarding from a single invocation. ODH and RHOAI share a common core pipeline (Steps 1–8) but diverge on product-specific steps: for RHOAI, `create-rhoai-delivery-repo` runs early (before `onboard-component-to-konflux-release-data`) and additional steps handle product listing, auto-merge, and Renovate enablement; for ODH, a deferred GitHub Actions workflow is triggered once both `krd` and `okc` are merged. The skill is **fully idempotent**: re-running it any number of times for the same Jira issue is safe — completed steps are always skipped, already-raised Pull Requests / Merge Requests are never duplicated, and state is restored from Jira labels if the local file is absent.
 
 ---
 
@@ -146,8 +146,8 @@ This is the **wrapper / parent skill** that drives the full onboarding pipeline.
 1. Validates prerequisites and reads the YAML attachment from Jira.
 2. Restores `pipeline_state.json` from Jira labels (works on a fresh CI checkout with no local state).
 3. Derives `PRODUCT_CONTEXT` (ODH or RHOAI) and marks non-applicable steps as skipped.
-4. Queries GitHub/GitLab APIs to detect any PRs/MRs that merged since the last run — skips steps already done.
-5. Raises PRs/MRs for all newly-unblocked steps and records their URLs, then **exits immediately** — no waiting.
+4. Queries GitHub/GitLab APIs to detect any Pull Requests / Merge Requests that merged since the last run — skips steps already done.
+5. Raises Pull Requests / Merge Requests for all newly-unblocked steps and records their URLs, then **exits immediately** — no waiting.
 6. Posts a Jira comment only when something changed this run.
 7. Transitions the ticket to "Resolved" automatically when all steps are detected as done.
 
@@ -223,13 +223,13 @@ If no issues match, a no-op child pipeline is emitted and the run exits cleanly.
 | 10 | `setup-auto-merge` | Raise GitHub PR to `rhods-devops-infra` to configure auto-merge for the component repo | `rhods-devops-infra` | RHOAI only | PR review + merge |
 | 11 | `enable-renovate-on-rhoai-component-repo` | Raise GitHub PR to `rhoai-konflux-central` to enable Renovate; on merge, trigger deferred `sync-rhoai-renovate-configs` workflow | `rhoai-konflux-central` | RHOAI only | PR review + merge |
 
-After all PRs/MRs are merged, Jira is transitioned to **Resolved** automatically on the next CI run.
+After all Pull Requests / Merge Requests are merged, Jira is transitioned to **Resolved** automatically on the next CI run.
 
 ---
 
 ## Execution Model
 
-Each CI run is **idempotent and short-lived**. The wrapper never waits for PRs or MRs to be reviewed — it raises them and exits. The scheduler handles the polling: every two hours, the pipeline re-runs, detects what merged, and advances the next unblocked steps. Each individual run completes in minutes regardless of how many tickets are in flight.
+Each CI run is **idempotent and short-lived**. The wrapper never waits for Pull Requests or Merge Requests to be reviewed — it raises them and exits. The scheduler handles the polling: every two hours, the pipeline re-runs, detects what merged, and advances the next unblocked steps. Each individual run completes in minutes regardless of how many tickets are in flight.
 
 A single run follows this pattern:
 
@@ -267,7 +267,7 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 |-----------|-------------|--------|
 | YAML attached by component team | *(unchanged)* | `yaml-attached` added |
 | CI picks up ticket, YAML validated | In Progress | — |
-| All PRs/MRs raised | Review | `onboarding-in-review` added |
+| All Pull Requests / Merge Requests raised | Review | `onboarding-in-review` added |
 | Quay MR merged | Review | `quay-mr-raised` removed |
 | Delivery repo MR raised *(RHOAI)* | Review | `delivery-repo-mr-raised` added |
 | Delivery repo MR merged *(RHOAI)* | Review | `delivery-repo-mr-raised` removed, `delivery-repo-mr-merged` added |
@@ -303,7 +303,7 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 **Pros**
 - **Fully automated** — no DevOps engineer attention needed after the component team submits the Jira ticket.
 - **Short-lived jobs** — each run completes in minutes; no long-running processes or blocking waits for PR reviews.
-- **Truly idempotent** — safe to run any number of times; completed steps are skipped, no duplicate PRs/MRs are ever created.
+- **Truly idempotent** — safe to run any number of times; completed steps are skipped, no duplicate Pull Requests / Merge Requests are ever created.
 - **Regular cadence** — runs every two hours, so onboarding advances promptly after each PR/MR is merged without manual intervention.
 - **Modular and maintainable** — each onboarding step is a separate skill; changes to one step don't affect others.
 - **Resumable from Jira** — state is always restorable from Jira labels; a fresh CI checkout with no local files never loses progress.

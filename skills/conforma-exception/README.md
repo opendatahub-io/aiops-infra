@@ -1,6 +1,6 @@
 # conforma-exception
 
-End-to-end automation for RHOAI Conforma exception management: check existing exceptions, create new ones, extend effectiveUntil dates, validate inputs, create required Jira tickets (RHOAIENG + PSX/OCPEXCEPT), generate exception YAML, create GitLab MRs in `releng/konflux-release-data`, and cross-link all artifacts.
+End-to-end automation for RHOAI Conforma exception management: check existing exceptions, create new ones, extend effectiveUntil dates, validate inputs, create required Jira tickets (RHOAIENG + PSX/OCPEXCEPT), generate exception YAML, create GitLab Merge Requests in `releng/konflux-release-data`, and cross-link all artifacts.
 
 This skill is part of the conforma suite. Follow the install instructions in [conforma/README.md](../conforma/README.md).
 

@@ -46,7 +46,7 @@ When presenting violations to the user:
 
 **Setup:** See [README.md](README.md) for installation and one-time authentication setup.
 
-**Always run preflight first** before creating any tickets or MRs:
+**Always run preflight first** before creating any tickets or Merge Requests:
 
 ```bash
 python3 skills/conforma-exception/scripts/verify_auth.py
@@ -85,7 +85,7 @@ cd ~/dev/gitlab/releng/konflux-release-data && git show origin/main:path/to/file
 
 The orchestrator checks the RHOAIENG approval ticket status after creation (or when provided via `--rhoaieng-url`). If the ticket is not yet approved:
 
-1. **The orchestrator halts** — ProdSec form submission, OCPEXCEPT Jira, and GitLab MR creation are blocked
+1. **The orchestrator halts** — ProdSec form submission, OCPEXCEPT Jira, and GitLab Merge Request creation are blocked
 2. **The user is instructed** to get Senior Management approval on the RHOAIENG ticket first
 3. **Re-run** with `--rhoaieng-url <approved-ticket-url>` after approval is granted
 
@@ -195,7 +195,7 @@ The RHOAIENG approval Jira ticket must be approved before ProdSec form submissio
 
 The agent MUST NEVER:
 - Decide link types (enforced by `link_artifacts.py`)
-- Split MRs per version (hard rule: `one_mr_per_rule_all_versions` — always one consolidated MR)
+- Split Merge Requests per version (hard rule: `one_mr_per_rule_all_versions` — always one consolidated Merge Request)
 - Decide ticket handling (enforced by duplicate detection in `preflight_check.py`)
 - Infer rules, components, dates, or any other values (resolved by `preflight_check.py`)
 - Create links without the script's idempotency checks
@@ -221,7 +221,7 @@ Coverage detection is fully deterministic — the script handles all matching lo
 
 The agent MUST NOT perform its own imageUrl-to-componentName matching. The script output is authoritative.
 
-The gate also searches for **open merge requests** in the `konflux-release-data` GitLab repo that mention the violation. If open MRs are found, they are included in the `open_merge_requests` field. The agent MUST present them to the user with a note like: "There is already an open MR for this violation: `[MR title](url)` by @author (created date). Check it before creating a new one." This is informational — it does not block the gate — but it prevents duplicate MRs.
+The gate also searches for **open merge requests** in the `konflux-release-data` GitLab repo that mention the violation. If open Merge Requests are found, they are included in the `open_merge_requests` field. The agent MUST present them to the user with a note like: "There is already an open Merge Request for this violation: `[MR title](url)` by @author (created date). Check it before creating a new one." This is informational — it does not block the gate — but it prevents duplicate Merge Requests.
 
 ### Mandatory Pre-Flight Script
 
@@ -235,7 +235,7 @@ python3 skills/conforma-exception/scripts/preflight_check.py \
 ```
 
 The script outputs JSON containing:
-- `hard_rules`: non-configurable behavior (link types, MR strategy, dedup logic)
+- `hard_rules`: non-configurable behavior (link types, Merge Request strategy, dedup logic)
 - `rhoaieng`: ticket metadata and type warnings
 - `rule`: extracted or overridden rule value
 - `versions`: resolved RHOAI versions
@@ -253,7 +253,7 @@ The agent presents `user_confirmation_required` items to the user and waits for 
 The preflight output includes a `decision` field evaluated deterministically by `evaluate_decision()`. When `decision.proceed` is `false`, the agent MUST:
 1. Report the `decision.reason` to the user
 2. Stop immediately — do NOT present remaining questionnaire items
-3. Do NOT create tickets, MRs, or any other artifacts
+3. Do NOT create tickets, Merge Requests, or any other artifacts
 
 The agent has NO discretion to override a `proceed: false` decision. Only the user can re-run with `--rule` override or manually modify the policy file.
 
@@ -261,7 +261,7 @@ The agent has NO discretion to override a `proceed: false` decision. Only the us
 
 ## Workflow Routing
 
-Workflow routing (which Jira projects, how many tickets, assignees, MR target) is defined per-category in `exception_templates.yaml`. The orchestrator reads the `workflow` steps from the matched category and executes them in order.
+Workflow routing (which Jira projects, how many tickets, assignees, Merge Request target) is defined per-category in `exception_templates.yaml`. The orchestrator reads the `workflow` steps from the matched category and executes them in order.
 
 Each workflow step has a `track` field indicating which logical track it belongs to:
 
@@ -385,7 +385,7 @@ The following diagram shows the end-to-end flow for creating a new Conforma exce
 
 The exception is only granted when **both** conditions are met: the ProdSec/OCPEXCEPT Jira ticket reaches **Ready for Verification** and the GitLab Merge Request is **merged**. Steps ①–⑥ are automated by this skill; steps ⑦–⑧ require human review by ProdSec and Release Engineering respectively.
 
-**Self-service variant** (for rules like `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check`): Steps ① and ④ are skipped, and step ⑦ does not apply — the workflow is: Senior Management approval → Approval Gate → GitLab MR (to `exceptions/` directory) → MR merged → Exception granted.
+**Self-service variant** (for rules like `schedule.weekday_restriction`, `test.no_failed_tests:fbc-target-index-pruning-check`): Steps ① and ④ are skipped, and step ⑦ does not apply — the workflow is: Senior Management approval → Approval Gate → GitLab Merge Request (to `exceptions/` directory) → Merge Request merged → Exception granted.
 
 ## Explaining Conforma Exceptions
 
@@ -478,7 +478,7 @@ Present these to the user as follows:
 - **`fully_covered`**: "Open MR !{iid} already covers all {M} requested components for this violation. Creating a new MR would be a duplicate."
 - **`no_overlap`**: The MR is for the same violation but different components (likely a different RHOAI version). Proceed normally without referencing this MR.
 
-When multiple open MRs exist for the same violation, present each independently. In the AskQuestion violation selection, annotate violations that have open MRs with partial coverage as `[open MR covers N/M]` next to the coverage indicator.
+When multiple open Merge Requests exist for the same violation, present each independently. In the AskQuestion violation selection, annotate violations that have open Merge Requests with partial coverage as `[open MR covers N/M]` next to the coverage indicator.
 
 ### Open Jira Ticket Coverage
 
@@ -505,7 +505,7 @@ Component names are validated against `--rhoai-version`:
 | Type | Pattern | Example | Used in Merge Request? |
 |------|---------|---------|-------------|
 | Konflux component name | `{base}-v{major}-{minor}` | `odh-workbench-jupyter-pytorch-rocm-py312-v2-25` | YES |
-| Container image name (not for MRs) | `{base}-rhel9` (no version) | `odh-workbench-jupyter-pytorch-rocm-py312-rhel9` | NO |
+| Container image name (not for Merge Requests) | `{base}-rhel9` (no version) | `odh-workbench-jupyter-pytorch-rocm-py312-rhel9` | NO |
 
 All Konflux component names include a version suffix (e.g. `-v2-25`, `-v3-3`, `-v3-5-ea-1`). Names ending in `-rhel9` or `-ubi9` without a version suffix are container image names produced by those components -- they must NOT be used in `componentNames` fields in exception GitLab Merge Requests. The validation script rejects container image names and suggests the correct Konflux component name format.
 
@@ -624,7 +624,7 @@ Each script validates inputs and exits non-zero on failure. The orchestrator sto
 
 ## Listing, Searching, and Watchers
 
-For instructions on listing current exceptions (`list_exceptions.py`), searching open MRs (`search_open_mrs.py`), and managing Jira watchers (`add_jira_watchers.py`), read `references/tool-reference.md`.
+For instructions on listing current exceptions (`list_exceptions.py`), searching open Merge Requests (`search_open_mrs.py`), and managing Jira watchers (`add_jira_watchers.py`), read `references/tool-reference.md`.
 
 ## Managing Exceptions
 

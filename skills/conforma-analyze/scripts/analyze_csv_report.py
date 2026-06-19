@@ -494,15 +494,16 @@ def format_text(result: AnalysisResult, component_owners: dict[str, str | None] 
             lines.append(f"    Affected components: {', '.join(annotated)}")
         lines.append("")
 
-    lines.append("-" * 80)
-    lines.append("PRIORITY RECOMMENDATIONS")
-    lines.append("-" * 80)
-    for rec in result.priority_recommendations:
-        lines.append(f"\n  #{rec['priority']}: {rec['action']}")
-        lines.append(f"    Resolves: {rec['violations_resolved']} violations ({rec['percent_of_total']}% of total)")
-        lines.append(f"    Components: {rec['affected_components']}")
-        lines.append(f"    Solution: {rec['solution']}")
-    lines.append("")
+    if result.priority_recommendations:
+        lines.append("-" * 80)
+        lines.append("PRIORITY RECOMMENDATIONS")
+        lines.append("-" * 80)
+        for rec in result.priority_recommendations:
+            lines.append(f"\n  #{rec['priority']}: {rec['action']}")
+            lines.append(f"    Resolves: {rec['violations_resolved']} violations ({rec['percent_of_total']}% of total)")
+            lines.append(f"    Components: {rec['affected_components']}")
+            lines.append(f"    Solution: {rec['solution']}")
+        lines.append("")
 
     return "\n".join(lines)
 
@@ -583,18 +584,19 @@ def format_markdown(result: AnalysisResult, component_owners: dict[str, str | No
             lines.append(f"| `{code}` | {info['count']} | {info['earliest_effective_on']} | {urgency} | {comps} |")
         lines.append("")
 
-    lines.append("## Priority Recommendations")
-    lines.append("")
-    for rec in result.priority_recommendations:
-        lines.append(f"### #{rec['priority']}: {rec['action']}")
+    if result.priority_recommendations:
+        lines.append("## Priority Recommendations")
         lines.append("")
-        lines.append(f"- **Resolves:** {rec['violations_resolved']} violations ({rec['percent_of_total']}% of total)")
-        lines.append(f"- **Components affected:** {rec['affected_components']}")
-        lines.append(f"- **Solution:** {rec['solution']}")
-        if "components" in rec:
-            annotated = [f"`{_annotate_comp(c, owners)}`" for c in rec["components"]]
-            lines.append("- **Specific components:** " + ", ".join(annotated))
-        lines.append("")
+        for rec in result.priority_recommendations:
+            lines.append(f"### #{rec['priority']}: {rec['action']}")
+            lines.append("")
+            lines.append(f"- **Resolves:** {rec['violations_resolved']} violations ({rec['percent_of_total']}% of total)")
+            lines.append(f"- **Components affected:** {rec['affected_components']}")
+            lines.append(f"- **Solution:** {rec['solution']}")
+            if "components" in rec:
+                annotated = [f"`{_annotate_comp(c, owners)}`" for c in rec["components"]]
+                lines.append("- **Specific components:** " + ", ".join(annotated))
+            lines.append("")
 
     return "\n".join(lines)
 

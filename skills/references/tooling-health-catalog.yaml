@@ -1,0 +1,120 @@
+# Conforma Tooling Health Catalog
+#
+# Single source of truth for known failure modes of conforma infrastructure tools.
+# Referenced by: conforma-tooling-health
+# Location: skills/references/tooling-health-catalog.yaml
+#
+# Schema:
+#   tools[].id: unique identifier for the tool
+#   tools[].failure_modes[].symptoms: list of substring patterns matched against GH Action logs
+#   tools[].failure_modes[].classification.severity: high | medium | low
+#   tools[].failure_modes[].classification.typical_owner: devops | konflux_team | component_team
+#   tools[].failure_modes[].classification.auto_recoverable: bool
+#   tools[].failure_modes[].remediation[].action: human-readable remediation step
+#   tools[].failure_modes[].remediation[].reference: optional URL
+
+tools:
+  - id: conforma-reporter
+    name: "conforma-reporter GitHub Action"
+    repo: "red-hat-data-services/conforma-reporter"
+    workflow_file: "conforma-reporter.yaml"
+    expected_schedule: "daily"
+    max_acceptable_age_hours: 72
+    failure_modes:
+      - id: auth_expired
+        title: "GitHub token or Konflux credentials expired"
+        symptoms:
+          - "Error: HttpError: Bad credentials"
+          - "Error: Resource not accessible by integration"
+          - "bad credentials"
+          - "401 Unauthorized"
+        classification:
+          severity: high
+          typical_owner: devops
+          auto_recoverable: false
+        remediation:
+          - action: "Check and rotate the PAT or GitHub App credentials used by the workflow"
+            reference: "https://github.com/red-hat-data-services/conforma-reporter/settings/secrets/actions"
+          - action: "Re-run the workflow after credential fix"
+
+      - id: ec_policy_timeout
+        title: "Enterprise Contract evaluation timed out"
+        symptoms:
+          - "context deadline exceeded"
+          - "deadline exceeded"
+          - "timed out waiting"
+        classification:
+          severity: medium
+          typical_owner: konflux_team
+          auto_recoverable: true
+        remediation:
+          - action: "Re-run the workflow -- often transient"
+          - action: "If persistent, check Konflux cluster health and EC policy evaluator status"
+
+      - id: ec_policy_error
+        title: "Enterprise Contract policy evaluation error"
+        symptoms:
+          - "error evaluating policy"
+          - "rego compilation failed"
+          - "policy check failed with error"
+        classification:
+          severity: high
+          typical_owner: konflux_team
+          auto_recoverable: false
+        remediation:
+          - action: "Check the EC policy source for syntax or compilation errors"
+          - action: "Verify the policy bundle is accessible from the Konflux cluster"
+
+      - id: branch_not_found
+        title: "Release branch does not exist or has no workflow configured"
+        symptoms:
+          - "No workflow runs found for branch"
+        classification:
+          severity: low
+          typical_owner: devops
+          auto_recoverable: false
+        remediation:
+          - action: "Verify the release branch exists in conforma-reporter"
+          - action: "Check if the workflow is configured to run on this branch (workflow triggers)"
+
+      - id: rate_limit
+        title: "GitHub API rate limit exceeded"
+        symptoms:
+          - "API rate limit exceeded"
+          - "secondary rate limit"
+          - "rate limit"
+          - "403 rate limit"
+        classification:
+          severity: low
+          typical_owner: devops
+          auto_recoverable: true
+        remediation:
+          - action: "Wait and retry -- rate limits reset hourly"
+          - action: "If persistent, reduce workflow frequency or use a dedicated PAT"
+
+      - id: network_error
+        title: "Network connectivity failure"
+        symptoms:
+          - "Could not resolve host"
+          - "Connection timed out"
+          - "No route to host"
+          - "Name or service not known"
+          - "getaddrinfo"
+        classification:
+          severity: medium
+          typical_owner: devops
+          auto_recoverable: true
+        remediation:
+          - action: "Re-run the workflow -- likely transient network issue"
+          - action: "If persistent, check GitHub Actions runner connectivity"
+
+      - id: unknown_failure
+        title: "Unclassified workflow failure"
+        symptoms: []
+        classification:
+          severity: medium
+          typical_owner: devops
+          auto_recoverable: false
+        remediation:
+          - action: "Inspect the failed workflow run logs for details"
+          - action: "Escalate to the conforma-reporter maintainers if unclear"

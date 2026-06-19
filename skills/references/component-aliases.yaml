@@ -3,7 +3,7 @@
 # Each alias group lists full Konflux component names that refer to the same
 # logical component across renames.  The coverage pipeline treats any two
 # names in the same group as equivalent when matching violations against
-# exceptions and open MRs.
+# exceptions and open Merge Requests.
 #
 # Format:
 #   alias_groups:

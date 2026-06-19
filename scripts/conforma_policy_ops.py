@@ -130,6 +130,7 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
                         "componentNames": exc["component_names"],
                         "imageUrl": exc.get("image_url", ""),
                         "effectiveUntil": exc["effective_until_value"],
+                        "block_start_line": exc["start"] + 1,
                     }
                 )
 
@@ -373,6 +374,7 @@ def check_existing_exception_gate(
                 active_exceptions.append(
                     {
                         "file": exc["file"],
+                        "line": exc.get("block_start_line"),
                         "componentNames": sorted(exc_comps),
                         "effectiveUntil": eu,
                         "covers_components": sorted(overlap),
@@ -387,6 +389,7 @@ def check_existing_exception_gate(
                     active_exceptions.append(
                         {
                             "file": exc["file"],
+                            "line": exc.get("block_start_line"),
                             "componentNames": [],
                             "imageUrl": image_url,
                             "effectiveUntil": eu,
@@ -399,6 +402,7 @@ def check_existing_exception_gate(
                 active_exceptions.append(
                     {
                         "file": exc["file"],
+                        "line": exc.get("block_start_line"),
                         "componentNames": [],
                         "effectiveUntil": eu,
                         "covers_components": sorted(requested),

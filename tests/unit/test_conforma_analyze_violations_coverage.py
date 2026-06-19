@@ -39,6 +39,10 @@ class TestRenderViolationsMarkdownTable:
             "rule": "test.rule",
             "display_components": "comp-v1",
             "exception_expiry": {},
+            "exception_details_by_component": [],
+            "covered_count": 0,
+            "total_components": 1,
+            "coverage": "not_covered",
             "open_mr_label": "",
             "open_jira_label": "",
             "status_label": "No coverage",
@@ -253,6 +257,10 @@ class TestReleaseOverride:
             "rule": "test.rule",
             "display_components": "comp-v1",
             "exception_expiry": {},
+            "exception_details_by_component": [],
+            "covered_count": 0,
+            "total_components": 1,
+            "coverage": "not_covered",
             "open_mr_label": "",
             "open_jira_label": "",
             "status_label": "No coverage",
@@ -320,17 +328,154 @@ class TestExtractExceptionExpiry:
         result = mod._extract_exception_expiry(gate)
         assert result["display_expiry"] == ""
 
-    def test_expiry_renders_in_markdown_table(self):
-        """The expiry date should appear in the Status column of the rendered table."""
+    def test_coverage_ratio_renders_in_status(self):
+        """Status column shows plain coverage ratio, no URLs."""
         row = {
             "rule": "test.rule",
-            "display_components": "comp-v1",
+            "display_components": "comp-v1, comp-v2",
             "exception_expiry": {"display_expiry": "expires 2026-09-30"},
+            "exception_details_by_component": [],
+            "covered_count": 2,
+            "total_components": 2,
+            "coverage": "fully_covered",
             "open_mr_label": "",
             "open_jira_label": "",
             "status_label": "Exception granted, violation should disappear on next Conforma run",
-            "next_steps": "Use `conforma-violations-scan` AI skill or [conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to rerun validation and verify the violation is gone",
+            "next_steps": "Rerun validation",
         }
         summary = {"total_violations": 1, "fully_covered": 1, "partially_covered": 0, "not_covered": 0}
         md = mod._render_violations_markdown_table([row], summary)
-        assert "Exception granted (expires 2026-09-30), violation should disappear on next Conforma run" in md
+        assert "Exception granted (2/2 components covered)" in md
+        assert "[Exception granted]" not in md
+
+    def test_partial_coverage_renders_in_status(self):
+        """Partial coverage shows ratio with uncovered count, no URLs."""
+        row = {
+            "rule": "test.rule",
+            "display_components": "comp-v1, comp-v2, comp-v3",
+            "exception_expiry": {},
+            "exception_details_by_component": [],
+            "covered_count": 2,
+            "total_components": 3,
+            "coverage": "partially_covered",
+            "open_mr_label": "",
+            "open_jira_label": "",
+            "status_label": "Partial coverage",
+            "next_steps": "Fix uncovered",
+        }
+        summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 1, "not_covered": 0}
+        md = mod._render_violations_markdown_table([row], summary)
+        assert "Exception granted (2/3 components covered, 1 uncovered)" in md
+        assert "[Exception granted]" not in md
+
+
+class TestBuildComponentExceptionDetails:
+    """Tests for _build_component_exception_details."""
+
+    def test_per_component_exceptions(self, monkeypatch):
+        """Multiple per-component exceptions produce one entry per component."""
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
+        gate = {
+            "status": "blocked",
+            "permanent_exclusions": [],
+            "active_exceptions": [
+                {"file": "config/policy/registry-rhoai-prod.yaml", "line": 75,
+                 "effectiveUntil": "2026-06-30T00:00:00Z", "covers_components": ["comp-a"]},
+                {"file": "config/policy/registry-rhoai-prod.yaml", "line": 101,
+                 "effectiveUntil": "2026-10-10T00:00:00Z", "covers_components": ["comp-b"]},
+            ],
+        }
+        result = mod._build_component_exception_details(
+            gate, ["comp-a", "comp-b"], policy_files=["registry-rhoai-prod.yaml"]
+        )
+        assert len(result) == 2
+        assert result[0]["component"] == "comp-a"
+        assert result[0]["line"] == 75
+        assert result[0]["effective_until"] == "2026-06-30"
+        assert "#L75" in result[0]["url"]
+        assert result[1]["component"] == "comp-b"
+        assert result[1]["line"] == 101
+        assert result[1]["effective_until"] == "2026-10-10"
+
+    def test_unscoped_exception_covers_all(self, monkeypatch):
+        """Unscoped exception (covers all) maps to every component."""
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
+        gate = {
+            "status": "blocked",
+            "permanent_exclusions": [],
+            "active_exceptions": [
+                {"file": "config/policy/registry-rhoai-prod.yaml", "line": 50,
+                 "effectiveUntil": "2026-08-01T00:00:00Z",
+                 "covers_components": ["comp-a", "comp-b", "comp-c"]},
+            ],
+        }
+        result = mod._build_component_exception_details(
+            gate, ["comp-a", "comp-b", "comp-c"], policy_files=["registry-rhoai-prod.yaml"]
+        )
+        assert len(result) == 3
+        assert all(d["url"] is not None for d in result)
+        assert all(d["line"] == 50 for d in result)
+
+    def test_foreign_file_excluded_by_policy_files(self, monkeypatch):
+        """Exceptions in files not in policy_files produce null fields."""
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
+        gate = {
+            "status": "blocked",
+            "permanent_exclusions": [],
+            "active_exceptions": [
+                {"file": "config/policy/registry-jetpack-prod.yaml", "line": 31,
+                 "effectiveUntil": "2026-08-01T00:00:00Z", "covers_components": ["comp-a"]},
+            ],
+        }
+        result = mod._build_component_exception_details(
+            gate, ["comp-a"], policy_files=["registry-rhoai-prod.yaml"]
+        )
+        assert len(result) == 1
+        assert result[0]["url"] is None
+        assert result[0]["file"] is None
+
+    def test_no_exceptions_returns_null_entries(self, monkeypatch):
+        """No exceptions means all components get null fields."""
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
+        gate = {"status": "passed", "permanent_exclusions": [], "active_exceptions": []}
+        result = mod._build_component_exception_details(gate, ["comp-a", "comp-b"])
+        assert len(result) == 2
+        assert all(d["url"] is None for d in result)
+
+    def test_permanent_exclusion(self, monkeypatch):
+        """Permanent exclusion covers all components with no expiry."""
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
+        gate = {
+            "status": "permanent",
+            "permanent_exclusions": [{"file": "config/policy/registry-rhoai-prod.yaml", "line": 10}],
+            "active_exceptions": [],
+        }
+        result = mod._build_component_exception_details(
+            gate, ["comp-a", "comp-b"], policy_files=["registry-rhoai-prod.yaml"]
+        )
+        assert len(result) == 2
+        assert all(d["effective_until"] is None for d in result)
+        assert all("#L10" in d["url"] for d in result)
+
+    def test_no_gitlab_host_returns_null_urls(self, monkeypatch):
+        """Without GITLAB_HOST, urls are None but file/line are still populated."""
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
+        gate = {
+            "status": "blocked",
+            "permanent_exclusions": [],
+            "active_exceptions": [
+                {"file": "config/policy/registry-rhoai-prod.yaml", "line": 42,
+                 "effectiveUntil": "2026-09-30", "covers_components": ["comp-a"]},
+            ],
+        }
+        result = mod._build_component_exception_details(gate, ["comp-a"])
+        assert len(result) == 1
+        assert result[0]["url"] is None
+
+

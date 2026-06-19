@@ -5,9 +5,9 @@
 # ]
 # ///
 """
-Create a GitLab merge request — supports both same-project and cross-project (fork→upstream) MRs.
+Create a GitLab merge request — supports both same-project and cross-project (fork→upstream) Merge Requests.
 
-For cross-project MRs the MR is created on the **source** (fork) project with
+For cross-project Merge Requests the MR is created on the **source** (fork) project with
 ``target_project_id`` pointing to the upstream, which is how the GitLab API expects it.
 
 Idempotent: if an open MR with the same source branch already exists on the target,
@@ -135,7 +135,7 @@ def find_existing_mr(target_project, source_project_id: int, src_branch: str):
             if getattr(mr, "source_project_id", None) == source_project_id:
                 return mr
     except GitlabError as exc:
-        print(f"WARNING: Could not check for existing MRs: {exc}", file=sys.stderr)
+        print(f"WARNING: Could not check for existing Merge Requests: {exc}", file=sys.stderr)
     return None
 
 
@@ -211,12 +211,12 @@ def main() -> None:
             print(f"ERROR: Source project '{src_path}' is not a fork of target project '{dest_path}'.", file=sys.stderr)
             print(f"  Source project's fork parent: {actual_parent}", file=sys.stderr)
             print(f"  Expected fork parent: {dest_path} (id={target_project.id})", file=sys.stderr)
-            print("  Cross-project MRs require a direct fork relationship.", file=sys.stderr)
+            print("  Cross-project Merge Requests require a direct fork relationship.", file=sys.stderr)
             print("  Run setup_gitlab_fork.py to fix the fork relationship and retry.", file=sys.stderr)
             sys.exit(1)
 
     # ── Create MR ──────────────────────────────────────────────────────────────
-    # For cross-project MRs the GitLab API requires creating the MR on the
+    # For cross-project Merge Requests the GitLab API requires creating the MR on the
     # *source* (fork) project and setting target_project_id to the upstream.
     # python-gitlab only exposes target_project_id in _create_attrs, not
     # source_project_id, which matches the GitLab REST API design.

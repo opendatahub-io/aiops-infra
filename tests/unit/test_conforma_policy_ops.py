@@ -139,3 +139,6 @@ class TestSearchExistingExceptions:
         exc = result["existing_exceptions"][0]
         assert exc["componentNames"] == ["odh-foo-v3-5-ea-1"]
         assert "2099" in exc["effectiveUntil"]
+        assert "block_start_line" in exc
+        assert isinstance(exc["block_start_line"], int)
+        assert exc["block_start_line"] >= 1

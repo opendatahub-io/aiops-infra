@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Consolidate multiple per-version GitLab MRs into a single MR.
+"""Consolidate multiple per-version GitLab Merge Requests into a single Merge Request.
 
-When exception MRs were created one-per-version (violating the
+When exception Merge Requests were created one-per-version (violating the
 ``one_mr_per_rule_all_versions`` hard rule), this script:
 
-  1. Discovers all open MRs for a given PSX/OCPEXCEPT ticket
+  1. Discovers all open Merge Requests for a given PSX/OCPEXCEPT ticket
   2. Extracts version-specs (version, components, effectiveUntil) from each MR diff
-  3. Creates a single consolidated MR covering all versions
-  4. Closes the old per-version MRs with a comment pointing to the new one
+  3. Creates a single consolidated Merge Request covering all versions
+  4. Closes the old per-version Merge Requests with a comment pointing to the new one
   5. Updates the Jira ticket: replaces old remote links with the consolidated MR,
      adds a summary comment
 
@@ -84,12 +84,12 @@ def _gitlab_api_put(path: str, payload: dict, token: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Step 1: Discover open MRs for a PSX ticket
+# Step 1: Discover open Merge Requests for a PSX ticket
 # ---------------------------------------------------------------------------
 
 
 def find_open_mrs(psx_key: str, token: str) -> list[dict]:
-    """Find all open MRs in konflux-release-data referencing the PSX ticket."""
+    """Find all open Merge Requests in konflux-release-data referencing the PSX ticket."""
     path = f"projects/{GITLAB_PROJECT_ENCODED}/merge_requests?state=opened&search={psx_key}&in=title,description"
     mrs = _gitlab_api_get(path, token)
     matched = []
@@ -152,7 +152,7 @@ def extract_version_specs_from_mr(mr_iid: int, token: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Step 3: Close old MRs
+# Step 3: Close old Merge Requests
 # ---------------------------------------------------------------------------
 
 
@@ -310,7 +310,7 @@ def update_jira_links(
     from link_artifacts import build_provenance_footer
 
     comment_text = (
-        f"Consolidated {len(old_mr_urls)} per-version MRs into one:\n\n"
+        f"Consolidated {len(old_mr_urls)} per-version Merge Requests into one:\n\n"
         f"Consolidated MR: {consolidated_mr_url}\n\n"
         f"Closed (superseded): {', '.join(old_mr_iids)}\n\n"
         f"{build_provenance_footer()}"
@@ -352,10 +352,10 @@ def consolidate(
     consolidated_mr_url: str | None = None,
     dry_run: bool = False,
 ) -> dict:
-    """Consolidate per-version MRs into one.
+    """Consolidate per-version Merge Requests into one.
 
-    If ``consolidated_mr_url`` is provided, skip MR creation (already exists)
-    and only close old MRs + update Jira.
+    If ``consolidated_mr_url`` is provided, skip Merge Request creation (already exists)
+    and only close old Merge Requests + update Jira.
     """
     psx_key_match = re.search(r"([A-Z]+-\d+)", psx_url)
     if not psx_key_match:
@@ -364,10 +364,10 @@ def consolidate(
 
     token = _get_gitlab_token()
 
-    # Step 1: Find open MRs
+    # Step 1: Find open Merge Requests
     open_mrs = find_open_mrs(psx_key, token)
     if not open_mrs:
-        return {"status": "failed", "error": f"No open MRs found referencing {psx_key}"}
+        return {"status": "failed", "error": f"No open Merge Requests found referencing {psx_key}"}
 
     if len(open_mrs) < 2 and not consolidated_mr_url:
         return {
@@ -395,7 +395,7 @@ def consolidate(
         old_mr_iids.append(mr["iid"])
 
     if not version_specs:
-        return {"status": "skipped", "detail": "No per-version MRs to consolidate"}
+        return {"status": "skipped", "detail": "No per-version Merge Requests to consolidate"}
 
     version_specs.sort(key=lambda s: s["version"])
 
@@ -509,7 +509,7 @@ def consolidate(
             dry_out["date_corrections"] = date_corrections
         return dry_out
 
-    # Step 4: Close old MRs
+    # Step 4: Close old Merge Requests
     close_results = []
     for iid in old_mr_iids:
         close_results.append(close_mr_with_comment(iid, consolidated_iid, token))
@@ -557,7 +557,7 @@ def consolidate(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Consolidate per-version exception MRs into a single MR")
+    parser = argparse.ArgumentParser(description="Consolidate per-version exception Merge Requests into a single Merge Request")
     parser.add_argument(
         "--psx-url",
         required=True,

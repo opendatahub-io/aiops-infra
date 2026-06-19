@@ -150,7 +150,7 @@ def build_changes_summary(
     lines = [
         f"h2. Status update: {{{{{component_name}}}}}",
         "",
-        "The following PRs/MRs changed status since the last run:",
+        "The following Pull Requests / Merge Requests changed status since the last run:",
         "",
         "||Step||PR / MR||Status||Next action||",
     ]
@@ -191,7 +191,7 @@ def build_pending_summary(
     if not pending_rows:
         return ""
 
-    tag_line = f"[~accountid:{assignee}] — please review the open PRs/MRs.\n\n" if assignee else ""
+    tag_line = f"[~accountid:{assignee}] — please review the open Pull Requests / Merge Requests.\n\n" if assignee else ""
 
     lines = [
         "||Step||PR / MR||Next action on merge||",
@@ -224,7 +224,7 @@ def main():
     if args.idle_days >= 2 and args.assignee:
         prefix = (
             f"[~accountid:{args.assignee}] — Reminder: this onboarding has had no PR/MR merges "
-            f"for {args.idle_days} day(s). Please review the open PRs/MRs below.\n\n"
+            f"for {args.idle_days} day(s). Please review the open Pull Requests / Merge Requests below.\n\n"
         )
 
     if args.mode == "full":
