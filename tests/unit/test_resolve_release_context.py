@@ -265,7 +265,23 @@ class TestBuildLinks:
             policy_files=[],
             app_slug="rhoai",
         )
-        assert links["cluster_console"] == "https://console-openshift-console.apps.stone-prod-p02.hjvn.p1.openshiftapps.com/"
+        assert links["cluster_console"] == "https://konflux-ui.apps.stone-prod-p02.hjvn.p1.openshiftapps.com/"
+
+    def test_cluster_console_uses_ns_path_with_tenant_and_app(self):
+        links = mod._build_links(
+            cluster_domain="stone-prod-p02.hjvn.p1",
+            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.cee.redhat.com",
+            gitlab_project="releng/konflux-release-data",
+            policy_files=[],
+            app_slug="rhoai",
+            tenant="rhoai-tenant",
+            konflux_app="rhoai-v3-5-ea-2",
+        )
+        assert links["cluster_console"] == (
+            "https://konflux-ui.apps.stone-prod-p02.hjvn.p1.openshiftapps.com"
+            "/ns/rhoai-tenant/applications/rhoai-v3-5-ea-2"
+        )
 
     def test_cluster_console_not_set_without_domain(self):
         links = mod._build_links(

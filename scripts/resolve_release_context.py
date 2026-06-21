@@ -150,7 +150,7 @@ def _build_links(
     if cluster_domain:
         base = f"https://konflux-ui.apps.{cluster_domain}.openshiftapps.com"
         if tenant and konflux_app:
-            links["cluster_console"] = f"{base}/application-pipeline/workspaces/{tenant}/applications/{konflux_app}"
+            links["cluster_console"] = f"{base}/ns/{tenant}/applications/{konflux_app}"
         else:
             links["cluster_console"] = f"{base}/"
     if gitlab_host and policy_dir:
