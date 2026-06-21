@@ -420,11 +420,18 @@ def _parse_llm_response(response: str) -> list[dict[str, Any]]:
     return []
 
 
+DIFF_EXCLUDED_EXTENSIONS = {".py", ".sh", ".json", ".yaml", ".yml", ".lock", ".toml"}
+
+
 def detect_corrections_diff(diff_ref: str) -> list[ProposedRule]:
-    """Detect terminology corrections from a git diff."""
+    """Detect terminology corrections from a git diff.
+
+    Only analyzes documentation files (.md) to avoid false positives from code changes.
+    Compares removed/added lines within the same diff hunk only.
+    """
     try:
         result = subprocess.run(
-            ["git", "diff", diff_ref, "--unified=0"],
+            ["git", "diff", diff_ref, "--unified=0", "--diff-filter=M", "--", "*.md"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -434,42 +441,74 @@ def detect_corrections_diff(diff_ref: str) -> list[ProposedRule]:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
 
-    removals: list[str] = []
-    additions: list[str] = []
     proposals: list[ProposedRule] = []
+    current_hunk_removals: list[str] = []
+    current_hunk_additions: list[str] = []
 
     for line in result.stdout.splitlines():
-        if line.startswith("-") and not line.startswith("---"):
-            removals.append(line[1:])
+        if line.startswith("@@"):
+            _process_hunk(current_hunk_removals, current_hunk_additions, proposals, diff_ref)
+            current_hunk_removals = []
+            current_hunk_additions = []
+        elif line.startswith("-") and not line.startswith("---"):
+            current_hunk_removals.append(line[1:])
         elif line.startswith("+") and not line.startswith("+++"):
-            additions.append(line[1:])
+            current_hunk_additions.append(line[1:])
 
-    for rem_line in removals:
-        for add_line in additions:
-            swaps = _find_terminology_swaps(rem_line, add_line)
-            for avoid, prefer in swaps:
-                proposals.append(
-                    ProposedRule(
-                        category="terminology",
-                        rule=f'Use "{prefer}" instead of "{avoid}"',
-                        prefer=prefer,
-                        avoid=avoid,
-                        confidence="high",
-                        sources=[{"session": "git-diff", "user_said": f"Changed in commit: {diff_ref}"}],
-                    )
-                )
-
+    _process_hunk(current_hunk_removals, current_hunk_additions, proposals, diff_ref)
     return proposals
 
 
+def _process_hunk(
+    removals: list[str],
+    additions: list[str],
+    proposals: list[ProposedRule],
+    diff_ref: str,
+) -> None:
+    """Compare removed and added lines within a single hunk for terminology swaps."""
+    if not removals or not additions:
+        return
+    if len(removals) != len(additions):
+        return
+
+    for rem_line, add_line in zip(removals, additions):
+        if rem_line.startswith("#") or add_line.startswith("#"):
+            continue
+        swaps = _find_terminology_swaps(rem_line, add_line)
+        for avoid, prefer in swaps:
+            if len(avoid) < 2 or len(prefer) < 2:
+                continue
+            proposals.append(
+                ProposedRule(
+                    category="terminology",
+                    rule=f'Use "{prefer}" instead of "{avoid}"',
+                    prefer=prefer,
+                    avoid=avoid,
+                    confidence="high",
+                    sources=[{"session": "git-diff", "user_said": f"Changed in commit: {diff_ref}"}],
+                )
+            )
+
+
+CODE_TOKENS = frozenset({
+    "True", "False", "None", "self", "cls", "return", "import", "from",
+    "def", "class", "if", "else", "elif", "for", "while", "try", "except",
+    "with", "as", "in", "not", "and", "or", "is", "yield", "pass", "break",
+    "continue", "raise", "assert", "lambda", "0", "1", "2", "3", "4", "5",
+})
+
+
 def _find_terminology_swaps(removed: str, added: str) -> list[tuple[str, str]]:
-    """Find word-level substitutions between a removed and added line."""
+    """Find word-level substitutions between a removed and added line.
+
+    Conservative: only detects swaps in prose-like lines (not code).
+    """
     rem_words = removed.split()
     add_words = added.split()
 
     if len(rem_words) != len(add_words):
         return []
-    if len(rem_words) < 2:
+    if len(rem_words) < 3:
         return []
 
     swaps: list[tuple[str, str]] = []
@@ -477,13 +516,23 @@ def _find_terminology_swaps(removed: str, added: str) -> list[tuple[str, str]]:
     for rw, aw in zip(rem_words, add_words):
         if rw != aw:
             diff_count += 1
-            if diff_count <= 3:
+            if diff_count <= 2:
                 rw_clean = rw.strip(".,;:!?\"'()[]{}")
                 aw_clean = aw.strip(".,;:!?\"'()[]{}")
-                if rw_clean and aw_clean and rw_clean.lower() != aw_clean.lower():
+                if (
+                    rw_clean
+                    and aw_clean
+                    and len(rw_clean) >= 2
+                    and len(aw_clean) >= 2
+                    and rw_clean.lower() != aw_clean.lower()
+                    and rw_clean not in CODE_TOKENS
+                    and aw_clean not in CODE_TOKENS
+                    and not rw_clean.startswith(("_", "$", "@"))
+                    and not aw_clean.startswith(("_", "$", "@"))
+                ):
                     swaps.append((rw_clean, aw_clean))
 
-    if diff_count > 3:
+    if diff_count > 2:
         return []
     return swaps
 

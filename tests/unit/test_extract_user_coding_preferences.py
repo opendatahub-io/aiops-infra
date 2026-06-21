@@ -110,10 +110,10 @@ class TestFindTerminologySwaps:
         assert _find_terminology_swaps(removed, added) == []
 
     def test_same_word_count_swap(self):
-        removed = "Check the MR status"
-        added = "Check the PR status"
+        removed = "Check the MRs status now"
+        added = "Check the PRs status now"
         swaps = _find_terminology_swaps(removed, added)
-        assert ("MR", "PR") in swaps
+        assert ("MRs", "PRs") in swaps
 
     def test_too_many_differences(self):
         removed = "a b c d"
@@ -121,8 +121,23 @@ class TestFindTerminologySwaps:
         assert _find_terminology_swaps(removed, added) == []
 
     def test_identical_lines(self):
-        removed = "no change here"
-        added = "no change here"
+        removed = "no change here today"
+        added = "no change here today"
+        assert _find_terminology_swaps(removed, added) == []
+
+    def test_rejects_code_tokens(self):
+        removed = "return True from function"
+        added = "return False from function"
+        assert _find_terminology_swaps(removed, added) == []
+
+    def test_rejects_short_tokens(self):
+        removed = "use a for this"
+        added = "use b for this"
+        assert _find_terminology_swaps(removed, added) == []
+
+    def test_rejects_too_short_lines(self):
+        removed = "MR PR"
+        added = "Merge Request"
         assert _find_terminology_swaps(removed, added) == []
 
 
