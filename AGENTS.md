@@ -59,3 +59,70 @@ If only report existence is asked, confirm existence and ask whether to run the 
 - `tests/` — unit and integration tests
 - `schemas/` — JSON schemas for validation
 - `docs/` — skill documentation and RFDs
+
+## User Coding Preferences
+
+These are established preferences extracted from repeated user corrections across historical sessions.
+Follow them in ALL generated content — code, comments, commit messages, documentation, and conversation.
+
+### Terminology
+
+- Always write "Merge Request" in full (never abbreviate to "MR" or "MRs")
+- Always write "Pull Request" in full (never abbreviate to "PR")
+  - Exception: GitHub CLI commands (e.g. `gh pr create`) use the short form
+- Use "violations" not "rules" when referring to conforma coverage counts (e.g. "4 of 7 violations covered" not "4 of 7 rules covered")
+- Use "No exception coverage" not "No coverage" — be explicit about what kind of coverage
+- Use "Exception granted, violation should disappear on next Conforma run" not "Exception active"
+- Use "Rerun Conforma report in Konflux/GitHub and verify the violation is gone from the report" not vague phrases like "Verify on next compliance evaluation"
+- Use "KONFLUX_TENANT" not "TENANT" — variable names must be self-explanatory
+- Conforma is RHOAI-only — never refer to it as "ODH/RHOAI Conforma" or imply ODH coverage
+- Use "CONFORMA" not "EC" (legacy name) in all variable names, function names, and documentation
+- Use "Executive Summary" not "Key Takeaways" for report summary sections
+- Use "manual search" or "search manually" for actionable search links — not bare "search"
+- Merge Request titles for exceptions must be prefixed with [stage] or [prod]
+
+### Behavior and Workflow
+
+- **Maximum determinism**: All logic MUST live in scripts. The AI presents script output verbatim. Leave nothing to LLM interpretation.
+- **Never ask for tokens/secrets in chat**: Always instruct the user to write credentials to `.work/.env` directly.
+- **Never auto-submit**: Always show output to the user first and ask for explicit confirmation before publishing, submitting, or pushing anything.
+- **Missing auth is a hard stop**: If authentication fails or is missing (GitHub, GitLab, Jira, Slack), stop completely. Never skip a data source or produce incomplete reports.
+- **Don't add unrequested files**: Never create files (Makefiles, configs, etc.) the user didn't ask for.
+- **Always write tests**: Every new testable script or function must have a corresponding test.
+- **Fix root causes**: Never apply ad-hoc workarounds. Fix the underlying issue in the script/skill.
+- **Don't depend on external CLI tools** when Python libraries can do the same job (e.g. prefer `requests` over shelling out to `gh` or `glab`).
+- **Scripts handle their own env vars**: The user should never see approval prompts for environment variable access. Scripts load from `.work/.env` internally.
+- **Never answer confidently from dummy/example data**: If data retrieval failed, say so. Never fabricate or infer from placeholder values.
+- **Never silently skip data sources**: If Slack, Jira, or any source is unreachable, report it explicitly — do not silently omit it.
+- **Don't launch heavyweight subagents** when a direct file read suffices. Route queries efficiently.
+- **Auto-discover values from context**: Infer KONFLUX_APPLICATION, cluster domains, etc. from the user's query rather than asking the user to provide them manually.
+- **Confirmation-before-action**: Show analysis results before offering next-step actions. Never assume the user wants to proceed.
+
+### Structure and Formatting
+
+- Show TODO progress checklist before running multi-step workflows
+- One component per table row (never combine multiple components in a single row)
+- List policy files as bullets, not comma-delimited
+- Exception links belong in the resolution guide section, not the summary table
+- Components column must always be populated, even for fully-covered violations
+- Reports must have an Executive Summary section above the main table
+- Source CSV references must link to exact git commit hash, not branch name (branches are moving targets)
+- Report header must identify which specific report version was analyzed
+- Next-steps column: keep brief (one line). Detailed steps go in the resolution guide below.
+- Keep skill READMEs short — installation instructions only. Operational details belong in the skill workflow itself.
+- When violations are fully covered by exceptions, the resolution guide should say "rerun Conforma" — not show full remediation steps.
+
+### Code Style
+
+- No hardcoding product-specific values (team names, application names) in scripts — discover them dynamically
+- Use a single variable for repeated text strings (DRY principle)
+- Konflux UI URLs use `konflux-ui.apps.` prefix (not `console.`)
+- No backward-compatibility shims unless explicitly requested — remove deprecated paths completely
+- Variable and function names must be self-explanatory (reject cryptic abbreviations)
+
+### Tool-Agnosticism
+
+- Skills and rules must NOT depend on any specific AI tool (Cursor, Claude, Copilot, etc.)
+- Presentation rules must produce identical output regardless of which AI model executes them
+- All rules belong in skill files or AGENTS.md, never in tool-specific config alone
+- Solutions must work with minimal dependencies, across different environments

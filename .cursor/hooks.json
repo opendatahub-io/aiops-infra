@@ -1,6 +1,11 @@
 {
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": ".githooks/check-pending-preferences.sh"
+      }
+    ],
     "stop": [
       {
         "command": ".cursor/hooks/run-unit-tests.sh",
