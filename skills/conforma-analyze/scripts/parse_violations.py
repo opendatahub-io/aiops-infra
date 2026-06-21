@@ -665,10 +665,10 @@ def main() -> int:
     total = len(all_records)
     rules = len(index["violation_data"]["violations_by_rule"])
     upcoming_count = len(upcoming_records)
-    msg = f"\nDone. {total} violations, {rules} unique rules across {len(releases)} releases"
+    msg = f"\nDone. {total} violations, {rules} unique violation types across {len(releases)} releases"
     if upcoming_count:
         upcoming_rules = len(index["violation_data"].get("upcoming_violations", {}).get("by_rule", {}))
-        msg += f", {upcoming_count} warnings becoming violations ({upcoming_rules} rules)"
+        msg += f", {upcoming_count} warnings becoming violations ({upcoming_rules} violation types)"
     msg += f" -> {output_path}"
     print(msg, file=sys.stderr)
 

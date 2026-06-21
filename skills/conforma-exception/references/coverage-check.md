@@ -41,27 +41,27 @@ For CI-only environments (no Slack access), disable with `--require-slack false`
 
 ## Presenting Results
 
-The JSON output contains a `markdown_table` field — a pre-rendered markdown table with columns: `#`, `Rule`, `Components`, `Open Merge Requests`, `Open Jira`, `Slack`, `Next Steps`.
+The JSON output contains a `markdown_table` field — a pre-rendered markdown table with columns: `#`, `Violation`, `Count`, `Status`, `Next Steps`.
 
 **Print `markdown_table` verbatim as the primary output to the user.** This is the main deliverable when analyzing a report.
 
-The `Next Steps` column always displays "see resolution guide below" — a static pointer to the **Resolution Guide** section. Full resolution details (including all approval steps, Merge Request actions, and linked Jira tickets) are assembled by the agent in the Resolution Guide section that follows the table, using the structured JSON fields (`open_merge_requests`, `open_jira_tickets`, `open_slack_threads`, coverage status, and violation catalog data).
+The `Status` column shows coverage-ratio text (e.g. "Exception granted (2/2 components covered)") and the `Next Steps` column shows a concise action (from the `next_steps_short` field). Detailed cross-reference data (components, open Merge Requests, open Jira tickets, Slack threads) is presented in the **Resolution Guide** section below the table, where each violation has a property table with full details.
 
 Rules:
 - Do NOT reconstruct the table from individual JSON fields — always use the pre-rendered `markdown_table`
-- Do NOT include a Coverage column — the `coverage_label` field exists in the JSON for programmatic use but is misleading when shown to users (it implies exceptions are the default resolution). The `next_steps` column is the single source of guidance.
+- Do NOT include a Coverage column — the `coverage_label` field exists in the JSON for programmatic use but is misleading when shown to users (it implies exceptions are the default resolution).
 - Present a **Resolution Guide** section after the table with full per-violation details (from `next_steps` JSON field + violation catalog enrichment)
 - Statistical breakdowns (violation counts, signing keys, per-component patterns) from `analyze_csv_report.py` can be presented as supplementary detail below the Resolution Guide if useful.
 
 ## Search Query Links
 
-Every data source column (Open Merge Requests, Open Jira, Slack) includes a clickable `[search](url)` link that opens the same query in the corresponding web UI:
+Search links for each data source (GitLab Merge Requests, Jira, Slack) are rendered in the **Resolution Guide** property tables, not in the summary table:
 
-- **Open Merge Requests**: Links to GitLab Merge Request search filtered by the rule code
+- **Open MRs**: Links to GitLab Merge Request search filtered by the rule code
 - **Open Jira**: Links to a JQL search for conforma-violation tickets matching the rule
 - **Slack**: Links to the workspace search for the rule code
 
-When results exist, the search link is appended after them. When no results exist, the search link replaces the bare dash, so the user can always click through to verify.
+When results exist, the search link is appended after them. When no results exist, the search link is shown as a fallback (e.g. `[search GitLab](url)`).
 
 The JSON output includes `open_mr_search_url`, `open_jira_search_url`, and `open_slack_search_url` fields for each violation.
 

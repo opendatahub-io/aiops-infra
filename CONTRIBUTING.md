@@ -304,6 +304,20 @@ The `.work/` directory:
 
 When writing skills or scripts that need auth, always reference `.work/.env` as the token location and point users to the relevant `-auth` skill for setup instructions.
 
+## Terminology
+
+All user-facing text (script output, skill docs, agent responses) MUST use full terms — never abbreviations. This applies to print/log/label strings in scripts and prose in skill markdown.
+
+| Wrong | Correct |
+|-------|---------|
+| MR, MRs | Merge Request, Merge Requests |
+| PR, PRs | Pull Request, Pull Requests |
+| rules (when referring to conforma violations) | violations |
+
+Abbreviations are acceptable only in internal variable names (e.g. `prefetched_mrs`) and code comments that are not rendered to the user.
+
+See also [`skills/references/script-output-presentation.md`](skills/references/script-output-presentation.md).
+
 ## Code Style
 
 - Python 3.11+

@@ -17,6 +17,19 @@ Applies to: coverage table (`markdown_table` from JSON), resolution guide (`.md`
 - Render directly as markdown in the chat — tables, links, and headings display natively
 - Do NOT wrap in a code block
 - Still verbatim content — no rewording, no additions, no interpretation
+- **File-based markdown** (e.g. resolution guide `.md`): the agent MUST read the file and then **copy the file content verbatim into the response text**. The Read tool returns content as agent context which may not be visible to the user — the content must appear as literal text in the agent's chat response to be rendered
+
+## Terminology
+
+All user-facing output (script strings, skill docs, agent responses) MUST use full terms — never abbreviations. This applies to both script code (print/log/label strings) and skill markdown.
+
+| Wrong | Correct |
+|-------|---------|
+| MR, MRs | Merge Request, Merge Requests |
+| PR, PRs | Pull Request, Pull Requests |
+| rules (when referring to conforma violations) | violations |
+
+**Hard rule**: When adding or editing user-facing strings in scripts or skill docs, always spell out the full term. Abbreviations are only acceptable in internal variable names (e.g. `prefetched_mrs`), log prefixes (e.g. `[Merge Requests]`), and code comments that are not rendered to the user.
 
 ## Hard constraints
 

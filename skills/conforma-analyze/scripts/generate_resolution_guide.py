@@ -167,7 +167,7 @@ def _render_key_takeaways(
             lines.append(tooling_line)
 
     lines.append(
-        f"- **{fully_covered} of {total_rules} rules fully covered** by exceptions"
+        f"- **{fully_covered} of {total_rules} violations fully covered** by exceptions"
     )
 
     uncovered = [v for v in violations if v.get("coverage") == "not_covered"]
@@ -178,7 +178,7 @@ def _render_key_takeaways(
             parts.append(
                 f"`{v['rule']}` ({len(comp_names)} component{'s' if len(comp_names) != 1 else ''})"
             )
-        lines.append(f"- **{not_covered} rule{'s' if not_covered != 1 else ''} uncovered**: {', '.join(parts)}")
+        lines.append(f"- **{not_covered} violation{'s' if not_covered != 1 else ''} uncovered**: {', '.join(parts)}")
 
     partial = [v for v in violations if v.get("coverage") == "partially_covered"]
     if partial:
@@ -188,7 +188,7 @@ def _render_key_takeaways(
             total_comps = v.get("total_components", 0)
             parts.append(f"`{v['rule']}` ({covered_count}/{total_comps} covered)")
         lines.append(
-            f"- **{partially_covered} rule{'s' if partially_covered != 1 else ''} partially covered**: "
+            f"- **{partially_covered} violation{'s' if partially_covered != 1 else ''} partially covered**: "
             + ", ".join(parts)
         )
 
@@ -260,11 +260,149 @@ def _render_coverage_table(coverage_data: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_violation_properties_table(lines: list[str], rows: list[tuple[str, str]]) -> None:
+    """Render a headerless two-column property table.
+
+    Each row is a (label, value) pair rendered as ``| **label** | value |``.
+    """
+    if not rows:
+        return
+    lines.append("| | |")
+    lines.append("|---|---|")
+    for label, value in rows:
+        lines.append(f"| **{label}** | {value} |")
+    lines.append("")
+
+
+
+def _build_exception_row_value(violation: dict) -> str:
+    """Build the Exception property-table cell."""
+    coverage = violation.get("coverage", "not_covered")
+    expiry = violation.get("exception_expiry", {})
+    display_expiry = expiry.get("display_expiry", "")
+    is_permanent = expiry.get("is_permanent", False)
+    exception_url = violation.get("exception_url", "")
+    covered_count = violation.get("covered_count", 0)
+    total = violation.get("total_components", 0)
+
+    if coverage == "fully_covered":
+        if is_permanent:
+            label = "Granted, permanent (no expiry)"
+        elif display_expiry:
+            label = f"Granted ({display_expiry})"
+        else:
+            label = "Granted"
+        if exception_url:
+            label += f" ([view]({exception_url}))"
+        return label
+
+    if coverage == "partially_covered":
+        uncovered = total - covered_count
+        label = f"Partially covered: {covered_count}/{total} with exceptions, {uncovered} uncovered"
+        if display_expiry:
+            label += f" ({display_expiry})"
+        if exception_url:
+            label += f" ([view]({exception_url}))"
+        return label
+
+    return "Not covered"
+
+
+def _build_mr_row_value(violation: dict) -> str:
+    """Build the Open Merge Requests property-table cell."""
+    open_mrs = violation.get("open_merge_requests", [])
+    total_components = violation.get("total_components", 0)
+    search_url = violation.get("open_mr_search_url", "")
+
+    if not open_mrs:
+        return f"[search GitLab]({search_url})" if search_url else "—"
+
+    exception_mrs = [m for m in open_mrs if m.get("mr_type", "exception") == "exception"]
+    remedy_mrs = [m for m in open_mrs if m.get("mr_type") == "remedy"]
+    parts = []
+
+    for mr in exception_mrs:
+        iid = mr.get("iid", "?")
+        url = mr.get("web_url", "")
+        suggestion = mr.get("suggestion", "")
+        covered = mr.get("covered", [])
+        if suggestion == "fully_covered":
+            parts.append(f"(exception) [!{iid}]({url}) — covers all")
+        elif suggestion == "extend_mr":
+            parts.append(f"(exception) [!{iid}]({url}) — covers {len(covered)}/{total_components}")
+        else:
+            parts.append(f"(exception) [!{iid}]({url})")
+
+    for mr in remedy_mrs:
+        iid = mr.get("iid", "?")
+        url = mr.get("web_url", "")
+        parts.append(f"(remedy) [!{iid}]({url})")
+
+    result = ", ".join(parts)
+    if search_url:
+        result += f" ([search]({search_url}))"
+    return result
+
+
+def _build_jira_row_value(violation: dict) -> str:
+    """Build the Open Jira property-table cell."""
+    tickets = violation.get("open_jira_tickets", [])
+    search_url = violation.get("open_jira_search_url", "")
+
+    if not tickets:
+        return f"[search Jira]({search_url})" if search_url else "—"
+
+    parts = []
+    for t in tickets:
+        key = t.get("key", "")
+        url = t.get("url", "")
+        status = t.get("status", "")
+        version_tag = ""
+        project = key.split("-", 1)[0]
+        if project == "RHOAIENG":
+            relevance = t.get("version_relevance", "no_target_version")
+            if relevance == "targets_future":
+                fv_str = ", ".join(t.get("fix_versions", []))
+                version_tag = f" targets {fv_str}"
+            elif relevance == "no_target_version":
+                version_tag = " no fixVersion"
+        parts.append(f"[{key}]({url}) ({status}{version_tag})")
+
+    result = ", ".join(parts)
+    if search_url:
+        result += f" ([search]({search_url}))"
+    return result
+
+
+def _build_slack_row_value(violation: dict) -> str:
+    """Build the Slack property-table cell."""
+    threads = violation.get("open_slack_threads", [])
+    search_url = violation.get("open_slack_search_url", "")
+
+    if not threads:
+        return f"[search Slack]({search_url})" if search_url else "—"
+
+    parts = []
+    for t in threads[:3]:
+        channel = t.get("channel", t.get("channel_name", ""))
+        permalink = t.get("permalink", "")
+        date = t.get("date", "")
+        reply_info = f", {t['thread_reply_count']} replies" if t.get("thread_reply_count") else ""
+        parts.append(f"[#{channel}]({permalink}) ({date}{reply_info})")
+    if len(threads) > 3:
+        parts.append(f"+{len(threads) - 3} more")
+
+    result = ", ".join(parts)
+    if search_url:
+        result += f" ([search]({search_url}))"
+    return result
+
+
 def _render_resolution_guide(coverage_data: dict, catalog: dict) -> str:
     """Render the per-violation resolution guide section.
 
-    Fully-covered violations get a compact "exception granted" block.
-    Partially- and not-covered violations get full remediation steps.
+    Each violation gets a property table (components, exception status, Merge Requests,
+    Jira, Slack) followed by resolution content.
     """
     violations = coverage_data.get("violations", [])
     component_owners = coverage_data.get("component_owners", {})
@@ -285,6 +423,16 @@ def _render_resolution_guide(coverage_data: dict, catalog: dict) -> str:
         lines.append(f"### {i}. `{rule}` — {total_components} components ({teams_str})")
         lines.append("")
 
+        rows: list[tuple[str, str]] = [
+            ("Exception", _build_exception_row_value(v)),
+            ("Open Merge Requests", _build_mr_row_value(v)),
+            ("Open Jira", _build_jira_row_value(v)),
+        ]
+        if "open_slack_threads" in v:
+            rows.append(("Slack", _build_slack_row_value(v)))
+
+        _render_violation_properties_table(lines, rows)
+
         if coverage == "fully_covered":
             _render_excepted_violation(lines, v)
         else:
@@ -299,9 +447,7 @@ def _render_resolution_guide(coverage_data: dict, catalog: dict) -> str:
                 _render_uncataloged_violation(lines, v, fallback)
 
         _render_known_false_alerts(lines, rule, v, catalog)
-        _render_open_mrs(lines, v)
-        _render_open_jira(lines, v)
-        _render_slack_threads(lines, v)
+        _render_components_table(lines, v, component_owners)
 
         lines.append("---")
         lines.append("")
@@ -310,21 +456,11 @@ def _render_resolution_guide(coverage_data: dict, catalog: dict) -> str:
 
 
 def _render_excepted_violation(lines: list[str], violation: dict) -> None:
-    """Render a compact block for a fully-excepted violation."""
-    expiry = violation.get("exception_expiry", {})
-    display_expiry = expiry.get("display_expiry", "")
-    is_permanent = expiry.get("is_permanent", False)
+    """Render a compact block for a fully-excepted violation.
 
-    if is_permanent:
-        lines.append("**Exception granted** (permanent — no expiry)")
-    elif display_expiry:
-        lines.append(f"**Exception granted** ({display_expiry})")
-    else:
-        lines.append("**Exception granted**")
-    lines.append("")
-
-    _render_exception_details_table(lines, violation)
-
+    Exception status is already in the property table above; this adds
+    the next-step instruction and remedy hint.
+    """
     next_steps = violation.get("next_steps", "")
     if next_steps:
         lines.append(f"**Next step**: {next_steps}")
@@ -344,49 +480,60 @@ def _render_excepted_violation(lines: list[str], violation: dict) -> None:
     lines.append("")
 
 
-def _render_exception_details_table(lines: list[str], violation: dict) -> None:
-    """Render per-component exception details table."""
-    details = violation.get("exception_details_by_component", [])
-    if not details:
+def _render_components_table(lines: list[str], violation: dict, component_owners: dict) -> None:
+    """Render a per-component table with one row per component.
+
+    Columns: Component | Team | Exception
+    Replaces both the old 'Components' property-table row and the
+    _render_exception_details_table.
+    """
+    all_comps = violation.get("uncovered_components", []) + violation.get("covered_components", [])
+    all_comps = sorted(set(all_comps))
+    if not all_comps:
         return
 
-    has_any_url = any(d.get("url") for d in details)
-    if not has_any_url:
-        return
+    details_by_comp = {}
+    for d in violation.get("exception_details_by_component", []):
+        details_by_comp[d["component"]] = d
 
-    lines.append("**Exception coverage per component:**")
     lines.append("")
-    lines.append("| Component | Expires | Exception |")
-    lines.append("|-----------|---------|-----------|")
-    for d in details:
-        comp = f"`{d['component']}`"
-        expires = d.get("effective_until") or "permanent"
-        if d.get("url"):
+    lines.append("**Components:**")
+    lines.append("")
+    lines.append("| Component | Team | Exception |")
+    lines.append("|-----------|------|-----------|")
+    for comp in all_comps:
+        team = component_owners.get(comp, "—")
+        d = details_by_comp.get(comp)
+        if d and d.get("url"):
             file_name = d.get("file", "")
-            line = d.get("line")
-            anchor = f"{file_name}#L{line}" if line else file_name
-            exc_link = f"[{anchor}]({d['url']})"
+            line_num = d.get("line")
+            anchor = f"{file_name}#L{line_num}" if line_num else file_name
+            expires = d.get("effective_until") or "permanent"
+            exc_cell = f"[{anchor}]({d['url']}) (expires {expires})" if expires != "permanent" else f"[{anchor}]({d['url']}) (permanent)"
+        elif d and d.get("effective_until"):
+            exc_cell = f"covered (expires {d['effective_until']})"
+        elif d and not d.get("url"):
+            exc_cell = "not in policy files"
         else:
-            exc_link = "not in policy files"
-        lines.append(f"| {comp} | {expires} | {exc_link} |")
+            exc_cell = "not covered"
+        lines.append(f"| `{comp}` | {team} | {exc_cell} |")
     lines.append("")
 
 
 def _render_partial_coverage_header(lines: list[str], violation: dict) -> None:
-    """Render the partial-coverage header before full remediation steps."""
+    """Render a brief partial-coverage note before full remediation steps.
+
+    Component list and exception details are already in the property table above.
+    """
     covered = violation.get("covered_count", 0)
     total = violation.get("total_components", 0)
     uncovered = violation.get("uncovered_components", [])
 
     lines.append(
         f"**Partially covered**: {covered}/{total} components have exceptions. "
-        f"{len(uncovered)} component(s) still need resolution:"
+        f"{len(uncovered)} component(s) still need resolution."
     )
-    for comp in uncovered:
-        lines.append(f"- `{comp}`")
     lines.append("")
-
-    _render_exception_details_table(lines, violation)
 
 
 def _render_known_false_alerts(
@@ -405,73 +552,6 @@ def _render_known_false_alerts(
         for comp, alert in false_alert_comps:
             lines.append(f"- `{comp}`: {alert['title']} — {alert.get('condition', '')}")
         lines.append("")
-
-
-def _render_open_mrs(lines: list[str], violation: dict) -> None:
-    """Render open Merge Requests for a violation."""
-    total_components = violation.get("total_components", 0)
-    open_mrs = violation.get("open_merge_requests", [])
-    if not open_mrs:
-        return
-
-    exception_mrs = [m for m in open_mrs if m.get("mr_type", "exception") == "exception"]
-    remedy_mrs = [m for m in open_mrs if m.get("mr_type") == "remedy"]
-
-    for group_label, group in [
-        ("Open Exception Merge Requests", exception_mrs),
-        ("Open Remedy Merge Requests", remedy_mrs),
-    ]:
-        if not group:
-            continue
-        lines.append(f"**{group_label}:**")
-        for mr in group:
-            iid = mr.get("iid", "?")
-            url = mr.get("web_url", "")
-            suggestion = mr.get("suggestion", "")
-            covered = mr.get("covered", [])
-            missing = mr.get("missing", [])
-            if suggestion == "fully_covered":
-                lines.append(f"- [!{iid}]({url}) — covers all components")
-            elif suggestion == "extend_mr":
-                lines.append(
-                    f"- [!{iid}]({url}) — covers {len(covered)}/{total_components}. "
-                    f"Missing: {', '.join(missing[:5])}"
-                    + (f" +{len(missing) - 5} more" if len(missing) > 5 else "")
-                )
-            else:
-                lines.append(f"- [!{iid}]({url})")
-        lines.append("")
-
-
-def _render_open_jira(lines: list[str], violation: dict) -> None:
-    """Render open Jira tickets for a violation."""
-    open_jira = violation.get("open_jira_tickets", [])
-    if not open_jira:
-        return
-    lines.append("**Open Jira tickets:**")
-    for ticket in open_jira:
-        key = ticket.get("key", "")
-        url = ticket.get("url", "")
-        status = ticket.get("status", "")
-        summary = ticket.get("summary", "")
-        lines.append(f"- [{key}]({url}) ({status}): {summary[:80]}")
-    lines.append("")
-
-
-def _render_slack_threads(lines: list[str], violation: dict) -> None:
-    """Render Slack threads for a violation."""
-    open_slack = violation.get("open_slack_threads", [])
-    if not open_slack:
-        return
-    lines.append("**Slack threads:**")
-    for thread in open_slack[:3]:
-        permalink = thread.get("permalink", "")
-        channel = thread.get("channel_name", "")
-        date = thread.get("date", "")
-        lines.append(f"- [#{channel}]({permalink}) ({date})")
-    if len(open_slack) > 3:
-        lines.append(f"- ... and {len(open_slack) - 3} more threads")
-    lines.append("")
 
 
 def _render_cataloged_violation(lines: list[str], entry: dict, violation: dict) -> None:

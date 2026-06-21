@@ -47,32 +47,40 @@ class TestRenderViolationsMarkdownTable:
             "open_jira_label": "",
             "status_label": "No coverage",
             "next_steps": "Fix in code or request exception — see resolution guide",
+            "next_steps_short": "Fix in code — see guide below",
         }
         row.update(overrides)
         return row
 
-    def test_includes_slack_column_when_enabled(self):
-        results = [self._make_row(
-            open_slack_label="[#conforma](https://slack.com/p1)",
-        )]
-        summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
-        md = mod._render_violations_markdown_table(results, summary, include_slack=True)
-        assert "Slack" in md
-        assert "#conforma" in md
-
-    def test_excludes_slack_column_when_disabled(self):
+    def test_table_has_five_columns(self):
         results = [self._make_row()]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
-        md = mod._render_violations_markdown_table(results, summary, include_slack=False)
+        md = mod._render_violations_markdown_table(results, summary)
+        header_line = [l for l in md.splitlines() if l.startswith("| #")][0]
+        assert header_line.count("|") == 6  # 5 columns = 6 pipe chars
+
+    def test_column_headers(self):
+        results = [self._make_row()]
+        summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
+        md = mod._render_violations_markdown_table(results, summary)
+        assert "| Violation |" in md
+        assert "| Count |" in md
+        assert "| Status |" in md
+        assert "| Next Steps |" in md
+        assert "Components" not in md
+        assert "Open Merge Requests" not in md
+        assert "Open Jira" not in md
         assert "Slack" not in md
 
-    def test_next_steps_renders_in_table(self):
+    def test_next_steps_short_used_in_table(self):
         results = [self._make_row(
             next_steps="Fix in code or request exception — see resolution guide",
+            next_steps_short="Fix in code — see guide below",
         )]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         md = mod._render_violations_markdown_table(results, summary)
-        assert "see resolution guide" in md
+        assert "see guide below" in md
+        assert "see resolution guide" not in md
 
     def test_footer_references_violation_guide(self):
         results = [self._make_row()]
@@ -86,19 +94,12 @@ class TestRenderViolationsMarkdownTable:
         md = mod._render_violations_markdown_table(results, summary)
         assert "| 5 |" in md
 
-    def test_column_header_says_merge_requests(self):
-        results = [self._make_row()]
+    def test_status_column_present(self):
+        results = [self._make_row(status_label="No coverage")]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         md = mod._render_violations_markdown_table(results, summary)
-        assert "Open Merge Requests" in md
-        assert "Open MRs" not in md
-
-    def test_status_column_present(self):
-        results = [self._make_row(status_label="Exception granted, violation should disappear on next Conforma run")]
-        summary = {"total_violations": 1, "fully_covered": 1, "partially_covered": 0, "not_covered": 0}
-        md = mod._render_violations_markdown_table(results, summary)
         assert "| Status |" in md
-        assert "Exception granted, violation should disappear on next Conforma run" in md
+        assert "No coverage" in md
 
     def test_report_header_with_metadata(self):
         results = [self._make_row()]
@@ -119,60 +120,68 @@ class TestDetermineStatusAndNextSteps:
     """Tests for _determine_status_and_next_steps."""
 
     def test_fully_covered(self):
-        status, next_steps = mod._determine_status_and_next_steps("fully_covered", [], [], 0)
+        status, next_steps, short = mod._determine_status_and_next_steps("fully_covered", [], [], 0)
         assert status == "Exception granted, violation should disappear on next Conforma run"
         assert "rerun" in next_steps.lower()
+        assert short == "Rerun conforma-reporter or `conforma` AI skill to verify"
 
     def test_not_covered_no_mr_no_jira(self):
-        status, next_steps = mod._determine_status_and_next_steps("not_covered", [], [], 3)
-        assert status == "No coverage"
+        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", [], [], 3)
+        assert status == "No exception coverage"
         assert "Fix in code or request exception" in next_steps
+        assert "see guide below" in short.lower()
 
     def test_not_covered_with_jira(self):
         tickets = [{"key": "RHOAIENG-1", "status": "Open"}]
-        status, next_steps = mod._determine_status_and_next_steps("not_covered", [], tickets, 3)
+        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", [], tickets, 3)
         assert "Jira" in status
         assert "Fix in code or request exception" in next_steps
+        assert "see guide below" in short.lower()
 
     def test_not_covered_with_exception_mr(self):
         mrs = [{"suggestion": "fully_covered", "mr_type": "exception", "iid": 1}]
-        status, next_steps = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
+        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
         assert "Exception Merge Request pending" in status
         assert "ProdSec" in next_steps
+        assert short == "Get MR merged"
 
     def test_not_covered_with_remedy_mr(self):
         mrs = [{"suggestion": "no_overlap", "mr_type": "remedy", "iid": 2}]
-        status, next_steps = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
+        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
         assert "Remedy Merge Request pending" in status
         assert "rebuild" in next_steps.lower()
+        assert short == "Merge fix and rebuild"
 
     def test_not_covered_with_both_mr_types(self):
         mrs = [
             {"suggestion": "fully_covered", "mr_type": "exception", "iid": 1},
             {"suggestion": "no_overlap", "mr_type": "remedy", "iid": 2},
         ]
-        status, next_steps = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
+        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
         assert "Exception + remedy" in status
         assert "ProdSec" in next_steps
+        assert short == "Get MRs merged"
 
     def test_partially_covered_with_exception_mr(self):
         mrs = [{"suggestion": "extend_mr", "mr_type": "exception", "iid": 1}]
-        status, next_steps = mod._determine_status_and_next_steps("partially_covered", mrs, [], 5)
+        status, next_steps, short = mod._determine_status_and_next_steps("partially_covered", mrs, [], 5)
         assert "Partially covered" in status
         assert "exception Merge Request" in status
         assert "5 component(s) uncovered" in next_steps
+        assert "5 uncovered" in short
 
     def test_partially_covered_no_mr(self):
-        status, next_steps = mod._determine_status_and_next_steps("partially_covered", [], [], 2)
+        status, next_steps, short = mod._determine_status_and_next_steps("partially_covered", [], [], 2)
         assert "2 uncovered" in status
         assert "Fix in code or request exception" in next_steps
+        assert "see guide below" in short.lower()
 
     def test_fully_covered_does_not_mention_resolution_guide(self):
-        _, next_steps = mod._determine_status_and_next_steps("fully_covered", [], [], 0)
+        _, next_steps, _ = mod._determine_status_and_next_steps("fully_covered", [], [], 0)
         assert "resolution guide" not in next_steps.lower()
 
     def test_not_covered_mentions_resolution_guide(self):
-        _, next_steps = mod._determine_status_and_next_steps("not_covered", [], [], 1)
+        _, next_steps, _ = mod._determine_status_and_next_steps("not_covered", [], [], 1)
         assert "resolution guide" in next_steps.lower()
 
 
@@ -265,6 +274,7 @@ class TestReleaseOverride:
             "open_jira_label": "",
             "status_label": "No coverage",
             "next_steps": "Fix in code",
+            "next_steps_short": "Fix in code",
         }]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         meta = {"release": "rhoai-3.5-ea.1", "source_path": "prod/release_day/report.csv"}
@@ -342,11 +352,11 @@ class TestExtractExceptionExpiry:
             "open_jira_label": "",
             "status_label": "Exception granted, violation should disappear on next Conforma run",
             "next_steps": "Rerun validation",
+            "next_steps_short": "Rerun validation to verify",
         }
         summary = {"total_violations": 1, "fully_covered": 1, "partially_covered": 0, "not_covered": 0}
         md = mod._render_violations_markdown_table([row], summary)
         assert "Exception granted (2/2 components covered)" in md
-        assert "[Exception granted]" not in md
 
     def test_partial_coverage_renders_in_status(self):
         """Partial coverage shows ratio with uncovered count, no URLs."""
@@ -362,11 +372,11 @@ class TestExtractExceptionExpiry:
             "open_jira_label": "",
             "status_label": "Partial coverage",
             "next_steps": "Fix uncovered",
+            "next_steps_short": "Fix uncovered — see guide below",
         }
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 1, "not_covered": 0}
         md = mod._render_violations_markdown_table([row], summary)
         assert "Exception granted (2/3 components covered, 1 uncovered)" in md
-        assert "[Exception granted]" not in md
 
 
 class TestBuildComponentExceptionDetails:

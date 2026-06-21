@@ -247,10 +247,12 @@ def _determine_status_and_next_steps(
     open_mrs: list[dict],
     jira_tickets: list[dict],
     uncovered_count: int,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     """Determine the Status and Next Steps for a violation row.
 
-    Returns (status_label, next_steps_label).
+    Returns (status_label, next_steps, next_steps_short).
+    next_steps is the detailed version (used by the resolution guide).
+    next_steps_short is the concise version (used by the summary table).
     """
     has_exception_mr = any(
         mr.get("suggestion") in ("fully_covered", "extend_mr")
@@ -260,30 +262,56 @@ def _determine_status_and_next_steps(
     has_remedy_mr = any(mr.get("mr_type") == "remedy" for mr in open_mrs)
 
     if coverage == "fully_covered":
-        return "Exception granted, violation should disappear on next Conforma run", "Use `conforma-violations-scan` AI skill or [conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to rerun validation and verify the violation is gone"
+        return (
+            "Exception granted, violation should disappear on next Conforma run",
+            "Use `conforma-violations-scan` AI skill or [conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to rerun validation and verify the violation is gone",
+            "Rerun conforma-reporter or `conforma` AI skill to verify",
+        )
 
     if coverage == "partially_covered":
         if has_exception_mr:
             return (
                 "Partially covered, exception Merge Request pending",
                 f"Work with ProdSec to get Merge Request merged ({uncovered_count} component(s) uncovered)",
+                f"Get Merge Request merged ({uncovered_count} uncovered)",
             )
         return (
             f"Partially covered ({uncovered_count} uncovered)",
             "Fix in code or request exception — see resolution guide",
+            "Fix uncovered — see guide below",
         )
 
     if has_exception_mr and has_remedy_mr:
-        return "Exception + remedy Merge Requests pending", "Work with ProdSec to get Merge Requests merged"
+        return (
+            "Exception + remedy Merge Requests pending",
+            "Work with ProdSec to get Merge Requests merged",
+            "Get Merge Requests merged",
+        )
     if has_exception_mr:
-        return "Exception Merge Request pending", "Work with ProdSec to get Merge Request merged"
+        return (
+            "Exception Merge Request pending",
+            "Work with ProdSec to get Merge Request merged",
+            "Get Merge Request merged",
+        )
     if has_remedy_mr:
-        return "Remedy Merge Request pending", "Merge fix, rebuild, and verify compliance"
+        return (
+            "Remedy Merge Request pending",
+            "Merge fix, rebuild, and verify compliance",
+            "Merge fix and rebuild",
+        )
 
     if jira_tickets:
-        return "Tracked in Jira, no exception", "Fix in code or request exception — see resolution guide"
+        return (
+            "Tracked in Jira, no exception",
+            "Fix in code or request exception — see resolution guide",
+            "Fix in code or request exception — see guide below",
+        )
 
-    return "No coverage", "Fix in code or request exception — see resolution guide"
+    return (
+        "No exception coverage",
+        "Fix in code or request exception — see resolution guide",
+        "Fix in code or request exception — see guide below",
+    )
 
 
 _CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
@@ -386,7 +414,7 @@ def check_violations_coverage(
             return {"error": f"Slack auth failed: {slack_auth['error']}"}
         slack_team_url = slack_auth.get("team_url", "")
 
-    # Run MR, Jira, and Slack prefetches in parallel — they are independent.
+    # Run Merge Request, Jira, and Slack prefetches in parallel — they are independent.
     prefetched_mrs: dict = {}
     prefetched_jira: dict = {}
     prefetched_slack: dict = {}
@@ -562,7 +590,7 @@ def check_violations_coverage(
                 else f"[manual search]({search_urls['slack']})"
             )
 
-        status_label, next_steps = _determine_status_and_next_steps(
+        status_label, next_steps, next_steps_short = _determine_status_and_next_steps(
             coverage, open_mrs, jira_tickets, len(uncovered)
         )
 
@@ -600,6 +628,7 @@ def check_violations_coverage(
             "open_jira_label": jira_label,
             "open_jira_search_url": search_urls["jira"],
             "next_steps": next_steps,
+            "next_steps_short": next_steps_short,
             "status_label": status_label,
             "coverage": coverage,
             "coverage_label": coverage_label,
@@ -627,7 +656,7 @@ def check_violations_coverage(
     report_meta = _load_report_metadata(analyzed_release, metadata_file)
 
     md_table = _render_violations_markdown_table(
-        results, summary, include_slack=require_slack, report_meta=report_meta,
+        results, summary, report_meta=report_meta,
     )
 
     output = {
@@ -645,18 +674,17 @@ def check_violations_coverage(
 def _render_violations_markdown_table(
     results: list[dict],
     summary: dict,
-    include_slack: bool = False,
     report_meta: dict | None = None,
 ) -> str:
     """Pre-render a markdown table from violations coverage results.
 
-    Columns: #, Rule, Violations, Components, Open Merge Requests, Open Jira,
-    [Slack,] Status, Next Steps.
+    Columns: #, Violation, Count, Status, Next Steps.
+    Detailed cross-reference data (components, Merge Requests, Jira, Slack) is in the
+    Resolution Guide section below the table.
     """
     meta = report_meta or {}
     lines: list[str] = []
 
-    # Report header
     header_parts = [f"**Release**: `{meta.get('release', 'unknown')}`"]
     source_path = meta.get("source_path")
     source_url = meta.get("source_url")
@@ -671,26 +699,19 @@ def _render_violations_markdown_table(
     lines.append("")
 
     lines.append(
-        f"**Summary**: {summary['total_violations']} unique rules — "
+        f"**Summary**: {summary['total_violations']} unique violations — "
         f"{summary['fully_covered']} fully covered, "
         f"{summary['partially_covered']} partially covered, "
         f"{summary['not_covered']} not covered."
     )
     lines.append("")
 
-    if include_slack:
-        lines.append("| # | Rule | Violations | Components | Open Merge Requests | Open Jira | Slack | Status | Next Steps |")
-        lines.append("|---|------|------------|-----------|---------------------|-----------|-------|--------|------------|")
-    else:
-        lines.append("| # | Rule | Violations | Components | Open Merge Requests | Open Jira | Status | Next Steps |")
-        lines.append("|---|------|------------|-----------|---------------------|-----------|--------|------------|")
+    lines.append("| # | Violation | Count | Status | Next Steps |")
+    lines.append("|---|-----------|-------|--------|------------|")
 
     for i, v in enumerate(results, 1):
         rule = f"`{v['rule']}`"
         viol_count = v.get("violation_count", "—")
-        comps = v["display_components"]
-        mr = v["open_mr_label"] or "—"
-        jira = v["open_jira_label"] or "—"
         status = v["status_label"]
         covered_count = v.get("covered_count", 0)
         total_count = v.get("total_components", 0)
@@ -699,12 +720,8 @@ def _render_violations_markdown_table(
         elif v.get("coverage") == "partially_covered" and total_count:
             uncovered = total_count - covered_count
             status = f"Exception granted ({covered_count}/{total_count} components covered, {uncovered} uncovered)"
-        ns = v["next_steps"]
-        if include_slack:
-            slack = v.get("open_slack_label") or "—"
-            lines.append(f"| {i} | {rule} | {viol_count} | {comps} | {mr} | {jira} | {slack} | {status} | {ns} |")
-        else:
-            lines.append(f"| {i} | {rule} | {viol_count} | {comps} | {mr} | {jira} | {status} | {ns} |")
+        ns = v.get("next_steps_short", v["next_steps"])
+        lines.append(f"| {i} | {rule} | {viol_count} | {status} | {ns} |")
 
     lines.append("")
     lines.append("*See the **Resolution Guide** section below for full resolution details per violation.*")

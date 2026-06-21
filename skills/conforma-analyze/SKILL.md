@@ -40,6 +40,10 @@ When presenting violation data — whether standalone or when handing off to the
 
 **Setup:** See [README.md](README.md) for installation and one-time authentication setup.
 
+**Execution rules:** Read and follow [`skills/references/script-execution-rules.md`](../references/script-execution-rules.md) — all scripts in this workflow require unrestricted network access and must not be run in a restricted sandbox.
+
+**Output presentation:** Read and follow [`skills/references/script-output-presentation.md`](../references/script-output-presentation.md) — all script output must be presented verbatim using the format rules defined there.
+
 **Always run the unified prerequisite check first:**
 
 ```bash
@@ -138,7 +142,7 @@ python3 skills/conforma-tooling-health/scripts/check_tooling_health.py \
 
    - **`"healthy"`** -- proceed silently to step 4 (fetch reports).
    - **`"unhealthy"` or `"error"`** -- present the tooling health data (tool name, status, consecutive failures, last success URL) and use AskQuestion: "The conforma-reporter workflow is failing for this release (last success: DATE). The violation report may be stale or incomplete. Proceed with analysis anyway?" (options: "Yes, continue" / "No, stop here"). Only proceed to step 4 if the user confirms.
-   - **`"in_progress"`** -- present the in-progress run details and use AskQuestion: "A conforma-reporter run is currently in progress for this release. Options:" (choices: "Use the last completed report (generated DATE)" / "Wait for the current run to finish (up to 40 minutes)"). If the user chooses to wait, monitor the run using `python3 scripts/run_github_workflow.py monitor --repo-url https://github.com/red-hat-data-services/conforma-reporter --run-id RUN_ID --timeout 40 --poll-interval 60`, then re-run `check_tooling_health.py` to refresh status. If the run fails after waiting, fall back to the unhealthy prompt.
+   - **`"in_progress"`** -- present the in-progress run details and use AskQuestion: "A conforma-reporter run is currently in progress for this release. Options:" (choices: "Use the last completed report (generated DATE)" / "Wait for the current run to finish (up to 60 minutes for the most recent RHOAI versions)"). If the user chooses to wait, monitor the run using `python3 scripts/run_github_workflow.py monitor --repo-url https://github.com/red-hat-data-services/conforma-reporter --run-id RUN_ID --timeout 60 --poll-interval 60`, then re-run `check_tooling_health.py` to refresh status. If the run fails after waiting, fall back to the unhealthy prompt.
    - **`"no_runs"`** -- warn ("No conforma-reporter runs found for this branch -- report may not exist") and proceed.
 
    The `$RUNDIR` variable created here is used by ALL subsequent steps — never change it mid-workflow.
@@ -317,7 +321,7 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
 
    **Present the generated guide content to the user.** This MUST happen before step 10 — the user must see the full report before being asked about submission. Never run step 10 in parallel with presenting the guide.
 
-   **Presentation**: The guide is a `.md` file — render it as markdown (not in a code block).
+   **Presentation**: The guide is a `.md` file — render it as markdown (not in a code block). The agent MUST read the file with the Read tool and then **copy the file content verbatim into the response text** so it renders as visible markdown in the chat. Do NOT rely on the Read tool result alone — tool results are agent context and may not be displayed to the user. The content must appear as literal text in the agent's response.
 
 10. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit this resolution guide to the conforma-reporter GitHub repository (red-hat-data-services/conforma-reporter)?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The guide is committed to the **root of the release branch** (e.g. `conforma-resolution-guide.md` at the repo root). Pass `--metadata-file` so the script can automatically clean up any legacy guide from the old `prod/release_day/` location:
 

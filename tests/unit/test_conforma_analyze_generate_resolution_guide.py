@@ -136,11 +136,15 @@ def sample_coverage_json(tmp_path):
                 "display_components": "comp-a-v3-5-ea-2 (AI Safety), comp-b-v3-5-ea-2 (Model Runtimes)",
                 "open_merge_requests": [],
                 "open_mr_label": "",
+                "open_mr_search_url": "https://gitlab.example.com/search?hermetic_task.hermetic",
                 "open_jira_tickets": [],
                 "open_jira_label": "",
+                "open_jira_search_url": "https://redhat.atlassian.net/issues/?jql=hermetic",
                 "open_slack_threads": [],
                 "open_slack_label": "",
+                "open_slack_search_url": "https://slack.com/search/hermetic",
                 "next_steps": "Fix in code or request exception — see resolution guide",
+                "next_steps_short": "Fix in code — see guide below",
                 "status_label": "No coverage",
                 "coverage": "not_covered",
                 "gate_status": "error",
@@ -156,11 +160,15 @@ def sample_coverage_json(tmp_path):
                 "display_components": "comp-a-v3-5-ea-2 (AI Safety)",
                 "open_merge_requests": [],
                 "open_mr_label": "",
+                "open_mr_search_url": "https://gitlab.example.com/search?sbom",
                 "open_jira_tickets": [],
                 "open_jira_label": "",
+                "open_jira_search_url": "https://redhat.atlassian.net/issues/?jql=sbom",
                 "open_slack_threads": [],
                 "open_slack_label": "",
+                "open_slack_search_url": "https://slack.com/search/sbom",
                 "next_steps": "Fix in code or request exception — see resolution guide",
+                "next_steps_short": "Fix in code — see guide below",
                 "status_label": "No coverage",
                 "coverage": "not_covered",
                 "gate_status": "error",
@@ -358,11 +366,15 @@ class TestFullyCoveredViolation:
                     },
                     "open_merge_requests": [],
                     "open_mr_label": "",
+                    "open_mr_search_url": "https://gitlab.example.com/search?hermetic",
                     "open_jira_tickets": [],
                     "open_jira_label": "",
+                    "open_jira_search_url": "https://redhat.atlassian.net/issues/?jql=hermetic",
                     "open_slack_threads": [],
                     "open_slack_label": "",
+                    "open_slack_search_url": "https://slack.com/search/hermetic",
                     "next_steps": "Use `conforma-violations-scan` AI skill or [conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to rerun validation and verify the violation is gone",
+                    "next_steps_short": "Rerun validation to verify",
                     "status_label": "Exception granted, violation should disappear on next Conforma run",
                     "coverage": "fully_covered",
                     "coverage_label": "already covered",
@@ -370,7 +382,7 @@ class TestFullyCoveredViolation:
                     "violation_count": 2,
                 },
             ],
-            "markdown_table": "| # | Rule |\n|---|------|\n| 1 | hermetic |",
+            "markdown_table": "| # | Violation |\n|---|------|\n| 1 | hermetic |",
             "component_owners": {
                 "comp-a-v3-5-ea-2": "AI Safety",
                 "comp-b-v3-5-ea-2": "Model Runtimes",
@@ -400,7 +412,8 @@ class TestFullyCoveredViolation:
             source_created_at="2026-06-10T05:19:05Z",
         )
 
-        assert "**Exception granted** (expires 2026-07-15)" in content
+        assert "| **Exception** |" in content
+        assert "expires 2026-07-15" in content
         assert "conforma-violations-scan" in content
         assert "conforma-remedy" in content
         assert "Set hermetic=true" not in content
@@ -431,18 +444,22 @@ class TestFullyCoveredViolation:
                     },
                     "open_merge_requests": [],
                     "open_mr_label": "",
+                    "open_mr_search_url": "",
                     "open_jira_tickets": [],
                     "open_jira_label": "",
+                    "open_jira_search_url": "",
                     "open_slack_threads": [],
                     "open_slack_label": "",
+                    "open_slack_search_url": "",
                     "next_steps": "Use `conforma-violations-scan` AI skill or [conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to rerun validation",
+                    "next_steps_short": "Rerun validation to verify",
                     "coverage": "fully_covered",
                     "coverage_label": "already covered",
                     "gate_status": "blocked",
                     "violation_count": 1,
                 },
             ],
-            "markdown_table": "| # | Rule |\n|---|------|\n| 1 | rpm_sig |",
+            "markdown_table": "| # | Violation |\n|---|------|\n| 1 | rpm_sig |",
             "component_owners": {"comp-a-v3-5-ea-2": "AI Safety"},
         }
         cov_path = tmp_path / "coverage.json"
@@ -465,7 +482,8 @@ class TestFullyCoveredViolation:
             source_created_at="2026-06-10T05:19:05Z",
         )
 
-        assert "**Exception granted** (permanent" in content
+        assert "| **Exception** |" in content
+        assert "permanent" in content
         assert "Contact the component team" not in content
 
 
@@ -493,11 +511,15 @@ class TestPartiallyCoveredViolation:
                     "display_components": "comp-a-v3-5-ea-2, comp-b-v3-5-ea-2",
                     "open_merge_requests": [],
                     "open_mr_label": "",
+                    "open_mr_search_url": "https://gitlab.example.com/search?hermetic",
                     "open_jira_tickets": [],
                     "open_jira_label": "",
+                    "open_jira_search_url": "https://redhat.atlassian.net/issues/?jql=hermetic",
                     "open_slack_threads": [],
                     "open_slack_label": "",
+                    "open_slack_search_url": "https://slack.com/search/hermetic",
                     "next_steps": "Fix in code or request exception",
+                    "next_steps_short": "Fix uncovered — see guide below",
                     "status_label": "Partially covered",
                     "coverage": "partially_covered",
                     "coverage_label": "partially covered",
@@ -505,7 +527,7 @@ class TestPartiallyCoveredViolation:
                     "violation_count": 2,
                 },
             ],
-            "markdown_table": "| # | Rule |\n|---|------|\n| 1 | hermetic |",
+            "markdown_table": "| # | Violation |\n|---|------|\n| 1 | hermetic |",
             "component_owners": {
                 "comp-a-v3-5-ea-2": "AI Safety",
                 "comp-b-v3-5-ea-2": "Model Runtimes",
@@ -537,8 +559,12 @@ class TestPartiallyCoveredViolation:
             source_created_at="2026-06-10T05:19:05Z",
         )
 
-        assert "**Partially covered**: 1/2 components have exceptions" in content
+        assert "| **Components** |" not in content  # now a separate table
+        assert "**Components:**" in content
+        assert "| Component | Team | Exception |" in content
+        assert "| **Exception** |" in content
         assert "`comp-b-v3-5-ea-2`" in content
+        assert "**Partially covered**: 1/2 components have exceptions" in content
         assert "Set hermetic=true" in content
         assert "Exception only if" in content
 
