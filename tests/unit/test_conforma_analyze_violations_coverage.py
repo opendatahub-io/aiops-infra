@@ -122,8 +122,10 @@ class TestDetermineStatusAndNextSteps:
     def test_fully_covered(self):
         status, next_steps, short = mod._determine_status_and_next_steps("fully_covered", [], [], 0)
         assert status == "Exception granted, violation should disappear on next Conforma run"
-        assert "rerun" in next_steps.lower()
-        assert short == "Rerun conforma-reporter or `conforma` AI skill to verify"
+        assert "conforma-reporter" in next_steps
+        assert "conforma-violations-scan" in next_steps
+        assert "no longer reported" in next_steps
+        assert next_steps == short
 
     def test_not_covered_no_mr_no_jira(self):
         status, next_steps, short = mod._determine_status_and_next_steps("not_covered", [], [], 3)
@@ -143,7 +145,7 @@ class TestDetermineStatusAndNextSteps:
         status, next_steps, short = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
         assert "Exception Merge Request pending" in status
         assert "ProdSec" in next_steps
-        assert short == "Get MR merged"
+        assert short == "Get Merge Request merged"
 
     def test_not_covered_with_remedy_mr(self):
         mrs = [{"suggestion": "no_overlap", "mr_type": "remedy", "iid": 2}]
@@ -160,7 +162,7 @@ class TestDetermineStatusAndNextSteps:
         status, next_steps, short = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
         assert "Exception + remedy" in status
         assert "ProdSec" in next_steps
-        assert short == "Get MRs merged"
+        assert short == "Get Merge Requests merged"
 
     def test_partially_covered_with_exception_mr(self):
         mrs = [{"suggestion": "extend_mr", "mr_type": "exception", "iid": 1}]

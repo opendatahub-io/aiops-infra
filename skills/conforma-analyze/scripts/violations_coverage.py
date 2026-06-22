@@ -264,8 +264,8 @@ def _determine_status_and_next_steps(
     if coverage == "fully_covered":
         return (
             "Exception granted, violation should disappear on next Conforma run",
-            "Use `conforma-violations-scan` AI skill or [conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) to rerun validation and verify the violation is gone",
-            "Rerun conforma-reporter or `conforma` AI skill to verify",
+            _VERIFY_NEXT_STEP,
+            _VERIFY_NEXT_STEP,
         )
 
     if coverage == "partially_covered":
@@ -315,6 +315,15 @@ def _determine_status_and_next_steps(
 
 
 _CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
+_CONFORMA_REPORTER_WORKFLOW_URL = (
+    "https://github.com/red-hat-data-services/conforma-reporter"
+    "/actions/workflows/conforma-reporter.yaml"
+)
+_VERIFY_NEXT_STEP = (
+    f"Run [conforma-reporter]({_CONFORMA_REPORTER_WORKFLOW_URL})"
+    " or `conforma-violations-scan` AI skill"
+    " to verify the violation is no longer reported"
+)
 
 
 def _load_report_metadata(release: str | None, metadata_file: str | None) -> dict:

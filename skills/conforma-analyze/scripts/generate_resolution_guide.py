@@ -46,6 +46,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 import analyze_csv_report as analysis  # noqa: E402
 
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
+_CONFORMA_REPORTER_WORKFLOW_URL = (
+    "https://github.com/red-hat-data-services/conforma-reporter"
+    "/actions/workflows/conforma-reporter.yaml"
+)
+_VERIFY_NEXT_STEP = (
+    f"Run [conforma-reporter]({_CONFORMA_REPORTER_WORKFLOW_URL})"
+    " or `conforma-violations-scan` AI skill"
+    " to verify the violation is no longer reported"
+)
 
 
 def _load_catalog(catalog_path: Path) -> dict:
@@ -497,15 +506,8 @@ def _render_excepted_violation(lines: list[str], violation: dict) -> None:
     Exception status is already in the property table above; this adds
     the next-step instruction and remedy hint.
     """
-    next_steps = violation.get("next_steps", "")
-    if next_steps:
-        lines.append(f"**Next step**: {next_steps}")
-    else:
-        lines.append(
-            "**Next step**: Use `conforma-violations-scan` AI skill or "
-            "[conforma-reporter](https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml) "
-            "to rerun validation and verify the violation no longer appears."
-        )
+    next_steps = violation.get("next_steps") or _VERIFY_NEXT_STEP
+    lines.append(f"**Next step**: {next_steps}")
     lines.append("")
 
     rule = violation.get("rule", "")
