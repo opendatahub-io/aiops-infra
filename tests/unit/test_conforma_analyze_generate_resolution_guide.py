@@ -487,6 +487,90 @@ class TestFullyCoveredViolation:
         assert "Contact the component team" not in content
 
 
+class TestMergeRequestUrls:
+    """Merge Request URLs must use the 'url' key from the data pipeline, not 'web_url'."""
+
+    def test_mr_urls_are_populated(self, tmp_path, sample_violations_yaml, sample_catalog):
+        data = {
+            "summary": {
+                "fully_covered": 0,
+                "partially_covered": 0,
+                "not_covered": 1,
+                "total_violations": 1,
+            },
+            "violations": [
+                {
+                    "rule": "hermetic_task.hermetic",
+                    "title": "Task called with hermetic param set",
+                    "total_components": 2,
+                    "covered_components": [],
+                    "uncovered_components": ["comp-a-v3-5-ea-2", "comp-b-v3-5-ea-2"],
+                    "covered_count": 0,
+                    "uncovered_count": 2,
+                    "display_components": "comp-a-v3-5-ea-2 (AI Safety), comp-b-v3-5-ea-2 (Model Runtimes)",
+                    "open_merge_requests": [
+                        {
+                            "iid": 19118,
+                            "url": "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/19118",
+                            "mr_type": "exception",
+                            "suggestion": "extend_mr",
+                            "covered": ["comp-a-v3-5-ea-2"],
+                            "missing": ["comp-b-v3-5-ea-2"],
+                        },
+                        {
+                            "iid": 555,
+                            "url": "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/555",
+                            "mr_type": "remedy",
+                            "suggestion": "no_overlap",
+                            "covered": [],
+                            "missing": ["comp-a-v3-5-ea-2", "comp-b-v3-5-ea-2"],
+                        },
+                    ],
+                    "open_mr_label": "",
+                    "open_mr_search_url": "https://gitlab.example.com/search?hermetic",
+                    "open_jira_tickets": [],
+                    "open_jira_label": "",
+                    "open_jira_search_url": "https://redhat.atlassian.net/issues/?jql=hermetic",
+                    "next_steps": "Fix in code or request exception",
+                    "next_steps_short": "Fix in code — see guide below",
+                    "status_label": "No coverage",
+                    "coverage": "not_covered",
+                    "gate_status": "passed",
+                    "violation_count": 2,
+                },
+            ],
+            "markdown_table": "| # | Violation |\n|---|------|\n| 1 | hermetic |",
+            "component_owners": {
+                "comp-a-v3-5-ea-2": "AI Safety",
+                "comp-b-v3-5-ea-2": "Model Runtimes",
+            },
+        }
+        cov_path = tmp_path / "coverage.json"
+        cov_path.write_text(json.dumps(data), encoding="utf-8")
+
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(cov_path),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+
+        assert "[!19118](https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/19118)" in content
+        assert "[!555](https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/555)" in content
+        assert "[!19118]()" not in content
+        assert "[!555]()" not in content
+
+
 class TestPartiallyCoveredViolation:
     """Partially-covered violations should show a header + full remediation."""
 
@@ -580,3 +664,95 @@ class TestMetadataHeader:
         assert "prod/release_day/conforma-violations-report.csv" in header
         assert "2026-06-10T05:19:05Z" in header
         assert "conforma-reporter" in header
+
+
+class TestRenderWorkScope:
+    def test_skipped_when_unique_items_is_one(self):
+        lines = []
+        work_scope_by_rule = {
+            "hermetic_task.hermetic": {
+                "unique_items": 1,
+                "total_components": 34,
+                "per_component_avg": 1,
+                "per_component_max": 1,
+                "per_component_min": 1,
+                "sample_message": "Task is not hermetic",
+            }
+        }
+        mod._render_work_scope(lines, "hermetic_task.hermetic", work_scope_by_rule, "https://csv-url")
+        assert lines == []
+
+    def test_skipped_when_rule_not_in_scope_data(self):
+        lines = []
+        mod._render_work_scope(lines, "unknown.rule", {}, "https://csv-url")
+        assert lines == []
+
+    def test_high_cardinality_shows_csv_link(self):
+        lines = []
+        work_scope_by_rule = {
+            "sbom_spdx.disallowed_package_attributes": {
+                "unique_items": 2625,
+                "total_components": 29,
+                "per_component_avg": 200,
+                "per_component_max": 363,
+                "per_component_min": 2,
+                "sample_message": "Package pkg:pypi/foo@1.0 has the attribute...",
+            }
+        }
+        mod._render_work_scope(
+            lines, "sbom_spdx.disallowed_package_attributes", work_scope_by_rule, "https://csv-url"
+        )
+        assert len(lines) == 2
+        assert "2,625 unique work items" in lines[0]
+        assert "29 components" in lines[0]
+        assert "avg ~200 per component" in lines[0]
+        assert "[source CSV](https://csv-url)" in lines[0]
+
+    def test_low_cardinality_no_csv_link(self):
+        lines = []
+        work_scope_by_rule = {
+            "rpm_repos.ids_known": {
+                "unique_items": 4,
+                "total_components": 2,
+                "per_component_avg": 2,
+                "per_component_max": 3,
+                "per_component_min": 1,
+                "sample_message": "RPM repo id check failed",
+            }
+        }
+        mod._render_work_scope(lines, "rpm_repos.ids_known", work_scope_by_rule, "https://csv-url")
+        assert len(lines) == 2
+        assert "4 unique work items" in lines[0]
+        assert "source CSV" not in lines[0]
+
+    def test_threshold_boundary(self):
+        lines = []
+        work_scope_by_rule = {
+            "rule.x": {
+                "unique_items": 6,
+                "total_components": 3,
+                "per_component_avg": 2,
+                "per_component_max": 3,
+                "per_component_min": 1,
+                "sample_message": "msg",
+            }
+        }
+        mod._render_work_scope(lines, "rule.x", work_scope_by_rule, "https://csv-url")
+        assert len(lines) == 2
+        assert "source CSV" not in lines[0]
+
+    def test_above_threshold_shows_csv_link(self):
+        lines = []
+        work_scope_by_rule = {
+            "rule.x": {
+                "unique_items": 7,
+                "total_components": 3,
+                "per_component_avg": 2,
+                "per_component_max": 3,
+                "per_component_min": 1,
+                "sample_message": "msg",
+            }
+        }
+        mod._render_work_scope(lines, "rule.x", work_scope_by_rule, "https://csv-url")
+        assert len(lines) == 2
+        assert "[source CSV](https://csv-url)" in lines[0]

@@ -323,7 +323,7 @@ def _build_mr_row_value(violation: dict) -> str:
 
     for mr in exception_mrs:
         iid = mr.get("iid", "?")
-        url = mr.get("web_url", "")
+        url = mr.get("url", "")
         suggestion = mr.get("suggestion", "")
         covered = mr.get("covered", [])
         if suggestion == "fully_covered":
@@ -335,7 +335,7 @@ def _build_mr_row_value(violation: dict) -> str:
 
     for mr in remedy_mrs:
         iid = mr.get("iid", "?")
-        url = mr.get("web_url", "")
+        url = mr.get("url", "")
         parts.append(f"(remedy) [!{iid}]({url})")
 
     result = ", ".join(parts)
@@ -398,7 +398,42 @@ def _build_slack_row_value(violation: dict) -> str:
     return result
 
 
-def _render_resolution_guide(coverage_data: dict, catalog: dict) -> str:
+def _render_work_scope(
+    lines: list[str], rule: str, work_scope_by_rule: dict[str, dict], source_csv_url: str
+) -> None:
+    """Render a work-scope line showing unique items to fix and CSV link for details."""
+    ws = work_scope_by_rule.get(rule)
+    if not ws:
+        return
+
+    unique_items = ws.get("unique_items", 0)
+    total_components = ws.get("total_components", 0)
+
+    if unique_items <= 1 or total_components == 0:
+        return
+
+    avg = ws.get("per_component_avg", 0)
+
+    if unique_items <= 2 * total_components:
+        lines.append(
+            f"**Scope of work**: {unique_items} unique work item{'s' if unique_items != 1 else ''} "
+            f"across {total_components} component{'s' if total_components != 1 else ''}."
+        )
+    else:
+        lines.append(
+            f"**Scope of work**: {unique_items:,} unique work items across "
+            f"{total_components} component{'s' if total_components != 1 else ''} "
+            f"(avg ~{avg} per component). "
+            f"For full per-item details, see the [source CSV]({source_csv_url})."
+        )
+    lines.append("")
+
+
+def _render_resolution_guide(
+    coverage_data: dict, catalog: dict,
+    work_scope_by_rule: dict[str, dict] | None = None,
+    source_csv_url: str = "",
+) -> str:
     """Render the per-violation resolution guide section.
 
     Each violation gets a property table (components, exception status, Merge Requests,
@@ -447,6 +482,7 @@ def _render_resolution_guide(coverage_data: dict, catalog: dict) -> str:
                 _render_uncataloged_violation(lines, v, fallback)
 
         _render_known_false_alerts(lines, rule, v, catalog)
+        _render_work_scope(lines, rule, work_scope_by_rule or {}, source_csv_url)
         _render_components_table(lines, v, component_owners)
 
         lines.append("---")
@@ -796,13 +832,24 @@ def generate_resolution_guide(
     analysis_result = analysis.analyze(records, upcoming=warnings)
 
     # Assemble sections
+    ref = source_sha or release
+    source_csv_url = f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{ref}/{source_path}"
+
+    # Extract work_scope per rule from violations YAML
+    work_scope_by_rule: dict[str, dict] = {}
+    by_rule_data = viol_data.get("violation_data", {}).get("violations_by_rule", {})
+    for rule, rule_info in by_rule_data.items():
+        ws = rule_info.get("work_scope")
+        if ws:
+            work_scope_by_rule[rule] = ws
+
     sections = [
         _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files),
         _render_tooling_health(tooling_health_data) if tooling_health_data else "",
         _render_key_takeaways(coverage_data, analysis_result, tooling_health_data),
         _render_summary(coverage_data, analysis_result),
         _render_coverage_table(coverage_data),
-        _render_resolution_guide(coverage_data, catalog),
+        _render_resolution_guide(coverage_data, catalog, work_scope_by_rule, source_csv_url),
         _render_warnings_section(analysis_result, component_owners),
         _render_statistical_breakdown(analysis_result, component_owners),
     ]

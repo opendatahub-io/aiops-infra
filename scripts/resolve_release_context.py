@@ -66,13 +66,21 @@ def parse_query(raw: str) -> str | None:
     # Strip leading "v" if present
     text = re.sub(r"^v", "", text)
 
+    # Normalize major-minor separator: "3-5" -> "3.5"
+    # Users sometimes write "rhoai-3-5" where the dash between major and minor
+    # is ambiguous with the rhoai- prefix separator.
+    text = re.sub(r"^(\d+)-(\d+)", r"\1.\2", text)
+
     # Normalize EA patterns:
     #   "3.5 ea 1"   -> "3.5-ea.1"
     #   "3.5-ea-1"   -> "3.5-ea.1"
     #   "3.5-ea.1"   -> "3.5-ea.1" (already correct)
     #   "3.5.ea.1"   -> "3.5-ea.1"
+    #   "3.5-ea2"    -> "3.5-ea.2" (no separator before number)
+    #   "3.5ea1"     -> "3.5-ea.1" (no separators at all)
+    #   "3-5.ea2"    -> "3.5-ea.2" (dash-separated major-minor, after normalization above)
     ea_match = re.match(
-        r"^(\d+\.\d+)[\s.\-]+ea[\s.\-]+(\d+)$", text
+        r"^(\d+\.\d+)[\s.\-]*ea[\s.\-]*(\d+)$", text
     )
     if ea_match:
         text = f"{ea_match.group(1)}-ea.{ea_match.group(2)}"
@@ -144,6 +152,7 @@ def _build_links(
     app_slug: str,
     tenant: str = "",
     konflux_app: str = "",
+    environment: str = "",
 ) -> dict:
     """Build clickable URLs for cluster, policy dir, and policy files."""
     links: dict[str, str | list[dict[str, str]]] = {}
@@ -158,6 +167,8 @@ def _build_links(
             f"https://{gitlab_host}/{gitlab_project}/-/tree/main/{policy_dir}"
         )
         relevant = [f for f in policy_files if app_slug and app_slug in f]
+        if environment and relevant:
+            relevant = [f for f in relevant if f"-{environment}." in f]
         if relevant:
             links["policy_files"] = [
                 {
@@ -326,7 +337,7 @@ def resolve(query: str) -> dict:
         konflux_app = version_to_konflux_app(v)
         links = _build_links(
             cluster_domain, policy_dir, gitlab_host, gitlab_project, policy_files, app_slug,
-            tenant=tenant, konflux_app=konflux_app,
+            tenant=tenant, konflux_app=konflux_app, environment="prod",
         )
         display = _format_resolved(query, v, cluster_domain, tenant, policy_dir, links)
         return {

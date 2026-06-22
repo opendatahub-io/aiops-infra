@@ -63,6 +63,30 @@ class TestParseQuery:
     def test_ea_dot_separated_all(self):
         assert mod.parse_query("3.5.ea.1") == "v3.5-ea.1"
 
+    def test_ea_no_separator_before_number(self):
+        assert mod.parse_query("3.5-ea2") == "v3.5-ea.2"
+
+    def test_rhoai_ea_no_separator_before_number(self):
+        assert mod.parse_query("rhoai-3.5-ea2") == "v3.5-ea.2"
+
+    def test_ea_no_separators_at_all(self):
+        assert mod.parse_query("3.5ea1") == "v3.5-ea.1"
+
+    def test_dash_separated_major_minor_with_ea(self):
+        assert mod.parse_query("rhoai-3-5.ea2") == "v3.5-ea.2"
+
+    def test_dash_separated_major_minor_with_ea_dash(self):
+        assert mod.parse_query("3-5-ea2") == "v3.5-ea.2"
+
+    def test_dash_separated_major_minor_with_ea_dot(self):
+        assert mod.parse_query("3-5-ea.2") == "v3.5-ea.2"
+
+    def test_dash_separated_major_minor_ga(self):
+        assert mod.parse_query("rhoai-3-4") == "v3.4"
+
+    def test_dash_separated_double_digit_minor(self):
+        assert mod.parse_query("rhoai-2-25") == "v2.25"
+
 
 # ---------------------------------------------------------------------------
 # version derivation tests (pure logic)
@@ -293,3 +317,65 @@ class TestBuildLinks:
             app_slug="rhoai",
         )
         assert "cluster_console" not in links
+
+    def test_policy_files_filtered_by_environment(self):
+        all_files = [
+            "fbc-rhoai-prod.yaml",
+            "fbc-rhoai-stage.yaml",
+            "registry-rhoai-chart-prod.yaml",
+            "registry-rhoai-chart-stage.yaml",
+            "registry-rhoai-prod.yaml",
+            "registry-rhoai-stage.yaml",
+        ]
+        links = mod._build_links(
+            cluster_domain="stone-prod-p02.hjvn.p1",
+            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.cee.redhat.com",
+            gitlab_project="releng/konflux-release-data",
+            policy_files=all_files,
+            app_slug="rhoai",
+            environment="prod",
+        )
+        names = [f["name"] for f in links["policy_files"]]
+        assert names == [
+            "fbc-rhoai-prod.yaml",
+            "registry-rhoai-chart-prod.yaml",
+            "registry-rhoai-prod.yaml",
+        ]
+
+    def test_policy_files_filtered_by_stage_environment(self):
+        all_files = [
+            "fbc-rhoai-prod.yaml",
+            "fbc-rhoai-stage.yaml",
+            "registry-rhoai-prod.yaml",
+            "registry-rhoai-stage.yaml",
+        ]
+        links = mod._build_links(
+            cluster_domain="stone-prod-p02.hjvn.p1",
+            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.cee.redhat.com",
+            gitlab_project="releng/konflux-release-data",
+            policy_files=all_files,
+            app_slug="rhoai",
+            environment="stage",
+        )
+        names = [f["name"] for f in links["policy_files"]]
+        assert names == ["fbc-rhoai-stage.yaml", "registry-rhoai-stage.yaml"]
+
+    def test_policy_files_unfiltered_without_environment(self):
+        all_files = [
+            "fbc-rhoai-prod.yaml",
+            "fbc-rhoai-stage.yaml",
+            "registry-rhoai-prod.yaml",
+            "registry-rhoai-stage.yaml",
+        ]
+        links = mod._build_links(
+            cluster_domain="stone-prod-p02.hjvn.p1",
+            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.cee.redhat.com",
+            gitlab_project="releng/konflux-release-data",
+            policy_files=all_files,
+            app_slug="rhoai",
+        )
+        names = [f["name"] for f in links["policy_files"]]
+        assert len(names) == 4

@@ -436,3 +436,96 @@ class TestSafeYamlDump:
         data = {"key": "value"}
         output = parse_violations._safe_yaml_dump(data, "# Header line")
         assert output.startswith("# Header line")
+
+
+class TestExtractNoErredTests:
+    def test_extracts_task_name_from_message(self):
+        code = "test.no_erred_tests"
+        message = 'The Task "sast-snyk-check-oci-ta" from the build Pipeline reports a test erred'
+        result = parse_violations.extract_full_rule_code(code, message)
+        assert result == "test.no_erred_tests:sast-snyk-check-oci-ta"
+
+    def test_extracts_task_name_from_description(self):
+        code = "test.no_erred_tests"
+        message = 'The Task "some-task" from the build Pipeline reports a test erred'
+        description = 'add "test.no_erred_tests:correct-task-name" to the exclude section'
+        result = parse_violations.extract_full_rule_code(code, message, description)
+        assert result == "test.no_erred_tests:correct-task-name"
+
+    def test_falls_back_to_base_code_when_no_match(self):
+        code = "test.no_erred_tests"
+        message = "Some unrecognized format without task name"
+        result = parse_violations.extract_full_rule_code(code, message)
+        assert result == "test.no_erred_tests"
+
+
+class TestComputeWorkScope:
+    def test_single_message_single_component(self):
+        records = [
+            {"component_name": "comp-a", "message": "Task is not hermetic"},
+            {"component_name": "comp-a", "message": "Task is not hermetic"},
+        ]
+        ws = parse_violations._compute_work_scope(records)
+        assert ws["unique_items"] == 1
+        assert ws["total_components"] == 1
+        assert ws["per_component_avg"] == 1
+        assert ws["per_component_max"] == 1
+        assert ws["per_component_min"] == 1
+
+    def test_multiple_messages_single_component(self):
+        records = [
+            {"component_name": "comp-a", "message": "Package pkg:pypi/foo@1.0"},
+            {"component_name": "comp-a", "message": "Package pkg:pypi/bar@2.0"},
+            {"component_name": "comp-a", "message": "Package pkg:pypi/baz@3.0"},
+        ]
+        ws = parse_violations._compute_work_scope(records)
+        assert ws["unique_items"] == 3
+        assert ws["total_components"] == 1
+        assert ws["per_component_avg"] == 3
+        assert ws["per_component_max"] == 3
+
+    def test_multiple_messages_multiple_components(self):
+        records = [
+            {"component_name": "comp-a", "message": "Package foo"},
+            {"component_name": "comp-a", "message": "Package bar"},
+            {"component_name": "comp-b", "message": "Package foo"},
+            {"component_name": "comp-b", "message": "Package bar"},
+            {"component_name": "comp-b", "message": "Package baz"},
+        ]
+        ws = parse_violations._compute_work_scope(records)
+        assert ws["unique_items"] == 3
+        assert ws["total_components"] == 2
+        assert ws["per_component_min"] == 2
+        assert ws["per_component_max"] == 3
+        assert ws["per_component_avg"] == 2  # round((2+3)/2) = 2
+
+    def test_empty_records(self):
+        ws = parse_violations._compute_work_scope([])
+        assert ws["unique_items"] == 0
+        assert ws["total_components"] == 0
+
+    def test_sample_message_truncated(self):
+        records = [
+            {"component_name": "comp-a", "message": "A" * 200},
+        ]
+        ws = parse_violations._compute_work_scope(records)
+        assert len(ws["sample_message"]) == 120
+
+    def test_work_scope_in_violations_index(self, tmp_path):
+        csv_file = tmp_path / "rhoai-3.4.csv"
+        csv_file.write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a,img,"Package foo",,sbom.check,title,desc,sol\n'
+            'violation,comp-a,img,"Package bar",,sbom.check,title,desc,sol\n'
+            'violation,comp-b,img,"Package foo",,sbom.check,title,desc,sol\n'
+            'violation,comp-b,img,"Package baz",,sbom.check,title,desc,sol\n'
+        )
+        records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
+
+        by_rule = index["violation_data"]["violations_by_rule"]
+        assert "sbom.check" in by_rule
+        ws = by_rule["sbom.check"]["work_scope"]
+        assert ws["unique_items"] == 3
+        assert ws["total_components"] == 2
+        assert ws["per_component_avg"] == 2

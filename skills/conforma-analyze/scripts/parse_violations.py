@@ -56,6 +56,12 @@ _RULE_EXTRACTORS: list[tuple[str, list[tuple[str, re.Pattern]]]] = [
         ("description", re.compile(r'test\.no_failed_tests:([^"]+)')),
         ("message", re.compile(r'[Tt]ask\s+"([^"]+)"')),
     ]),
+    # test.no_erred_tests -> extract task name (same message pattern as no_failed_tests)
+    # Message contains: The Task "<task-name>" from the build Pipeline reports a test erred
+    ("test.no_erred_tests", [
+        ("description", re.compile(r'test\.no_erred_tests:([^"]+)')),
+        ("message", re.compile(r'[Tt]ask\s+"([^"]+)"')),
+    ]),
 ]
 
 
@@ -380,6 +386,45 @@ def _build_upcoming_violations_section(
     }
 
 
+def _compute_work_scope(
+    records_for_rule: list[dict],
+) -> dict:
+    """Compute work-scope metrics for a single rule's records.
+
+    Returns a dict with unique_items (distinct messages), per-component
+    distribution, and a sample message for display.
+    """
+    msgs_by_component: dict[str, set[str]] = defaultdict(set)
+    all_messages: set[str] = set()
+
+    for rec in records_for_rule:
+        msg = rec["message"]
+        msgs_by_component[rec["component_name"]].add(msg)
+        all_messages.add(msg)
+
+    unique_items = len(all_messages)
+    total_components = len(msgs_by_component)
+
+    if total_components == 0:
+        return {"unique_items": 0, "total_components": 0}
+
+    per_comp_counts = [len(msgs) for msgs in msgs_by_component.values()]
+    per_component_max = max(per_comp_counts)
+    per_component_min = min(per_comp_counts)
+    per_component_avg = round(sum(per_comp_counts) / total_components)
+
+    sample = sorted(all_messages)[0][:120] if all_messages else ""
+
+    return {
+        "unique_items": unique_items,
+        "total_components": total_components,
+        "per_component_max": per_component_max,
+        "per_component_min": per_component_min,
+        "per_component_avg": per_component_avg,
+        "sample_message": sample,
+    }
+
+
 def build_violations_index(
     all_records: list[dict],
     releases: list[str],
@@ -396,6 +441,7 @@ def build_violations_index(
     """
     by_rule: dict[str, dict] = {}
     by_component: dict[str, dict] = defaultdict(lambda: {"rules": set(), "releases": set()})
+    records_by_rule: dict[str, list[dict]] = defaultdict(list)
 
     for rec in all_records:
         rule = rec["rule"]
@@ -411,6 +457,7 @@ def build_violations_index(
             }
         by_rule[rule]["count"] += 1
         by_rule[rule]["releases"][release].add(component)
+        records_by_rule[rule].append(rec)
 
         by_component[component]["rules"].add(rule)
         by_component[component]["releases"].add(release)
@@ -422,6 +469,7 @@ def build_violations_index(
             "base_code": info["base_code"],
             "count": info["count"],
             "releases": {},
+            "work_scope": _compute_work_scope(records_by_rule[rule]),
         }
         for release in releases:
             components = info["releases"].get(release, set())
