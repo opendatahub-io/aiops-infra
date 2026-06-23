@@ -14,11 +14,15 @@ set -euo pipefail
 
 PIPELINE_STATE=""
 SCRIPTS_DIR=""
+JIRA_URL=""
+WORKDIR=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --state)       PIPELINE_STATE="$2"; shift 2 ;;
     --scripts-dir) SCRIPTS_DIR="$2";    shift 2 ;;
+    --jira-url)    JIRA_URL="$2";       shift 2 ;;
+    --workdir)     WORKDIR="$2";        shift 2 ;;
     *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -73,6 +77,39 @@ for STEP_KEY in $STEP_KEYS; do
       '.steps[$k].status = "closed" | .last_status_change_at = $ts' \
       "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
     echo "[check] $STEP_KEY: marked closed (PR/MR was closed without merging)" >&2
+  elif [[ "$STATE" == "cannot_be_merged" || "$STATE" == "conflict" ]]; then
+    echo "[check] $STEP_KEY: MR has conflicts — attempting union auto-resolve..." >&2
+    # Extract source branch and target branch from MR/PR to clone and fix
+    SOURCE_BRANCH=$(echo "$RESULT" | grep -oP 'source_branch=\K\S+' || true)
+    TARGET_BRANCH=$(echo "$RESULT" | grep -oP 'target_branch=\K\S+' || true)
+    SOURCE_URL=$(echo "$RESULT" | grep -oP 'source_url=\K\S+' || true)
+    if [[ -n "$SOURCE_BRANCH" && -n "$TARGET_BRANCH" && -n "$SOURCE_URL" ]]; then
+      CONFLICT_WORKDIR="${WORKDIR:-/tmp}/conflict-resolve-${STEP_KEY}"
+      rm -rf "$CONFLICT_WORKDIR" && mkdir -p "$CONFLICT_WORKDIR"
+      # Inject GitLab credentials into the clone URL
+      AUTH_URL="$SOURCE_URL"
+      if [[ "$SOURCE_URL" == *"gitlab.cee.redhat.com"* && -n "${GITLAB_TOKEN:-}" && -n "${GITLAB_USER:-}" ]]; then
+        AUTH_URL="${SOURCE_URL/https:\/\//https://oauth2:${GITLAB_TOKEN}@}"
+      fi
+      if GIT_SSL_NO_VERIFY=true git clone \
+          --branch "$SOURCE_BRANCH" --depth 20 --no-single-branch \
+          "$AUTH_URL" "$CONFLICT_WORKDIR/repo" 2>/dev/null; then
+        if GIT_SSL_NO_VERIFY=true bash "$SCRIPTS_DIR/resolve_union_conflicts.sh" \
+            --clone-dir     "$CONFLICT_WORKDIR/repo" \
+            --target-branch "$TARGET_BRANCH" \
+            ${JIRA_URL:+--jira-url "$JIRA_URL"} 2>&1 | sed 's/^/  [union] /' >&2; then
+          GIT_SSL_NO_VERIFY=true git -C "$CONFLICT_WORKDIR/repo" push origin "$SOURCE_BRANCH" 2>&1 | sed 's/^/  [push] /' >&2
+          echo "[check] $STEP_KEY: conflicts auto-resolved and pushed" >&2
+        else
+          echo "[check] $STEP_KEY: union resolve failed — manual intervention required" >&2
+        fi
+      else
+        echo "[check] $STEP_KEY: could not clone source branch to resolve — skipping" >&2
+      fi
+      rm -rf "$CONFLICT_WORKDIR"
+    else
+      echo "[check] $STEP_KEY: cannot extract branch info for auto-resolve" >&2
+    fi
   else
     echo "[check] $STEP_KEY: still open/draft — no change" >&2
   fi

@@ -147,7 +147,9 @@ Adds a new repository entry to products/rhoai/rhoai.yaml:
   content_stream_tags: ['${CONTENT_STREAM_TAG}']
 
 Related: ${JIRA_ID}" \
-  --branch "$DEST_BRANCH"
+  --branch        "$DEST_BRANCH" \
+  --target-branch "main" \
+  --jira-url      "$JIRA_URL"
 
 # Raise MR (up to 3 attempts)
 MR_URL=""

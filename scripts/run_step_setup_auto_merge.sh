@@ -172,7 +172,9 @@ Adds '${REPO_NAME}' to upstream and main-release source maps
 and registers it in both auto-merge workflows.
 
 Related: ${JIRA_ID}" \
-  --branch "$DEST_BRANCH"
+  --branch        "$DEST_BRANCH" \
+  --target-branch "main" \
+  --jira-url      "$JIRA_URL"
 
 # Raise PR (up to 3 attempts)
 PR_URL=""

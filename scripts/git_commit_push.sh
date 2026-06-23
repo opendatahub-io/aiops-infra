@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Usage: git_commit_push.sh --clone-dir <dir> --files "<f1> <f2>" --message "<msg>" --branch <branch> [--remote <remote>]
-# Stages files, commits, and pushes. Handles shallow-clone and non-fast-forward retries.
+# Usage: git_commit_push.sh --clone-dir <dir> --files "<f1> <f2>" --message "<msg>" --branch <branch>
+#                           [--remote <remote>] [--target-branch <branch>] [--jira-url <url>]
+#
+# Stages files, commits, and pushes. On non-fast-forward failure (another job merged
+# first), uses resolve_union_conflicts.sh to auto-resolve via the union merge driver.
 set -euo pipefail
 
 # Required for gitlab.cee.redhat.com which uses an internal CA not trusted by default
@@ -11,14 +14,20 @@ FILES=()
 MESSAGE=""
 BRANCH=""
 REMOTE="origin"
+TARGET_BRANCH=""
+JIRA_URL=""
+
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --clone-dir) CLONE_DIR="$2";             shift 2 ;;
-    --files)     read -ra FILES <<< "$2";    shift 2 ;;
-    --message)   MESSAGE="$2";               shift 2 ;;
-    --branch)    BRANCH="$2";                shift 2 ;;
-    --remote)    REMOTE="$2";                shift 2 ;;
+    --clone-dir)     CLONE_DIR="$2";             shift 2 ;;
+    --files)         read -ra FILES <<< "$2";    shift 2 ;;
+    --message)       MESSAGE="$2";               shift 2 ;;
+    --branch)        BRANCH="$2";                shift 2 ;;
+    --remote)        REMOTE="$2";                shift 2 ;;
+    --target-branch) TARGET_BRANCH="$2";         shift 2 ;;
+    --jira-url)      JIRA_URL="$2";              shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -59,6 +68,17 @@ git config --get user.email &>/dev/null || git config user.email "ci-bot@redhat.
 git config --get user.name  &>/dev/null || git config user.name  "CI Bot"
 
 git commit -m "$MESSAGE"
+
+# If target-branch is known, proactively sync with the latest target before pushing.
+# This sets up the union merge driver for shared YAML files and incorporates any
+# changes merged by concurrent onboarding jobs — ensuring the PR is always
+# conflict-free when raised, not just when a push fails.
+if [[ -n "$TARGET_BRANCH" ]]; then
+  bash "$SCRIPTS_DIR/resolve_union_conflicts.sh" \
+    --clone-dir     "$CLONE_DIR" \
+    --target-branch "$TARGET_BRANCH" \
+    ${JIRA_URL:+--jira-url "$JIRA_URL"} || exit 1
+fi
 
 # Push with retry logic
 _push() {

@@ -149,10 +149,12 @@ fi
 
 # Commit and push
 bash "$SCRIPTS_DIR/git_commit_push.sh" \
-  --clone-dir "$CLONE_DIR" \
-  --files     "$FILES_CHANGED" \
-  --message   "Add ${COMPONENT_NAME} to bundle relatedImages" \
-  --branch    "$DEST_BRANCH"
+  --clone-dir     "$CLONE_DIR" \
+  --files         "$FILES_CHANGED" \
+  --message       "Add ${COMPONENT_NAME} to bundle relatedImages" \
+  --branch        "$DEST_BRANCH" \
+  --target-branch "$SRC_BRANCH" \
+  --jira-url      "$JIRA_URL"
 
 # Raise PR
 PR_URL=""

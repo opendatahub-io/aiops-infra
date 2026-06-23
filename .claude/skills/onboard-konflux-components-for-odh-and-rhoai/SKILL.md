@@ -214,8 +214,10 @@ For all steps in `pr_raised` or `mr_raised` state, query the GitHub/GitLab API
 
 ```bash
 NEWLY_MERGED=$(bash "$SCRIPTS_DIR/check_pr_mr_status.sh" \
-  --state      "$PIPELINE_STATE" \
-  --scripts-dir "$SCRIPTS_DIR")
+  --state       "$PIPELINE_STATE" \
+  --scripts-dir "$SCRIPTS_DIR" \
+  --jira-url    "$JIRA_URL" \
+  --workdir     "$WORKDIR")
 ```
 
 `NEWLY_MERGED` is a newline-separated list of step keys that transitioned to `"merged"`

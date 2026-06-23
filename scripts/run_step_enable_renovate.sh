@@ -110,7 +110,9 @@ bash "$SCRIPTS_DIR/git_commit_push.sh" \
 Adds '${RENOVATE_ENTRY}' to the default Renovate distribution in config.yaml.
 
 Related: ${JIRA_ID}" \
-  --branch "$DEST_BRANCH"
+  --branch        "$DEST_BRANCH" \
+  --target-branch "main" \
+  --jira-url      "$JIRA_URL"
 
 # Raise PR (up to 3 attempts)
 PR_URL=""

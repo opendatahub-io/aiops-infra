@@ -158,8 +158,20 @@ def print_pipeline_failures(project, pipeline_id: int) -> None:
 
 def check_only_mode(project, mr) -> None:
     """Print MR state info to stdout and exit 0."""
-    print(f"state={mr.state}")
-    print(f"title={mr.title}")
+    # Use .attributes dict to avoid python-gitlab lazy-loading issues
+    attrs = mr.attributes if hasattr(mr, "attributes") else {}
+    merge_status = attrs.get("merge_status", "") or getattr(mr, "merge_status", "") or ""
+    has_conflicts = attrs.get("has_conflicts", False) or getattr(mr, "has_conflicts", False)
+    state = attrs.get("state", "") or mr.state
+    # Surface cannot_be_merged so check_pr_mr_status.sh can auto-resolve
+    if state == "opened" and (merge_status == "cannot_be_merged" or has_conflicts):
+        state = "cannot_be_merged"
+    print(f"state={state}")
+    print(f"title={attrs.get('title', mr.title)}")
+    # Include branch info for conflict auto-resolution
+    print(f"source_branch={attrs.get('source_branch', getattr(mr, 'source_branch', ''))}")
+    print(f"target_branch={attrs.get('target_branch', getattr(mr, 'target_branch', ''))}")
+    print(f"source_url={project.http_url_to_repo}")
     sys.exit(0)
 
 

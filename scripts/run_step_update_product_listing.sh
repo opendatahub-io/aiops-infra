@@ -125,7 +125,9 @@ Appends ${PRODUCT_LISTING_ENTRY} to the
 repositories list in product-listings/rhoai/rhoai.yaml.
 
 Related: ${JIRA_ID}" \
-  --branch "$DEST_BRANCH"
+  --branch        "$DEST_BRANCH" \
+  --target-branch "main" \
+  --jira-url      "$JIRA_URL"
 
 # Raise MR (up to 3 attempts)
 MR_URL=""
