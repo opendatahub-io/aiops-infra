@@ -8,8 +8,12 @@
     ],
     "stop": [
       {
-        "command": ".cursor/hooks/run-unit-tests.sh",
+        "command": "hooks/run-unit-tests.sh",
         "loop_limit": 3
+      },
+      {
+        "command": "hooks/validate-guide-links.sh",
+        "loop_limit": 1
       }
     ]
   }

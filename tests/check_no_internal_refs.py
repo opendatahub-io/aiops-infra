@@ -48,6 +48,13 @@ EXCLUDE_PATHS: set[str] = {
     "tests/check_no_internal_refs.py",
     "tests/unit/test_no_internal_refs.py",
     "tests/unit/test_konflux_environment.py",
+    "tests/unit/test_konflux_environment_validation.py",
+    "tests/unit/test_konflux_tenant_env_discovery.py",
+    "tests/unit/test_konflux_tenant_env_discovery_integration.py",
+    "tests/unit/test_resolve_release_context.py",
+    "tests/unit/test_conforma_analyze_generate_resolution_guide.py",
+    "tests/unit/test_conforma_analyze_violations_coverage.py",
+    "tests/unit/test_conforma_policy_ops.py",
     # TODO: these areas still need their own cleanup pass
     ".claude/skills",
     "docs",

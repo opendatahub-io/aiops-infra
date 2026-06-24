@@ -1,11 +1,16 @@
 # Authoritative RHOAI release end-of-support dates.
 # Source: rhods-devops-infra/rhoai-release-data.yaml
-# Scripts read this file at runtime via load_release_dates().
+#
+# This is the single canonical source for EOS dates shared across all conforma skills.
+# Loaded at runtime by scripts/release_dates.py via get_eos_date() / get_effective_until().
 # The agent MUST NOT hardcode, guess, or infer these dates.
 #
-# support_end is the date after which the release is no longer supported.
-# This is used as the default effectiveUntil for Conforma exceptions.
+# support_end: the date after which the release is no longer supported (YYYY-MM-DD).
+# Used as the default effectiveUntil for Conforma exceptions (with a +7 day buffer).
 # The user may override with a different date (e.g. a bug fix due date).
+#
+# Future: support_end may be fetched dynamically via _fetch_dynamic() in release_dates.py.
+# Until then, keep this file up to date when new releases are cut.
 
 releases:
   rhoai-2.16:
@@ -26,3 +31,6 @@ releases:
   rhoai-3.5-ea.2:
     branch: rhoai-3.5-ea.2
     support_end: "2026-07-17"
+  rhoai-3.5:
+    branch: rhoai-3.5
+    support_end: "2027-01-05"

@@ -12,7 +12,7 @@ Determine whether existing policy exceptions and open merge requests in konflux-
 ## Usage
 
 ```
-python3 scripts/conforma_policy_ops.py check-gate --rule <rule> --components <comp1,comp2> [--clone-dir .work/konflux-release-data] [--environment prod]
+python3 scripts/conforma_policy_ops.py check-gate --rule <rule> --components <comp1,comp2> --policy-files <file1,file2> [--clone-dir .work/konflux-release-data] [--environment prod]
 ```
 
 ## Examples
@@ -20,10 +20,12 @@ python3 scripts/conforma_policy_ops.py check-gate --rule <rule> --components <co
 ```bash
 python3 scripts/conforma_policy_ops.py check-gate \
   --rule hermetic_task.hermetic \
-  --components odh-model-registry-v3-4
+  --components odh-model-registry-v3-4 \
+  --policy-files registry-rhoai-prod.yaml,fbc-rhoai-prod.yaml
 python3 scripts/conforma_policy_ops.py check-gate \
   --rule "rpm_signature.allowed:9386b48a1a693c5c" \
   --components odh-training-rocm64-torch28-py312-v3-4,odh-training-rocm64-torch29-py312-v3-4 \
+  --policy-files registry-rhoai-prod.yaml \
   --clone-dir .work/konflux-release-data \
   --environment prod
 ```
@@ -64,6 +66,7 @@ import conforma_policy_ops
 result = conforma_policy_ops.check_existing_exception_gate(
     rule="hermetic_task.hermetic",
     components=["odh-model-registry-v3-4"],
+    policy_files=["registry-rhoai-prod.yaml", "fbc-rhoai-prod.yaml"],
     clone_dir=".work/konflux-release-data",
     environment="prod",
 )

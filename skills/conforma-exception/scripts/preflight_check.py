@@ -54,13 +54,7 @@ HARD_RULES = {
     "matching_componentNames_exception_handling": "extend_effectiveUntil_in_place",
 }
 
-# Default end-of-support dates (pre-calculated with +7 day buffer; buffer only applies to EOS-sourced dates)
-DEFAULT_EOS_DATES: dict[str, str] = {
-    "rhoai-2.25": "2027-04-26",
-    "rhoai-3.3": "2026-10-05",
-    "rhoai-3.4": "2026-08-12",
-    "rhoai-3.5-ea.1": "2026-06-19",
-}
+import release_dates as _release_dates
 
 
 import jira_ops
@@ -291,26 +285,17 @@ def lookup_components_from_rpa(
 
 
 def resolve_effective_until_dates(rhoai_versions: list[str]) -> dict[str, dict]:
-    """Resolve effectiveUntil dates from defaults (end-of-support + 7 day buffer).
+    """Resolve effectiveUntil dates from the shared release_dates module.
 
-    The +7 day buffer is only applied to dates sourced from this EOS table.
-    User-provided or Jira-sourced dates are used as-is.
+    The +7 day buffer is applied only to EOS-sourced dates.
+    User-provided or Jira-sourced dates are used as-is by callers.
     """
-    results = {}
-    for ver in rhoai_versions:
-        if ver in DEFAULT_EOS_DATES:
-            results[ver] = {
-                "effectiveUntil": f"{DEFAULT_EOS_DATES[ver]}T00:00:00Z",
-                "source": "default_eos_table",
-                "note": "End-of-support date + 7 day buffer (pre-calculated)",
-            }
-        else:
-            results[ver] = {
-                "effectiveUntil": None,
-                "source": "unknown",
-                "note": f"No default EOS date for {ver}. User must provide.",
-            }
-    return results
+    return _release_dates.resolve_effective_until_dates(rhoai_versions)
+
+
+def validate_effective_until_date(version: str, provided_date: str) -> dict:
+    """Validate a provided effectiveUntil date against the expected EOS + buffer."""
+    return _release_dates.validate_effective_until_date(version, provided_date)
 
 
 def evaluate_decision(
@@ -611,6 +596,7 @@ def _fetch_group_members(group_name: str, headers: dict) -> list[dict]:
 
 def run_preflight(
     rhoaieng_url: str,
+    policy_files: list[str],
     rule_override: str | None = None,
     versions_override: list[str] | None = None,
     image_bases: list[str] | None = None,
@@ -709,7 +695,7 @@ def run_preflight(
 
     # 7. Check existing exceptions in GitLab
     if resolved_rule:
-        existing = conforma_policy_ops.search_existing_exceptions(resolved_rule, clone_dir)
+        existing = conforma_policy_ops.search_existing_exceptions(resolved_rule, policy_files, clone_dir)
         output["existing_exceptions"] = existing
 
     # 8. Discover user's Jira groups for watcher suggestion
@@ -789,6 +775,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rpa-dir", default=None, help="Path to RPA directory")
     parser.add_argument("--clone-dir", default=None, help="Path to konflux-release-data clone")
     parser.add_argument(
+        "--policy-files",
+        required=True,
+        help="Comma-separated list of policy file basenames to scope exception search",
+    )
+    parser.add_argument(
         "--environment",
         default="prod",
         choices=["prod", "stage"],
@@ -809,12 +800,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    pf = [f.strip() for f in args.policy_files.split(",")]
 
     if args.check_existing_exception:
         components = [c.strip() for c in args.components.split(",")]
         result = conforma_policy_ops.check_existing_exception_gate(
             rule=args.rule,
             components=components,
+            policy_files=pf,
             clone_dir=args.clone_dir,
             environment=args.environment,
         )
@@ -826,6 +819,7 @@ def main() -> int:
 
     result = run_preflight(
         rhoaieng_url=args.rhoaieng_url,
+        policy_files=pf,
         rule_override=args.rule,
         versions_override=versions,
         image_bases=image_bases,

@@ -100,23 +100,30 @@ class TestParseCsvFile:
         assert len(records) == 3
         assert all(r["release"] == "rhoai-3.4" for r in records)
 
-    def test_extracts_rule_codes(self, tmp_csv):
+    def test_extracts_violation_codes(self, tmp_csv):
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
-        rules = {r["rule"] for r in records}
-        assert "hermetic_task.hermetic" in rules
-        assert "trusted_task.trusted" in rules
+        codes = {r["code"] for r in records}
+        assert "hermetic_task.hermetic" in codes
+        assert "trusted_task.trusted" in codes
 
-    def test_extracts_rpm_key_suffix(self, tmp_csv):
+    def test_extracts_full_violation_code_with_suffix(self, tmp_csv):
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
-        rpm_records = [r for r in records if r["base_code"] == "rpm_signature.allowed"]
+        rpm_records = [r for r in records if r["code"] == "rpm_signature.allowed"]
         assert len(rpm_records) == 1
-        assert rpm_records[0]["rule"] == "rpm_signature.allowed:1234567890abcdef"
+        assert rpm_records[0]["full_violation_code"] == "rpm_signature.allowed:1234567890abcdef"
 
     def test_preserves_base_code(self, tmp_csv):
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
         for r in records:
-            assert "base_code" in r
-            assert ":" not in r["base_code"]
+            assert "code" in r
+            assert ":" not in r["code"]
+
+    def test_extracts_semantic_detail(self, tmp_csv):
+        records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
+        rpm_records = [r for r in records if r["code"] == "rpm_signature.allowed"]
+        assert rpm_records[0]["semantic_detail"] == "1234567890abcdef"
+        hermetic_records = [r for r in records if r["code"] == "hermetic_task.hermetic"]
+        assert hermetic_records[0]["semantic_detail"] == ""
 
     def test_empty_csv(self, tmp_path):
         csv_file = tmp_path / "empty.csv"
@@ -145,6 +152,7 @@ class TestBuildViolationsIndex:
         summary = index["violation_data"]["summary"]["rhoai-3.4"]
         assert summary["total_violations"] == 3
         assert summary["unique_components"] == 3
+        assert "unique_violation_codes" in summary
 
     def test_violations_by_component(self, tmp_csv):
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
@@ -208,7 +216,7 @@ class TestParseWarningsCsvFile:
         records = parse_violations.parse_warnings_csv_file(
             tmp_warnings_csv, "rhoai-3.4", threshold_days=21, reference_date=ref
         )
-        codes = {r["base_code"] for r in records}
+        codes = {r["code"] for r in records}
         assert "prefetch_dependencies.mode_not_permissive" in codes
         assert "hermetic_task.hermetic" in codes
 
@@ -217,7 +225,7 @@ class TestParseWarningsCsvFile:
         records = parse_violations.parse_warnings_csv_file(
             tmp_warnings_csv, "rhoai-3.4", threshold_days=21, reference_date=ref
         )
-        codes = {r["base_code"] for r in records}
+        codes = {r["code"] for r in records}
         assert "future_rule.check" not in codes
 
     def test_excludes_missing_date_warnings(self, tmp_warnings_csv):
@@ -225,7 +233,7 @@ class TestParseWarningsCsvFile:
         records = parse_violations.parse_warnings_csv_file(
             tmp_warnings_csv, "rhoai-3.4", threshold_days=21, reference_date=ref
         )
-        codes = {r["base_code"] for r in records}
+        codes = {r["code"] for r in records}
         assert "missing_date.rule" not in codes
 
     def test_days_until_effective(self, tmp_warnings_csv):
@@ -233,7 +241,7 @@ class TestParseWarningsCsvFile:
         records = parse_violations.parse_warnings_csv_file(
             tmp_warnings_csv, "rhoai-3.4", threshold_days=21, reference_date=ref
         )
-        hermetic = [r for r in records if r["base_code"] == "hermetic_task.hermetic"]
+        hermetic = [r for r in records if r["code"] == "hermetic_task.hermetic"]
         assert len(hermetic) == 1
         assert hermetic[0]["days_until_effective"] == 10
 
@@ -459,73 +467,174 @@ class TestExtractNoErredTests:
         assert result == "test.no_erred_tests"
 
 
-class TestComputeWorkScope:
-    def test_single_message_single_component(self):
-        records = [
-            {"component_name": "comp-a", "message": "Task is not hermetic"},
-            {"component_name": "comp-a", "message": "Task is not hermetic"},
-        ]
-        ws = parse_violations._compute_work_scope(records)
-        assert ws["unique_items"] == 1
-        assert ws["total_components"] == 1
-        assert ws["per_component_avg"] == 1
-        assert ws["per_component_max"] == 1
-        assert ws["per_component_min"] == 1
+class TestExtractFullViolationCode:
+    def test_extracts_from_description_hint(self):
+        desc = 'To exclude this rule add "rpm_repos.ids_known:pkg:rpm/redhat/acl@2.3.1" to the `exclude` section.'
+        result = parse_violations.extract_full_violation_code(desc, "rpm_repos.ids_known")
+        assert result == "rpm_repos.ids_known:pkg:rpm/redhat/acl@2.3.1"
 
-    def test_multiple_messages_single_component(self):
-        records = [
-            {"component_name": "comp-a", "message": "Package pkg:pypi/foo@1.0"},
-            {"component_name": "comp-a", "message": "Package pkg:pypi/bar@2.0"},
-            {"component_name": "comp-a", "message": "Package pkg:pypi/baz@3.0"},
-        ]
-        ws = parse_violations._compute_work_scope(records)
-        assert ws["unique_items"] == 3
-        assert ws["total_components"] == 1
-        assert ws["per_component_avg"] == 3
-        assert ws["per_component_max"] == 3
+    def test_hermetic_no_suffix(self):
+        desc = 'To exclude this rule add "hermetic_task.hermetic" to the `exclude` section.'
+        result = parse_violations.extract_full_violation_code(desc, "hermetic_task.hermetic")
+        assert result == "hermetic_task.hermetic"
 
-    def test_multiple_messages_multiple_components(self):
-        records = [
-            {"component_name": "comp-a", "message": "Package foo"},
-            {"component_name": "comp-a", "message": "Package bar"},
-            {"component_name": "comp-b", "message": "Package foo"},
-            {"component_name": "comp-b", "message": "Package bar"},
-            {"component_name": "comp-b", "message": "Package baz"},
-        ]
-        ws = parse_violations._compute_work_scope(records)
-        assert ws["unique_items"] == 3
-        assert ws["total_components"] == 2
-        assert ws["per_component_min"] == 2
-        assert ws["per_component_max"] == 3
-        assert ws["per_component_avg"] == 2  # round((2+3)/2) = 2
+    def test_falls_back_to_legacy_extractors(self):
+        result = parse_violations.extract_full_violation_code(
+            "", "rpm_signature.allowed", "RPM not signed with key 1234567890abcdef"
+        )
+        assert result == "rpm_signature.allowed:1234567890abcdef"
 
-    def test_empty_records(self):
-        ws = parse_violations._compute_work_scope([])
-        assert ws["unique_items"] == 0
-        assert ws["total_components"] == 0
+    def test_empty_description_and_no_fallback(self):
+        result = parse_violations.extract_full_violation_code("", "hermetic_task.hermetic", "Not hermetic")
+        assert result == "hermetic_task.hermetic"
 
-    def test_sample_message_truncated(self):
-        records = [
-            {"component_name": "comp-a", "message": "A" * 200},
-        ]
-        ws = parse_violations._compute_work_scope(records)
-        assert len(ws["sample_message"]) == 120
 
-    def test_work_scope_in_violations_index(self, tmp_path):
+class TestExtractSemanticDetail:
+    def test_rpm_repos_extracts_repo_id(self):
+        msg = "RPM repo id check failed: pkg:rpm/redhat/acl@2.3.1?repository_id=ubi-9-baseos-rpms"
+        result = parse_violations.extract_semantic_detail(
+            "rpm_repos.ids_known", msg, "rpm_repos.ids_known:pkg:rpm/redhat/acl@2.3.1"
+        )
+        assert result == "ubi-9-baseos-rpms"
+
+    def test_disallowed_attributes_extracts_attribute(self):
+        msg = 'Package pkg:pypi/foo@1.0 has the attribute "hermeto:pip:package:binary" set to "true"'
+        result = parse_violations.extract_semantic_detail(
+            "sbom_spdx.disallowed_package_attributes", msg, "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"
+        )
+        assert result == "hermeto:pip:package:binary=true"
+
+    def test_unique_version_extracts_package_name(self):
+        result = parse_violations.extract_semantic_detail(
+            "rpm_packages.unique_version", "", "rpm_packages.unique_version:annobin"
+        )
+        assert result == "annobin"
+
+    def test_hermetic_returns_empty(self):
+        result = parse_violations.extract_semantic_detail(
+            "hermetic_task.hermetic", "Task is not hermetic", "hermetic_task.hermetic"
+        )
+        assert result == ""
+
+    def test_allowed_package_sources_extracts_url(self):
+        msg = 'Package fetched by Hermeto was sourced from "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl" which is not allowed'
+        result = parse_violations.extract_semantic_detail(
+            "sbom_spdx.allowed_package_sources", msg, "sbom_spdx.allowed_package_sources:pkg:generic/foo"
+        )
+        assert result == "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
+
+    def test_test_no_failed_extracts_task_name(self):
+        result = parse_violations.extract_semantic_detail(
+            "test.no_failed_tests", "", "test.no_failed_tests:fbc-target-index-pruning-check"
+        )
+        assert result == "fbc-target-index-pruning-check"
+
+    def test_unknown_code_uses_default_suffix(self):
+        result = parse_violations.extract_semantic_detail(
+            "unknown_rule.new_check", "", "unknown_rule.new_check:some-suffix"
+        )
+        assert result == "some-suffix"
+
+    def test_unknown_code_no_suffix_returns_empty(self):
+        result = parse_violations.extract_semantic_detail(
+            "unknown_rule.no_suffix", "", "unknown_rule.no_suffix"
+        )
+        assert result == ""
+
+
+class TestSemanticViolationsInIndex:
+    def test_semantic_violations_structure(self, tmp_path):
         csv_file = tmp_path / "rhoai-3.4.csv"
         csv_file.write_text(
             "type,component_name,image,message,effective_on,code,title,description,solution\n"
-            'violation,comp-a,img,"Package foo",,sbom.check,title,desc,sol\n'
-            'violation,comp-a,img,"Package bar",,sbom.check,title,desc,sol\n'
-            'violation,comp-b,img,"Package foo",,sbom.check,title,desc,sol\n'
-            'violation,comp-b,img,"Package baz",,sbom.check,title,desc,sol\n'
+            'violation,comp-a,img,"Task is not hermetic",,hermetic_task.hermetic,title,'
+            '"To exclude this rule add ""hermetic_task.hermetic"" to the `exclude` section.",sol\n'
+            'violation,comp-b,img,"Task is not hermetic",,hermetic_task.hermetic,title,'
+            '"To exclude this rule add ""hermetic_task.hermetic"" to the `exclude` section.",sol\n'
         )
         records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
         index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
 
         by_rule = index["violation_data"]["violations_by_rule"]
-        assert "sbom.check" in by_rule
-        ws = by_rule["sbom.check"]["work_scope"]
-        assert ws["unique_items"] == 3
-        assert ws["total_components"] == 2
-        assert ws["per_component_avg"] == 2
+        assert "hermetic_task.hermetic" in by_rule
+        entry = by_rule["hermetic_task.hermetic"]
+        assert entry["count"] == 2
+        assert "semantic_violations" in entry
+        sem_viols = entry["semantic_violations"]
+        assert len(sem_viols) == 1
+        assert sem_viols[0]["detail"] == ""
+        assert sorted(sem_viols[0]["components"]) == ["comp-a", "comp-b"]
+
+    def test_semantic_dedup_collapses_same_detail(self, tmp_path):
+        csv_file = tmp_path / "rhoai-3.4.csv"
+        csv_file.write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a,img:sha1,"RPM repo id: pkg:rpm/acl@1?repository_id=ubi-9-baseos-rpms",,rpm_repos.ids_known,title,'
+            '"To exclude this rule add ""rpm_repos.ids_known:pkg:rpm/acl@1"" to the `exclude` section.",sol\n'
+            'violation,comp-a,img:sha2,"RPM repo id: pkg:rpm/glib@2?repository_id=ubi-9-baseos-rpms",,rpm_repos.ids_known,title,'
+            '"To exclude this rule add ""rpm_repos.ids_known:pkg:rpm/glib@2"" to the `exclude` section.",sol\n'
+        )
+        records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
+
+        by_rule = index["violation_data"]["violations_by_rule"]
+        entry = by_rule["rpm_repos.ids_known"]
+        assert entry["count"] == 1
+        assert entry["csv_row_count"] == 2
+
+
+class TestBuildSemanticDetailLookup:
+    def test_basic_lookup(self):
+        yaml_data = {
+            "violation_data": {
+                "violations_by_rule": {
+                    "rpm_signature.allowed": {
+                        "violation_code": "rpm_signature.allowed",
+                        "detail_label": "signing key",
+                        "semantic_violations": [
+                            {"detail": "abc123", "components": ["comp-a", "comp-b"]},
+                            {"detail": "def456", "components": ["comp-a"]},
+                        ],
+                    },
+                    "hermetic_task.hermetic": {
+                        "violation_code": "hermetic_task.hermetic",
+                        "semantic_violations": [
+                            {"detail": "", "components": ["comp-c"]},
+                        ],
+                    },
+                }
+            }
+        }
+        detail_lookup, detail_labels = parse_violations.build_semantic_detail_lookup(yaml_data)
+
+        assert detail_labels == {"rpm_signature.allowed": "signing key"}
+        assert detail_lookup[("rpm_signature.allowed", "comp-a")] == ["abc123", "def456"]
+        assert detail_lookup[("rpm_signature.allowed", "comp-b")] == ["abc123"]
+        assert ("hermetic_task.hermetic", "comp-c") not in detail_lookup
+
+    def test_empty_yaml(self):
+        detail_lookup, detail_labels = parse_violations.build_semantic_detail_lookup({})
+        assert detail_lookup == {}
+        assert detail_labels == {}
+
+    def test_missing_violation_data_key(self):
+        detail_lookup, detail_labels = parse_violations.build_semantic_detail_lookup({"other": {}})
+        assert detail_lookup == {}
+        assert detail_labels == {}
+
+    def test_fallback_to_rule_key(self):
+        yaml_data = {
+            "violation_data": {
+                "violations_by_rule": {
+                    "some_rule.check": {
+                        "detail_label": "item",
+                        "semantic_violations": [
+                            {"detail": "x", "components": ["comp-a"]},
+                        ],
+                    },
+                }
+            }
+        }
+        detail_lookup, detail_labels = parse_violations.build_semantic_detail_lookup(yaml_data)
+        assert detail_lookup[("some_rule.check", "comp-a")] == ["x"]
+        assert detail_labels["some_rule.check"] == "item"

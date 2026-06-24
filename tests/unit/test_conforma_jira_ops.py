@@ -157,6 +157,86 @@ class TestInferRuleFromText:
         assert mod._infer_rule_from_text(None, "hermetic_task.hermetic") == "unconfirmed"
 
 
+class TestExtractComponentsFromSummary:
+    def test_standard_format(self):
+        summary = "[Conforma Violation] hermetic_task.hermetic - odh-model-registry-v3-4, odh-vllm-cpu-v3-4 - rhoai-3.4"
+        result = mod._extract_components_from_summary(summary)
+        assert result == ["odh-model-registry", "odh-vllm-cpu"]
+
+    def test_plus_n_more(self):
+        summary = "[Conforma Violation] hermetic_task.hermetic - comp-a-v3-4, comp-b-v3-4, comp-c-v3-4 (+2 more) - rhoai-3.4"
+        result = mod._extract_components_from_summary(summary)
+        assert result == ["comp-a", "comp-b", "comp-c"]
+
+    def test_with_vendor_tag(self):
+        summary = "[prod] [Conforma Violation] hermetic_task.hermetic - odh-vllm-cpu-v3-4 - rhoai-3.4"
+        result = mod._extract_components_from_summary(summary)
+        assert result == ["odh-vllm-cpu"]
+
+    def test_with_summary_context(self):
+        summary = "[Conforma Violation] hermetic_task.hermetic - odh-vllm-cpu-v3-4 - rhoai-3.4 - some context"
+        result = mod._extract_components_from_summary(summary)
+        assert result == ["odh-vllm-cpu"]
+
+    def test_freeform_summary(self):
+        summary = "This is a manually created ticket about hermetic builds"
+        assert mod._extract_components_from_summary(summary) == []
+
+    def test_single_component(self):
+        summary = "[Conforma Violation] hermetic_task.hermetic - odh-model-registry-job-async-upload-v3-4 - rhoai-3.4"
+        result = mod._extract_components_from_summary(summary)
+        assert result == ["odh-model-registry-job-async-upload"]
+
+    def test_too_few_segments(self):
+        summary = "hermetic_task.hermetic - rhoai-3.4"
+        assert mod._extract_components_from_summary(summary) == []
+
+
+class TestExtractComponentsFromDescription:
+    def test_standard_format(self):
+        desc = "Conforma Violation Report\n\nRule: hermetic_task.hermetic\nComponents: odh-model-registry-v3-4, odh-vllm-cpu-v3-4\nRHOAI Version: rhoai-3.4"
+        result = mod._extract_components_from_description(desc)
+        assert result == ["odh-model-registry", "odh-vllm-cpu"]
+
+    def test_empty_description(self):
+        assert mod._extract_components_from_description("") == []
+
+    def test_none_description(self):
+        assert mod._extract_components_from_description(None) == []
+
+    def test_no_components_line(self):
+        assert mod._extract_components_from_description("Just some text\nNo components here") == []
+
+    def test_many_components(self):
+        comps = ", ".join(f"comp-{i}-v3-4" for i in range(10))
+        desc = f"Components: {comps}"
+        result = mod._extract_components_from_description(desc)
+        assert len(result) == 10
+        assert result[0] == "comp-0"
+
+
+class TestExtractComponentStems:
+    def test_prefers_description_over_summary(self):
+        summary = "[Conforma Violation] rule - comp-a-v3-4 (+2 more) - rhoai-3.4"
+        desc = "Components: comp-a-v3-4, comp-b-v3-4, comp-c-v3-4"
+        result = mod._extract_component_stems(summary, desc)
+        assert result == ["comp-a", "comp-b", "comp-c"]
+
+    def test_falls_back_to_summary(self):
+        summary = "[Conforma Violation] rule - comp-a-v3-4 - rhoai-3.4"
+        result = mod._extract_component_stems(summary, None)
+        assert result == ["comp-a"]
+
+    def test_empty_description_falls_back(self):
+        summary = "[Conforma Violation] rule - comp-a-v3-4 - rhoai-3.4"
+        result = mod._extract_component_stems(summary, "")
+        assert result == ["comp-a"]
+
+    def test_both_unparseable(self):
+        result = mod._extract_component_stems("freeform text", "no components here")
+        assert result == []
+
+
 class TestPrefetchOpenJiraTickets:
     def test_matches_tickets_to_rules(self, monkeypatch):
         fake_issues = [
@@ -196,6 +276,38 @@ class TestPrefetchOpenJiraTickets:
         result = mod.prefetch_open_jira_tickets(["some.rule"])
         assert len(result["some.rule"]) == 1
         assert result["some.rule"][0]["key"] == "RHOAIENG-99"
+
+    def test_pass1_populates_matched_component_stems(self, monkeypatch):
+        """Pass 1 tickets get matched_component_stems extracted from summary+description."""
+        fake_issues = [
+            {"key": "RHOAIENG-66102", "url": "https://redhat.atlassian.net/browse/RHOAIENG-66102",
+             "summary": "[Conforma Violation] hermetic_task.hermetic - odh-model-registry-job-async-upload-v3-4 - rhoai-3.4",
+             "description": "Conforma Violation Report\n\nRule: hermetic_task.hermetic\nComponents: odh-model-registry-job-async-upload-v3-4\nRHOAI Version: rhoai-3.4",
+             "status": "New", "type": "Bug"},
+        ]
+        monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": fake_issues, "total": 1})
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic"],
+            releases=["rhoai-3.4"],
+        )
+        ticket = result["hermetic_task.hermetic"][0]
+        assert ticket["matched_component_stems"] == ["odh-model-registry-job-async-upload"]
+
+    def test_pass1_unparseable_gets_empty_stems(self, monkeypatch):
+        """Manually-created tickets with freeform summary get empty stems."""
+        fake_issues = [
+            {"key": "RHOAIENG-99999", "url": "https://redhat.atlassian.net/browse/RHOAIENG-99999",
+             "summary": "hermetic_task.hermetic issue for rhoai-3.4",
+             "description": "Some manual description without Components line",
+             "status": "New", "type": "Bug"},
+        ]
+        monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": fake_issues, "total": 1})
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic"],
+            releases=["rhoai-3.4"],
+        )
+        ticket = result["hermetic_task.hermetic"][0]
+        assert ticket["matched_component_stems"] == []
 
     def test_pass4_finds_ticket_by_component_name(self, monkeypatch):
         """Pass 4 finds a ticket via component name when passes 1-3 return nothing."""
@@ -271,7 +383,8 @@ class TestPrefetchOpenJiraTickets:
             if call_count["n"] == 1:
                 return {"issues": [
                     {"key": "RHOAIENG-11111", "url": "https://redhat.atlassian.net/browse/RHOAIENG-11111",
-                     "summary": "hermetic_task.hermetic for odh-ogx-core", "status": "New", "type": "Bug"},
+                     "summary": "hermetic_task.hermetic for odh-ogx-core",
+                     "description": "", "status": "New", "type": "Bug"},
                 ], "total": 1}
             # Pass 4 would also find it
             if "conforma" in jql:

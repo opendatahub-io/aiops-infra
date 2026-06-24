@@ -17,11 +17,11 @@ Exit codes:
 
 Usage as library:
     import konflux_tenant_env_discovery
-    ctx = konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-prod-p02")
+    ctx = konflux_tenant_env_discovery.discover("my-tenant", preferred_cluster="my-cluster-id")
 
 Usage as CLI:
-    python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant
-    python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant --preferred-cluster stone-prod-p02
+    python3 scripts/konflux_tenant_env_discovery.py --tenant my-tenant
+    python3 scripts/konflux_tenant_env_discovery.py --tenant my-tenant --preferred-cluster my-cluster-id
     python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant --refresh
     python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant --export
     python3 scripts/konflux_tenant_env_discovery.py --tenant rhoai-tenant --human

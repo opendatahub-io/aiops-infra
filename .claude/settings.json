@@ -5,7 +5,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/run-unit-tests.sh"
+            "command": "hooks/run-unit-tests.sh"
+          },
+          {
+            "type": "command",
+            "command": "hooks/validate-guide-links.sh"
           }
         ]
       }

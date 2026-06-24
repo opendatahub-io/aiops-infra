@@ -12,7 +12,9 @@ class TestGetGithubToken:
     def setup_method(self):
         fetch_csv_reports._github_token_cache = None
 
-    def test_token_from_gh_cli(self):
+    def test_token_from_gh_cli(self, monkeypatch):
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
         mock_result = MagicMock(returncode=0, stdout="ghp_abc123\n")
         with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
             token = fetch_csv_reports._get_github_token()
@@ -23,7 +25,9 @@ class TestGetGithubToken:
         token = fetch_csv_reports._get_github_token()
         assert token == "cached_token"
 
-    def test_token_failure(self):
+    def test_token_failure(self, monkeypatch):
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
         mock_result = MagicMock(returncode=1, stdout="")
         with patch("fetch_csv_reports.subprocess.run", return_value=mock_result):
             token = fetch_csv_reports._get_github_token()

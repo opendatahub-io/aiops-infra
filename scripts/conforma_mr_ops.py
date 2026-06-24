@@ -20,6 +20,14 @@ EXCEPTION_PATH_MARKERS = ("EnterpriseContractPolicy/", "exceptions/")
 files.  A Merge Request whose diff touches any path matching these markers
 is classified as an **exception** Merge Request; all others are **remedy**."""
 
+# Matches a conforma rule code in an added diff line, in two YAML positions:
+#   1. volatile exception:   ``- value: rule.code`` or ``- value: "rule.code"``
+#   2. permanent exclusion:  ``- rule.code``           or ``- "rule.code"``
+# Rule codes always contain at least one dot and consist of lowercase
+# alphanumerics, underscores, dots, colons, and hyphens.
+_RULE_VALUE_RE = re.compile(r'^\+\s+-\s+value:\s+["\']?([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)["\']?', re.MULTILINE)
+_RULE_BARE_RE = re.compile(r'^\+\s+-\s+["\']?([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)["\']?\s*$', re.MULTILINE)
+
 _thread_local = threading.local()
 
 
@@ -74,6 +82,39 @@ def image_url_covers_component(image_url: str, component_name: str) -> bool:
     with base name odh-dashboard (e.g. odh-dashboard-v3-3, odh-dashboard-v3-4).
     """
     return _extract_image_base(image_url) == _extract_component_base(component_name)
+
+
+def _extract_all_rules_from_changes(changes: list[dict]) -> set[str]:
+    """Extract every conforma rule code added in an MR's diff.
+
+    Scans only policy/exception file hunks (paths matching
+    :data:`EXCEPTION_PATH_MARKERS`) for two YAML patterns:
+
+    * ``- value: rule.code``  — volatile exception entry
+    * ``- rule.code``         — permanent exclusion entry (config.exclude)
+
+    Only **added** lines (``+`` prefix) are considered, so rules that were
+    already present in the file (context lines) are not counted as new.
+
+    Returns a set of rule code strings, e.g.::
+
+        {"hermetic_task.hermetic", "rpm_signature.allowed:9386b48a1a693c5c"}
+    """
+    rules: set[str] = set()
+    for change in changes:
+        path = change.get("new_path", "")
+        if not any(marker in path for marker in EXCEPTION_PATH_MARKERS):
+            continue
+        diff = change.get("diff", "")
+        for m in _RULE_VALUE_RE.finditer(diff):
+            rules.add(m.group(1))
+        for m in _RULE_BARE_RE.finditer(diff):
+            # bare "- rule.code" is only a rule exclusion when the code has a dot
+            # and is NOT a component name (component names start with "odh-")
+            candidate = m.group(1)
+            if "." in candidate and not candidate.startswith("odh-"):
+                rules.add(candidate)
+    return rules
 
 
 def classify_mr_type(changes: list[dict]) -> str:
@@ -353,17 +394,29 @@ _mr_cache = _MRCache()
 def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
     """Search for open Merge Requests across all *rules* and prefetch their diffs.
 
-    Returns a mapping of ``rule -> list[mr_info]`` (same shape as
-    ``search_open_exception_mrs`` output).  All unique Merge Request diffs
-    are fetched once and stored in ``_mr_cache`` so that downstream calls
-    to ``analyze_mr_component_coverage`` hit the cache instead of the API.
+    Returns a mapping of ``rule -> list[mr_info]``.  Each ``mr_info`` dict
+    carries two extra keys added here:
 
-    Rule searches run in parallel (each thread gets its own GitLab client
-    via ``_get_project()``).  Diff prefetch is sequential after all
-    searches complete.
+    * ``found_by_text_search`` *(bool)* — the MR was returned by the GitLab
+      text search for this specific rule.
+    * ``diff_rules`` *(list[str])* — every rule code found in the MR's diff
+      (policy/exception files only).  Populated after the diff prefetch.
+
+    **Diff-based cross-indexing**: after prefetching all diffs, each unique
+    MR is scanned once with :func:`_extract_all_rules_from_changes`.  If the
+    diff contains a rule from *rules* that the text search did not return the
+    MR for, the MR is added to that rule's list with
+    ``found_by_text_search=False``.  This ensures MRs are discovered by what
+    they *actually change* in code, not just by what their title/description
+    mentions.
+
+    Rule text-searches run in parallel; diff extraction is sequential after
+    all diffs are fetched.
     """
     rule_to_mrs: dict[str, list[dict]] = {}
     all_iids: set[int] = set()
+    # iid -> base mr_info (shared across rules)
+    iid_to_info: dict[int, dict] = {}
 
     with ThreadPoolExecutor(max_workers=min(len(rules), 4)) as pool:
         futures = {pool.submit(search_open_exception_mrs, r): r for r in rules}
@@ -373,11 +426,50 @@ def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
                 mrs = future.result()
             except Exception:
                 mrs = []
-            rule_to_mrs[rule] = mrs
+            rule_to_mrs[rule] = [dict(mr, found_by_text_search=True) for mr in mrs]
             for mr in mrs:
                 all_iids.add(mr["iid"])
+                iid_to_info.setdefault(mr["iid"], mr)
 
     _mr_cache.prefetch(sorted(all_iids))
+
+    # --- Diff-based cross-indexing ---
+    # For each unique MR, extract all rule codes from the diff, then attach
+    # the MR to any rule it covers that the text search missed.
+    rules_set = set(rules)
+    for iid in sorted(all_iids):
+        changes = _mr_cache.get_changes(iid)
+        diff_rules = sorted(_extract_all_rules_from_changes(changes))
+
+        # Stamp diff_rules onto every existing entry for this iid
+        for rule_list in rule_to_mrs.values():
+            for entry in rule_list:
+                if entry["iid"] == iid:
+                    entry["diff_rules"] = diff_rules
+
+        # Add to rules found in the diff but not reached by text search
+        existing_iids_per_rule = {
+            r: {e["iid"] for e in rule_to_mrs.get(r, [])}
+            for r in rules_set
+        }
+        for diff_rule in diff_rules:
+            # Match on base code (strip suffix after ':') so that
+            # "rpm_signature.allowed:9386b48a" is treated as covering
+            # the base rule "rpm_signature.allowed" when that is requested.
+            base = diff_rule.split(":")[0]
+            for requested_rule in rules_set:
+                requested_base = requested_rule.split(":")[0]
+                if diff_rule == requested_rule or base == requested_base:
+                    if iid not in existing_iids_per_rule[requested_rule]:
+                        base_info = iid_to_info.get(iid, {"iid": iid, "title": "", "url": "", "author": "", "created_at": "", "description": ""})
+                        rule_to_mrs.setdefault(requested_rule, []).append(
+                            dict(base_info, found_by_text_search=False, diff_rules=diff_rules)
+                        )
+
+    # Ensure every rule key exists (even if no MRs found)
+    for rule in rules:
+        rule_to_mrs.setdefault(rule, [])
+
     return rule_to_mrs
 
 
@@ -470,6 +562,19 @@ def analyze_mr_component_coverage(
             result_base["coverage_error"] = "Failed to fetch Merge Request diff"
 
     result_base["mr_type"] = classify_mr_type(changes)
+
+    # Extract all rules the diff actually covers — used for discrepancy detection.
+    rules_in_diff = sorted(_extract_all_rules_from_changes(changes))
+    result_base["rules_in_diff"] = rules_in_diff
+
+    # Flag when title/description doesn't mention the rule we're analysing.
+    # "found_by_text_search=False" (set by prefetch_open_mrs) already tells us
+    # the text search didn't surface this MR — combine with rules_in_diff to
+    # produce a human-readable discrepancy note.
+    mr_text = (result_base.get("title", "") + " " + mr_description).lower()
+    rule_base = rule.split(":")[0]          # strip suffix for loose matching
+    title_mentions_rule = rule_base.replace("_", " ") in mr_text or rule_base in mr_text
+    result_base["title_mentions_rule"] = title_mentions_rule
 
     for change in changes:
         path = change.get("new_path", "")

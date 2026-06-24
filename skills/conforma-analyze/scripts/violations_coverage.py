@@ -61,7 +61,7 @@ def _map_gate_status(
         )
     coverage, coverage_label = _GATE_STATUS_MAP[gate_status]
     if coverage_label is None:
-        coverage_label = f"{len(uncovered)} of {len(all_components)} uncovered"
+        coverage_label = f"{len(uncovered)} of {len(all_components)} without exception coverage"
     return coverage, coverage_label
 
 
@@ -272,13 +272,13 @@ def _determine_status_and_next_steps(
         if has_exception_mr:
             return (
                 "Partially covered, exception Merge Request pending",
-                f"Work with ProdSec to get Merge Request merged ({uncovered_count} component(s) uncovered)",
-                f"Get Merge Request merged ({uncovered_count} uncovered)",
+                f"Work with ProdSec to get Merge Request merged ({uncovered_count} component(s) without coverage)",
+                f"Get Merge Request merged ({uncovered_count} without coverage)",
             )
         return (
-            f"Partially covered ({uncovered_count} uncovered)",
+            f"Partially covered ({uncovered_count} without coverage)",
             "Fix in code or request exception — see resolution guide",
-            "Fix uncovered — see guide below",
+            "Fix remaining — see guide below",
         )
 
     if has_exception_mr and has_remedy_mr:
@@ -361,13 +361,13 @@ def _load_report_metadata(release: str | None, metadata_file: str | None) -> dic
 
 def check_violations_coverage(
     violations_yaml_path: str,
+    policy_files: list[str],
     clone_dir: str | None = None,
     environment: str = "prod",
     require_jira: bool = True,
     require_slack: bool = True,
     metadata_file: str | None = None,
     release: str | None = None,
-    policy_files: list[str] | None = None,
 ) -> dict:
     """Batch coverage check: read a violations YAML and check each violation's components
     against existing exceptions in the policy file.
@@ -515,6 +515,7 @@ def check_violations_coverage(
         gate = conforma_policy_ops.check_existing_exception_gate(
             rule=rule,
             components=all_components,
+            policy_files=policy_files,
             clone_dir=clone_dir,
             environment=environment,
             prefetched_mrs=prefetched_mrs.get(rule),
@@ -530,6 +531,35 @@ def check_violations_coverage(
         exception_details = _build_component_exception_details(gate, all_components, policy_files=policy_files)
 
         open_mrs = gate.get("open_merge_requests", [])
+
+        # Compute discrepancy for each MR:
+        # - "code_only": diff covers this rule but title/description doesn't mention it
+        #   (description is outdated or MR was discovered purely by code cross-index)
+        # - "title_only": title mentions this rule but diff doesn't cover it
+        #   (text-search false positive; filtered from display by no_overlap, kept here for audit)
+        for mr in open_mrs:
+            rules_in_diff = mr.get("rules_in_diff", [])
+            title_mentions = mr.get("title_mentions_rule", True)
+            rule_base = rule.split(":")[0]
+            diff_covers_rule = any(
+                r == rule or r.split(":")[0] == rule_base
+                for r in rules_in_diff
+            )
+            if diff_covers_rule and not title_mentions:
+                mr["discrepancy"] = "code_only"
+                mr["discrepancy_detail"] = (
+                    f"Diff covers `{rule}` but MR title/description doesn't mention it "
+                    f"(discovered via code scan — description may be outdated)"
+                )
+            elif not diff_covers_rule and title_mentions:
+                mr["discrepancy"] = "title_only"
+                mr["discrepancy_detail"] = (
+                    f"MR title/description mentions `{rule}` but the diff doesn't add "
+                    f"an exception for it — diff actually covers: {rules_in_diff or '(nothing)'}"
+                )
+            else:
+                mr["discrepancy"] = None
+                mr["discrepancy_detail"] = None
 
         mr_label = ""
         for mr in open_mrs:
@@ -623,6 +653,7 @@ def check_violations_coverage(
             "title": info.get("title", ""),
             "violation_count": info.get("count", len(all_components)),
             "total_components": len(all_components),
+            "all_components": list(all_components),
             "covered_components": covered,
             "uncovered_components": uncovered,
             "covered_count": len(covered),
@@ -659,7 +690,7 @@ def check_violations_coverage(
 
     _log(
         f"Coverage complete: {summary['fully_covered']} covered, "
-        f"{summary['partially_covered']} partial, {summary['not_covered']} uncovered"
+        f"{summary['partially_covered']} partial, {summary['not_covered']} not covered"
     )
 
     report_meta = _load_report_metadata(analyzed_release, metadata_file)
@@ -704,7 +735,7 @@ def _render_violations_markdown_table(
     created_at = meta.get("created_at")
     if created_at:
         header_parts.append(f"**Report date**: {created_at}")
-    lines.append(" | ".join(header_parts))
+    lines.append("\\\n".join(header_parts))
     lines.append("")
 
     lines.append(
@@ -728,7 +759,7 @@ def _render_violations_markdown_table(
             status = f"Exception granted ({covered_count}/{total_count} components covered)"
         elif v.get("coverage") == "partially_covered" and total_count:
             uncovered = total_count - covered_count
-            status = f"Exception granted ({covered_count}/{total_count} components covered, {uncovered} uncovered)"
+            status = f"Exception granted ({covered_count}/{total_count} components covered, {uncovered} without coverage)"
         ns = v.get("next_steps_short", v["next_steps"])
         lines.append(f"| {i} | {rule} | {viol_count} | {status} | {ns} |")
 
@@ -755,25 +786,26 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--policy-files",
-        default=None,
-        help="Comma-separated list of policy file names (from resolve_release_context) "
-        "to scope exception URLs to. Only exceptions in these files will be linked.",
+        required=True,
+        help="Comma-separated list of policy file basenames (from resolve_release_context) "
+        "to scope exception search and coverage gate. Only exceptions in these files "
+        "are considered.",
     )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    pf = [f.strip() for f in args.policy_files.split(",")] if args.policy_files else None
+    pf = [f.strip() for f in args.policy_files.split(",")]
     result = check_violations_coverage(
         violations_yaml_path=args.violations_yaml,
+        policy_files=pf,
         clone_dir=args.clone_dir,
         environment=args.environment,
         require_jira=args.require_jira,
         require_slack=args.require_slack,
         metadata_file=args.metadata_file,
         release=args.release,
-        policy_files=pf,
     )
     print(json.dumps(result, indent=2))
     return 1 if "error" in result else 0

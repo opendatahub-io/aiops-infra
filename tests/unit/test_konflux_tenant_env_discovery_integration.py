@@ -143,6 +143,10 @@ class TestPopulateFromDiscovery:
 
 
 class TestLoadTriggersDiscovery:
+    @pytest.fixture(autouse=True)
+    def _no_dotenv(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(konflux_environment, "DOTENV_PATH", tmp_path / "nonexistent.env")
+
     def test_calls_discover_when_tenant_set_and_no_cluster_domain(self, tmp_path, connectivity_dir, discovery_cache_dir):
         _write_connectivity_state(connectivity_dir)
         env = _clean_env()

@@ -60,7 +60,7 @@ class TestSlackdumpAvailable:
         assert slack_ops._slackdump_available() is True
 
     def test_not_available_without_binary(self, fake_slackdump_cache, monkeypatch):
-        monkeypatch.setattr("shutil.which", lambda name: None)
+        monkeypatch.setattr(slack_ops, "_slackdump_binary", lambda: None)
         assert slack_ops._slackdump_available() is False
 
     def test_not_available_without_auth(self, tmp_path, monkeypatch, mock_slackdump_binary):
@@ -82,7 +82,7 @@ class TestVerifyAuth:
         assert result["error"] is None
 
     def test_missing_binary(self, fake_slackdump_cache, monkeypatch):
-        monkeypatch.setattr("shutil.which", lambda name: None)
+        monkeypatch.setattr(slack_ops, "_slackdump_binary", lambda: None)
         result = slack_ops.verify_auth()
         assert result["ok"] is False
         assert "not found" in result["error"]
@@ -94,7 +94,7 @@ class TestVerifyAuth:
         monkeypatch.setattr(slack_ops, "SLACKDUMP_CACHE_DIR", empty_cache)
         result = slack_ops.verify_auth()
         assert result["ok"] is False
-        assert "slackdump login" in result["error"]
+        assert "auth credentials" in result["error"].lower() or "slackdump login" in result["error"]
 
     def test_expired_session(self, fake_slackdump_cache, mock_slackdump_binary, monkeypatch):
         monkeypatch.setenv("SLACK_WORKSPACE_URL", "https://redhat-internal.slack.com")

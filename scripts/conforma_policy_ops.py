@@ -69,13 +69,18 @@ def refresh_clone(clone_dir: str | Path) -> Path | None:
     return repo_dir
 
 
-def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
+def search_existing_exceptions(rule: str, policy_files: list[str], clone_dir: str | None = None) -> dict:
     """Check if exception for this rule already exists in konflux-release-data.
 
     Searches two locations:
     1. The `exclude:` section — simple list items (permanent global exclusions)
     2. The `volatileCriteria:` section — structured blocks with componentNames/effectiveUntil
+
+    Only policy files whose basename appears in *policy_files* are searched.
+    This prevents cross-product contamination (e.g. an unscoped exception in
+    a desktop-extensions policy file incorrectly covering RHOAI components).
     """
+    allowed_basenames = {Path(f).name for f in policy_files}
     if clone_dir:
         search_dir = Path(clone_dir)
     else:
@@ -114,6 +119,8 @@ def search_existing_exceptions(rule: str, clone_dir: str | None = None) -> dict:
                 sys.path.pop(0)
 
     for yaml_file in policy_dir.glob("*.yaml"):
+        if yaml_file.name not in allowed_basenames:
+            continue
         content = yaml_file.read_text(encoding="utf-8")
         rel_path = str(yaml_file.relative_to(search_dir))
 
@@ -181,6 +188,7 @@ def _check_permanent_exclusions(content: str, rule: str, file_path: str, results
 def check_existing_exception_gate(
     rule: str,
     components: list[str],
+    policy_files: list[str],
     clone_dir: str | None = None,
     environment: str = "prod",
     prefetched_mrs: list[dict] | None = None,
@@ -192,6 +200,10 @@ def check_existing_exception_gate(
     Clones konflux-release-data (if needed), searches for existing exceptions
     matching the rule, and determines whether any active (non-expired) exception
     already covers the requested components.
+
+    *policy_files* restricts both the upstream search and the gate evaluation
+    to the specified policy file basenames (defense-in-depth — the search
+    function also filters, but the gate double-checks).
 
     When *aliases* is provided, component sets are expanded before intersection
     so that renamed components (e.g. llama -> ogx) are recognised as equivalent.
@@ -209,6 +221,7 @@ def check_existing_exception_gate(
             "uncovered_components": list[str],
         }
     """
+    allowed_basenames = {Path(f).name for f in policy_files}
     base_result = {
         "gate": "existing_exception_check",
         "rule": rule,
@@ -269,7 +282,7 @@ def check_existing_exception_gate(
                 ),
             }
 
-    existing = search_existing_exceptions(rule, str(repo_dir))
+    existing = search_existing_exceptions(rule, policy_files, str(repo_dir))
 
     open_mrs = prefetched_mrs if prefetched_mrs is not None else conforma_mr_ops.search_open_exception_mrs(rule)
     enriched_mrs: list[dict] = []
@@ -297,9 +310,13 @@ def check_existing_exception_gate(
             ),
         }
 
-    # Check permanent exclusions first
+    # Check permanent exclusions first (defense-in-depth: re-filter by policy_files)
     permanent = existing.get("permanent_exclusions", [])
-    env_permanent = [p for p in permanent if f"-{environment}." in Path(p["file"]).name]
+    env_permanent = [
+        p for p in permanent
+        if f"-{environment}." in Path(p["file"]).name
+        and Path(p["file"]).name in allowed_basenames
+    ]
     if env_permanent:
         return {
             **base_result,
@@ -354,6 +371,8 @@ def check_existing_exception_gate(
 
         env_file = Path(exc.get("file", "")).name
         if f"-{environment}" not in env_file and environment != "":
+            continue
+        if env_file not in allowed_basenames:
             continue
 
         exc_comps = set(exc.get("componentNames", []))
@@ -456,32 +475,39 @@ def main() -> int:
 
     p_search = sub.add_parser("search-exceptions")
     p_search.add_argument("--rule", required=True)
+    p_search.add_argument("--policy-files", required=True,
+                          help="Comma-separated list of policy file basenames to search")
     p_search.add_argument("--clone-dir", default=None)
 
     p_gate = sub.add_parser("check-gate")
     p_gate.add_argument("--rule", required=True)
     p_gate.add_argument("--components", required=True)
+    p_gate.add_argument("--policy-files", required=True,
+                        help="Comma-separated list of policy file basenames to scope the gate check")
     p_gate.add_argument("--clone-dir", default=None)
     p_gate.add_argument("--environment", default="prod")
 
     args = parser.parse_args()
 
     if args.command == "search-exceptions":
+        pf = [f.strip() for f in args.policy_files.split(",")]
         if args.clone_dir and Path(args.clone_dir).is_dir():
             try:
                 _refresh_workdir_clone(Path(args.clone_dir))
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
                 print(json.dumps({"checked": False, "reason": f"git fetch failed — remote unreachable: {exc}"}))
                 return 1
-        result = search_existing_exceptions(args.rule, args.clone_dir)
+        result = search_existing_exceptions(args.rule, pf, args.clone_dir)
         print(json.dumps(result, indent=2))
         return 0
 
     if args.command == "check-gate":
         components = [c.strip() for c in args.components.split(",")]
+        pf = [f.strip() for f in args.policy_files.split(",")]
         result = check_existing_exception_gate(
             rule=args.rule,
             components=components,
+            policy_files=pf,
             clone_dir=args.clone_dir,
             environment=args.environment,
         )

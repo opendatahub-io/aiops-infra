@@ -22,7 +22,7 @@ default_branch: main
 # Or manually: KONFLUX_CLUSTER_DOMAIN -> derived path
 #
 # Pattern: ${KONFLUX_CONFORMA_POLICY_DIR}/{type}-*-{env}.yaml
-# Example: config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy/registry-rhoai-prod.yaml
+# Example: config/${KONFLUX_CLUSTER_DOMAIN}/product/EnterpriseContractPolicy/registry-rhoai-prod.yaml
 paths:
   standing_exceptions:
     pattern: "${KONFLUX_CONFORMA_POLICY_DIR}/{type}-*-{env}.yaml"

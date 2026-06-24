@@ -296,15 +296,22 @@ def load() -> dict[str, str]:
     tenant = os.environ.get("KONFLUX_TENANT")
     preferred = os.environ.get("PREFERRED_KONFLUX_CLUSTER")
     if tenant and not os.environ.get("KONFLUX_CLUSTER_DOMAIN"):
-        try:
-            import konflux_tenant_env_discovery
+        if not connectivity_confirmed():
+            print(
+                "WARNING: Skipping tenant discovery — connectivity not confirmed. "
+                "Run `python scripts/konflux_environment.py check` to verify.",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                import konflux_tenant_env_discovery
 
-            context = konflux_tenant_env_discovery.discover(tenant, preferred_cluster=preferred)
-            _populate_from_discovery(context, populated)
-        except konflux_tenant_env_discovery.DiscoveryError as exc:
-            print(f"WARNING: Konflux tenant environment discovery failed: {exc}", file=sys.stderr)
-        except Exception as exc:
-            print(f"WARNING: Konflux tenant environment discovery error: {exc}", file=sys.stderr)
+                context = konflux_tenant_env_discovery.discover(tenant, preferred_cluster=preferred)
+                _populate_from_discovery(context, populated)
+            except konflux_tenant_env_discovery.DiscoveryError as exc:
+                print(f"WARNING: Konflux tenant environment discovery failed: {exc}", file=sys.stderr)
+            except Exception as exc:
+                print(f"WARNING: Konflux tenant environment discovery error: {exc}", file=sys.stderr)
 
     _loaded = True
     return populated

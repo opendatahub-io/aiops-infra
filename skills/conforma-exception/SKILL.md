@@ -209,6 +209,7 @@ The agent MUST NEVER:
 python3 skills/conforma-exception/scripts/preflight_check.py --check-existing-exception \
   --rule <rule> \
   --components <comma-separated-components> \
+  --policy-files <file1,file2> \
   [--environment prod]
 ```
 

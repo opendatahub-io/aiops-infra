@@ -111,12 +111,13 @@ class TestRequire:
         with patch.dict(os.environ, {"GITLAB_HOST": "real.corp.com", "KONFLUX_CLUSTER_DOMAIN": "stone.abc.p1"}):
             konflux_environment.require("gitlab")
 
-    def test_exits_when_gitlab_host_missing(self):
+    def test_exits_when_gitlab_host_missing(self, tmp_path):
         clean = {k: v for k, v in os.environ.items() if k != "GITLAB_HOST"}
         with patch.dict(os.environ, clean, clear=True):
-            with pytest.raises(SystemExit) as exc_info:
-                konflux_environment.require("gitlab")
-            assert exc_info.value.code == 1
+            with patch.object(konflux_environment, "DOTENV_PATH", tmp_path / "nonexistent"):
+                with pytest.raises(SystemExit) as exc_info:
+                    konflux_environment.require("gitlab")
+                assert exc_info.value.code == 1
 
     def test_exits_when_gitlab_host_is_placeholder(self):
         with patch.dict(os.environ, {"GITLAB_HOST": "test.example.com", "KONFLUX_CLUSTER_DOMAIN": "real.abc.p1"}):

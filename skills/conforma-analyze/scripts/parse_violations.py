@@ -35,6 +35,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import conforma_counting
 import yaml
 
 
@@ -91,6 +92,123 @@ def extract_full_rule_code(code: str, message: str, description: str = "") -> st
         return code
 
     return code
+
+
+# ---------------------------------------------------------------------------
+# Universal full violation code extraction
+# ---------------------------------------------------------------------------
+
+_FULL_VIOLATION_CODE_RE = re.compile(r'To exclude this rule add "([^"]+)"')
+
+
+def extract_full_violation_code(description: str, code: str, message: str = "") -> str:
+    """Extract the full violation code from the Conforma engine's exclusion hint.
+
+    The Conforma engine embeds the exact policy-matching identifier in every
+    violation's description field:
+
+        To exclude this rule add "violation_code:suffix" to the `exclude` section...
+
+    This is the canonical full violation code used for policy-matching and
+    exception filing.
+
+    Falls back to the legacy _RULE_EXTRACTORS if the description is missing
+    or malformed.
+    """
+    if description:
+        match = _FULL_VIOLATION_CODE_RE.search(description)
+        if match:
+            return match.group(1)
+
+    return extract_full_rule_code(code, message, description)
+
+
+# ---------------------------------------------------------------------------
+# Semantic detail extraction
+# ---------------------------------------------------------------------------
+
+
+def _load_semantic_catalog() -> dict:
+    """Load the violation-detail-extractors.yaml catalog."""
+    catalog_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "references"
+        / "violation-detail-extractors.yaml"
+    )
+    if not catalog_path.exists():
+        return {}
+    return yaml.safe_load(catalog_path.read_text(encoding="utf-8")) or {}
+
+
+_SEMANTIC_CATALOG: dict | None = None
+
+
+def get_semantic_catalog() -> dict:
+    """Return the cached semantic detail catalog (loaded once)."""
+    global _SEMANTIC_CATALOG
+    if _SEMANTIC_CATALOG is None:
+        _SEMANTIC_CATALOG = _load_semantic_catalog()
+    return _SEMANTIC_CATALOG
+
+
+def extract_semantic_detail(
+    code: str,
+    message: str,
+    full_violation_code: str,
+    catalog: dict | None = None,
+) -> str:
+    """Extract the semantic detail that defines a unique violation.
+
+    The semantic detail is the actionable root cause (e.g., a repo ID, an
+    attribute name, a package name). It is extracted using the rule-specific
+    config in the violation-detail-extractors.yaml catalog.
+
+    A violation = (violation_code + component + semantic_detail).
+    """
+    if catalog is None:
+        catalog = get_semantic_catalog()
+
+    rules = catalog.get("rules", {})
+    entry = rules.get(code)
+    if entry is None:
+        entry = catalog.get("_default")
+    if entry is None:
+        suffix = full_violation_code.split(":", 1)[1] if ":" in full_violation_code else ""
+        return suffix
+
+    if entry.get("detail_label") is None:
+        return ""
+
+    extraction = entry.get("extraction")
+    if extraction is None:
+        return ""
+
+    field = extraction.get("field", "")
+    pattern_str = extraction.get("pattern", "")
+    group = extraction.get("group", 1)
+    fmt = extraction.get("format")
+
+    if field == "message":
+        text = message
+    elif field == "full_violation_code_suffix":
+        text = full_violation_code.split(":", 1)[1] if ":" in full_violation_code else ""
+    else:
+        text = ""
+
+    if not text or not pattern_str:
+        return ""
+
+    match = re.search(pattern_str, text)
+    if not match:
+        return ""
+
+    if fmt:
+        result = fmt
+        for i in range(1, match.lastindex + 1 if match.lastindex else 1):
+            result = result.replace(f"{{{i}}}", match.group(i) or "")
+        return result
+
+    return match.group(group) if match.lastindex and group <= match.lastindex else match.group(0)
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +290,7 @@ def _quote_strings_recursively(obj):
 
 def parse_csv_file(csv_path: Path, release: str) -> list[dict]:
     """Parse a single CSV file, returning violation records."""
+    catalog = get_semantic_catalog()
     records = []
     with open(csv_path, encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -185,19 +304,29 @@ def parse_csv_file(csv_path: Path, release: str) -> list[dict]:
             description = (row.get("description") or "").strip()
             component = (row.get("component_name") or "").strip()
             title = (row.get("title") or "").strip()
+            image = (row.get("image") or "").strip()
+            effective_on = (row.get("effective_on") or "").strip()
+            solution = (row.get("solution") or "").strip()
 
             if not code or not component:
                 continue
 
-            full_rule = extract_full_rule_code(code, message, description)
+            full_violation_code = extract_full_violation_code(description, code, message)
+            semantic_detail = extract_semantic_detail(code, message, full_violation_code, catalog)
             records.append(
                 {
+                    "type": "violation",
                     "release": release,
                     "component_name": component,
-                    "rule": full_rule,
-                    "base_code": code,
+                    "image": image,
+                    "code": code,
+                    "full_violation_code": full_violation_code,
+                    "semantic_detail": semantic_detail,
                     "title": title,
                     "message": message,
+                    "effective_on": effective_on,
+                    "description": description,
+                    "solution": solution,
                 }
             )
 
@@ -241,6 +370,7 @@ def parse_warnings_csv_file(
     """
     now = reference_date or datetime.now(timezone.utc)
     cutoff = now + timedelta(days=threshold_days)
+    catalog = get_semantic_catalog()
     records = []
 
     with open(csv_path, encoding="utf-8", newline="") as f:
@@ -268,13 +398,15 @@ def parse_warnings_csv_file(
                 continue
 
             days_remaining = (effective_dt - now).days
-            full_rule = extract_full_rule_code(code, message, description)
+            full_violation_code = extract_full_violation_code(description, code, message)
+            semantic_detail = extract_semantic_detail(code, message, full_violation_code, catalog)
             records.append(
                 {
                     "release": release,
                     "component_name": component,
-                    "rule": full_rule,
-                    "base_code": code,
+                    "code": code,
+                    "full_violation_code": full_violation_code,
+                    "semantic_detail": semantic_detail,
                     "title": title,
                     "message": message,
                     "effective_on": effective_on_str,
@@ -311,36 +443,36 @@ def _build_upcoming_violations_section(
     by_component: dict[str, dict] = defaultdict(lambda: {"rules": set(), "releases": set()})
 
     for rec in upcoming_records:
-        rule = rec["rule"]
+        code = rec["code"]
         release = rec["release"]
         component = rec["component_name"]
         effective_on = rec["effective_on"]
         days_left = rec["days_until_effective"]
 
-        if rule not in by_rule:
-            by_rule[rule] = {
+        if code not in by_rule:
+            by_rule[code] = {
                 "title": rec["title"],
-                "base_code": rec["base_code"],
+                "violation_code": code,
                 "releases": defaultdict(set),
                 "effective_on": effective_on,
                 "days_until_effective": days_left,
             }
         else:
-            existing_dt = _parse_date(by_rule[rule]["effective_on"])
+            existing_dt = _parse_date(by_rule[code]["effective_on"])
             new_dt = _parse_date(effective_on)
             if existing_dt and new_dt and new_dt < existing_dt:
-                by_rule[rule]["effective_on"] = effective_on
-                by_rule[rule]["days_until_effective"] = days_left
+                by_rule[code]["effective_on"] = effective_on
+                by_rule[code]["days_until_effective"] = days_left
 
-        by_rule[rule]["releases"][release].add(component)
-        by_component[component]["rules"].add(rule)
+        by_rule[code]["releases"][release].add(component)
+        by_component[component]["rules"].add(code)
         by_component[component]["releases"].add(release)
 
     upcoming_by_rule = {}
-    for rule, info in sorted(by_rule.items()):
+    for code, info in sorted(by_rule.items()):
         rule_entry = {
             "title": info["title"],
-            "base_code": info["base_code"],
+            "violation_code": info["violation_code"],
             "effective_on": info["effective_on"],
             "days_until_effective": info["days_until_effective"],
             "releases": {},
@@ -349,7 +481,7 @@ def _build_upcoming_violations_section(
             components = info["releases"].get(release, set())
             if components:
                 rule_entry["releases"][release] = sorted(components)
-        upcoming_by_rule[rule] = rule_entry
+        upcoming_by_rule[code] = rule_entry
 
     upcoming_by_component = {}
     for comp, info in sorted(by_component.items()):
@@ -364,13 +496,13 @@ def _build_upcoming_violations_section(
         release_records = [r for r in upcoming_records if r["release"] == release]
         if not release_records:
             continue
-        unique_rules = set(r["rule"] for r in release_records)
+        unique_codes = set(r["code"] for r in release_records)
         unique_components = set(r["component_name"] for r in release_records)
         dates = [r["effective_on"] for r in release_records if r["effective_on"]]
         earliest = min(dates) if dates else ""
         upcoming_summary[release] = {
             "total_upcoming": len(release_records),
-            "unique_rules": len(unique_rules),
+            "unique_violation_codes": len(unique_codes),
             "unique_components": len(unique_components),
             "earliest_deadline": earliest,
         }
@@ -386,43 +518,64 @@ def _build_upcoming_violations_section(
     }
 
 
-def _compute_work_scope(
-    records_for_rule: list[dict],
-) -> dict:
-    """Compute work-scope metrics for a single rule's records.
+def _build_semantic_violations(records_for_code: list[dict], catalog: dict) -> list[dict]:
+    """Build the semantic_violations sub-structure for a violation code.
 
-    Returns a dict with unique_items (distinct messages), per-component
-    distribution, and a sample message for display.
+    Groups records by (semantic_detail, component) and collects the
+    full_violation_codes for each group (for exception-filing scripts).
     """
-    msgs_by_component: dict[str, set[str]] = defaultdict(set)
-    all_messages: set[str] = set()
+    by_detail_comp: dict[tuple[str, str], set[str]] = defaultdict(set)
 
-    for rec in records_for_rule:
-        msg = rec["message"]
-        msgs_by_component[rec["component_name"]].add(msg)
-        all_messages.add(msg)
+    for rec in records_for_code:
+        detail = rec.get("semantic_detail", "")
+        comp = rec["component_name"]
+        full_code = rec.get("full_violation_code", "")
+        by_detail_comp[(detail, comp)].add(full_code)
 
-    unique_items = len(all_messages)
-    total_components = len(msgs_by_component)
+    by_detail: dict[str, dict] = {}
+    for (detail, comp), full_codes in sorted(by_detail_comp.items()):
+        if detail not in by_detail:
+            by_detail[detail] = {"components": [], "full_violation_codes": set()}
+        by_detail[detail]["components"].append(comp)
+        by_detail[detail]["full_violation_codes"].update(full_codes)
 
-    if total_components == 0:
-        return {"unique_items": 0, "total_components": 0}
+    result = []
+    for detail, info in sorted(by_detail.items()):
+        entry: dict = {"detail": detail, "components": sorted(info["components"])}
+        codes = sorted(info["full_violation_codes"] - {""})
+        if codes:
+            entry["full_violation_codes"] = codes
+        result.append(entry)
+    return result
 
-    per_comp_counts = [len(msgs) for msgs in msgs_by_component.values()]
-    per_component_max = max(per_comp_counts)
-    per_component_min = min(per_comp_counts)
-    per_component_avg = round(sum(per_comp_counts) / total_components)
 
-    sample = sorted(all_messages)[0][:120] if all_messages else ""
+def build_semantic_detail_lookup(
+    violations_yaml_data: dict,
+) -> tuple[dict[tuple[str, str], list[str]], dict[str, str]]:
+    """Build semantic detail lookup from a loaded violations YAML.
 
-    return {
-        "unique_items": unique_items,
-        "total_components": total_components,
-        "per_component_max": per_component_max,
-        "per_component_min": per_component_min,
-        "per_component_avg": per_component_avg,
-        "sample_message": sample,
-    }
+    Returns:
+        (detail_lookup, detail_labels) where:
+        - detail_lookup: maps (base_violation_code, component) to a list of
+          semantic detail strings for that combination
+        - detail_labels: maps base_violation_code to its human-readable
+          detail category label (e.g. "package name", "signing key")
+    """
+    detail_lookup: dict[tuple[str, str], list[str]] = {}
+    detail_labels: dict[str, str] = {}
+    by_rule_data = violations_yaml_data.get("violation_data", {}).get("violations_by_rule", {})
+    for rule_key, rule_info in by_rule_data.items():
+        base_code = rule_info.get("violation_code", rule_key.split(":")[0])
+        dl = rule_info.get("detail_label", "")
+        if dl:
+            detail_labels[base_code] = dl
+        for sv in rule_info.get("semantic_violations", []):
+            detail = sv.get("detail", "")
+            if not detail:
+                continue
+            for comp in sv.get("components", []):
+                detail_lookup.setdefault((base_code, comp), []).append(detail)
+    return detail_lookup, detail_labels
 
 
 def build_violations_index(
@@ -435,47 +588,60 @@ def build_violations_index(
 ) -> dict:
     """Build the structured violations index from parsed records.
 
+    Groups violations by base violation_code and deduplicates using the
+    semantic model: (violation_code, component, semantic_detail).
+
     When ``upcoming_records`` is provided (from warnings CSV parsing), an
     ``upcoming_violations`` section is included — these are warnings that
     will become enforced violations once their ``effective_on`` date passes.
     """
-    by_rule: dict[str, dict] = {}
+    catalog = get_semantic_catalog()
+    by_code: dict[str, dict] = {}
     by_component: dict[str, dict] = defaultdict(lambda: {"rules": set(), "releases": set()})
-    records_by_rule: dict[str, list[dict]] = defaultdict(list)
+    records_by_code: dict[str, list[dict]] = defaultdict(list)
 
     for rec in all_records:
-        rule = rec["rule"]
+        code = rec["code"]
         release = rec["release"]
         component = rec["component_name"]
 
-        if rule not in by_rule:
-            by_rule[rule] = {
+        if code not in by_code:
+            by_code[code] = {
                 "title": rec["title"],
-                "base_code": rec["base_code"],
                 "releases": defaultdict(set),
-                "count": 0,
+                "seen_violations": set(),
+                "csv_row_count": 0,
             }
-        by_rule[rule]["count"] += 1
-        by_rule[rule]["releases"][release].add(component)
-        records_by_rule[rule].append(rec)
+        by_code[code]["csv_row_count"] += 1
+        by_code[code]["seen_violations"].add((code, component, rec.get("semantic_detail", "")))
+        by_code[code]["releases"][release].add(component)
+        records_by_code[code].append(rec)
 
-        by_component[component]["rules"].add(rule)
+        by_component[component]["rules"].add(code)
         by_component[component]["releases"].add(release)
 
+    rules_config = catalog.get("rules", {})
     violations_by_rule = {}
-    for rule, info in sorted(by_rule.items()):
+    for code, info in sorted(by_code.items()):
+        detail_label = None
+        if code in rules_config:
+            detail_label = rules_config[code].get("detail_label")
+
         rule_entry = {
             "title": info["title"],
-            "base_code": info["base_code"],
-            "count": info["count"],
+            "violation_code": code,
+            "count": len(info["seen_violations"]),
+            "csv_row_count": info["csv_row_count"],
             "releases": {},
-            "work_scope": _compute_work_scope(records_by_rule[rule]),
+            "semantic_violations": _build_semantic_violations(records_by_code[code], catalog),
         }
+        if detail_label is not None:
+            rule_entry["detail_label"] = detail_label
         for release in releases:
             components = info["releases"].get(release, set())
             if components:
                 rule_entry["releases"][release] = sorted(components)
-        violations_by_rule[rule] = rule_entry
+        violations_by_rule[code] = rule_entry
 
     violations_by_component = {}
     for comp, info in sorted(by_component.items()):
@@ -488,11 +654,19 @@ def build_violations_index(
     summary = {}
     for release in releases:
         release_records = [r for r in all_records if r["release"] == release]
-        unique_rules = set(r["rule"] for r in release_records)
+        counts = conforma_counting.count_from_records(
+            release_records,
+            component_field="component_name",
+            detail_field="semantic_detail",
+            full_code_field="full_violation_code",
+        )
+        unique_codes = set(r["code"] for r in release_records)
         unique_components = set(r["component_name"] for r in release_records)
         summary[release] = {
-            "total_violations": len(release_records),
-            "unique_rules": len(unique_rules),
+            "total_violations": counts.violations,
+            "total_csv_rows": counts.image_occurrences,
+            "full_violation_code_count": counts.full_violation_code_count,
+            "unique_violation_codes": len(unique_codes),
             "unique_components": len(unique_components),
         }
 
@@ -710,13 +884,18 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(_safe_yaml_dump(index, comment_header), encoding="utf-8")
 
-    total = len(all_records)
-    rules = len(index["violation_data"]["violations_by_rule"])
+    total_counts = conforma_counting.count_from_records(
+        all_records,
+        component_field="component_name",
+        detail_field="semantic_detail",
+        full_code_field="full_violation_code",
+    )
+    violation_codes = len(index["violation_data"]["violations_by_rule"])
     upcoming_count = len(upcoming_records)
-    msg = f"\nDone. {total} violations, {rules} unique violation types across {len(releases)} releases"
+    msg = f"\nDone. {total_counts.violations} violations, {violation_codes} unique violation codes across {len(releases)} releases"
     if upcoming_count:
-        upcoming_rules = len(index["violation_data"].get("upcoming_violations", {}).get("by_rule", {}))
-        msg += f", {upcoming_count} warnings becoming violations ({upcoming_rules} violation types)"
+        upcoming_codes = len(index["violation_data"].get("upcoming_violations", {}).get("by_rule", {}))
+        msg += f", {upcoming_count} warnings becoming violations ({upcoming_codes} violation codes)"
     msg += f" -> {output_path}"
     print(msg, file=sys.stderr)
 

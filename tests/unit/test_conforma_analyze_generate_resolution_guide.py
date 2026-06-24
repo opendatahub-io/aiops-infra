@@ -412,8 +412,7 @@ class TestFullyCoveredViolation:
             source_created_at="2026-06-10T05:19:05Z",
         )
 
-        assert "| **Exception** |" in content
-        assert "expires 2026-07-15" in content
+        assert "(2/2 have exceptions)" in content
         assert "conforma-violations-scan" in content
         assert "conforma-remedy" in content
         assert "Set hermetic=true" not in content
@@ -482,8 +481,7 @@ class TestFullyCoveredViolation:
             source_created_at="2026-06-10T05:19:05Z",
         )
 
-        assert "| **Exception** |" in content
-        assert "permanent" in content
+        assert "(1/1 have exceptions)" in content
         assert "Contact the component team" not in content
 
 
@@ -516,6 +514,7 @@ class TestMergeRequestUrls:
                             "suggestion": "extend_mr",
                             "covered": ["comp-a-v3-5-ea-2"],
                             "missing": ["comp-b-v3-5-ea-2"],
+                            "mr_components": ["comp-a-v3-5-ea-2"],
                         },
                         {
                             "iid": 555,
@@ -565,10 +564,12 @@ class TestMergeRequestUrls:
             source_created_at="2026-06-10T05:19:05Z",
         )
 
-        assert "[!19118](https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/19118)" in content
-        assert "[!555](https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/555)" in content
-        assert "[!19118]()" not in content
-        assert "[!555]()" not in content
+        # Exception MR !19118 appears in the per-component table (has mr_components)
+        assert 'href="https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/19118"' in content
+        assert ">!19118</a>" in content
+        # Remedy MR !555 has no mr_components (by design) — excluded from per-component column
+        # but the search URL containing its context is available
+        assert 'href="https://gitlab.example.com/search?hermetic"' in content
 
 
 class TestPartiallyCoveredViolation:
@@ -603,7 +604,7 @@ class TestPartiallyCoveredViolation:
                     "open_slack_label": "",
                     "open_slack_search_url": "https://slack.com/search/hermetic",
                     "next_steps": "Fix in code or request exception",
-                    "next_steps_short": "Fix uncovered — see guide below",
+                    "next_steps_short": "Fix remaining — see guide below",
                     "status_label": "Partially covered",
                     "coverage": "partially_covered",
                     "coverage_label": "partially covered",
@@ -646,7 +647,7 @@ class TestPartiallyCoveredViolation:
         assert "| **Components** |" not in content  # now a separate table
         assert "**Components:**" in content
         assert "| Component | Team | Exception |" in content
-        assert "| **Exception** |" in content
+        assert "(1/2 have exceptions)" in content
         assert "`comp-b-v3-5-ea-2`" in content
         assert "**Partially covered**: 1/2 components have exceptions" in content
         assert "Set hermetic=true" in content
@@ -756,3 +757,627 @@ class TestRenderWorkScope:
         mod._render_work_scope(lines, "rule.x", work_scope_by_rule, "https://csv-url")
         assert len(lines) == 2
         assert "[source CSV](https://csv-url)" in lines[0]
+
+
+class TestComponentStem:
+    """_component_stem must strip only the RHOAI version trailer."""
+
+    def test_basic_ea_version(self):
+        assert mod._component_stem("odh-vllm-cpu-v3-5-ea-2") == "odh-vllm-cpu"
+
+    def test_basic_ga_version(self):
+        assert mod._component_stem("odh-workbench-jupyter-minimal-v3-4") == "odh-workbench-jupyter-minimal"
+
+    def test_two_digit_minor(self):
+        assert mod._component_stem("odh-pipeline-runtime-py312-v2-25") == "odh-pipeline-runtime-py312"
+
+    def test_no_version_suffix_unchanged(self):
+        assert mod._component_stem("odh-generic-tool") == "odh-generic-tool"
+
+    def test_vllm_mid_name_not_stripped(self):
+        # "-vllm" is not a version trailer (letter after v, not digit)
+        assert mod._component_stem("odh-vllm-cpu-v3-5") == "odh-vllm-cpu"
+
+    def test_empty_string(self):
+        assert mod._component_stem("") == ""
+
+    def test_requires_two_digit_groups(self):
+        # "-v3" alone (no second digit group) should NOT be stripped
+        assert mod._component_stem("odh-comp-v3") == "odh-comp-v3"
+
+    def test_stem_equality_across_versions(self):
+        # Same component across releases must produce the same stem
+        assert (
+            mod._component_stem("odh-workbench-jupyter-minimal-cpu-py312-v3-4")
+            == mod._component_stem("odh-workbench-jupyter-minimal-cpu-py312-v3-5-ea-2")
+        )
+
+
+class TestViolationAnchor:
+    """_violation_anchor must produce safe, consistent HTML id values."""
+
+    def test_simple_rule(self):
+        assert mod._violation_anchor("hermetic_task.hermetic") == "violation-hermetic_task-hermetic"
+
+    def test_rule_with_colon(self):
+        anchor = mod._violation_anchor("rpm_signature.allowed:9386b48a1a693c5c")
+        assert ":" not in anchor
+        assert anchor == "violation-rpm_signature-allowed-9386b48a1a693c5c"
+
+    def test_rule_with_dot_only(self):
+        assert mod._violation_anchor("sbom_spdx.disallowed_package_attributes") == (
+            "violation-sbom_spdx-disallowed_package_attributes"
+        )
+
+    def test_prefix_scoping(self):
+        assert mod._violation_anchor("any.rule").startswith("violation-")
+
+    def test_empty_rule(self):
+        assert mod._violation_anchor("") == "violation-"
+
+    def test_round_trip_consistency(self):
+        # The anchor used in _render_coverage_table and in the section header must match
+        rule = "test.no_failed_tests:fbc-target-index-pruning-check"
+        assert mod._violation_anchor(rule) == mod._violation_anchor(rule)
+
+
+class TestCoverageTableLinks:
+    """_render_coverage_table must inject clickable links for each violation."""
+
+    def _make_coverage(self, rules: list[str], table: str) -> dict:
+        return {
+            "violations": [{"rule": r} for r in rules],
+            "markdown_table": table,
+        }
+
+    def test_rule_name_becomes_link(self):
+        cov = self._make_coverage(
+            ["hermetic_task.hermetic"],
+            "| 1 | `hermetic_task.hermetic` | 105 | Covered |",
+        )
+        out = mod._render_coverage_table(cov)
+        anchor = mod._violation_anchor("hermetic_task.hermetic")
+        assert f"[`hermetic_task.hermetic`](#{anchor})" in out
+
+    def test_rule_with_colon_becomes_link(self):
+        rule = "rpm_signature.allowed:9386b48a1a693c5c"
+        cov = self._make_coverage(
+            [rule],
+            f"| 1 | `{rule}` | 3 | Not covered |",
+        )
+        out = mod._render_coverage_table(cov)
+        anchor = mod._violation_anchor(rule)
+        assert f"[`{rule}`](#{anchor})" in out
+        assert ":#" not in out  # colon must not leak into the fragment
+
+    def test_multiple_rules_all_linked(self):
+        rules = ["hermetic_task.hermetic", "sbom_spdx.disallowed_package_attributes"]
+        table = "\n".join(f"| {i+1} | `{r}` | 1 | - |" for i, r in enumerate(rules))
+        cov = self._make_coverage(rules, table)
+        out = mod._render_coverage_table(cov)
+        for rule in rules:
+            anchor = mod._violation_anchor(rule)
+            assert f"[`{rule}`](#{anchor})" in out
+
+    def test_unrelated_backtick_content_not_linked(self):
+        # The word "conforma" in backticks should not be rewritten
+        cov = self._make_coverage(
+            ["hermetic_task.hermetic"],
+            "| 1 | `hermetic_task.hermetic` | 105 | Use `conforma` skill |",
+        )
+        out = mod._render_coverage_table(cov)
+        assert "[`conforma`]" not in out
+
+    def test_section_header_contains_matching_anchor(self, tmp_path, sample_violations_yaml, sample_catalog):
+        """The <a id> in the section header must match the link in the coverage table."""
+        cov = {
+            "summary": {"fully_covered": 0, "partially_covered": 0, "not_covered": 1, "total_violations": 1},
+            "violations": [
+                {
+                    "rule": "hermetic_task.hermetic",
+                    "title": "Hermetic",
+                    "total_components": 1,
+                    "covered_components": [],
+                    "uncovered_components": ["comp-a-v3-5-ea-2"],
+                    "covered_count": 0,
+                    "uncovered_count": 1,
+                    "open_merge_requests": [],
+                    "open_mr_label": "",
+                    "open_mr_search_url": "",
+                    "open_jira_tickets": [],
+                    "open_jira_label": "",
+                    "open_jira_search_url": "",
+                    "next_steps": "Fix",
+                    "next_steps_short": "Fix",
+                    "status_label": "Not covered",
+                    "coverage": "not_covered",
+                    "coverage_label": "not covered",
+                    "gate_status": "error",
+                    "violation_count": 1,
+                },
+            ],
+            "markdown_table": "| 1 | `hermetic_task.hermetic` | 1 | Not covered |",
+            "component_owners": {"comp-a-v3-5-ea-2": "AI Safety"},
+        }
+        cov_path = tmp_path / "coverage.json"
+        cov_path.write_text(json.dumps(cov))
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,H,d,fix\n'
+        )
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(cov_path),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+        anchor = mod._violation_anchor("hermetic_task.hermetic")
+        assert f'<a id="{anchor}"></a>' in content
+        assert f"[`hermetic_task.hermetic`](#{anchor})" in content
+
+
+class TestRenderComponentsTable:
+    """_render_components_table must render all five columns correctly."""
+
+    def _base_violation(self, **kwargs):
+        base = {
+            "uncovered_components": [],
+            "covered_components": [],
+            "exception_details_by_component": [],
+            "open_merge_requests": [],
+            "open_jira_tickets": [],
+        }
+        base.update(kwargs)
+        return base
+
+    def test_five_column_header(self):
+        v = self._base_violation(
+            uncovered_components=["comp-a-v3-5"],
+            exception_details_by_component=[{"component": "comp-a-v3-5", "file": None, "line": None, "effective_until": None, "url": None}],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {})
+        header = "\n".join(lines)
+        assert "| Component | Team | Exception | Merge Requests | JIRAs |" in header
+
+    def test_mr_cell_populated_by_stem_match(self):
+        v = self._base_violation(
+            uncovered_components=["odh-vllm-cpu-v3-5-ea-2"],
+            exception_details_by_component=[
+                {"component": "odh-vllm-cpu-v3-5-ea-2", "file": None, "line": None, "effective_until": None, "url": None}
+            ],
+            open_merge_requests=[
+                {
+                    "mr_iid": 777, "iid": 777, "url": "https://gl/777",
+                    "mr_type": "exception", "suggestion": "extend_mr",
+                    "mr_components": ["odh-vllm-cpu-v3-4", "odh-vllm-cpu-v3-5"],
+                    "covered": [], "missing": [],
+                }
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {})
+        row = next(l for l in lines if "odh-vllm-cpu-v3-5-ea-2" in l)
+        assert "[!777](https://gl/777)" in row
+
+    def test_no_overlap_exception_mr_excluded_from_component_column(self):
+        v = self._base_violation(
+            uncovered_components=["odh-vllm-cpu-v3-5-ea-2"],
+            exception_details_by_component=[
+                {"component": "odh-vllm-cpu-v3-5-ea-2", "file": None, "line": None, "effective_until": None, "url": None}
+            ],
+            open_merge_requests=[
+                {
+                    "mr_iid": 99, "iid": 99, "url": "https://gl/99",
+                    "mr_type": "exception", "suggestion": "no_overlap",
+                    "mr_components": [],
+                    "covered": [], "missing": [],
+                }
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {})
+        row = next(l for l in lines if "odh-vllm-cpu-v3-5-ea-2" in l)
+        assert "[!99]" not in row
+        assert "| — |" in row
+
+    def test_unscoped_jira_shows_possibly_related(self):
+        v = self._base_violation(
+            uncovered_components=["comp-a-v3-5", "comp-b-v3-5"],
+            exception_details_by_component=[
+                {"component": "comp-a-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+                {"component": "comp-b-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+            ],
+            open_jira_tickets=[
+                {"key": "PSX-1", "url": "https://jira/PSX-1", "matched_component_stems": []},
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {})
+        rows = [l for l in lines if l.startswith("| `")]
+        assert len(rows) == 2
+        assert all("[PSX-1](https://jira/PSX-1) (possibly related)" in r for r in rows)
+
+    def test_legacy_singular_matched_component_stem(self):
+        """Backward compat: singular matched_component_stem still works."""
+        v = self._base_violation(
+            uncovered_components=["odh-feature-server-v3-5", "odh-other-tool-v3-5"],
+            exception_details_by_component=[
+                {"component": "odh-feature-server-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+                {"component": "odh-other-tool-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+            ],
+            open_jira_tickets=[
+                {"key": "RHOAIENG-1", "url": "https://jira/1", "matched_component_stem": "odh-feature-server"},
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {})
+        feature_row = next(l for l in lines if "odh-feature-server-v3-5" in l)
+        other_row = next(l for l in lines if "odh-other-tool-v3-5" in l)
+        assert "[RHOAIENG-1]" in feature_row
+        assert "[RHOAIENG-1]" not in other_row
+
+    def test_scoped_jira_appears_only_on_matched_components(self):
+        """A ticket with matched_component_stems should only appear on matching rows."""
+        v = self._base_violation(
+            uncovered_components=["odh-feature-server-v3-5", "odh-other-tool-v3-5"],
+            exception_details_by_component=[
+                {"component": "odh-feature-server-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+                {"component": "odh-other-tool-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+            ],
+            open_jira_tickets=[
+                {"key": "RHOAIENG-1", "url": "https://jira/1", "matched_component_stems": ["odh-feature-server"]},
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {})
+        feature_row = next(l for l in lines if "odh-feature-server-v3-5" in l)
+        other_row = next(l for l in lines if "odh-other-tool-v3-5" in l)
+        assert "[RHOAIENG-1]" in feature_row
+        assert "[RHOAIENG-1]" not in other_row
+
+    def test_mr_deduplication_same_iid_across_versions(self):
+        """Same MR covering multiple versions of a component should appear only once per row."""
+        v = self._base_violation(
+            uncovered_components=["odh-comp-v3-5"],
+            exception_details_by_component=[
+                {"component": "odh-comp-v3-5", "file": None, "line": None, "effective_until": None, "url": None}
+            ],
+            open_merge_requests=[
+                {
+                    "mr_iid": 42, "iid": 42, "url": "https://gl/42",
+                    "mr_type": "exception", "suggestion": "extend_mr",
+                    "mr_components": ["odh-comp-v3-4", "odh-comp-v3-5", "odh-comp-v2-25"],
+                    "covered": [], "missing": [],
+                }
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {})
+        row = next(l for l in lines if "odh-comp-v3-5" in l)
+        assert row.count("[!42]") == 1
+
+    def test_empty_components_renders_nothing(self):
+        v = self._base_violation()
+        lines = []
+        mod._render_components_table(lines, v, {})
+        assert lines == []
+
+    def test_component_rows_sorted_alphabetically(self):
+        v = self._base_violation(
+            uncovered_components=["odh-zzz-v3-5", "odh-aaa-v3-5"],
+            exception_details_by_component=[
+                {"component": "odh-zzz-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+                {"component": "odh-aaa-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {})
+        rows = [l for l in lines if l.startswith("| `")]
+        assert "odh-aaa" in rows[0]
+        assert "odh-zzz" in rows[1]
+
+    def test_policy_files_linked_in_not_covered_cell(self):
+        policy_files = [
+            {"name": "fbc-rhoai-prod.yaml", "url": "https://gl/fbc"},
+            {"name": "registry-rhoai-prod.yaml", "url": "https://gl/reg"},
+        ]
+        v = self._base_violation(
+            uncovered_components=["comp-a-v3-5"],
+            exception_details_by_component=[
+                {"component": "comp-a-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {}, policy_files=policy_files)
+        row = next(l for l in lines if "comp-a-v3-5" in l)
+        assert "[fbc-rhoai-prod.yaml](https://gl/fbc)" in row
+        assert "[registry-rhoai-prod.yaml](https://gl/reg)" in row
+        assert "not in " in row
+
+    def test_policy_files_none_falls_back_to_plain_text(self):
+        v = self._base_violation(
+            uncovered_components=["comp-a-v3-5"],
+            exception_details_by_component=[
+                {"component": "comp-a-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {}, policy_files=None)
+        row = next(l for l in lines if "comp-a-v3-5" in l)
+        assert "not in policy files" in row
+
+    def test_slack_column_with_threads(self):
+        slack_threads = [
+            {"channel": "conforma", "permalink": "https://slack/t1", "date": "2026-06-20", "thread_reply_count": 5},
+        ]
+        v = self._base_violation(
+            uncovered_components=["comp-a-v3-5"],
+            exception_details_by_component=[
+                {"component": "comp-a-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {}, slack_threads=slack_threads, slack_search_url="https://slack/search")
+        header = next(l for l in lines if l.startswith("| Component"))
+        assert "| Slack |" in header
+        row = next(l for l in lines if "comp-a-v3-5" in l)
+        assert "[#conforma](https://slack/t1)" in row
+        assert "5 replies" in row
+
+    def test_slack_column_with_search_url_only(self):
+        v = self._base_violation(
+            uncovered_components=["comp-a-v3-5"],
+            exception_details_by_component=[
+                {"component": "comp-a-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {}, slack_threads=[], slack_search_url="https://slack/search")
+        row = next(l for l in lines if "comp-a-v3-5" in l)
+        assert "[search Slack](https://slack/search)" in row
+
+    def test_slack_column_omitted_when_not_required(self):
+        v = self._base_violation(
+            uncovered_components=["comp-a-v3-5"],
+            exception_details_by_component=[
+                {"component": "comp-a-v3-5", "file": None, "line": None, "effective_until": None, "url": None},
+            ],
+        )
+        lines = []
+        mod._render_components_table(lines, v, {})
+        header = next(l for l in lines if l.startswith("| Component"))
+        assert "Slack" not in header
+
+    def test_heading_contains_exception_coverage_fraction(self):
+        coverage_data = {
+            "violations": [
+                {
+                    "rule": "hermetic_task.hermetic",
+                    "total_components": 5,
+                    "covered_count": 3,
+                    "coverage": "partially_covered",
+                    "covered_components": ["c1", "c2", "c3"],
+                    "uncovered_components": ["c4", "c5"],
+                    "open_merge_requests": [],
+                    "open_jira_tickets": [],
+                },
+            ],
+            "component_owners": {},
+        }
+        catalog = {"violations": [], "fallback_references": []}
+        out = mod._render_resolution_guide(coverage_data, catalog)
+        assert "(3/5 have exceptions)" in out
+
+    def test_search_urls_rendered_inline(self):
+        coverage_data = {
+            "violations": [
+                {
+                    "rule": "hermetic_task.hermetic",
+                    "total_components": 1,
+                    "covered_count": 0,
+                    "coverage": "not_covered",
+                    "covered_components": [],
+                    "uncovered_components": ["c1"],
+                    "open_merge_requests": [],
+                    "open_jira_tickets": [],
+                    "open_mr_search_url": "https://gitlab.example.com/search",
+                    "open_jira_search_url": "https://jira.example.com/search",
+                },
+            ],
+            "component_owners": {},
+        }
+        catalog = {"violations": [], "fallback_references": []}
+        out = mod._render_resolution_guide(coverage_data, catalog)
+        assert "[search GitLab](https://gitlab.example.com/search)" in out
+        assert "[search Jira](https://jira.example.com/search)" in out
+
+
+class TestExecutiveSummaryFile:
+    """--executive-summary-file flag produces a compact summary for chat display."""
+
+    def test_executive_summary_written_when_flag_provided(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        es_path = tmp_path / "executive-summary.md"
+        mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(sample_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            executive_summary_file=str(es_path),
+        )
+
+        assert es_path.exists()
+        content = es_path.read_text()
+        assert "# Conforma Resolution Guide: rhoai-3.5-ea.2" in content
+        assert "## Executive Summary" in content
+        assert "## Summary" in content
+        assert "## Detailed Documents" in content
+
+    def test_executive_summary_not_written_when_flag_omitted(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(sample_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+
+        assert not (tmp_path / "executive-summary.md").exists()
+
+    def test_executive_summary_excludes_resolution_guide_content(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        es_path = tmp_path / "executive-summary.md"
+        mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(sample_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            executive_summary_file=str(es_path),
+        )
+
+        content = es_path.read_text()
+        assert "## Resolution Guide" not in content
+        assert "## Statistical Breakdown" not in content
+        assert "## Violations Coverage" not in content
+
+    def test_executive_summary_includes_analysis_output_link(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        es_path = tmp_path / "executive-summary.md"
+        analysis_path = str(tmp_path / "conforma-analysis.md")
+        mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(sample_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            executive_summary_file=str(es_path),
+            analysis_output_file=analysis_path,
+        )
+
+        content = es_path.read_text()
+        assert f"**Analysis Output**: `{analysis_path}`" in content
+
+    def test_full_guide_unchanged_with_executive_summary_flag(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        kwargs = dict(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(sample_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/release_day/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+
+        content_without = mod.generate_resolution_guide(**kwargs)
+        content_with = mod.generate_resolution_guide(
+            **kwargs,
+            executive_summary_file=str(tmp_path / "es.md"),
+        )
+
+        assert content_without == content_with
+
+
+class TestOpenLinksInNewTab:
+    def test_converts_external_http_links(self):
+        content = "See [docs](https://example.com/docs) for details."
+        result = mod._open_links_in_new_tab(content)
+        assert '<a href="https://example.com/docs" target="_blank">docs</a>' in result
+
+    def test_converts_https_links(self):
+        content = "[GitHub](https://github.com/org/repo)"
+        result = mod._open_links_in_new_tab(content)
+        assert '<a href="https://github.com/org/repo" target="_blank">GitHub</a>' in result
+
+    def test_preserves_internal_anchor_links(self):
+        content = "[section](#violation-hermetic_task-hermetic)"
+        result = mod._open_links_in_new_tab(content)
+        assert result == content
+
+    def test_preserves_image_links(self):
+        content = "![alt](https://example.com/image.png)"
+        result = mod._open_links_in_new_tab(content)
+        assert result == content
+
+    def test_handles_mixed_link_types(self):
+        content = (
+            "[anchor](#summary) and "
+            "[external](https://example.com) and "
+            "![img](https://example.com/img.png)"
+        )
+        result = mod._open_links_in_new_tab(content)
+        assert "[anchor](#summary)" in result
+        assert '<a href="https://example.com" target="_blank">external</a>' in result
+        assert "![img](https://example.com/img.png)" in result
+
+    def test_handles_inline_code_labels(self):
+        content = "[`hermetic_task.hermetic`](https://github.com/org/repo/blob/main/file.yaml)"
+        result = mod._open_links_in_new_tab(content)
+        assert 'target="_blank"' in result
+        assert "`hermetic_task.hermetic`" in result
+
+    def test_no_links_unchanged(self):
+        content = "Just plain text without any links."
+        result = mod._open_links_in_new_tab(content)
+        assert result == content
+
+    def test_multiple_links_on_same_line(self):
+        content = "[a](https://a.com), [b](https://b.com)"
+        result = mod._open_links_in_new_tab(content)
+        assert '<a href="https://a.com" target="_blank">a</a>' in result
+        assert '<a href="https://b.com" target="_blank">b</a>' in result

@@ -36,15 +36,15 @@ def tmp_csv(tmp_path):
     csv_content = (
         "type,component_name,image,message,effective_on,code,title,description,solution\n"
         'violation,odh-model-server-v3-4,quay.io/img:sha,"Task is not hermetic",2026-01-01,'
-        "hermetic_task.hermetic,Hermetic build required,Must be hermetic,Enable hermetic builds\n"
+        'hermetic_task.hermetic,Hermetic build required,"To exclude this rule add ""hermetic_task.hermetic"" to the `exclude` section.",Enable hermetic builds\n'
         'violation,odh-modelmesh-v3-4,quay.io/img2:sha,"Task ""prefetch-dependencies"" '
         'is not trusted",2026-01-01,trusted_task.trusted,Task must be trusted,'
-        "Untrusted task,Upgrade task\n"
+        '"To exclude this rule add ""trusted_task.trusted"" to the `exclude` section.",Upgrade task\n'
         'warning,odh-other-v3-4,quay.io/img3:sha,"Minor issue",2026-01-01,'
         "some_warning.code,Warning title,Warning desc,Fix it\n"
         'violation,odh-vllm-v3-4,quay.io/img4:sha,"RPM not signed with allowed key '
         '1234567890abcdef",2026-02-01,rpm_signature.allowed,RPM signing required,'
-        "RPMs must be signed,Sign RPMs\n"
+        '"To exclude this rule add ""rpm_signature.allowed:1234567890abcdef"" to the `exclude` section.",Sign RPMs\n'
     )
     csv_file = tmp_path / "rhoai-3.4.csv"
     csv_file.write_text(csv_content)

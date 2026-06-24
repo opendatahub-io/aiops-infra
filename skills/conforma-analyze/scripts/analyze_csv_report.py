@@ -28,6 +28,8 @@ Usage:
 
 from __future__ import annotations
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
 import argparse
 import csv
 import json
@@ -37,6 +39,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import conforma_counting
 
 
 @dataclass
@@ -51,6 +55,8 @@ class ViolationRecord:
     description: str
     solution: str
     release: str = ""
+    full_violation_code: str = ""
+    semantic_detail: str = ""
 
 
 DEFAULT_UPCOMING_THRESHOLD_DAYS = 21
@@ -70,6 +76,7 @@ class UpcomingViolation:
 @dataclass
 class AnalysisResult:
     total_violations: int = 0
+    total_csv_rows: int = 0
     unique_codes: int = 0
     unique_components: int = 0
     violations_by_code: dict = field(default_factory=dict)
@@ -85,25 +92,27 @@ class AnalysisResult:
 
 def load_csv(csv_path: Path, release: str = "") -> list[ViolationRecord]:
     """Load violation records from a CSV file."""
-    records = []
-    with open(csv_path, encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            records.append(
-                ViolationRecord(
-                    type=row.get("type", "").strip(),
-                    component_name=row.get("component_name", "").strip(),
-                    image=row.get("image", "").strip(),
-                    message=row.get("message", "").strip(),
-                    effective_on=row.get("effective_on", "").strip(),
-                    code=row.get("code", "").strip(),
-                    title=row.get("title", "").strip(),
-                    description=row.get("description", "").strip(),
-                    solution=row.get("solution", "").strip(),
-                    release=release or csv_path.stem,
-                )
-            )
-    return [r for r in records if r.type == "violation"]
+    from parse_violations import parse_csv_file
+
+    raw_release = release or csv_path.stem
+    records = parse_csv_file(csv_path, raw_release)
+    return [
+        ViolationRecord(
+            type=rec["type"],
+            component_name=rec["component_name"],
+            image=rec["image"],
+            message=rec["message"],
+            effective_on=rec["effective_on"],
+            code=rec["code"],
+            title=rec["title"],
+            description=rec["description"],
+            solution=rec["solution"],
+            release=rec["release"],
+            full_violation_code=rec["full_violation_code"],
+            semantic_detail=rec["semantic_detail"],
+        )
+        for rec in records
+    ]
 
 
 def load_reports_dir(reports_dir: Path) -> list[ViolationRecord]:
@@ -344,15 +353,36 @@ def analyze(
 ) -> AnalysisResult:
     """Run the full analysis pipeline on a set of violation records."""
     result = AnalysisResult()
-    result.total_violations = len(records)
+    counts = conforma_counting.count_from_records(
+        records,
+        code_field="code",
+        component_field="component_name",
+        detail_field="semantic_detail",
+        full_code_field="full_violation_code",
+    )
+    result.total_violations = counts.violations
+    result.total_csv_rows = counts.image_occurrences
 
-    code_counts = Counter(r.code for r in records)
-    result.unique_codes = len(code_counts)
+    seen_violations: set[tuple[str, str, str]] = set()
+    code_violation_counts: Counter[str] = Counter()
+    for r in records:
+        key = (r.code, r.component_name, r.semantic_detail)
+        if key not in seen_violations:
+            seen_violations.add(key)
+            code_violation_counts[r.code] += 1
 
-    component_counts = Counter(r.component_name for r in records)
-    result.unique_components = len(component_counts)
+    result.unique_codes = len(code_violation_counts)
 
-    for code, count in code_counts.most_common():
+    component_violations: Counter[str] = Counter()
+    seen_comp: set[tuple[str, str, str]] = set()
+    for r in records:
+        key = (r.code, r.component_name, r.semantic_detail)
+        if key not in seen_comp:
+            seen_comp.add(key)
+            component_violations[r.component_name] += 1
+    result.unique_components = len(component_violations)
+
+    for code, count in code_violation_counts.most_common():
         code_records = [r for r in records if r.code == code]
         components = sorted(set(r.component_name for r in code_records))
         result.violations_by_code[code] = {
@@ -363,7 +393,7 @@ def analyze(
             "components": components,
         }
 
-    for comp, count in component_counts.most_common():
+    for comp, count in component_violations.most_common():
         comp_records = [r for r in records if r.component_name == comp]
         result.violations_by_component[comp] = {
             "count": count,
@@ -374,7 +404,7 @@ def analyze(
     result.rpm_signature_details = extract_rpm_signature_details(records)
     result.component_patterns = compute_component_patterns(records)
     result.effective_dates = compute_effective_dates(records)
-    result.priority_recommendations = generate_priority_recommendations(records, code_counts, result.untrusted_tasks)
+    result.priority_recommendations = generate_priority_recommendations(records, code_violation_counts, result.untrusted_tasks)
 
     if upcoming:
         result.upcoming_violations = upcoming
@@ -429,6 +459,7 @@ def format_text(result: AnalysisResult, component_owners: dict[str, str | None] 
     lines.append("=" * 80)
     lines.append("")
     lines.append(f"Total violations:       {result.total_violations}")
+    lines.append(f"Source CSV rows:        {result.total_csv_rows}")
     lines.append(f"Unique violation codes:  {result.unique_codes}")
     lines.append(f"Components affected:     {result.unique_components}")
     lines.append("")
@@ -518,6 +549,7 @@ def format_markdown(result: AnalysisResult, component_owners: dict[str, str | No
     lines.append("| Metric | Value |")
     lines.append("|--------|-------|")
     lines.append(f"| Total violations | {result.total_violations} |")
+    lines.append(f"| Source CSV rows | {result.total_csv_rows} |")
     lines.append(f"| Unique violation codes | {result.unique_codes} |")
     lines.append(f"| Components affected | {result.unique_components} |")
     lines.append("")
@@ -606,6 +638,7 @@ def format_json(result: AnalysisResult, component_owners: dict[str, str | None] 
     data: dict = {
         "summary": {
             "total_violations": result.total_violations,
+            "total_csv_rows": result.total_csv_rows,
             "unique_codes": result.unique_codes,
             "unique_components": result.unique_components,
         },

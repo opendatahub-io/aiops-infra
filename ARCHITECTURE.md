@@ -116,7 +116,7 @@ These `conforma_*_ops.py` modules encapsulate cross-skill conforma logic used by
 
 **Domain-specific shared** (goes in `conforma_*_ops.py`):
 - `conforma_mr_ops.search_open_exception_mrs(rule)` — searches konflux-release-data Merge Requests
-- `conforma_policy_ops.check_existing_exception_gate(rule, components)` — coverage gate
+- `conforma_policy_ops.check_existing_exception_gate(rule, components, policy_files)` — coverage gate
 - `conforma_jira_ops.prefetch_open_jira_tickets(rules, releases)` — batch Jira search
 
 **Skill-local** (stays in skill scripts):

@@ -1,0 +1,86 @@
+# Conforma Violation Semantic Detail Catalog
+#
+# This file is the PRIMARY method for extracting the "semantic detail" from
+# each violation — the actionable root cause that defines a unique violation.
+#
+# A violation = (violation_code + component + semantic_detail).
+# Multiple CSV rows sharing the same triple are the SAME violation (checked
+# on different image digests or listing different packages with the same
+# root cause).
+#
+# The semantic detail is SEPARATE from the full_violation_code (extracted by
+# _extract_full_violation_code()). The full_violation_code is used only for
+# policy-matching when filing exceptions — it often contains per-package
+# PURLs that are too granular for counting or display.
+#
+# Fields:
+#   detail_label  — human-readable name for the detail (shown in reports)
+#   extraction.field — where to extract from:
+#       "message" — the CSV message field
+#       "full_violation_code_suffix" — the part after ":" in the full_violation_code
+#   extraction.pattern — regex with capture groups
+#   extraction.group — which capture group to return (1-indexed)
+#   extraction.format — optional format string combining groups (e.g. "{1}={2}")
+#
+# Fallback (_default): when a violation code has no entry here, the
+# full_violation_code suffix is used as the semantic detail verbatim.
+
+rules:
+  rpm_repos.ids_known:
+    detail_label: "repository ID"
+    extraction:
+      field: "message"
+      pattern: "repository_id=([^&\"\\s]+)"
+      group: 1
+
+  sbom_spdx.disallowed_package_attributes:
+    detail_label: "disallowed attribute"
+    extraction:
+      field: "message"
+      pattern: "has the attribute \"([^\"]+)\" set to \"([^\"]+)\""
+      format: "{1}={2}"
+
+  rpm_packages.unique_version:
+    detail_label: "package name"
+    extraction:
+      field: "full_violation_code_suffix"
+      pattern: "^(.+)$"
+      group: 1
+
+  rpm_signature.allowed:
+    detail_label: "signing key"
+    extraction:
+      field: "full_violation_code_suffix"
+      pattern: "^([0-9a-fA-F]+)$"
+      group: 1
+
+  sbom_spdx.allowed_package_sources:
+    detail_label: "disallowed source"
+    extraction:
+      field: "message"
+      pattern: "sourced from \"([^\"]+)\""
+      group: 1
+
+  hermetic_task.hermetic:
+    detail_label: null
+
+  test.no_failed_tests:
+    detail_label: "task name"
+    extraction:
+      field: "full_violation_code_suffix"
+      pattern: "^(.+)$"
+      group: 1
+
+  test.no_erred_tests:
+    detail_label: "task name"
+    extraction:
+      field: "full_violation_code_suffix"
+      pattern: "^(.+)$"
+      group: 1
+
+_default:
+  detail_label: "detail"
+  extraction:
+    field: "full_violation_code_suffix"
+    pattern: "^(.+)$"
+    group: 1

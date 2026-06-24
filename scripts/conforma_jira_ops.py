@@ -60,6 +60,57 @@ def _strip_version_suffix(name: str) -> str:
     return _VERSION_SUFFIX_RE.sub("", name)
 
 
+_PLUS_N_MORE_RE = re.compile(r"\s*\(\+\d+\s+more\)\s*$")
+
+
+def _extract_components_from_summary(summary: str) -> list[str]:
+    """Extract component stems from a deterministic Jira summary.
+
+    Expected format (with optional vendor tag and summary context):
+        [vendor_tag] [purpose_tag] {rule} - {comp1}, {comp2} (+N more) - rhoai-X.Y
+        [vendor_tag] [purpose_tag] {rule} - {comp1} - rhoai-X.Y - {context}
+    """
+    parts = summary.split(" - ")
+    if len(parts) < 3:
+        return []
+    comp_segment = parts[-2] if len(parts) == 3 else parts[1]
+    comp_segment = _PLUS_N_MORE_RE.sub("", comp_segment).strip()
+    if not comp_segment:
+        return []
+    raw_names = [n.strip() for n in comp_segment.split(", ") if n.strip()]
+    return [_strip_version_suffix(n) for n in raw_names if n]
+
+
+def _extract_components_from_description(description: str) -> list[str]:
+    """Extract the full component list from a Jira description.
+
+    Looks for the deterministic ``Components: comp1, comp2, ...`` line
+    produced by ``create_jira_ticket.py``.
+    """
+    if not description:
+        return []
+    for line in description.splitlines():
+        line = line.strip()
+        if line.startswith("Components:"):
+            raw = line[len("Components:"):].strip()
+            if not raw:
+                return []
+            return [_strip_version_suffix(n.strip()) for n in raw.split(", ") if n.strip()]
+    return []
+
+
+def _extract_component_stems(summary: str, description: str | None = None) -> list[str]:
+    """Extract component stems from summary and/or description.
+
+    Prefers description (full list, no truncation) over summary.
+    """
+    if description:
+        stems = _extract_components_from_description(description)
+        if stems:
+            return stems
+    return _extract_components_from_summary(summary)
+
+
 def _infer_rule_from_text(text: str, rule: str) -> str:
     """Infer whether *text* (summary + description) is about *rule*.
 
@@ -190,7 +241,7 @@ def prefetch_open_jira_tickets(
         "AND labels = 'conforma-violation' "
         "AND status not in (Closed, Resolved, Done)"
     )
-    result = jira_ops.search_issues(jql, max_results=200, fields=["key", "summary", "status", "issuetype", "fixVersions"])
+    result = jira_ops.search_issues(jql, max_results=200, fields=["key", "summary", "status", "issuetype", "fixVersions", "description"])
     if result.get("issues"):
         all_tickets = [
             {
@@ -198,6 +249,7 @@ def prefetch_open_jira_tickets(
                 "type": t.get("type", ""),
                 "status": t.get("status", ""),
                 "summary": t.get("summary", ""),
+                "description": t.get("description") or "",
                 "url": t["url"],
                 "fix_versions": t.get("fix_versions", []),
             }
@@ -217,7 +269,9 @@ def prefetch_open_jira_tickets(
                 matched = suffix_nospace in summary_nospace
             if matched:
                 if not version_patterns or _ticket_matches_release(ticket, version_patterns):
-                    rule_to_tickets[rule].append(ticket)
+                    stems = _extract_component_stems(ticket["summary"], ticket.get("description"))
+                    ticket_copy = {**ticket, "matched_component_stems": stems}
+                    rule_to_tickets[rule].append(ticket_copy)
                 break
 
     unmatched = [r for r, tickets in rule_to_tickets.items() if not tickets]
@@ -226,7 +280,7 @@ def prefetch_open_jira_tickets(
             f"{SEARCH_PROJECTS_JQL} AND labels = '{rule}' "
             f"AND status not in (Closed, Resolved, Done)"
         )
-        label_result = jira_ops.search_issues(label_jql, max_results=50, fields=["key", "summary", "status", "issuetype", "fixVersions"])
+        label_result = jira_ops.search_issues(label_jql, max_results=50, fields=["key", "summary", "status", "issuetype", "fixVersions", "description"])
         if label_result.get("issues"):
             for ticket in label_result["issues"]:
                 normalized = {
@@ -234,8 +288,12 @@ def prefetch_open_jira_tickets(
                     "type": ticket.get("type", ""),
                     "status": ticket.get("status", ""),
                     "summary": ticket.get("summary", ""),
+                    "description": ticket.get("description") or "",
                     "url": ticket["url"],
                     "fix_versions": ticket.get("fix_versions", []),
+                    "matched_component_stems": _extract_component_stems(
+                        ticket.get("summary", ""), ticket.get("description")
+                    ),
                 }
                 existing_keys = {t["key"] for t in rule_to_tickets[rule]}
                 if normalized["key"] not in existing_keys:
@@ -254,7 +312,7 @@ def prefetch_open_jira_tickets(
             f"AND summary ~ '{rule_search_term}'"
         )
         summary_result = jira_ops.search_issues(
-            summary_jql, max_results=50, fields=["key", "summary", "status", "issuetype", "fixVersions"]
+            summary_jql, max_results=50, fields=["key", "summary", "status", "issuetype", "fixVersions", "description"]
         )
         if summary_result.get("issues"):
             for ticket in summary_result["issues"]:
@@ -263,8 +321,12 @@ def prefetch_open_jira_tickets(
                     "type": ticket.get("type", ""),
                     "status": ticket.get("status", ""),
                     "summary": ticket.get("summary", ""),
+                    "description": ticket.get("description") or "",
                     "url": ticket["url"],
                     "fix_versions": ticket.get("fix_versions", []),
+                    "matched_component_stems": _extract_component_stems(
+                        ticket.get("summary", ""), ticket.get("description")
+                    ),
                 }
                 existing_keys = {t["key"] for t in rule_to_tickets[rule]}
                 if normalized["key"] not in existing_keys:
@@ -318,12 +380,11 @@ def prefetch_open_jira_tickets(
                 inference_text = (ticket.get("summary", "") + " " + (ticket.get("description") or ""))
                 confidence = _infer_rule_from_text(inference_text, rule)
 
-                matched_stem = ""
+                matched_stems: list[str] = []
                 text_lower = inference_text.lower()
                 for s in stems:
                     if s.lower() in text_lower:
-                        matched_stem = s
-                        break
+                        matched_stems.append(s)
 
                 normalized = {
                     "key": ticket["key"],
@@ -334,7 +395,7 @@ def prefetch_open_jira_tickets(
                     "fix_versions": ticket.get("fix_versions", []),
                     "match_source": "component_inference",
                     "inference_confidence": confidence,
-                    "matched_component_stem": matched_stem,
+                    "matched_component_stems": matched_stems,
                 }
                 rule_to_tickets[rule].append(normalized)
                 all_existing_keys.add(ticket["key"])

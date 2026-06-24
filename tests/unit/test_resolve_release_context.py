@@ -87,6 +87,12 @@ class TestParseQuery:
     def test_dash_separated_double_digit_minor(self):
         assert mod.parse_query("rhoai-2-25") == "v2.25"
 
+    def test_rhoai_dot_separator_with_ea(self):
+        assert mod.parse_query("rhoai.3-5 ea2") == "v3.5-ea.2"
+
+    def test_rhoai_dot_separator_ga(self):
+        assert mod.parse_query("rhoai.3-4") == "v3.4"
+
 
 # ---------------------------------------------------------------------------
 # version derivation tests (pure logic)

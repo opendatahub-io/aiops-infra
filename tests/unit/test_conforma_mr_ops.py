@@ -117,6 +117,7 @@ class TestClassifyMrType:
 class TestAnalyzeMrComponentCoverage:
     def setup_method(self):
         mod._mr_cache._diffs.clear()
+        mod._thread_local.__dict__.clear()
 
     def test_fully_covered_from_prefetched_diff(self):
         diff = (
@@ -504,3 +505,242 @@ class TestParseComponentsFromDescription:
         desc = "### `rhoai-3.4`\n**Components**:\n- `odh-dashboard-v3-4`\n"
         result = mod._parse_components_from_description(desc)
         assert "odh-dashboard-v3-4" in result
+
+
+# ---------------------------------------------------------------------------
+# _extract_all_rules_from_changes
+# ---------------------------------------------------------------------------
+
+
+class TestExtractAllRulesFromChanges:
+    """Unit tests for _extract_all_rules_from_changes."""
+
+    def _make_change(self, diff: str, path: str = "EnterpriseContractPolicy/registry-rhoai-prod.yaml") -> dict:
+        return {"new_path": path, "diff": diff}
+
+    def test_volatile_exception_single_rule(self):
+        diff = "+  - value: hermetic_task.hermetic\n+    effectiveUntil: \"2026-12-31\"\n"
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert result == {"hermetic_task.hermetic"}
+
+    def test_volatile_exception_multiple_rules(self):
+        diff = (
+            "+  - value: hermetic_task.hermetic\n"
+            "+    effectiveUntil: \"2026-12-31\"\n"
+            "+  - value: prefetch_dependencies.mode_not_permissive\n"
+        )
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert result == {"hermetic_task.hermetic", "prefetch_dependencies.mode_not_permissive"}
+
+    def test_permanent_exclusion_bare_rule(self):
+        diff = "+    - rpm_signature.allowed:9386b48a1a693c5c\n"
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert result == {"rpm_signature.allowed:9386b48a1a693c5c"}
+
+    def test_ignores_non_policy_paths(self):
+        diff = "+  - value: hermetic_task.hermetic\n"
+        change = self._make_change(diff, path="tekton/pipeline/push.yaml")
+        result = mod._extract_all_rules_from_changes([change])
+        assert result == set()
+
+    def test_ignores_removed_lines(self):
+        diff = "-  - value: hermetic_task.hermetic\n"
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert result == set()
+
+    def test_ignores_context_lines(self):
+        diff = "   - value: hermetic_task.hermetic\n"
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert result == set()
+
+    def test_component_names_not_extracted_as_rules(self):
+        # Component names start with "odh-" and have no dots — must not be extracted
+        diff = "+    - odh-dashboard-v3-5-ea-2\n"
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert result == set()
+
+    def test_empty_changes(self):
+        assert mod._extract_all_rules_from_changes([]) == set()
+
+    def test_multiple_policy_files_merged(self):
+        diff_a = "+  - value: hermetic_task.hermetic\n"
+        diff_b = "+  - value: sbom_spdx.disallowed_package_attributes\n"
+        changes = [
+            self._make_change(diff_a, "EnterpriseContractPolicy/registry-a.yaml"),
+            self._make_change(diff_b, "EnterpriseContractPolicy/registry-b.yaml"),
+        ]
+        result = mod._extract_all_rules_from_changes(changes)
+        assert result == {"hermetic_task.hermetic", "sbom_spdx.disallowed_package_attributes"}
+
+
+# ---------------------------------------------------------------------------
+# rules_in_diff and title_mentions_rule in analyze_mr_component_coverage
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyzeMrRulesInDiff:
+    """Ensure analyze_mr_component_coverage populates rules_in_diff and title_mentions_rule."""
+
+    def setup_method(self):
+        mod._mr_cache._diffs.clear()
+
+    def _store(self, iid: int, diff: str) -> None:
+        mod._mr_cache.store(
+            iid,
+            [{"new_path": "EnterpriseContractPolicy/registry-rhoai-prod.yaml", "diff": diff}],
+        )
+
+    def test_rules_in_diff_populated(self):
+        self._store(
+            101,
+            "+  - value: hermetic_task.hermetic\n"
+            "+  - value: prefetch_dependencies.mode_not_permissive\n",
+        )
+        result = mod.analyze_mr_component_coverage(
+            mr_iid=101, rule="hermetic_task.hermetic", requested_components=["comp-a"]
+        )
+        assert "hermetic_task.hermetic" in result["rules_in_diff"]
+        assert "prefetch_dependencies.mode_not_permissive" in result["rules_in_diff"]
+
+    def test_rules_in_diff_empty_for_remedy_mr(self):
+        # Remedy MR: changes source code, not policy files
+        mod._mr_cache.store(
+            102,
+            [{"new_path": "tekton/pipeline/push.yaml", "diff": "+  - step: build\n"}],
+        )
+        result = mod.analyze_mr_component_coverage(
+            mr_iid=102, rule="hermetic_task.hermetic", requested_components=[]
+        )
+        assert result["rules_in_diff"] == []
+
+    def test_title_mentions_rule_false_when_no_title(self):
+        self._store(103, "+  - value: hermetic_task.hermetic\n")
+        result = mod.analyze_mr_component_coverage(
+            mr_iid=103, rule="hermetic_task.hermetic", requested_components=[]
+        )
+        # result_base doesn't get a "title" key from this path — mentions defaults to False
+        assert isinstance(result.get("title_mentions_rule"), bool)
+
+    def test_title_mentions_rule_true_via_description(self):
+        self._store(104, "+  - value: hermetic_task.hermetic\n")
+        result = mod.analyze_mr_component_coverage(
+            mr_iid=104,
+            rule="hermetic_task.hermetic",
+            requested_components=[],
+            mr_description="Exception for hermetic_task.hermetic violations",
+        )
+        assert result["title_mentions_rule"] is True
+
+    def test_title_mentions_rule_false_for_cross_indexed_mr(self):
+        # MR title is about a different rule; diff covers hermetic
+        self._store(105, "+  - value: hermetic_task.hermetic\n")
+        result = mod.analyze_mr_component_coverage(
+            mr_iid=105,
+            rule="hermetic_task.hermetic",
+            requested_components=[],
+            mr_description="Fix prefetch pipeline configuration",
+        )
+        assert result["title_mentions_rule"] is False
+
+
+# ---------------------------------------------------------------------------
+# prefetch_open_mrs cross-indexing
+# ---------------------------------------------------------------------------
+
+
+class TestPrefetchOpenMrsCrossIndex:
+    """Verify that prefetch_open_mrs adds diff-discovered MRs to the right rules."""
+
+    def setup_method(self):
+        mod._mr_cache._diffs.clear()
+
+    def test_cross_index_adds_mr_to_rule_not_found_by_text_search(self):
+        # Text search only finds MR 200 for 'hermetic_task.hermetic'.
+        # But MR 200's diff also covers 'prefetch_dependencies.mode_not_permissive'.
+        # After cross-indexing, MR 200 should appear under both rules.
+        mod._mr_cache.store(
+            200,
+            [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
+                "+  - value: hermetic_task.hermetic\n"
+                "+  - value: prefetch_dependencies.mode_not_permissive\n"
+            )}],
+        )
+        hermetic_mr = {"iid": 200, "title": "hermetic exception", "url": "https://gl/!200", "author": "", "created_at": "", "description": ""}
+
+        with (
+            patch("conforma_mr_ops.search_open_exception_mrs") as mock_search,
+            patch("conforma_mr_ops._mr_cache.prefetch"),
+        ):
+            def side_effect(rule):
+                if rule == "hermetic_task.hermetic":
+                    return [hermetic_mr]
+                return []
+
+            mock_search.side_effect = side_effect
+            result = mod.prefetch_open_mrs(["hermetic_task.hermetic", "prefetch_dependencies.mode_not_permissive"])
+
+        # hermetic should be present from text search
+        assert any(m["iid"] == 200 for m in result["hermetic_task.hermetic"])
+        # prefetch should be cross-indexed from diff
+        assert any(m["iid"] == 200 for m in result["prefetch_dependencies.mode_not_permissive"])
+
+    def test_cross_indexed_mr_marked_found_by_text_search_false(self):
+        mod._mr_cache.store(
+            201,
+            [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
+                "+  - value: hermetic_task.hermetic\n"
+                "+  - value: sbom_spdx.disallowed_package_attributes\n"
+            )}],
+        )
+        hermetic_mr = {"iid": 201, "title": "hermetic exception", "url": "https://gl/!201", "author": "", "created_at": "", "description": ""}
+
+        with (
+            patch("conforma_mr_ops.search_open_exception_mrs") as mock_search,
+            patch("conforma_mr_ops._mr_cache.prefetch"),
+        ):
+            mock_search.side_effect = lambda r: [hermetic_mr] if r == "hermetic_task.hermetic" else []
+            result = mod.prefetch_open_mrs(["hermetic_task.hermetic", "sbom_spdx.disallowed_package_attributes"])
+
+        sbom_mrs = result["sbom_spdx.disallowed_package_attributes"]
+        assert any(m["iid"] == 201 for m in sbom_mrs)
+        cross_entry = next(m for m in sbom_mrs if m["iid"] == 201)
+        assert cross_entry["found_by_text_search"] is False
+
+    def test_text_search_mr_marked_found_by_text_search_true(self):
+        mod._mr_cache.store(
+            202,
+            [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": "+  - value: hermetic_task.hermetic\n"}],
+        )
+        hermetic_mr = {"iid": 202, "title": "hermetic exception", "url": "", "author": "", "created_at": "", "description": ""}
+
+        with (
+            patch("conforma_mr_ops.search_open_exception_mrs") as mock_search,
+            patch("conforma_mr_ops._mr_cache.prefetch"),
+        ):
+            mock_search.side_effect = lambda r: [hermetic_mr] if r == "hermetic_task.hermetic" else []
+            result = mod.prefetch_open_mrs(["hermetic_task.hermetic"])
+
+        entry = next(m for m in result["hermetic_task.hermetic"] if m["iid"] == 202)
+        assert entry["found_by_text_search"] is True
+
+    def test_no_duplicate_mr_after_cross_index(self):
+        # MR 203's text search returns it for both rules AND diff also covers both.
+        # Must not appear twice for the same rule.
+        mod._mr_cache.store(
+            203,
+            [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
+                "+  - value: hermetic_task.hermetic\n"
+                "+  - value: prefetch_dependencies.mode_not_permissive\n"
+            )}],
+        )
+        mr = {"iid": 203, "title": "multi-rule exception", "url": "", "author": "", "created_at": "", "description": ""}
+
+        with (
+            patch("conforma_mr_ops.search_open_exception_mrs") as mock_search,
+            patch("conforma_mr_ops._mr_cache.prefetch"),
+        ):
+            mock_search.side_effect = lambda _: [mr]
+            result = mod.prefetch_open_mrs(["hermetic_task.hermetic", "prefetch_dependencies.mode_not_permissive"])
+
+        hermetic_iids = [m["iid"] for m in result["hermetic_task.hermetic"]]
+        assert hermetic_iids.count(203) == 1

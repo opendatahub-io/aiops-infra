@@ -7,6 +7,7 @@ environment context for confirmation before proceeding with a conforma workflow.
 
 Usage:
     python3 scripts/resolve_release_context.py --query "rhoai-3.5-ea.1"
+    python3 scripts/resolve_release_context.py --query "rhoai.3-5 ea2"
     python3 scripts/resolve_release_context.py --query "3.4"
     python3 scripts/resolve_release_context.py --list
 """
@@ -21,6 +22,7 @@ import sys
 
 import gitlab_ops
 import konflux_environment
+import release_dates
 
 
 # ---------------------------------------------------------------------------
@@ -60,8 +62,8 @@ def parse_query(raw: str) -> str | None:
     if not text:
         return None
 
-    # Strip leading "rhoai" with optional separator
-    text = re.sub(r"^rhoai[\s\-]*", "", text)
+    # Strip leading "rhoai" with optional separator (dash, dot, space, or combination)
+    text = re.sub(r"^rhoai[\s.\-]*", "", text)
 
     # Strip leading "v" if present
     text = re.sub(r"^v", "", text)
@@ -187,6 +189,7 @@ def _format_resolved(
     tenant: str,
     policy_dir: str,
     links: dict | None = None,
+    end_of_support: str | None = None,
 ) -> str:
     release = version_to_release(version_dir)
     app = version_to_konflux_app(version_dir)
@@ -203,6 +206,8 @@ def _format_resolved(
     if links and links.get("policy_files"):
         policy_file_links = [f"[{f['name']}]({f['url']})" for f in links["policy_files"]]
 
+    eos_text = end_of_support if end_of_support else "Unknown (not in release_dates.yaml)"
+
     lines = [
         "### Conforma Workflow \u2014 Context Confirmation",
         "",
@@ -215,6 +220,7 @@ def _format_resolved(
         f"| **Tenant** | {tenant} |",
         f"| **Conforma policy dir** | {policy_dir_text} |",
         f"| **Environment** | prod |",
+        f"| **End of Support** | {eos_text} |",
     ]
     if policy_file_links:
         files_cell = "<br>".join(f"• {link}" for link in policy_file_links)
@@ -334,22 +340,28 @@ def resolve(query: str) -> dict:
         policy_files_raw = os.environ.get("KONFLUX_CONFORMA_POLICY_FILES", "")
         policy_files = [f.strip() for f in policy_files_raw.split(",") if f.strip()]
         app_slug = "rhoai"
+        release_branch = version_to_release(v)
         konflux_app = version_to_konflux_app(v)
+        eos_date = release_dates.get_eos_date(release_branch)
         links = _build_links(
             cluster_domain, policy_dir, gitlab_host, gitlab_project, policy_files, app_slug,
             tenant=tenant, konflux_app=konflux_app, environment="prod",
         )
-        display = _format_resolved(query, v, cluster_domain, tenant, policy_dir, links)
+        display = _format_resolved(
+            query, v, cluster_domain, tenant, policy_dir, links,
+            end_of_support=eos_date,
+        )
         return {
             "status": "resolved",
-            "release": version_to_release(v),
-            "konflux_app": version_to_konflux_app(v),
+            "release": release_branch,
+            "konflux_app": konflux_app,
             "version_dir": v,
             "cluster_domain": cluster_domain,
             "cluster_id": cluster_id,
             "tenant": tenant,
             "conforma_policy_dir": policy_dir,
             "environment": "prod",
+            "end_of_support": eos_date,
             "available_versions": available,
             "links": links,
             "confirmation_display": display,

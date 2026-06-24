@@ -72,6 +72,13 @@ def _check_konflux() -> dict:
     Auto-discovery depends on GitLab auth. If GitLab is not configured, this
     check reports the dependency rather than a generic "discovery failed".
     """
+    # The module-level load() may have skipped discovery because the connectivity
+    # state file didn't exist yet. _check_gitlab_auth() writes it on success, so
+    # retry discovery here now that the state file exists.
+    if not os.environ.get("KONFLUX_CLUSTER_DOMAIN") and os.environ.get("KONFLUX_TENANT"):
+        konflux_environment._loaded = False
+        konflux_environment.load()
+
     has_tenant = bool(os.environ.get("KONFLUX_TENANT"))
     has_cluster_domain = bool(os.environ.get("KONFLUX_CLUSTER_DOMAIN"))
 
@@ -124,9 +131,12 @@ def _check_konflux() -> dict:
     try:
         import konflux_tenant_env_discovery
         konflux_tenant_env_discovery.discover(tenant, preferred_cluster=preferred)
-        # If this succeeds, CLUSTER_DOMAIN should now be set (via load's cache).
-        # Shouldn't normally reach here since load() already tried, but handle it.
-        return {"ok": True, "name": "konflux", "error": None, "fix": None}
+        # Discovery succeeded — derive secondary vars so everything is consistent.
+        konflux_environment.load()
+        cluster_domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
+        cluster_id = cluster_domain.split(".")[0] if cluster_domain else ""
+        detail = f"Cluster: {cluster_id}" if cluster_id else None
+        return {"ok": True, "name": "konflux", "error": None, "fix": None, "detail": detail}
     except Exception as exc:
         error_msg = str(exc)
         # Provide actionable fix based on the specific error.
@@ -210,6 +220,13 @@ def _check_gitlab_auth() -> dict:
 
     result = gitlab_ops.verify_auth(instance_url=f"https://{host}")
     if result.get("ok"):
+        # Write connectivity state file so subsequent processes (e.g.
+        # resolve_release_context.py) see connectivity_confirmed() → True
+        # and can auto-discover KONFLUX_CLUSTER_DOMAIN via tenant discovery.
+        try:
+            konflux_environment.check_connectivity()
+        except Exception:
+            pass  # best-effort; auth check already passed
         return {
             "ok": True,
             "name": "gitlab",

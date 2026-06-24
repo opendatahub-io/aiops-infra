@@ -169,12 +169,12 @@ class TestDetermineStatusAndNextSteps:
         status, next_steps, short = mod._determine_status_and_next_steps("partially_covered", mrs, [], 5)
         assert "Partially covered" in status
         assert "exception Merge Request" in status
-        assert "5 component(s) uncovered" in next_steps
-        assert "5 uncovered" in short
+        assert "5 component(s) without coverage" in next_steps
+        assert "5 without coverage" in short
 
     def test_partially_covered_no_mr(self):
         status, next_steps, short = mod._determine_status_and_next_steps("partially_covered", [], [], 2)
-        assert "2 uncovered" in status
+        assert "2 without coverage" in status
         assert "Fix in code or request exception" in next_steps
         assert "see guide below" in short.lower()
 
@@ -373,12 +373,12 @@ class TestExtractExceptionExpiry:
             "open_mr_label": "",
             "open_jira_label": "",
             "status_label": "Partial coverage",
-            "next_steps": "Fix uncovered",
-            "next_steps_short": "Fix uncovered — see guide below",
+            "next_steps": "Fix in code or request exception — see resolution guide",
+            "next_steps_short": "Fix remaining — see guide below",
         }
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 1, "not_covered": 0}
         md = mod._render_violations_markdown_table([row], summary)
-        assert "Exception granted (2/3 components covered, 1 uncovered)" in md
+        assert "Exception granted (2/3 components covered, 1 without coverage)" in md
 
 
 class TestBuildComponentExceptionDetails:

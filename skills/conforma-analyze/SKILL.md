@@ -21,6 +21,9 @@ Prohibited actions — the agent MUST NEVER:
 - Present partial results as a "quick summary" before completing all steps
 - Invent or compose analysis output that was not produced by the deterministic scripts
 - Interpret, reformat, or summarize script output
+- Write its own version of the resolution guide instead of rendering the script-generated file verbatim
+- Show only a subset of violations (e.g. only "uncovered" ones) — the FULL guide for ALL violations must be presented
+- Ask the user about submission (step 10) before the full guide content has been rendered in a response
 
 **Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md). In short: plain-text output goes in a code block (copy-to-clipboard), markdown output is rendered directly. Content is always verbatim — no LLM interpretation. If output is not informative enough, the fix belongs in the script.
 
@@ -91,6 +94,17 @@ Both files are fetched and analyzed by default:
 
 - **Violations CSV**: rows with `type=violation` — current policy violations.
 - **Warnings CSV**: rows with `type=warning` — policies not yet enforced. Once a warning's `effective_on` enforcement date passes, it becomes an enforced violation. Warnings enforced **within 3 weeks** (21 days) are surfaced as **warnings becoming violations**, giving teams time to act before enforcement begins.
+
+## Counting Model
+
+- **Violation** = code + component + details. Each distinct failing check is one violation. The "details" are rule-specific (e.g. specific package for sbom rules, nothing extra for hermetic). In the CSV, the `message` field encodes the details — same message on different image digests = same violation, different message = different violation.
+- Each violation corresponds to one exception entry if an exception is needed.
+- **Image occurrences** (CSV rows) include digest-level duplication and are reported as context only ("Source CSV rows" in the Summary table).
+- All executive summary, analysis, and resolution guide metrics MUST use violation counts, not code counts.
+- Violation codes (e.g. `hermetic_task.hermetic`) are grouping labels, not counting units.
+- Coverage is binary: each violation either has an exception or does not. There is no "partially covered" category.
+- All counting uses `scripts/conforma_counting.py` — no script may independently compute violation counts.
+- All counting, formatting, and presentation is done by scripts. The agent presents script output verbatim. The agent MUST NOT compute violation counts, percentages, or coverage metrics itself.
 
 ## Workflow
 
@@ -203,17 +217,9 @@ python3 skills/conforma-analyze/scripts/parse_violations.py \
   --no-catalog
 ```
 
-6. **Analyze and present**: Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` for ownership, `--metadata-file` and `--release` for the report header and staleness check:
+6. **Analyze and save**: Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` for ownership, `--metadata-file` and `--release` for the report header and staleness check. **Save the output to a file** — do NOT present the analysis in the chat (the executive summary in step 9 covers the key data; the full analysis is linked as a detailed document):
 
 ```bash
-# Text summary with ownership + report header (default):
-python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
-  --reports-dir "$RUNDIR" \
-  --violations-yaml "$RUNDIR/violations.yaml" \
-  --metadata-file "$RUNDIR/fetch-metadata.json" \
-  --release "$RELEASE"
-
-# Markdown report with ownership + report header:
 python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
   --reports-dir "$RUNDIR" \
   --violations-yaml "$RUNDIR/violations.yaml" \
@@ -221,13 +227,6 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
   --release "$RELEASE" \
   --format markdown \
   --output "$RUNDIR/conforma-analysis.md"
-
-# JSON (for programmatic consumption):
-python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
-  --reports-dir "$RUNDIR" \
-  --violations-yaml "$RUNDIR/violations.yaml" \
-  --format json \
-  --output "$RUNDIR/conforma-analysis.json"
 ```
 
    The script automatically prepends a report header (source CSV URL + generation date) and a staleness warning (if the report is >3 days old) when `--metadata-file` is provided.
@@ -240,7 +239,7 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
    - Prioritized remediation recommendations with resolution %
    - **Jira Component ownership** — when `--violations-yaml` is provided, component names are annotated with their owning Jira Component (e.g. `odh-vllm-rhel9 (vLLM)`)
 
-   **Presentation**: `--format text` output → present in a code block. `--format markdown` output → render as markdown (not in a code block).
+   **No chat output from this step.** The analysis is saved to `$RUNDIR/conforma-analysis.md` and linked in the executive summary (step 9).
 
 7. **Cross-reference with exceptions, open Merge Requests, open Jira, and Slack**: After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open Merge Requests (classified as *exception* or *remedy*), open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
 
@@ -291,9 +290,9 @@ python3 -c "import json,sys; print(json.load(sys.stdin)['markdown_table'])" < "$
 
    **Presentation**: The `markdown_table` is markdown — render it directly (not in a code block).
 
-8. **Resolution Guide**: After presenting the coverage table, the resolution guide is generated deterministically by script. The guide is both presented to the user and saved to a file for submission (step 10). See step 9 for the generation command. While the guide is being generated, present the coverage table `markdown_table` from step 7 to the user as the immediate output.
+8. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **executive summary** is presented in the chat — the full guide is linked as a detailed document. See step 9 for the generation command and presentation rules.
 
-9. **Generate the resolution guide**: Run the resolution guide generator on the intermediate outputs from steps 3-7. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
+9. **Generate the resolution guide**: Run the resolution guide generator on the intermediate outputs from steps 3-7. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis. **Pass `--executive-summary-file`** to also generate a compact summary for chat display, and **`--analysis-output-file`** to link the analysis output from step 6:
 
 ```bash
 # Extract metadata from fetch output
@@ -305,6 +304,9 @@ SOURCE_SHA=$(python3 -c "import json; d=json.load(open('$RUNDIR/fetch-metadata.j
 POLICY_DIR_URL=$(python3 -c "import json; print(json.loads('$RESOLVE_JSON').get('links',{}).get('policy_dir',''))")
 POLICY_FILES_JSON=$(python3 -c "import json; print(json.dumps(json.loads('$RESOLVE_JSON').get('links',{}).get('policy_files',[])))")
 
+# Extract end-of-support date from step 2 resolve output
+END_OF_SUPPORT=$(python3 -c "import json; print(json.loads('$RESOLVE_JSON').get('end_of_support',''))")
+
 python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --coverage-json "$RUNDIR/coverage.json" \
@@ -315,15 +317,37 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
   --source-sha "$SOURCE_SHA" \
   --policy-dir-url "$POLICY_DIR_URL" \
   --policy-files-json "$POLICY_FILES_JSON" \
+  --end-of-support "$END_OF_SUPPORT" \
   --tooling-health-json "$RUNDIR/tooling-health.json" \
-  --output "$RUNDIR/conforma-resolution-guide.md"
+  --output "$RUNDIR/conforma-resolution-guide.md" \
+  --executive-summary-file "$RUNDIR/executive-summary.md" \
+  --analysis-output-file "$RUNDIR/conforma-analysis.md"
 ```
 
-   **Present the generated guide content to the user.** This MUST happen before step 10 — the user must see the full report before being asked about submission. Never run step 10 in parallel with presenting the guide.
+   ---
 
-   **Presentation**: The guide is a `.md` file — render it as markdown (not in a code block). The agent MUST read the file with the Read tool and then **copy the file content verbatim into the response text** so it renders as visible markdown in the chat. Do NOT rely on the Read tool result alone — tool results are agent context and may not be displayed to the user. The content must appear as literal text in the agent's response.
+   **⛔ HARD FAILURE RULES FOR STEP 9 — READ THESE BEFORE PROCEEDING:**
 
-10. **Submit to GitHub** *(requires user confirmation)*: After presenting the full guide to the user, **ask whether they want to submit it** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit this resolution guide to the conforma-reporter GitHub repository (red-hat-data-services/conforma-reporter)?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The guide is committed to the **root of the release branch** (e.g. `conforma-resolution-guide.md` at the repo root). Pass `--metadata-file` so the script can automatically clean up any legacy guide from the old `prod/release_day/` location:
+   **RULE 1 — EXECUTIVE SUMMARY ONLY (no full guide in chat):**
+   The agent MUST read `$RUNDIR/executive-summary.md` with the Read tool and then **copy its ENTIRE content verbatim into the response text**. This file contains the metadata header, tooling health warning, key takeaways, summary metrics, and links to the detailed documents. The agent MUST NOT:
+   - Paste the full resolution guide (`conforma-resolution-guide.md`) into the chat
+   - Paste the full analysis output (`conforma-analysis.md`) into the chat
+   - Summarize, paraphrase, or abbreviate the executive summary content
+   - Add its own commentary between sections of the executive summary
+   - Create its own tables or summaries instead of the script-generated content
+
+   The executive summary file includes a **Detailed Documents** section with file paths to the full resolution guide and analysis output. These are the user's entry points to the detailed content — they can click to open the files.
+
+   Do NOT rely on the Read tool result alone — tool results are agent context and may not be displayed to the user. The executive summary content must appear as literal text in the agent's response. Render as markdown (not in a code block).
+
+   **RULE 2 — ORDERING (present THEN ask):**
+   The executive summary content must appear in the agent's response text BEFORE the AskQuestion call for step 10. Never call AskQuestion in the same tool-call batch that reads the file. The sequence is: (a) read executive summary file → (b) paste its content into response → (c) THEN in a SEPARATE subsequent turn, ask about submission. This ensures the user sees the summary before being asked to act on it.
+
+   **Violating either rule is a hard failure regardless of model size, context window, or token budget.**
+
+   ---
+
+10. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 9)*: After the executive summary has been rendered in the previous response, **ask whether they want to submit the full resolution guide** to the conforma-reporter repo. Do NOT auto-submit. Use the AskQuestion tool to offer: "Submit this resolution guide to the conforma-reporter GitHub repository (red-hat-data-services/conforma-reporter)?" with options like "Yes, submit" and "No, skip". Only proceed if the user confirms. The guide is committed to the **root of the release branch** (e.g. `conforma-resolution-guide.md` at the repo root). Pass `--metadata-file` so the script can automatically clean up any legacy guide from the old `prod/release_day/` location:
 
 ```bash
 python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \

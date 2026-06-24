@@ -67,16 +67,19 @@ Follow them in ALL generated content — code, comments, commit messages, docume
 
 ### Terminology
 
+- **Never abbreviate** in user-facing output (chat, reports, docs, comments). Always spell out full terms. Abbreviations are only acceptable in internal variable names, log prefixes, and non-rendered code comments.
 - Always write "Merge Request" in full (never abbreviate to "MR" or "MRs")
 - Always write "Pull Request" in full (never abbreviate to "PR")
   - Exception: GitHub CLI commands (e.g. `gh pr create`) use the short form
 - Use "violations" not "rules" when referring to conforma coverage counts (e.g. "4 of 7 violations covered" not "4 of 7 rules covered")
+- Always use "violation code" — never bare "code" or "rule" when referring to the Conforma policy identifier. "Rule" is acceptable only when quoting Conforma engine output verbatim.
+- "Violations" always means atomic instances: 1 violation = 1 unique (violation code + component + semantic detail) triple. The semantic detail is the actionable root cause (e.g., repo ID, attribute name, package name). Multiple CSV rows with different image digests or package PURLs sharing the same root cause are the SAME violation. Never use code-level counts as the primary coverage metric. Express coverage as "X of Y violations covered".
 - Use "No exception coverage" not "No coverage" — be explicit about what kind of coverage
 - Use "Exception granted, violation should disappear on next Conforma run" not "Exception active"
 - Use "Rerun Conforma report in Konflux/GitHub and verify the violation is gone from the report" not vague phrases like "Verify on next compliance evaluation"
 - Use "KONFLUX_TENANT" not "TENANT" — variable names must be self-explanatory
 - Conforma is RHOAI-only — never refer to it as "ODH/RHOAI Conforma" or imply ODH coverage
-- Use "CONFORMA" not "EC" (legacy name) in all variable names, function names, and documentation
+- Never use "EC" anywhere — always use "Conforma". This applies to all contexts: variable names, function names, documentation, conversation, plans, comments, commit messages. "EC" is a legacy name that no longer exists. Examples: say "Conforma engine" not "EC engine", "Conforma exclusion hint" not "EC hint", "Conforma policy" not "EC policy".
 - Use "Executive Summary" not "Key Takeaways" for report summary sections
 - Use "manual search" or "search manually" for actionable search links — not bare "search"
 - Merge Request titles for exceptions must be prefixed with [stage] or [prod]
