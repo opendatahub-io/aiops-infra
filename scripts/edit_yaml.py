@@ -6,7 +6,7 @@
 """
 YAML editing utility with ruamel.yaml (preserves comments and formatting).
 
-Subcommands:
+Subcommands (append / insert):
   append-items-array      <file> --name <n> --description <d> [--public|--no-public]
   append-yaml-doc         <file> --yaml-string <str>
   append-multidoc-list-item <file> --doc-kind <kind> --array-key <k> --yaml-string <str>
@@ -16,6 +16,13 @@ Subcommands:
   append-rpa-component    <file> --array-key <k> --name <n> --url <u>
   insert-simple-map-entry <file> --map-key <dot.path.0.nested> --key <k> --value <v>
   append-renovate-repo    <file> --renovate-config <cfg> --name <entry>
+
+Subcommands (remove — for offboarding):
+  remove-yaml-doc           <file> --name <n>
+  remove-array-entry        <file> --array-key <k> --name <n>
+  remove-multidoc-list-item <file> --doc-kind <kind> --array-key <k> --name <n>
+  remove-rpa-component      <file> --array-key <k> --name <n>
+  remove-map-key            <file> --map-key <parent> --name <n>
 """
 import argparse
 import sys
@@ -408,6 +415,318 @@ def cmd_append_renovate_repo(args):
     print(f"Appended '{args.name}' to sync-repositories in {path}")
 
 
+def cmd_remove_yaml_doc(args):
+    """Remove a YAML document from a multi-document file by metadata.name match.
+
+    Exit 0 if removed, exit 2 if not found (idempotent).
+    """
+    path = Path(args.file)
+    yaml = _make_yaml(path)
+
+    docs = []
+    with path.open() as f:
+        for doc in yaml.load_all(f):
+            docs.append(doc)
+
+    original_count = len(docs)
+    docs = [
+        d for d in docs
+        if not (isinstance(d, dict)
+                and isinstance(d.get("metadata"), dict)
+                and d["metadata"].get("name") == args.name)
+    ]
+
+    if len(docs) == original_count:
+        print(f"Document with metadata.name='{args.name}' not found in {path} — already removed.")
+        sys.exit(2)
+
+    with path.open("w") as f:
+        yaml.dump_all(docs, f)
+    print(f"Removed document with metadata.name='{args.name}' from {path}")
+
+
+def cmd_remove_array_entry(args):
+    """Remove an entry from a nested array by 'name' field match.
+
+    Exit 0 if removed, exit 2 if not found (idempotent).
+    """
+    path = Path(args.file)
+    yaml = _make_yaml(path)
+    data = _load(path, yaml)
+
+    parts = args.array_key.split(".")
+    node = data
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            print(f"Key path '{args.array_key}' not found in {path} — nothing to remove.")
+            sys.exit(2)
+        node = node[part]
+
+    if not isinstance(node, list):
+        print(f"ERROR: '{args.array_key}' is not a list in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    original_len = len(node)
+    to_remove = [
+        i for i, entry in enumerate(node)
+        if isinstance(entry, dict) and entry.get("name") == args.name
+    ]
+
+    if not to_remove:
+        print(f"Entry with name='{args.name}' not found in '{args.array_key}' — already removed.")
+        sys.exit(2)
+
+    for i in reversed(to_remove):
+        del node[i]
+
+    _save(path, data, yaml)
+    print(f"Removed entry '{args.name}' from '{args.array_key}' in {path}")
+
+
+def cmd_remove_multidoc_list_item(args):
+    """Remove an item from a list within a specific document kind, matching by metadata.name.
+
+    Matches items where metadata.name contains the given --name string.
+    Exit 0 if removed, exit 2 if not found (idempotent).
+    """
+    path = Path(args.file)
+    yaml = _make_yaml(path)
+
+    docs = []
+    with path.open() as f:
+        for doc in yaml.load_all(f):
+            docs.append(doc)
+
+    target_doc = None
+    for doc in docs:
+        if isinstance(doc, dict) and doc.get("kind") == args.doc_kind:
+            target_doc = doc
+            break
+
+    if target_doc is None:
+        print(f"ERROR: No document with kind='{args.doc_kind}' found in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    parts = args.array_key.split(".")
+    node = target_doc
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            print(f"Key path '{args.array_key}' not found — nothing to remove.")
+            sys.exit(2)
+        node = node[part]
+
+    if not isinstance(node, list):
+        print(f"ERROR: '{args.array_key}' is not a list in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    to_remove = []
+    for i, item in enumerate(node):
+        if isinstance(item, dict):
+            meta = item.get("metadata", {})
+            item_name = meta.get("name", "") if isinstance(meta, dict) else ""
+            if args.name in str(item_name):
+                to_remove.append(i)
+
+    if not to_remove:
+        print(f"Item matching name='{args.name}' not found in '{args.array_key}' — already removed.")
+        sys.exit(2)
+
+    for i in reversed(to_remove):
+        del node[i]
+
+    with path.open("w") as f:
+        yaml.dump_all(docs, f)
+    print(f"Removed {len(to_remove)} item(s) matching '{args.name}' from '{args.array_key}' in {path}")
+
+
+def cmd_remove_rpa_component(args):
+    """Remove a component from a ReleasePlanAdmission components array by name.
+
+    Exit 0 if removed, exit 2 if not found (idempotent).
+    """
+    path = Path(args.file)
+    yaml = _make_yaml(path)
+    data = _load(path, yaml)
+
+    parts = args.array_key.split(".")
+    node = data
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            print(f"Key path '{args.array_key}' not found in {path} — nothing to remove.")
+            sys.exit(2)
+        node = node[part]
+
+    if not isinstance(node, list):
+        print(f"ERROR: '{args.array_key}' is not a list in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    to_remove = [
+        i for i, entry in enumerate(node)
+        if isinstance(entry, dict) and entry.get("name") == args.name
+    ]
+
+    if not to_remove:
+        print(f"RPA component '{args.name}' not found in '{args.array_key}' — already removed.")
+        sys.exit(2)
+
+    for i in reversed(to_remove):
+        del node[i]
+
+    _save(path, data, yaml)
+    print(f"Removed RPA component '{args.name}' from '{args.array_key}' in {path}")
+
+
+def cmd_remove_list_item(args):
+    """Remove a scalar value from a list at the given key.
+
+    Exit 0 if removed, exit 2 if not found (idempotent).
+    """
+    path = Path(args.file)
+    yaml = _make_yaml(path)
+    data = _load(path, yaml)
+
+    parts = args.list_key.split(".")
+    node = data
+    for i, part in enumerate(parts):
+        if not isinstance(node, dict):
+            print(f"Key path '{args.list_key}' not traversable — nothing to remove.")
+            sys.exit(2)
+        key = _resolve_key(node, part)
+        if key not in node or node[key] is None:
+            print(f"Key '{part}' not found — nothing to remove.")
+            sys.exit(2)
+        node = node[key]
+
+    if not isinstance(node, list):
+        print(f"ERROR: '{args.list_key}' is not a list in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.value not in node:
+        print(f"Value '{args.value}' not found in '{args.list_key}' — already removed.")
+        sys.exit(2)
+
+    node.remove(args.value)
+    _save(path, data, yaml)
+    print(f"Removed '{args.value}' from '{args.list_key}' in {path}")
+
+
+def cmd_remove_map_key(args):
+    """Remove a key from a nested map.
+
+    Exit 0 if removed, exit 2 if not found (idempotent).
+    """
+    path = Path(args.file)
+    yaml = _make_yaml(path)
+    data = _load(path, yaml)
+
+    parts = args.map_key.split(".")
+    node = data
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            print(f"Key path '{args.map_key}' not found in {path} — nothing to remove.")
+            sys.exit(2)
+        node = node[part]
+
+    if not isinstance(node, dict):
+        print(f"ERROR: '{args.map_key}' is not a map in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.name not in node:
+        print(f"Key '{args.name}' not found under '{args.map_key}' — already removed.")
+        sys.exit(2)
+
+    del node[args.name]
+    _save(path, data, yaml)
+    print(f"Removed key '{args.name}' from '{args.map_key}' in {path}")
+
+
+def cmd_append_build_config_component(args):
+    """Append a repo_mappings entry to config.replacements[*] in build-config.yaml.
+
+    Finds the first ``config.replacements`` entry and adds a key-value pair
+    to its ``repo_mappings`` map.  Exit 0 if added, exit 2 if already present.
+    """
+    path = Path(args.file)
+    yaml = _make_yaml(path)
+    data = _load(path, yaml)
+
+    config = data.get("config")
+    if not isinstance(config, dict):
+        print(f"ERROR: No 'config' key in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    replacements = config.get("replacements")
+    if not isinstance(replacements, list) or not replacements:
+        print(f"ERROR: No 'config.replacements' list in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    entry = replacements[0]
+    if not isinstance(entry, dict):
+        print(f"ERROR: config.replacements[0] is not a map in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    repo_map = entry.get("repo_mappings")
+    if repo_map is None:
+        from ruamel.yaml.comments import CommentedMap
+        repo_map = CommentedMap()
+        entry["repo_mappings"] = repo_map
+    elif not isinstance(repo_map, dict):
+        print(f"ERROR: repo_mappings is not a map in {path}", file=sys.stderr)
+        sys.exit(1)
+
+    comp_name = args.component_name
+    key = f"rhoai/{comp_name}-rhel9"
+
+    if key in repo_map:
+        print(f"Key '{key}' already present in repo_mappings — nothing to add.")
+        sys.exit(2)
+
+    repo_map[key] = key
+    _save(path, data, yaml)
+    print(f"Appended '{key}' to repo_mappings in {path}")
+
+
+def cmd_remove_build_config_component(args):
+    """Remove a key from config.replacements[*].repo_mappings matching the component.
+
+    Searches all entries in ``config.replacements`` for a ``repo_mappings`` map
+    that contains the given key, and removes it.
+    Exit 0 if removed, exit 2 if not found (idempotent).
+    """
+    path = Path(args.file)
+    yaml = _make_yaml(path)
+    data = _load(path, yaml)
+
+    config = data.get("config")
+    if not isinstance(config, dict):
+        print(f"No 'config' key in {path} — nothing to remove.")
+        sys.exit(2)
+
+    replacements = config.get("replacements")
+    if not isinstance(replacements, list):
+        print(f"No 'config.replacements' list in {path} — nothing to remove.")
+        sys.exit(2)
+
+    removed = False
+    for entry in replacements:
+        if not isinstance(entry, dict):
+            continue
+        repo_map = entry.get("repo_mappings")
+        if not isinstance(repo_map, dict):
+            continue
+        if args.key in repo_map:
+            del repo_map[args.key]
+            removed = True
+            break
+
+    if not removed:
+        print(f"Key '{args.key}' not found in any repo_mappings — already removed.")
+        sys.exit(2)
+
+    _save(path, data, yaml)
+    print(f"Removed '{args.key}' from repo_mappings in {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="YAML editing utility")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -475,18 +794,75 @@ def main():
     p8.add_argument("--renovate-config", required=True)
     p8.add_argument("--name", required=True)
 
+    # remove-yaml-doc
+    r1 = sub.add_parser("remove-yaml-doc")
+    r1.add_argument("file")
+    r1.add_argument("--name", required=True)
+
+    # remove-array-entry
+    r2 = sub.add_parser("remove-array-entry")
+    r2.add_argument("file")
+    r2.add_argument("--array-key", required=True)
+    r2.add_argument("--name", required=True)
+
+    # remove-multidoc-list-item
+    r3 = sub.add_parser("remove-multidoc-list-item")
+    r3.add_argument("file")
+    r3.add_argument("--doc-kind", required=True)
+    r3.add_argument("--array-key", required=True)
+    r3.add_argument("--name", required=True)
+
+    # remove-rpa-component
+    r4 = sub.add_parser("remove-rpa-component")
+    r4.add_argument("file")
+    r4.add_argument("--array-key", required=True)
+    r4.add_argument("--name", required=True)
+
+    # remove-list-item
+    r5 = sub.add_parser("remove-list-item")
+    r5.add_argument("file")
+    r5.add_argument("--list-key", required=True)
+    r5.add_argument("--value", required=True)
+
+    # remove-map-key
+    r6 = sub.add_parser("remove-map-key")
+    r6.add_argument("file")
+    r6.add_argument("--map-key", required=True)
+    r6.add_argument("--name", required=True)
+
+    # append-build-config-component
+    p_bc = sub.add_parser("append-build-config-component")
+    p_bc.add_argument("file")
+    p_bc.add_argument("--component-name", required=True)
+    p_bc.add_argument("--version-var", default="")
+    p_bc.add_argument("--repo-url", default="")
+    p_bc.add_argument("--repo-branch", default="")
+
+    # remove-build-config-component
+    r7 = sub.add_parser("remove-build-config-component")
+    r7.add_argument("file")
+    r7.add_argument("--key", required=True, help="Exact repo_mappings key to remove")
+
     args = parser.parse_args()
 
     dispatch = {
-        "append-items-array":      cmd_append_items_array,
-        "append-yaml-doc":         cmd_append_yaml_doc,
+        "append-items-array":        cmd_append_items_array,
+        "append-yaml-doc":           cmd_append_yaml_doc,
         "append-multidoc-list-item": cmd_append_multidoc_list_item,
-        "insert-map-key":          cmd_insert_map_key,
-        "append-array-entry":      cmd_append_array_entry,
-        "insert-list-item":        cmd_insert_list_item,
-        "append-rpa-component":    cmd_append_rpa_component,
-        "insert-simple-map-entry": cmd_insert_simple_map_entry,
-        "append-renovate-repo":    cmd_append_renovate_repo,
+        "insert-map-key":            cmd_insert_map_key,
+        "append-array-entry":        cmd_append_array_entry,
+        "insert-list-item":          cmd_insert_list_item,
+        "append-rpa-component":      cmd_append_rpa_component,
+        "insert-simple-map-entry":   cmd_insert_simple_map_entry,
+        "append-renovate-repo":      cmd_append_renovate_repo,
+        "remove-yaml-doc":           cmd_remove_yaml_doc,
+        "remove-array-entry":        cmd_remove_array_entry,
+        "remove-multidoc-list-item": cmd_remove_multidoc_list_item,
+        "remove-rpa-component":      cmd_remove_rpa_component,
+        "remove-list-item":          cmd_remove_list_item,
+        "remove-map-key":            cmd_remove_map_key,
+        "append-build-config-component": cmd_append_build_config_component,
+        "remove-build-config-component": cmd_remove_build_config_component,
     }
     dispatch[args.command](args)
 

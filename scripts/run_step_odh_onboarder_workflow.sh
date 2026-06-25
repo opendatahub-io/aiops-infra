@@ -67,7 +67,7 @@ PRODUCT_CONTEXT=$(grep -m1 'product_context:' "$YAML_FILE" | awk '{print $2}' 2>
 REPO_NAME="${REPO_URL##*/}"; REPO_NAME="${REPO_NAME%.git}"
 COMPONENT="$REPO_NAME"
 
-BUILD_TYPE_LOWER="${BUILD_TYPE,,}"
+BUILD_TYPE_LOWER=$(echo "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')
 if [[ "$BUILD_TYPE_LOWER" == "ci" ]]; then
   BUILD_TYPE="CI"
 elif [[ "$BUILD_TYPE_LOWER" == "release" ]]; then

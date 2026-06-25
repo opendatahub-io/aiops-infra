@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 for _arg in WORKDIR JIRA_URL SCRIPTS_DIR COMPONENT_NAME PRODUCT_CONTEXT; do
-  [[ -z "${!_arg}" ]] && { echo "ERROR: --${_arg,,} is required" >&2; exit 1; }
+  [[ -z "${!_arg}" ]] && { echo "ERROR: --$(echo "$_arg" | tr '[:upper:]' '[:lower:]') is required" >&2; exit 1; }
 done
 
 PIPELINE_STATE="$WORKDIR/pipeline_state.json"

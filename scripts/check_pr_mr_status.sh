@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 for _arg in PIPELINE_STATE SCRIPTS_DIR; do
-  [[ -z "${!_arg}" ]] && { echo "ERROR: --${_arg,,} is required (use underscores as hyphens)" >&2; exit 1; }
+  [[ -z "${!_arg}" ]] && { echo "ERROR: --$(echo "$_arg" | tr '[:upper:]' '[:lower:]') is required (use underscores as hyphens)" >&2; exit 1; }
 done
 
 [[ -f "$PIPELINE_STATE" ]] || { echo "ERROR: $PIPELINE_STATE not found" >&2; exit 1; }
@@ -54,7 +54,7 @@ for STEP_KEY in $STEP_KEYS; do
       --mr-url "$URL" --check-only 2>/dev/null || true)
   fi
 
-  STATE=$(echo "$RESULT" | grep -oP 'state=\K\S+' || true)
+  STATE=$(echo "$RESULT" | sed -n 's/.*state=\([^ ]*\).*/\1/p' | head -1)
 
   echo "[check] $STEP_KEY: state=$STATE" >&2
 

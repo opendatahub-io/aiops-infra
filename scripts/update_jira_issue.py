@@ -162,6 +162,16 @@ def set_title(jira: JIRA, issue, title: str) -> None:
         sys.exit(1)
 
 
+def set_description(jira: JIRA, issue, description: str) -> None:
+    """Update the issue description (plain text, converted to ADF by Jira Cloud)."""
+    try:
+        issue.update(fields={"description": description})
+        print(f"  Description updated ({len(description)} chars)", file=sys.stderr)
+    except JIRAError as e:
+        print(f"ERROR: Failed to set description: {getattr(e, 'text', e)}", file=sys.stderr)
+        sys.exit(1)
+
+
 def link_related(jira: JIRA, issue, related_id: str) -> None:
     """Add a 'relates to' link between issue and related_id."""
     related_key = extract_issue_id(related_id)
@@ -337,6 +347,11 @@ def main() -> None:
         help="Set the issue summary/title",
     )
     parser.add_argument(
+        "--set-description",
+        metavar="TEXT",
+        help="Set the issue description (plain text)",
+    )
+    parser.add_argument(
         "--link-related",
         metavar="JIRA_ID",
         help='Add a "relates to" link between this issue and JIRA_ID',
@@ -382,8 +397,9 @@ def main() -> None:
         parser.error('--clone-from can only be used when jira_url is "new"')
 
     action_flags = [
-        args.set_title, args.link_related, args.set_reporter_to_current,
-        args.add_label, args.remove_label, args.comment, args.status, args.attach,
+        args.set_title, args.set_description, args.link_related,
+        args.set_reporter_to_current, args.add_label, args.remove_label,
+        args.comment, args.status, args.attach,
     ]
     if not clone_mode and not any(action_flags):
         parser.error(
@@ -410,6 +426,8 @@ def main() -> None:
     # Apply all requested operations (order: structural changes first, then labels/links, then comment)
     if args.set_title:
         set_title(jira, issue, args.set_title)
+    if args.set_description:
+        set_description(jira, issue, args.set_description)
     if args.attach:
         attach_file(jira, issue, Path(args.attach))
     if args.add_label:

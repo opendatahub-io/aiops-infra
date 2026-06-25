@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ODH Component Offboarding Details",
+  "description": "Input parameters for offboarding an ODH/RHOAI component from the Konflux CI/build platform",
+  "type": "object",
+  "required": ["inputs"],
+  "additionalProperties": false,
+  "properties": {
+    "inputs": {
+      "type": "object",
+      "required": [
+        "product_context",
+        "component_name",
+        "repo_url",
+        "is_operator"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "product_context": {
+          "type": "string",
+          "description": "Target product platform the component is being offboarded from",
+          "enum": ["ODH", "RHOAI"]
+        },
+        "component_name": {
+          "type": "string",
+          "description": "Component name (must start with 'odh-')",
+          "pattern": "^odh-[a-z0-9]+(-[a-z0-9]+)*$",
+          "minLength": 5
+        },
+        "repo_url": {
+          "type": "string",
+          "description": "Full HTTPS URL of the component's GitHub repository",
+          "format": "uri",
+          "pattern": "^https://github\\.com/.+/.+$"
+        },
+        "target_rhoai_version": {
+          "type": "string",
+          "description": "Target RHOAI release version in canonical form x.y or x.y-ea-n (required when product_context is RHOAI)",
+          "pattern": "^\\d+\\.\\d+(-ea-\\d+)?$"
+        },
+        "build_type": {
+          "type": "string",
+          "description": "Build type being offboarded (required when product_context is ODH)",
+          "enum": ["CI", "Release"]
+        },
+        "is_operator": {
+          "type": "boolean",
+          "description": "Whether the component is an operator or controller; controls whether operator manifest removal step runs"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "product_context": { "const": "ODH" } },
+            "required": ["product_context"]
+          },
+          "then": {
+            "required": ["build_type"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "product_context": { "const": "RHOAI" } },
+            "required": ["product_context"]
+          },
+          "then": {
+            "required": ["target_rhoai_version"]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -58,7 +58,7 @@ done
 # Primary source: component_onboarding_details.yaml (authoritative).
 # Fallback: Jira key prefix, then Jira issue summary.
 YAML_PC=$(grep -m1 'product_context:' "$YAML_FILE" | awk '{print $2}' | tr -d '"' || true)
-YAML_PC="${YAML_PC^^}"  # normalise to uppercase
+YAML_PC=$(echo "$YAML_PC" | tr '[:lower:]' '[:upper:]')  # normalise to uppercase
 
 if [[ "$YAML_PC" == "RHOAI" || "$YAML_PC" == "ODH" ]]; then
   PRODUCT_CONTEXT="$YAML_PC"
