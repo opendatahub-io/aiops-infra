@@ -54,7 +54,7 @@ PIPELINERUN_NAME=""
 
 # Check if the input looks like a version shortcode (starts with a digit or 'rhoai-')
 if [[ "$RAW_NAME" =~ ^[0-9] ]] || [[ "$RAW_NAME" =~ ^rhoai-[0-9] ]]; then
-    CLEAN_VERSION=$(echo "$RAW_NAME" | sed 's/rhoai-//' | tr '.' '-')
+    CLEAN_VERSION=$(echo "$RAW_NAME" | sed 's/rhoai-//' | tr '.' '-' | sed 's/\([0-9]\)\(ea\)/\1-\2/')
     SEARCH_PATTERN="v${CLEAN_VERSION}"
     
     echo "⏳ [Input Router] Target version shortcut detected. Searching for newest run..." >&2
