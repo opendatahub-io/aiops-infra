@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Step 1: conforma-report-fetch (Time-Sorted High-Speed Edition)
+# Step 1: conforma-report-fetch
 # ==============================================================================
 # Usage:       ./fetch-conforma.sh <pipelinerun-name OR rhoai-version> [options]
 # Options:     --handover <file>  Input state JSON (File, Pipe via stdin, or default)
@@ -108,7 +108,7 @@ fi
 if [ -z "$RESULT_UUID" ] || [ "$RESULT_UUID" = "null" ]; then
     echo "    ⚠️  Run pruned from live cluster memory. Searching Tekton Results API index..." >&2
     
-    # Strategy: Direct un-guarded exact equality check. Highly indexed and fast.
+    # Strategy: Direct un-guarded exact equality check.
     CEL_FILTER="data.metadata.name == '${PIPELINERUN_NAME}'"
 
     RAW_RES=$(curl -s -k -G \
