@@ -2,7 +2,10 @@
 # ==============================================================================
 # Step 1: conforma-report-fetch
 # ==============================================================================
-# Usage:       ./fetch-conforma.sh <pipelinerun-name OR rhoai-version> [options]
+# Usage:       ./fetch_conforma_report.sh <pipelinerun-name OR version> [options]
+# Examples:    ./fetch_conforma_report.sh 3.5
+#              ./fetch_conforma_report.sh 3.5ea.2
+#              ./fetch_conforma_report.sh conforma-registry-rhoai-prod-v3-5-single-component-c7tjp
 # Options:     --handover <file>  Input state JSON (File, Pipe via stdin, or default)
 #              --output <file>    Destination path for updated state JSON
 # Behavior:    Always exits 0 if a state object is successfully generated. 
