@@ -15,11 +15,13 @@ WARNINGS_CSV_FILENAME = "conforma-warnings-report.csv"
 CSV_PATHS = [
     f"prod/future/build_type_latest/{CSV_FILENAME}",
     f"prod/future/build_type_nightly/{CSV_FILENAME}",
+    f"prod/release_day/{CSV_FILENAME}",
 ]
 
 WARNINGS_CSV_PATHS = [
     f"prod/future/build_type_latest/{WARNINGS_CSV_FILENAME}",
     f"prod/future/build_type_nightly/{WARNINGS_CSV_FILENAME}",
+    f"prod/release_day/{WARNINGS_CSV_FILENAME}",
 ]
 
 STAGE_CSV_PATHS = [

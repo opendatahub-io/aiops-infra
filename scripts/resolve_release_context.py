@@ -245,7 +245,7 @@ def _format_resolved(
         "|-------|-------|",
         f"| **User requested** | {query} |",
         f"| **Release branch** | {release} |",
-        f"| **Source CSV** | [{release}]({source_csv_url}) |",
+        f"| **Source CSV** | [conforma-violations-report.csv]({source_csv_url}) |",
         f"| **Konflux Application** | {app_text} |",
         f"| **Cluster domain** | {cluster_text} |",
         f"| **Tenant** | {tenant} |",
