@@ -212,6 +212,12 @@ without component scoping (permanent exclusion or global volatile exception).
 Callers must check ``"*" in result`` before computing set intersections."""
 
 
+def _matches_rule(value: str, rule: str) -> bool:
+    if value == rule:
+        return True
+    return ":" not in rule and value.startswith(rule + ":")
+
+
 def _parse_diff_lines(diff_text: str) -> list[tuple[str, bool]]:
     """Parse a unified diff into ``(stripped_content, is_added)`` tuples.
 
@@ -259,7 +265,10 @@ def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
     # config.exclude uses bare list items; volatileConfig uses "- value:" —
     # these formats are structurally distinct in the policy schema.
     for stripped, is_added in lines:
-        if is_added and (stripped == f"- {rule}" or stripped == f'- "{rule}"'):
+        bare = stripped
+        if bare.startswith("- "):
+            bare = bare[2:].strip().strip('"').strip("'")
+        if is_added and stripped.startswith("- ") and _matches_rule(bare, rule):
             return GLOBAL_COVERAGE
 
     # --- Volatile exception: "- value: <rule>" on an added line ---
@@ -269,7 +278,10 @@ def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
     i = 0
     while i < len(lines):
         stripped, is_added = lines[i]
-        if is_added and (stripped == f"- value: {rule}" or stripped == f'- value: "{rule}"'):
+        value = ""
+        if stripped.startswith("- value: "):
+            value = stripped[len("- value: "):].strip().strip('"').strip("'")
+        if is_added and value and _matches_rule(value, rule):
             i += 1
             in_component_names = False
             has_component_scoping = False
@@ -298,6 +310,37 @@ def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
             i += 1
 
     return components
+
+
+def extract_effective_until_from_diff(diff_text: str, rule: str) -> str | None:
+    """Extract the effectiveUntil date for a rule from a unified diff.
+
+    Scans for ``- value: <rule>`` blocks on added lines and returns the
+    ``effectiveUntil`` value from the same block (added or context).
+    Returns ``None`` if no effectiveUntil is found.
+    """
+    lines = _parse_diff_lines(diff_text)
+
+    i = 0
+    while i < len(lines):
+        stripped, is_added = lines[i]
+        value = ""
+        if stripped.startswith("- value: "):
+            value = stripped[len("- value: "):].strip().strip('"').strip("'")
+        if is_added and value and _matches_rule(value, rule):
+            i += 1
+            while i < len(lines):
+                s, _ = lines[i]
+                if not s or s.startswith("- value:"):
+                    break
+                if s.startswith("effectiveUntil:"):
+                    eu = s[len("effectiveUntil:"):].strip().strip('"').strip("'")
+                    if eu:
+                        return eu[:10]
+                i += 1
+        else:
+            i += 1
+    return None
 
 
 def _parse_components_from_description(description: str) -> list[str]:
@@ -544,6 +587,7 @@ def analyze_mr_component_coverage(
         "missing": list(requested_components),
         "source": "none",
         "suggestion": "no_overlap",
+        "effective_until": None,
     }
 
     # --- Primary: diff parsing (cache-aware) ---
@@ -576,10 +620,15 @@ def analyze_mr_component_coverage(
     title_mentions_rule = rule_base.replace("_", " ") in mr_text or rule_base in mr_text
     result_base["title_mentions_rule"] = title_mentions_rule
 
+    mr_effective_until: str | None = None
     for change in changes:
         path = change.get("new_path", "")
         if any(marker in path for marker in EXCEPTION_PATH_MARKERS):
             diff_components.extend(_parse_components_from_diff(change.get("diff", ""), rule))
+            if mr_effective_until is None:
+                mr_effective_until = extract_effective_until_from_diff(
+                    change.get("diff", ""), rule
+                )
 
     if diff_components:
         if "*" in diff_components:
@@ -590,8 +639,10 @@ def analyze_mr_component_coverage(
                 "missing": [],
                 "source": "diff",
                 "suggestion": "fully_covered",
+                "effective_until": mr_effective_until,
             }
         mr_comps = sorted(set(diff_components))
+        result_base["effective_until"] = mr_effective_until
         return _build_coverage_result(
             result_base,
             mr_comps,

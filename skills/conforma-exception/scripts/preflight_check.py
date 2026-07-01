@@ -301,7 +301,7 @@ def validate_effective_until_date(version: str, provided_date: str) -> dict:
 def evaluate_decision(
     existing_exceptions: dict,
     components_per_version: dict[str, list[str]],
-    environment: str = "prod",
+    environment: str,
 ) -> dict:
     """Deterministic go/no-go decision based on existing state.
 
@@ -597,12 +597,12 @@ def _fetch_group_members(group_name: str, headers: dict) -> list[dict]:
 def run_preflight(
     rhoaieng_url: str,
     policy_files: list[str],
+    environment: str,
     rule_override: str | None = None,
     versions_override: list[str] | None = None,
     image_bases: list[str] | None = None,
     rpa_dir: str | None = None,
     clone_dir: str | None = None,
-    environment: str = "prod",
 ) -> dict:
     """Run all pre-flight checks and return structured result."""
     output: dict = {

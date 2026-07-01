@@ -299,6 +299,7 @@ class TestSearchExceptionsForComponents:
         with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
             result = mod.search_exceptions_for_components(
                 ["mlflow"],
+                environment="prod",
                 clone_dir=repo_tree,
                 refresh=False,
             )
@@ -310,6 +311,7 @@ class TestSearchExceptionsForComponents:
         with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
             result = mod.search_exceptions_for_components(
                 ["mlflow"],
+                environment="prod",
                 clone_dir=repo_tree,
                 refresh=False,
             )
@@ -321,6 +323,7 @@ class TestSearchExceptionsForComponents:
         with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
             result = mod.search_exceptions_for_components(
                 ["nemo-guardrails"],
+                environment="prod",
                 clone_dir=repo_tree,
                 refresh=False,
             )
@@ -332,6 +335,7 @@ class TestSearchExceptionsForComponents:
         with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
             result = mod.search_exceptions_for_components(
                 ["nemo_guardrails"],
+                environment="prod",
                 clone_dir=repo_tree,
                 refresh=False,
             )
@@ -343,6 +347,7 @@ class TestSearchExceptionsForComponents:
         with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
             result = mod.search_exceptions_for_components(
                 ["nonexistent-component"],
+                environment="prod",
                 clone_dir=repo_tree,
                 refresh=False,
             )
@@ -354,6 +359,7 @@ class TestSearchExceptionsForComponents:
         with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
             result = mod.search_exceptions_for_components(
                 ["mlflow"],
+                environment="prod",
                 clone_dir=repo_tree,
                 refresh=False,
             )
@@ -368,6 +374,7 @@ class TestSearchExceptionsForComponents:
         ):
             mod.search_exceptions_for_components(
                 ["mlflow"],
+                environment="prod",
                 clone_dir=repo_tree,
                 refresh=True,
             )
@@ -380,6 +387,7 @@ class TestSearchExceptionsForComponents:
         ):
             mod.search_exceptions_for_components(
                 ["mlflow"],
+                environment="prod",
                 clone_dir=repo_tree,
                 refresh=False,
             )

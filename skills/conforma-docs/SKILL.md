@@ -35,8 +35,10 @@ When the user asks a question, determine the query type and route to the correct
 | "What is conforma?", overview questions | `references/what-is-conforma.md` | Read the file, copy its content verbatim into the response |
 | "Tell me more about violations/remedies/exceptions/release readiness" | `references/what-is-conforma-details.md` | Read the file, copy the requested section verbatim (or the full file if the user asks about all concepts) |
 | Specific rule lookup ("What does X rule mean?") | Upstream docs via `conforma-release-policy-rules.yaml` | Follow the rule-specific query workflow below |
+| Policy schema, CRD structure, ruleData shape, "where is X defined" | `references/policy-schema-sources.md` | Read the file, copy the relevant section verbatim. Follow the schema lookup workflow below |
 | Exception process, how to create exceptions | `search_docs.py` | Run search, present matching reference doc content verbatim |
 | General keyword search | `search_docs.py` | Run search, present matching reference doc content verbatim |
+| Unmatched conforma/Konflux questions | NotebookLM fallback | Direct user to [Konflux User NotebookLM](https://notebooklm.google.com/notebook/6916b269-d239-48af-870e-01c90da5345d) |
 
 ## Workflow
 
@@ -72,6 +74,21 @@ When the user asks about a specific Conforma policy rule, this is the one case w
 
 **Fallback**: if the upstream fetch fails (offline, VPN issues), respond with exactly: the rule `code` and `name` from the local YAML catalog, and the statement "Full documentation is available at `<docs URL>`."
 
+### Policy schema queries
+
+When the user asks where a policy field is defined, what the schema of `config`/`volatileConfig`/`ruleData` looks like, or how a specific `ruleData` key (e.g. `disallowed_attributes`) is structured:
+
+1. Read `references/policy-schema-sources.md` (relative to this skill's directory)
+2. Copy the relevant section verbatim — CRD layer for `config`/`volatileConfig` questions, Rego layer for `ruleData`/`disallowed_attributes`/`except_when` questions, or both if the user asks generally about "the policy schema"
+3. If the user asks about a `ruleData` key not covered in the reference doc, follow the "How to find the schema for any ruleData key" steps in the reference doc to locate it in the upstream `conforma/policy` repo
+
+Example triggers:
+- "Where is the schema for `disallowed_attributes`?"
+- "What fields does `volatileConfig` support?"
+- "Where is `except_when` / `purl_qualifier` defined?"
+- "What's the structure of the policy CRD?"
+- "Where can I find how `ruleData` is validated?"
+
 ### Keyword search
 
 For general queries, run the search script:
@@ -88,6 +105,18 @@ The script auto-discovers and indexes content from all `skills/conforma*/` direc
 
 When presenting search results: if a result points to a reference document, read that document and copy the relevant section verbatim. Do not paraphrase search result snippets into a new summary.
 
+## Fallback: Konflux User NotebookLM
+
+When a conforma or Konflux query does **not** match any of the source routing categories above (overview, rule lookup, schema, exception process, keyword search) and the keyword search returns no useful results, direct the user to the Konflux user knowledge base:
+
+> For broader Konflux questions not covered by the conforma skill suite, consult the [Konflux User NotebookLM](https://notebooklm.google.com/notebook/6916b269-d239-48af-870e-01c90da5345d). This resource covers Konflux architecture, pipelines, tenant management, and general platform usage.
+
+Example triggers:
+- "How do Konflux pipelines work?"
+- "What is an ApplicationSnapshot?"
+- "How do I set up a new Konflux tenant?"
+- "What's the relationship between Applications and Components in Konflux?"
+
 ## Content Boundaries
 
 This skill does NOT own exception-related content. All exception documentation (what exceptions are, how to create them, the approval workflow) belongs to the `conforma-exception` skill and its `references/` directory. Since `search_docs.py` indexes all conforma skills, exception queries will surface the right content automatically.
@@ -97,6 +126,7 @@ This skill does NOT own exception-related content. All exception documentation (
 This skill indexes content from across the conforma skill suite:
 - `conforma-docs/references/what-is-conforma.md` — product-agnostic Conforma overview
 - `conforma-docs/references/what-is-conforma-details.md` — detailed concept explanations (violations, remedies, exceptions, release readiness) with examples
+- `conforma-docs/references/policy-schema-sources.md` — upstream repo locations for policy CRD types and ruleData schemas (disallowed_attributes, volatileConfig, etc.)
 - `conforma-exception/references/conforma-release-policy-rules.yaml` — all policy rules with codes, names, and upstream doc URLs
 - `conforma-exception/references/conforma-exception-overview.md` — what exceptions are
 - `conforma-exception/references/exception-process.md` — exception request workflow
@@ -110,3 +140,5 @@ This skill indexes content from across the conforma skill suite:
 - "How do I create an exception?" — search finds `conforma-exception/references/exception-process.md`, copy relevant section verbatim
 - "What are the allowed RPM signing keys?" — search policy rules catalog, compose three-part response
 - "What is the violations-first philosophy?" — search finds it in `conforma-analyze/SKILL.md`, copy relevant section verbatim
+- "Where is the schema for disallowed_attributes?" — read `references/policy-schema-sources.md`, copy Rego layer section
+- "What fields does volatileConfig support?" — read `references/policy-schema-sources.md`, copy CRD layer section

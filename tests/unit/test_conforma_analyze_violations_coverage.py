@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import conforma_mr_ops
@@ -104,10 +106,10 @@ class TestRenderViolationsMarkdownTable:
     def test_report_header_with_metadata(self):
         results = [self._make_row()]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
-        meta = {"release": "rhoai-3.5-ea.1", "source_path": "prod/release_day/report.csv"}
+        meta = {"release": "rhoai-3.5-ea.1", "source_path": "prod/future/build_type_latest/report.csv"}
         md = mod._render_violations_markdown_table(results, summary, report_meta=meta)
         assert "`rhoai-3.5-ea.1`" in md
-        assert "prod/release_day/report.csv" in md
+        assert "prod/future/build_type_latest/report.csv" in md
 
     def test_report_header_without_metadata(self):
         results = [self._make_row()]
@@ -249,7 +251,7 @@ class TestReleaseOverride:
         meta_data = {
             "releases": {
                 "rhoai-3.5-ea.1": {
-                    "source_path": "prod/release_day/conforma-violations-report.csv",
+                    "source_path": "prod/future/build_type_latest/conforma-violations-report.csv",
                     "created_at": "2026-06-18T00:00:00Z",
                     "source_sha": "abc123",
                 }
@@ -279,7 +281,7 @@ class TestReleaseOverride:
             "next_steps_short": "Fix in code",
         }]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
-        meta = {"release": "rhoai-3.5-ea.1", "source_path": "prod/release_day/report.csv"}
+        meta = {"release": "rhoai-3.5-ea.1", "source_path": "prod/future/build_type_latest/report.csv"}
         md = mod._render_violations_markdown_table(results, summary, report_meta=meta)
         assert "`rhoai-3.5-ea.1`" in md
         assert "`rhoai-2.25`" not in md
@@ -489,5 +491,355 @@ class TestBuildComponentExceptionDetails:
         result = mod._build_component_exception_details(gate, ["comp-a"])
         assert len(result) == 1
         assert result[0]["url"] is None
+
+
+class TestEcCoverageForRule:
+    """Tests for _ec_coverage_for_rule."""
+
+    def test_all_covered_by_ec(self):
+        ec_viols = {"comp-a": set(), "comp-b": set()}
+        ec_succ = {"comp-a": {"rule.x"}, "comp-b": {"rule.x"}}
+        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+        )
+        assert covered == ["comp-a", "comp-b"]
+        assert uncovered == []
+        assert coverage == "fully_covered"
+        assert "Conforma engine" in label
+        assert divergences == []
+
+    def test_none_covered_by_ec(self):
+        ec_viols = {"comp-a": {"rule.x"}, "comp-b": {"rule.x"}}
+        ec_succ = {"comp-a": set(), "comp-b": set()}
+        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+        )
+        assert covered == []
+        assert uncovered == ["comp-a", "comp-b"]
+        assert coverage == "not_covered"
+        assert divergences == []
+
+    def test_partial_coverage(self):
+        ec_viols = {"comp-a": set(), "comp-b": {"rule.x"}}
+        ec_succ = {"comp-a": {"rule.x"}, "comp-b": set()}
+        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+        )
+        assert covered == ["comp-a"]
+        assert uncovered == ["comp-b"]
+        assert coverage == "partially_covered"
+        assert "1 of 2" in label
+        assert divergences == []
+
+    def test_component_missing_from_ec_treated_as_uncovered(self):
+        ec_viols = {"comp-a": set()}
+        ec_succ = {"comp-a": {"rule.x"}}
+        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+        )
+        assert "comp-a" in covered
+        assert "comp-b" in uncovered
+
+    def test_divergence_when_not_in_violations_or_successes(self):
+        ec_viols = {"comp-a": set(), "comp-b": set()}
+        ec_succ = {"comp-a": {"rule.x"}, "comp-b": set()}
+        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+        )
+        assert "comp-a" in covered
+        assert "comp-b" in uncovered
+        assert len(divergences) == 1
+        assert divergences[0]["component"] == "comp-b"
+        assert divergences[0]["violation_code"] == "rule.x"
+        assert "source CSV report" in divergences[0]["reason"]
+        assert "policy may have changed" in divergences[0]["reason"]
+
+    def test_no_successes_falls_back_to_two_way(self):
+        ec_viols = {"comp-a": set(), "comp-b": {"rule.x"}}
+        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+            "rule.x", ["comp-a", "comp-b"], ec_viols,
+        )
+        assert "comp-a" in covered
+        assert "comp-b" in uncovered
+        assert divergences == []
+
+
+class TestOutputFlag:
+    """Verify --output writes JSON to file instead of stdout."""
+
+    def test_output_writes_valid_json_to_file(self, tmp_path, monkeypatch):
+        import json
+
+        output_file = tmp_path / "result.json"
+        monkeypatch.setattr(
+            mod, "check_violations_coverage",
+            lambda **_kw: {"summary": {"total": 0}, "violations": []},
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "violations_coverage.py",
+                "--violations-yaml", "dummy.yaml",
+                "--csv", "dummy.csv",
+                "--environment", "prod",
+                "--clone-dir", str(tmp_path),
+                "--policy-files", "a.yaml",
+                "--output", str(output_file),
+            ],
+        )
+        mod.main()
+        data = json.loads(output_file.read_text())
+        assert "summary" in data
+
+    def test_no_output_flag_prints_to_stdout(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(
+            mod, "check_violations_coverage",
+            lambda **_kw: {"summary": {"total": 0}},
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "violations_coverage.py",
+                "--violations-yaml", "dummy.yaml",
+                "--csv", "dummy.csv",
+                "--environment", "prod",
+                "--clone-dir", str(tmp_path),
+                "--policy-files", "a.yaml",
+            ],
+        )
+        mod.main()
+        captured = capsys.readouterr()
+        import json
+        data = json.loads(captured.out)
+        assert "summary" in data
+
+    def test_resolve_context_json_extracts_policy_files(self, tmp_path, monkeypatch):
+        captured_kwargs = {}
+
+        def mock_check(**kwargs):
+            captured_kwargs.update(kwargs)
+            return {"summary": {"total": 0}, "violations": []}
+
+        monkeypatch.setattr(mod, "check_violations_coverage", mock_check)
+
+        resolve_ctx = {
+            "links": {
+                "policy_files": [
+                    {"name": "rhoai-v3-5-ea-2-prod.yaml", "url": "https://example.com/a.yaml"},
+                    {"name": "rhoai-v3-5-ea-2-prod-hermetic.yaml", "url": "https://example.com/b.yaml"},
+                ],
+            }
+        }
+        rc_file = tmp_path / "resolve-context.json"
+        rc_file.write_text(json.dumps(resolve_ctx))
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "violations_coverage.py",
+                "--violations-yaml", "dummy.yaml",
+                "--csv", "dummy.csv",
+                "--environment", "prod",
+                "--clone-dir", str(tmp_path),
+                "--resolve-context-json", str(rc_file),
+            ],
+        )
+        mod.main()
+        assert captured_kwargs["policy_files"] == [
+            "rhoai-v3-5-ea-2-prod.yaml",
+            "rhoai-v3-5-ea-2-prod-hermetic.yaml",
+        ]
+
+    def test_policy_files_cli_overrides_resolve_context(self, tmp_path, monkeypatch):
+        captured_kwargs = {}
+
+        def mock_check(**kwargs):
+            captured_kwargs.update(kwargs)
+            return {"summary": {"total": 0}, "violations": []}
+
+        monkeypatch.setattr(mod, "check_violations_coverage", mock_check)
+
+        resolve_ctx = {
+            "links": {
+                "policy_files": [
+                    {"name": "from-resolve.yaml", "url": "https://example.com/resolve.yaml"},
+                ],
+            }
+        }
+        rc_file = tmp_path / "resolve-context.json"
+        rc_file.write_text(json.dumps(resolve_ctx))
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "violations_coverage.py",
+                "--violations-yaml", "dummy.yaml",
+                "--csv", "dummy.csv",
+                "--environment", "prod",
+                "--clone-dir", str(tmp_path),
+                "--policy-files", "explicit.yaml",
+                "--resolve-context-json", str(rc_file),
+            ],
+        )
+        mod.main()
+        assert captured_kwargs["policy_files"] == ["explicit.yaml"]
+
+    def test_fails_without_policy_files_or_resolve_context(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            mod, "check_violations_coverage",
+            lambda **_kw: {"summary": {"total": 0}},
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "violations_coverage.py",
+                "--violations-yaml", "dummy.yaml",
+                "--csv", "dummy.csv",
+                "--environment", "prod",
+                "--clone-dir", str(tmp_path),
+            ],
+        )
+        rc = mod.main()
+        assert rc == 1
+
+
+class TestFindAllPolicyFilePaths:
+    """Tests for _find_all_policy_file_paths."""
+
+    def test_returns_all_env_matching_files(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test.cluster")
+        policy_dir = tmp_path / "config" / "test.cluster" / "product" / "EnterpriseContractPolicy"
+        policy_dir.mkdir(parents=True)
+        (policy_dir / "fbc-rhoai-stage.yaml").write_text("a")
+        (policy_dir / "registry-rhoai-stage.yaml").write_text("b")
+        (policy_dir / "registry-rhoai-chart-stage.yaml").write_text("c")
+
+        result = mod._find_all_policy_file_paths(
+            str(tmp_path),
+            ["fbc-rhoai-stage.yaml", "registry-rhoai-stage.yaml", "registry-rhoai-chart-stage.yaml"],
+            "stage",
+        )
+        assert len(result) == 3
+        names = {p.name for p in result}
+        assert names == {"fbc-rhoai-stage.yaml", "registry-rhoai-stage.yaml", "registry-rhoai-chart-stage.yaml"}
+
+    def test_filters_by_environment(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test.cluster")
+        policy_dir = tmp_path / "config" / "test.cluster" / "product" / "EnterpriseContractPolicy"
+        policy_dir.mkdir(parents=True)
+        (policy_dir / "fbc-rhoai-stage.yaml").write_text("a")
+        (policy_dir / "fbc-rhoai-prod.yaml").write_text("b")
+        (policy_dir / "registry-rhoai-stage.yaml").write_text("c")
+
+        result = mod._find_all_policy_file_paths(
+            str(tmp_path),
+            ["fbc-rhoai-stage.yaml", "fbc-rhoai-prod.yaml", "registry-rhoai-stage.yaml"],
+            "stage",
+        )
+        names = {p.name for p in result}
+        assert "fbc-rhoai-prod.yaml" not in names
+        assert "fbc-rhoai-stage.yaml" in names
+        assert "registry-rhoai-stage.yaml" in names
+
+    def test_falls_back_when_no_env_match(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test.cluster")
+        policy_dir = tmp_path / "config" / "test.cluster" / "product" / "EnterpriseContractPolicy"
+        policy_dir.mkdir(parents=True)
+        (policy_dir / "custom-policy.yaml").write_text("a")
+
+        result = mod._find_all_policy_file_paths(
+            str(tmp_path),
+            ["custom-policy.yaml"],
+            "stage",
+        )
+        assert len(result) == 1
+        assert result[0].name == "custom-policy.yaml"
+
+    def test_returns_empty_when_no_files(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test.cluster")
+        policy_dir = tmp_path / "config" / "test.cluster" / "product" / "EnterpriseContractPolicy"
+        policy_dir.mkdir(parents=True)
+
+        result = mod._find_all_policy_file_paths(
+            str(tmp_path),
+            ["nonexistent.yaml"],
+            "stage",
+        )
+        assert result == []
+
+    def test_returns_empty_when_no_ec_dir(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("KONFLUX_CLUSTER_DOMAIN", raising=False)
+        monkeypatch.delenv("KONFLUX_CONFORMA_POLICY_DIR", raising=False)
+
+        result = mod._find_all_policy_file_paths(str(tmp_path), ["a.yaml"], "stage")
+        assert result == []
+
+
+class TestComponentPolicyMapping:
+    """Tests for _map_component_to_policy and _group_components_by_policy."""
+
+    @pytest.fixture
+    def policy_paths(self, tmp_path):
+        fbc = tmp_path / "fbc-rhoai-stage.yaml"
+        reg = tmp_path / "registry-rhoai-stage.yaml"
+        chart = tmp_path / "registry-rhoai-chart-stage.yaml"
+        fbc.write_text("a")
+        reg.write_text("b")
+        chart.write_text("c")
+        return [fbc, reg, chart]
+
+    @pytest.fixture
+    def mapping_rules(self):
+        return mod._load_component_policy_mapping()
+
+    def test_fbc_maps_to_fbc_policy(self, policy_paths, mapping_rules):
+        result = mod._map_component_to_policy(
+            "rhoai-fbc-fragment-v3-5-ea-2", policy_paths, mapping_rules,
+        )
+        assert result is not None
+        assert result.name == "fbc-rhoai-stage.yaml"
+
+    def test_chart_maps_to_chart_policy(self, policy_paths, mapping_rules):
+        result = mod._map_component_to_policy(
+            "odh-chart-v3-5-ea-2", policy_paths, mapping_rules,
+        )
+        assert result is not None
+        assert result.name == "registry-rhoai-chart-stage.yaml"
+
+    def test_regular_maps_to_registry_policy(self, policy_paths, mapping_rules):
+        result = mod._map_component_to_policy(
+            "odh-dashboard-v3-5-ea-2", policy_paths, mapping_rules,
+        )
+        assert result is not None
+        assert result.name == "registry-rhoai-stage.yaml"
+
+    def test_regular_does_not_match_chart_policy(self, policy_paths, mapping_rules):
+        result = mod._map_component_to_policy(
+            "odh-training-cuda121-torch24-py311-v3-5-ea-2", policy_paths, mapping_rules,
+        )
+        assert result is not None
+        assert "chart" not in result.name
+
+    def test_group_components_by_policy(self, policy_paths, mapping_rules):
+        components = [
+            "rhoai-fbc-fragment-v3-5-ea-2",
+            "odh-dashboard-v3-5-ea-2",
+            "odh-chart-v3-5-ea-2",
+            "odh-model-registry-v3-5-ea-2",
+        ]
+        groups = mod._group_components_by_policy(components, policy_paths, mapping_rules)
+        fbc_path = policy_paths[0]
+        reg_path = policy_paths[1]
+        chart_path = policy_paths[2]
+        assert "rhoai-fbc-fragment-v3-5-ea-2" in groups[fbc_path]
+        assert "odh-dashboard-v3-5-ea-2" in groups[reg_path]
+        assert "odh-model-registry-v3-5-ea-2" in groups[reg_path]
+        assert "odh-chart-v3-5-ea-2" in groups[chart_path]
+
+    def test_returns_none_when_no_matching_policy(self, mapping_rules):
+        result = mod._map_component_to_policy(
+            "odh-dashboard-v3-5-ea-2", [], mapping_rules,
+        )
+        assert result is None
 
 

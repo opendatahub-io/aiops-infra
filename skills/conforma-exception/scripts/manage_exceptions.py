@@ -435,8 +435,8 @@ def scan_self_service_exceptions(clone_dir: Path, environment: str) -> list[dict
 
 def search_exceptions_for_components(
     search_terms: list[str],
+    environment: str,
     clone_dir: Path | None = None,
-    environment: str = "prod",
     refresh: bool = True,
 ) -> dict:
     """Search all exception sources for entries covering the given component(s).

@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """Submit a Conforma Resolution Guide to the conforma-reporter repo.
 
-Pushes the generated resolution guide to the root of the release branch
-via the GitHub Contents API (direct commit).
+Pushes the generated resolution guide to the environment-specific directory
+on the release branch via the GitHub Contents API (direct commit).
 
 Usage:
-    # Default: submit to root of the release branch:
+    # Submit stage guide:
     python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \\
-      --guide-file .work/20260610-143449/conforma-resolution-guide.md \\
-      --release rhoai-3.5-ea.2
+      --guide-file .work/20260610-143449/conforma-status-and-resolution-guide.md \\
+      --release rhoai-3.5-ea.2 \\
+      --environment stage
 
     # Dry run (no commit):
     python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \\
-      --guide-file .work/20260610-143449/conforma-resolution-guide.md \\
+      --guide-file .work/20260610-143449/conforma-status-and-resolution-guide.md \\
       --release rhoai-3.5-ea.2 \\
+      --environment prod \\
       --dry-run
 """
 
@@ -31,9 +33,9 @@ import requests
 
 import _setup_env  # noqa: F401 -- loads .work/.env and adds scripts/ to sys.path
 
-DEFAULT_REPO = "red-hat-data-services/conforma-reporter"
-DEFAULT_FILENAME = "conforma-resolution-guide.md"
-GITHUB_API = "https://api.github.com"
+from conforma_constants import CONFORMA_REPORTER_REPO, GITHUB_API  # noqa: E402
+
+DEFAULT_FILENAME = "conforma-status-and-resolution-guide.md"
 
 
 def _get_github_token() -> str:
@@ -87,7 +89,7 @@ def _check_branch_exists(repo: str, branch: str) -> bool:
 def _resolve_old_path(metadata_file: str | None, release: str) -> str | None:
     """Derive the legacy target path from metadata for cleanup.
 
-    Returns the old path (e.g. prod/release_day/conforma-violations-resolution-guide.md)
+    Returns the old path (e.g. prod/future/build_type_latest/conforma-violations-resolution-guide.md)
     or None if metadata is unavailable.
     """
     if not metadata_file:
@@ -125,12 +127,16 @@ def _delete_file_if_exists(repo: str, path: str, branch: str, message: str) -> d
 def submit_resolution_guide(
     guide_file: str,
     release: str,
-    repo: str = DEFAULT_REPO,
+    environment: str,
+    repo: str = CONFORMA_REPORTER_REPO,
     message: str | None = None,
     dry_run: bool = False,
     metadata_file: str | None = None,
 ) -> dict:
-    """Submit the resolution guide to the root of the release branch on GitHub.
+    """Submit the resolution guide to the environment-specific directory on GitHub.
+
+    The guide is placed at ``{environment}/conforma-status-and-resolution-guide.md``
+    (e.g. ``stage/conforma-status-and-resolution-guide.md``).
 
     Returns a dict with: url, sha, committed, dry_run
     """
@@ -138,7 +144,7 @@ def submit_resolution_guide(
     if not guide_path.exists():
         return {"error": f"Guide file not found: {guide_file}", "committed": False}
 
-    target_path = DEFAULT_FILENAME
+    target_path = f"{environment}/{DEFAULT_FILENAME}"
     commit_message = message or f"Update conforma resolution guide for {release}"
 
     if dry_run:
@@ -151,6 +157,8 @@ def submit_resolution_guide(
             "message": commit_message,
             "committed": False,
             "dry_run": True,
+            "question_text": f"Submit {target_path} to GitHub ({repo}, branch {release})?",
+            "question_options": ["Yes, submit", "No, skip"],
         }
 
     if not _check_branch_exists(repo, release):
@@ -212,6 +220,7 @@ def submit_resolution_guide(
         "overwritten": existing_sha is not None,
     }
 
+    cleaned = []
     old_path = _resolve_old_path(metadata_file, release)
     if old_path and not dry_run:
         cleanup = _delete_file_if_exists(
@@ -219,7 +228,19 @@ def submit_resolution_guide(
             f"Remove legacy resolution guide from {old_path}",
         )
         if cleanup:
-            result_dict["cleaned_up"] = cleanup["deleted"]
+            cleaned.append(cleanup["deleted"])
+
+    root_legacy = DEFAULT_FILENAME
+    if root_legacy != target_path and not dry_run:
+        cleanup = _delete_file_if_exists(
+            repo, root_legacy, release,
+            f"Remove legacy resolution guide from repo root",
+        )
+        if cleanup:
+            cleaned.append(cleanup["deleted"])
+
+    if cleaned:
+        result_dict["cleaned_up"] = cleaned
 
     return result_dict
 
@@ -228,12 +249,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Submit a Conforma Resolution Guide to GitHub")
     parser.add_argument("--guide-file", required=True, help="Path to the generated resolution guide markdown")
     parser.add_argument("--release", required=True, help="Branch name (e.g. rhoai-3.5-ea.2)")
+    parser.add_argument("--environment", required=True, choices=["prod", "stage"],
+                        help="Target environment — determines the directory in the repo")
     parser.add_argument(
         "--metadata-file",
         default=None,
         help="Path to fetch-metadata.json — used to clean up legacy guide from old location",
     )
-    parser.add_argument("--repo", default=DEFAULT_REPO, help=f"GitHub repo (default: {DEFAULT_REPO})")
+    parser.add_argument("--repo", default=CONFORMA_REPORTER_REPO, help=f"GitHub repo (default: {CONFORMA_REPORTER_REPO})")
     parser.add_argument("--message", default=None, help="Commit message")
     parser.add_argument("--dry-run", action="store_true", help="Print what would be done without committing")
     args = parser.parse_args()
@@ -241,6 +264,7 @@ def main() -> int:
     result = submit_resolution_guide(
         guide_file=args.guide_file,
         release=args.release,
+        environment=args.environment,
         repo=args.repo,
         message=args.message,
         dry_run=args.dry_run,

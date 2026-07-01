@@ -173,6 +173,177 @@ class TestListAll:
 
 
 # ---------------------------------------------------------------------------
+# format_version_label
+# ---------------------------------------------------------------------------
+
+
+class TestFormatVersionLabel:
+    def test_ga_release(self):
+        assert mod.format_version_label("rhoai-3.4") == "RHOAI 3.4"
+
+    def test_ea_release(self):
+        assert mod.format_version_label("rhoai-3.5-ea.2") == "RHOAI 3.5 EA2"
+
+    def test_double_digit_minor(self):
+        assert mod.format_version_label("rhoai-2.25") == "RHOAI 2.25"
+
+    def test_ea1(self):
+        assert mod.format_version_label("rhoai-3.5-ea.1") == "RHOAI 3.5 EA1"
+
+
+class TestProductPagesUrl:
+    def test_constant_is_set(self):
+        assert mod.PRODUCT_PAGES_URL == "https://productpages.redhat.com/"
+
+
+# ---------------------------------------------------------------------------
+# resolve_release_context integration: end_of_support in output
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _release_to_base_version
+# ---------------------------------------------------------------------------
+
+
+class TestReleaseToBaseVersion:
+    def test_ga_release(self):
+        assert mod._release_to_base_version("rhoai-3.5") == "3.5"
+
+    def test_ea_release(self):
+        assert mod._release_to_base_version("rhoai-3.5-ea.2") == "3.5"
+
+    def test_ea1_release(self):
+        assert mod._release_to_base_version("rhoai-3.5-ea.1") == "3.5"
+
+    def test_double_digit_minor(self):
+        assert mod._release_to_base_version("rhoai-2.25") == "2.25"
+
+    def test_no_prefix(self):
+        assert mod._release_to_base_version("3.5") == "3.5"
+
+
+# ---------------------------------------------------------------------------
+# get_upcoming_release_date
+# ---------------------------------------------------------------------------
+
+_SAMPLE_RELEASE_DATA_YAML = """\
+supported:
+  - version: "3.5"
+    products:
+      rhoai:
+        upcoming_release:
+          date: "2026-08-15"
+  - version: "3.4"
+    products:
+      rhoai:
+        upcoming_release:
+          date: "2026-07-01"
+"""
+
+
+class TestGetUpcomingReleaseDate:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        mod._release_data_cache = None
+        yield
+        mod._release_data_cache = None
+
+    def test_returns_date_when_version_found(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [
+                {"version": "3.5", "products": {"rhoai": {"upcoming_release": {"date": "2026-08-15"}}}},
+            ],
+        }):
+            assert mod.get_upcoming_release_date("rhoai-3.5") == "2026-08-15"
+
+    def test_returns_none_when_version_not_found(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [
+                {"version": "3.5", "products": {"rhoai": {"upcoming_release": {"date": "2026-08-15"}}}},
+            ],
+        }):
+            assert mod.get_upcoming_release_date("rhoai-9.9") is None
+
+    def test_returns_none_when_fetch_fails(self):
+        with patch.object(mod, "_fetch_release_data", return_value=None):
+            assert mod.get_upcoming_release_date("rhoai-3.5") is None
+
+    def test_ea_release_maps_to_base_version(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [
+                {"version": "3.5", "products": {"rhoai": {"upcoming_release": {"date": "2026-08-15"}}}},
+            ],
+        }):
+            assert mod.get_upcoming_release_date("rhoai-3.5-ea.2") == "2026-08-15"
+
+    def test_returns_none_when_no_upcoming_release_key(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [
+                {"version": "3.5", "products": {"rhoai": {}}},
+            ],
+        }):
+            assert mod.get_upcoming_release_date("rhoai-3.5") is None
+
+    def test_returns_none_when_supported_list_empty(self):
+        with patch.object(mod, "_fetch_release_data", return_value={"supported": []}):
+            assert mod.get_upcoming_release_date("rhoai-3.5") is None
+
+    def test_returns_none_when_data_has_no_supported_key(self):
+        with patch.object(mod, "_fetch_release_data", return_value={"other": "stuff"}):
+            assert mod.get_upcoming_release_date("rhoai-3.5") is None
+
+
+class TestFetchReleaseData:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        mod._release_data_cache = None
+        yield
+        mod._release_data_cache = None
+
+    def test_caches_result(self):
+        mock_result = {"content": _SAMPLE_RELEASE_DATA_YAML, "sha": "abc"}
+        with patch("github_ops.get_file", return_value=mock_result) as mock_get:
+            first = mod._fetch_release_data()
+            second = mod._fetch_release_data()
+        mock_get.assert_called_once()
+        assert first is second
+
+    def test_github_error_returns_none(self):
+        with patch("github_ops.get_file", return_value={"error": "auth failed"}):
+            assert mod._fetch_release_data() is None
+
+    def test_github_ops_not_importable_returns_none(self):
+        import builtins
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "github_ops":
+                raise ImportError("no module")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            assert mod._fetch_release_data() is None
+
+    def test_malformed_yaml_returns_none(self):
+        with patch("github_ops.get_file", return_value={"content": ":::bad yaml:::{{", "sha": "abc"}):
+            result = mod._fetch_release_data()
+            assert result is None or not isinstance(result, dict) or result == {}
+
+
+# ---------------------------------------------------------------------------
+# list_all includes upcoming_release_date
+# ---------------------------------------------------------------------------
+
+
+class TestListAllUpcomingReleaseDate:
+    def test_each_row_has_upcoming_release_date_field(self):
+        with patch.object(mod, "get_upcoming_release_date", return_value=None):
+            for row in mod.list_all():
+                assert "upcoming_release_date" in row
+
+
+# ---------------------------------------------------------------------------
 # resolve_release_context integration: end_of_support in output
 # ---------------------------------------------------------------------------
 
@@ -183,7 +354,7 @@ class TestResolveReleaseContextEos:
     def test_resolved_result_includes_end_of_support(self, monkeypatch):
         import resolve_release_context as ctx
 
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test-cluster-01.abc.xyz")
         monkeypatch.setenv("KONFLUX_TENANT", "rhoai-tenant")
         monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "config/x/product/EnterpriseContractPolicy")
         monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")
@@ -198,7 +369,7 @@ class TestResolveReleaseContextEos:
     def test_confirmation_display_contains_end_of_support(self, monkeypatch):
         import resolve_release_context as ctx
 
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test-cluster-01.abc.xyz")
         monkeypatch.setenv("KONFLUX_TENANT", "rhoai-tenant")
         monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "config/x/product/EnterpriseContractPolicy")
         monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")
@@ -207,13 +378,14 @@ class TestResolveReleaseContextEos:
         with patch.object(ctx, "list_version_dirs", return_value=["v3.4"]):
             result = ctx.resolve("rhoai-3.4")
 
-        assert "End of Support" in result["confirmation_display"]
+        assert "End of Support (RHOAI 3.4)" in result["confirmation_display"]
         assert "2026-08-12" in result["confirmation_display"]
+        assert "Product Pages" in result["confirmation_display"]
 
     def test_unknown_release_shows_unknown_in_display(self, monkeypatch):
         import resolve_release_context as ctx
 
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test-cluster-01.abc.xyz")
         monkeypatch.setenv("KONFLUX_TENANT", "rhoai-tenant")
         monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "config/x/product/EnterpriseContractPolicy")
         monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")

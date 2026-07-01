@@ -446,6 +446,58 @@ class TestParseComponentsFromDiffGlobalCoverage:
         assert result == []
 
 
+class TestParseComponentsFromDiffSuffixMatching:
+    """Tests for base-rule matching against suffixed diff entries."""
+
+    def test_base_rule_matches_suffixed_volatile_with_components(self):
+        diff = (
+            "+          - value: rpm_signature.allowed:8a3872bf3228467c\n"
+            "+            componentNames:\n"
+            "+              - odh-vllm-cpu-v3-5-ea-2\n"
+        )
+        result = mod._parse_components_from_diff(diff, "rpm_signature.allowed")
+        assert result == ["odh-vllm-cpu-v3-5-ea-2"]
+
+    def test_base_rule_matches_suffixed_volatile_global(self):
+        diff = (
+            "+          - value: sbom_spdx.allowed_package_sources:pkg:generic\n"
+            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
+        )
+        result = mod._parse_components_from_diff(diff, "sbom_spdx.allowed_package_sources")
+        assert result == mod.GLOBAL_COVERAGE
+
+    def test_base_rule_matches_suffixed_permanent_exclusion(self):
+        diff = "+          - rpm_signature.allowed:8a3872bf3228467c\n"
+        result = mod._parse_components_from_diff(diff, "rpm_signature.allowed")
+        assert result == mod.GLOBAL_COVERAGE
+
+    def test_suffixed_rule_still_matches_exact(self):
+        diff = (
+            "+          - value: rpm_signature.allowed:8a3872bf3228467c\n"
+            "+            componentNames:\n"
+            "+              - comp-a\n"
+        )
+        result = mod._parse_components_from_diff(diff, "rpm_signature.allowed:8a3872bf3228467c")
+        assert result == ["comp-a"]
+
+    def test_base_rule_does_not_match_different_rule_with_prefix(self):
+        diff = "+          - value: rpm_signature.allowed_extra:abc\n"
+        result = mod._parse_components_from_diff(diff, "rpm_signature.allowed")
+        assert result == []
+
+    def test_base_rule_matches_multiple_suffixed_entries(self):
+        diff = (
+            "+          - value: rpm_signature.allowed:key1\n"
+            "+            componentNames:\n"
+            "+              - comp-a\n"
+            "+          - value: rpm_signature.allowed:key2\n"
+            "+            componentNames:\n"
+            "+              - comp-b\n"
+        )
+        result = mod._parse_components_from_diff(diff, "rpm_signature.allowed")
+        assert sorted(result) == ["comp-a", "comp-b"]
+
+
 class TestAnalyzeMrGlobalCoverage:
     """Tests for global exclusion handling in analyze_mr_component_coverage."""
 
@@ -744,3 +796,56 @@ class TestPrefetchOpenMrsCrossIndex:
 
         hermetic_iids = [m["iid"] for m in result["hermetic_task.hermetic"]]
         assert hermetic_iids.count(203) == 1
+
+
+class TestExtractEffectiveUntilFromDiff:
+    """Tests for extract_effective_until_from_diff."""
+
+    def test_extracts_date_from_added_block(self):
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            effectiveUntil: \"2026-08-01T00:00:00Z\"\n"
+            "+            componentNames:\n"
+            "+              - comp-a\n"
+        )
+        assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") == "2026-08-01"
+
+    def test_returns_none_when_no_effective_until(self):
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - comp-a\n"
+        )
+        assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") is None
+
+    def test_returns_none_when_rule_not_found(self):
+        diff = (
+            "+          - value: test.no_failed_tests\n"
+            "+            effectiveUntil: \"2026-08-01\"\n"
+        )
+        assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") is None
+
+    def test_extracts_from_context_line(self):
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "            effectiveUntil: \"2026-09-15\"\n"
+            "+            componentNames:\n"
+            "+              - comp-a\n"
+        )
+        assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") == "2026-09-15"
+
+    def test_base_rule_matches_suffixed_entry(self):
+        diff = (
+            "+          - value: rpm_signature.allowed:8a3872bf3228467c\n"
+            "+            effectiveUntil: \"2026-07-15\"\n"
+            "+            componentNames:\n"
+            "+              - odh-vllm-cpu-v3-5-ea-2\n"
+        )
+        assert mod.extract_effective_until_from_diff(diff, "rpm_signature.allowed") == "2026-07-15"
+
+    def test_strips_quotes_and_truncates_to_date(self):
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            effectiveUntil: '2026-12-31T23:59:59Z'\n"
+        )
+        assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") == "2026-12-31"

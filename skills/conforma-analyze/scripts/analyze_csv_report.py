@@ -660,10 +660,7 @@ def format_json(result: AnalysisResult, component_owners: dict[str, str | None] 
     return json.dumps(data, indent=2, default=list)
 
 
-CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
-CONFORMA_REPORTER_WORKFLOW = (
-    f"https://github.com/{CONFORMA_REPORTER_REPO}/actions/workflows/conforma-reporter.yaml"
-)
+from conforma_constants import CONFORMA_REPORTER_ACTIONS_URL, CONFORMA_REPORTER_URL
 STALENESS_THRESHOLD_DAYS = 3
 
 
@@ -691,7 +688,7 @@ def _build_report_header(metadata_file: str, release: str, fmt: str) -> str:
         return ""
 
     ref = source_sha or release
-    source_url = f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{ref}/{source_path}"
+    source_url = f"{CONFORMA_REPORTER_URL}/blob/{ref}/{source_path}"
     created_display = created_at[:10] if created_at else "(unknown date)"
 
     lines: list[str] = []
@@ -711,7 +708,7 @@ def _build_report_header(metadata_file: str, release: str, fmt: str) -> str:
                     lines.append(
                         f"> **Stale report**: The report for `{release}` was generated "
                         f"{age_days} days ago ({created_display}). Consider re-running the "
-                        f"[conforma-reporter workflow]({CONFORMA_REPORTER_WORKFLOW}) to get "
+                        f"[conforma-reporter workflow]({CONFORMA_REPORTER_ACTIONS_URL}) to get "
                         f"an up-to-date report, then re-run this analysis."
                     )
                 else:

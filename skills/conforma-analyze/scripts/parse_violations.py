@@ -417,23 +417,17 @@ def parse_warnings_csv_file(
     return records
 
 
-CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
-
-
-def _build_report_url(release: str) -> str:
-    """Build a GitHub URL to the violations report for a release."""
-    return f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{release}/prod/release_day/conforma-violations-report.csv"
-
-
-def _build_warnings_report_url(release: str) -> str:
-    """Build a GitHub URL to the warnings report for a release."""
-    return f"https://github.com/{CONFORMA_REPORTER_REPO}/blob/{release}/prod/release_day/conforma-warnings-report.csv"
+from conforma_constants import (
+    build_report_url as _build_report_url,
+    build_warnings_report_url as _build_warnings_report_url,
+)
 
 
 def _build_upcoming_violations_section(
     upcoming_records: list[dict],
     releases: list[str],
     threshold_days: int,
+    environment: str,
 ) -> dict:
     """Build the upcoming_violations section from warnings becoming violations."""
     if not upcoming_records:
@@ -507,7 +501,7 @@ def _build_upcoming_violations_section(
             "earliest_deadline": earliest,
         }
 
-    warnings_report_urls = {release: _build_warnings_report_url(release) for release in releases}
+    warnings_report_urls = {release: _build_warnings_report_url(release, environment) for release in releases}
 
     return {
         "threshold_days": threshold_days,
@@ -581,6 +575,7 @@ def build_semantic_detail_lookup(
 def build_violations_index(
     all_records: list[dict],
     releases: list[str],
+    environment: str,
     failed_releases: list[dict] | None = None,
     report_dates: dict[str, str] | None = None,
     upcoming_records: list[dict] | None = None,
@@ -670,7 +665,7 @@ def build_violations_index(
             "unique_components": len(unique_components),
         }
 
-    report_urls = {release: _build_report_url(release) for release in releases}
+    report_urls = {release: _build_report_url(release, environment) for release in releases}
     dates = report_dates or {}
     report_created_at = {rel: dates.get(rel, "") for rel in releases if dates.get(rel)}
 
@@ -690,7 +685,7 @@ def build_violations_index(
         result["violation_data"]["failed_releases"] = failed_releases
 
     if upcoming_records:
-        upcoming_section = _build_upcoming_violations_section(upcoming_records, releases, upcoming_threshold_days)
+        upcoming_section = _build_upcoming_violations_section(upcoming_records, releases, upcoming_threshold_days, environment)
         if upcoming_section:
             result["violation_data"]["upcoming_violations"] = upcoming_section
 
@@ -779,6 +774,12 @@ def main() -> int:
         "from the reports directory; other CSVs are ignored. "
         "This prevents accidentally analyzing all releases when only one was intended.",
     )
+    parser.add_argument(
+        "--environment",
+        required=True,
+        choices=["prod", "stage"],
+        help="Target environment (prod or stage) — determines which CSV report URLs are generated",
+    )
     args = parser.parse_args()
 
     if not args.no_catalog:
@@ -857,6 +858,7 @@ def main() -> int:
     index = build_violations_index(
         all_records,
         releases,
+        args.environment,
         failed_releases,
         report_dates,
         upcoming_records=upcoming_records or None,

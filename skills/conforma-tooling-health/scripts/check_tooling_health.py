@@ -68,14 +68,16 @@ def _fetch_workflow_runs(
     release: str,
     max_runs: int,
     token: str,
+    environment: str,
 ) -> dict:
-    """Fetch recent workflow runs from GitHub Actions API, filtered by release.
+    """Fetch recent workflow runs from GitHub Actions API, filtered by release and environment.
 
     The conforma-reporter workflow runs on ``main`` via workflow_dispatch and
-    encodes the target release in the run's ``display_title`` (e.g.
+    encodes the target release and environment in the run's ``display_title`` (e.g.
     ``"Conforma Reporter (target env: prod): rhoai-3.5-ea.2 (nightly)"``).
     We fetch a larger page of runs without a branch filter and then filter
-    client-side to those whose display_title contains the release name.
+    client-side to those whose display_title contains both the release name
+    and the target environment.
 
     Returns dict with either 'runs' key (list) or 'error' key (str).
     """
@@ -111,7 +113,12 @@ def _fetch_workflow_runs(
         return {"error": f"Failed to parse GitHub API response: {exc}"}
 
     all_runs = data.get("workflow_runs", [])
-    matched = [r for r in all_runs if release in (r.get("display_title") or "")]
+    env_marker = f"target env: {environment}"
+    matched = [
+        r for r in all_runs
+        if release in (r.get("display_title") or "")
+        and env_marker in (r.get("display_title") or "")
+    ]
 
     return {"runs": matched[:max_runs]}
 
@@ -263,12 +270,13 @@ def check_tool_health(
     max_runs: int,
     token: str,
     catalog: dict,
+    environment: str,
 ) -> dict:
     """Check health for a single tool. Returns a tool status dict."""
     tool_config = _get_tool_config(catalog, tool_id) or {}
     workflow_url = f"https://github.com/{repo}/actions/workflows/{workflow_file}"
 
-    result = _fetch_workflow_runs(repo, workflow_file, release, max_runs, token)
+    result = _fetch_workflow_runs(repo, workflow_file, release, max_runs, token, environment=environment)
 
     if "error" in result:
         failure_info = classify_failure(result["error"], tool_config)
@@ -310,7 +318,7 @@ def check_tool_health(
     return tool_result
 
 
-def check_all_tools(release: str, max_runs: int = 5, catalog_path: Path | None = None) -> dict:
+def check_all_tools(release: str, environment: str, max_runs: int = 5, catalog_path: Path | None = None) -> dict:
     """Check health for all tools defined in the catalog.
 
     Returns the full tooling-health JSON structure.
@@ -337,17 +345,55 @@ def check_all_tools(release: str, max_runs: int = 5, catalog_path: Path | None =
             max_runs=max_runs,
             token=token,
             catalog=catalog,
+            environment=environment,
         )
         tools_results.append(tool_result)
 
     overall = _compute_overall_health(tools_results)
 
-    return {
+    result: dict = {
         "release": release,
         "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "tools": tools_results,
         "overall_health": overall,
     }
+
+    if overall in ("unhealthy", "error"):
+        unhealthy = [t for t in tools_results if t.get("health", {}).get("status") in ("unhealthy", "error")]
+        parts = []
+        for t in unhealthy:
+            health = t.get("health", {})
+            n = health.get("consecutive_failures", 0)
+            ls = health.get("last_success") or {}
+            ls_date = ls.get("completed_at", "")[:10] if ls else "unknown"
+            ls_url = ls.get("url", "")
+            ls_info = f"last success {ls_date} ({ls_url})" if ls_url else f"last success {ls_date}"
+            parts.append(f"{t['name']}: {n} consecutive failure(s), {ls_info}")
+        result["question_text"] = (
+            f"Conforma reporter is UNHEALTHY for {release}: {'; '.join(parts)}. "
+            "The violation report may be stale or incomplete. Proceed with analysis anyway?"
+        )
+        result["question_options"] = ["Yes, continue", "No, stop here"]
+    elif overall == "in_progress":
+        in_progress = [t for t in tools_results if t.get("health", {}).get("status") == "in_progress"]
+        parts = []
+        for t in in_progress:
+            latest = t.get("latest_run", {})
+            run_id = latest.get("id", "unknown")
+            started = latest.get("created_at", "")[:16].replace("T", " ") if latest.get("created_at") else "unknown"
+            health = t.get("health", {})
+            ls = health.get("last_success") or {}
+            ls_date = ls.get("completed_at", "")[:10] if ls else "unknown"
+            parts.append(f"{t['name']}: run #{run_id} started {started}")
+        result["question_text"] = (
+            f"A conforma-reporter run is in progress for {release} ({'; '.join(parts)}). Choose:"
+        )
+        result["question_options"] = [
+            f"Use last completed report ({ls_date})",
+            "Wait for current run to finish (up to 60 min)",
+        ]
+
+    return result
 
 
 def _compute_overall_health(tools: list[dict]) -> str:
@@ -393,6 +439,12 @@ def main() -> int:
         help="Maximum number of recent runs to check per tool (default: 5)",
     )
     parser.add_argument(
+        "--environment",
+        required=True,
+        choices=["prod", "stage"],
+        help="Target environment to filter workflow runs",
+    )
+    parser.add_argument(
         "--catalog",
         default=None,
         help="Path to tooling-health-catalog.yaml (default: auto-detect)",
@@ -400,7 +452,7 @@ def main() -> int:
     args = parser.parse_args()
 
     catalog_path = Path(args.catalog) if args.catalog else None
-    result = check_all_tools(args.release, args.max_runs, catalog_path)
+    result = check_all_tools(args.release, environment=args.environment, max_runs=args.max_runs, catalog_path=catalog_path)
 
     output_json = json.dumps(result, indent=2)
 

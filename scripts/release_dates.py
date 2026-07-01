@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -53,6 +54,11 @@ except ImportError:
 
 _YAML_PATH = Path(__file__).resolve().parent / "release_dates.yaml"
 _EOS_BUFFER_DAYS = 7
+PRODUCT_PAGES_URL = "https://productpages.redhat.com/"
+
+_RELEASE_DATA_REPO = "red-hat-data-services/rhods-devops-infra"
+_RELEASE_DATA_PATH = "src/config/rhai-release-data.yaml"
+_RELEASE_DATA_BRANCH = "main"
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +87,84 @@ _STATIC_DATES: dict[str, str] = _load_static()
 
 
 # ---------------------------------------------------------------------------
+# Upcoming release date fetching
+# ---------------------------------------------------------------------------
+
+_release_data_cache: dict | None = None
+
+
+def _release_to_base_version(release: str) -> str:
+    """Extract the base version number from a release branch name.
+
+    Examples: "rhoai-3.5" → "3.5", "rhoai-3.5-ea.2" → "3.5", "rhoai-2.25" → "2.25".
+    """
+    return re.sub(r"^rhoai-", "", release).split("-ea.")[0]
+
+
+def _fetch_release_data() -> dict | None:
+    """Fetch and cache rhai-release-data.yaml from GitHub."""
+    global _release_data_cache
+    if _release_data_cache is not None:
+        return _release_data_cache
+
+    if _yaml is None:
+        print("WARNING: PyYAML not available, cannot fetch release data", file=sys.stderr)
+        return None
+
+    try:
+        import github_ops
+    except ImportError:
+        print("WARNING: github_ops not available, cannot fetch release data", file=sys.stderr)
+        return None
+
+    result = github_ops.get_file(_RELEASE_DATA_REPO, _RELEASE_DATA_PATH, ref=_RELEASE_DATA_BRANCH)
+    if "error" in result:
+        print(f"WARNING: Failed to fetch rhai-release-data.yaml: {result['error']}", file=sys.stderr)
+        return None
+
+    try:
+        data = _yaml.safe_load(result["content"])
+    except Exception:
+        print("WARNING: Failed to parse rhai-release-data.yaml", file=sys.stderr)
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    _release_data_cache = data
+    return data
+
+
+def get_upcoming_release_date(release: str) -> Optional[str]:
+    """Return the upcoming release date (YYYY-MM-DD) for a release.
+
+    Fetches rhai-release-data.yaml from rhods-devops-infra and extracts
+    the ``upcoming_release.date`` for the matching version.
+
+    Returns None when the data cannot be fetched or the version has no
+    upcoming release date configured.
+    """
+    data = _fetch_release_data()
+    if data is None:
+        return None
+
+    base_version = _release_to_base_version(release)
+
+    for entry in data.get("supported", []):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("version", "")) != base_version:
+            continue
+        try:
+            date_val = entry["products"]["rhoai"]["upcoming_release"]["date"]
+            return str(date_val)
+        except (KeyError, TypeError):
+            return None
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Dynamic fetching — stub for future implementation
 # ---------------------------------------------------------------------------
 
@@ -100,6 +184,14 @@ def _fetch_dynamic(release: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+
+def format_version_label(release: str) -> str:
+    """Convert a release branch name to a human-readable label.
+
+    Examples: "rhoai-3.4" → "RHOAI 3.4", "rhoai-3.5-ea.2" → "RHOAI 3.5 EA2".
+    """
+    return release.replace("rhoai-", "RHOAI ").replace("-ea.", " EA")
 
 
 def get_eos_date(release: str) -> Optional[str]:
@@ -203,6 +295,7 @@ def list_all() -> list[dict]:
             "release": release,
             "end_of_support": eos,
             "effective_until": get_effective_until(release),
+            "upcoming_release_date": get_upcoming_release_date(release),
             "source": "static",
         })
     return rows
@@ -240,6 +333,7 @@ def main() -> int:
         "release": args.release,
         "end_of_support": eos,
         "effective_until": get_effective_until(args.release),
+        "upcoming_release_date": get_upcoming_release_date(args.release),
         "source": "static",
     }, indent=2))
     return 0

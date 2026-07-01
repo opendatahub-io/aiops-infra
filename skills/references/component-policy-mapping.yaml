@@ -1,0 +1,22 @@
+# Component-to-policy mapping for EC validate coverage checks.
+#
+# Maps Konflux component names to their Conforma policy file.
+# Each rule is evaluated top-to-bottom; first match wins.
+# Pattern syntax: fnmatch (shell-style wildcards: *, ?, [seq]).
+#
+# Used by: violations_coverage.py (_map_component_to_policy)
+
+rules:
+  - pattern: "rhoai-fbc-fragment*"
+    policy_prefix: "fbc-"
+    description: "FBC fragment components"
+
+  - pattern: "*chart*"
+    policy_prefix: "registry-"
+    policy_must_contain: "chart"
+    description: "Helm chart components"
+
+  - pattern: "*"
+    policy_prefix: "registry-"
+    policy_must_not_contain: "chart"
+    description: "All other registry components"

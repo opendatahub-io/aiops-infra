@@ -252,7 +252,7 @@ def _build_mr_body(
 
 
 def _build_mr_title(
-    rule: str, rhoai_version: str, vendor_tag: str | None = None, environment: str = "prod"
+    rule: str, rhoai_version: str, environment: str, vendor_tag: str | None = None
 ) -> str:
     """Build the MR title, including vendor tag and environment prefix."""
     env_prefix = f"[{environment}] " if environment else ""
@@ -263,7 +263,7 @@ def _build_mr_title(
 
 
 def _build_mr_title_consolidated(
-    rule: str, version_specs: list[dict], vendor_tag: str | None = None, environment: str = "prod"
+    rule: str, version_specs: list[dict], environment: str, vendor_tag: str | None = None
 ) -> str:
     """Build MR title for a consolidated (multi-version) exception MR."""
     versions = [s["version"] for s in version_specs]
@@ -997,7 +997,7 @@ def create_mr(
             _run_git(["git", "push", "-u", "fork", branch_name], cwd=repo_dir)
             use_fork = True
 
-        mr_title = _build_mr_title(rule, rhoai_version, vendor_tag, environment)
+        mr_title = _build_mr_title(rule, rhoai_version, environment, vendor_tag)
         mr_body = _build_mr_body(
             rule=rule,
             components=components,
@@ -1217,7 +1217,7 @@ def update_mr(
 
         mr_url = _extract_mr_url(push_result.stdout + push_result.stderr)
 
-        new_title = _build_mr_title(rule, rhoai_version, vendor_tag, environment)
+        new_title = _build_mr_title(rule, rhoai_version, environment, vendor_tag)
         new_body = _build_mr_body(
             rule=rule,
             components=components,
@@ -1426,7 +1426,7 @@ def update_consolidated_mr(
 
         mr_url = _extract_mr_url(push_result.stdout + push_result.stderr)
 
-        new_title = _build_mr_title_consolidated(rule, version_specs, vendor_tag, environment)
+        new_title = _build_mr_title_consolidated(rule, version_specs, environment, vendor_tag)
         new_body = _build_mr_body_consolidated(
             rule=rule,
             version_specs=version_specs,
@@ -1621,7 +1621,7 @@ def create_consolidated_mr(
             _run_git(["git", "push", "-u", "fork", branch_name], cwd=repo_dir)
             use_fork = True
 
-        mr_title = _build_mr_title_consolidated(rule, version_specs, vendor_tag, environment)
+        mr_title = _build_mr_title_consolidated(rule, version_specs, environment, vendor_tag)
         mr_body = _build_mr_body_consolidated(
             rule=rule,
             version_specs=version_specs,
@@ -2249,7 +2249,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rhoaieng-url", default=None)
     parser.add_argument("--remediation-plan-url", default=None)
     parser.add_argument("--rhoai-version", default=None, help="Single-version mode")
-    parser.add_argument("--environment", default="prod", choices=["prod", "stage"])
+    parser.add_argument("--environment", required=True, choices=["prod", "stage"])
     parser.add_argument("--spreadsheet-url", default=None, help="Tracking spreadsheet URL (YAML comment)")
     parser.add_argument(
         "--self-service",

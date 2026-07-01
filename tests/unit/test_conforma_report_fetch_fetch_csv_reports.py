@@ -82,13 +82,13 @@ class TestFetchWarningsCsvForRelease:
             return {"error": f"404 for {csv_path}"}
 
         with patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download):
-            result = fetch_csv_reports.fetch_warnings_csv_for_release("rhoai-3.4", tmp_path)
+            result = fetch_csv_reports.fetch_warnings_csv_for_release("rhoai-3.4", tmp_path, "prod")
         assert result["status"] == "failed"
         assert result["path"] is None
 
     def test_first_path_succeeds(self, tmp_path):
         def mock_download(csv_path, ref, output_file):
-            if "release_day" in csv_path and "warnings" in csv_path:
+            if "build_type_latest" in csv_path and "warnings" in csv_path:
                 output_file.write_text("type,component_name\nwarning,comp-a\n")
                 return None
             return {"error": "not found"}
@@ -101,10 +101,21 @@ class TestFetchWarningsCsvForRelease:
             patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download),
             patch("fetch_csv_reports.requests.get", return_value=commit_resp),
         ):
-            result = fetch_csv_reports.fetch_warnings_csv_for_release("rhoai-3.4", tmp_path)
+            result = fetch_csv_reports.fetch_warnings_csv_for_release("rhoai-3.4", tmp_path, "prod")
         assert result["status"] == "fetched"
         assert result["path"] is not None
         assert result["path"].endswith("-warnings.csv")
+
+    def test_stage_environment_uses_stage_paths(self, tmp_path):
+        attempted_paths = []
+
+        def mock_download(csv_path, ref, output_file):
+            attempted_paths.append(csv_path)
+            return {"error": f"404 for {csv_path}"}
+
+        with patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download):
+            fetch_csv_reports.fetch_warnings_csv_for_release("rhoai-3.4", tmp_path, "stage")
+        assert all("stage/" in p for p in attempted_paths)
 
     def teardown_method(self):
         fetch_csv_reports._github_token_cache = None
@@ -225,7 +236,10 @@ class TestMainRequiresReleasesOrAll:
         fetch_csv_reports._github_token_cache = "token123"
 
     def test_no_releases_no_all_exits_with_error(self, monkeypatch, capsys):
-        monkeypatch.setattr("sys.argv", ["fetch_csv_reports.py", "--output-dir", "/tmp/test"])
+        monkeypatch.setattr("sys.argv", [
+            "fetch_csv_reports.py", "--output-dir", "/tmp/test",
+            "--environment", "prod",
+        ])
         rc = fetch_csv_reports.main()
         assert rc == 1
         captured = capsys.readouterr()
@@ -236,24 +250,25 @@ class TestMainRequiresReleasesOrAll:
         monkeypatch.setattr("sys.argv", [
             "fetch_csv_reports.py", "--all", "--output-dir", str(tmp_path),
             "--metadata-file", str(tmp_path / "meta.json"),
+            "--environment", "prod",
         ])
         monkeypatch.setattr(
             fetch_csv_reports, "fetch_supported_releases",
             lambda: ["rhoai-3.5-ea.1"],
         )
 
-        def mock_fetch(release, output_dir):
+        def mock_fetch(release, output_dir, environment="prod"):
             (output_dir / f"{release}.csv").write_text("type,component_name\nviolation,comp-a\n")
             return {
                 "release": release, "status": "fetched",
                 "path": str(output_dir / f"{release}.csv"),
-                "size_bytes": 10, "source_path": "prod/release_day/report.csv",
+                "size_bytes": 10, "source_path": "prod/build_type_latest/report.csv",
                 "created_at": "", "source_sha": "",
             }
 
         monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", mock_fetch)
         monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release",
-                            lambda r, d: {"release": r, "status": "failed", "error": "no warnings", "path": None})
+                            lambda r, d, **kw: {"release": r, "status": "failed", "error": "no warnings", "path": None})
 
         rc = fetch_csv_reports.main()
         assert rc == 0
@@ -263,20 +278,21 @@ class TestMainRequiresReleasesOrAll:
             "fetch_csv_reports.py", "--releases", "rhoai-3.5-ea.1",
             "--output-dir", str(tmp_path),
             "--metadata-file", str(tmp_path / "meta.json"),
+            "--environment", "prod",
         ])
 
-        def mock_fetch(release, output_dir):
+        def mock_fetch(release, output_dir, environment="prod"):
             (output_dir / f"{release}.csv").write_text("type,component_name\nviolation,comp-a\n")
             return {
                 "release": release, "status": "fetched",
                 "path": str(output_dir / f"{release}.csv"),
-                "size_bytes": 10, "source_path": "prod/release_day/report.csv",
+                "size_bytes": 10, "source_path": "prod/build_type_latest/report.csv",
                 "created_at": "", "source_sha": "",
             }
 
         monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", mock_fetch)
         monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release",
-                            lambda r, d: {"release": r, "status": "failed", "error": "no warnings", "path": None})
+                            lambda r, d, **kw: {"release": r, "status": "failed", "error": "no warnings", "path": None})
 
         rc = fetch_csv_reports.main()
         assert rc == 0
@@ -295,13 +311,13 @@ class TestFetchCsvForRelease:
             return {"error": f"404 for {csv_path}"}
 
         with patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download):
-            result = fetch_csv_reports.fetch_csv_for_release("rhoai-3.4", tmp_path)
+            result = fetch_csv_reports.fetch_csv_for_release("rhoai-3.4", tmp_path, "prod")
         assert result["status"] == "failed"
         assert result["path"] is None
 
     def test_first_path_succeeds(self, tmp_path):
         def mock_download(csv_path, ref, output_file):
-            if "release_day" in csv_path:
+            if "build_type_latest" in csv_path:
                 output_file.write_text("type,component_name\nviolation,comp-a\n")
                 return None
             return {"error": "not found"}
@@ -314,10 +330,21 @@ class TestFetchCsvForRelease:
             patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download),
             patch("fetch_csv_reports.requests.get", return_value=commit_resp),
         ):
-            result = fetch_csv_reports.fetch_csv_for_release("rhoai-3.4", tmp_path)
+            result = fetch_csv_reports.fetch_csv_for_release("rhoai-3.4", tmp_path, "prod")
         assert result["status"] == "fetched"
         assert result["path"] is not None
-        assert "release_day" in result["source_path"]
+        assert "build_type_latest" in result["source_path"]
+
+    def test_stage_environment_uses_stage_paths(self, tmp_path):
+        attempted_paths = []
+
+        def mock_download(csv_path, ref, output_file):
+            attempted_paths.append(csv_path)
+            return {"error": f"404 for {csv_path}"}
+
+        with patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download):
+            fetch_csv_reports.fetch_csv_for_release("rhoai-3.4", tmp_path, "stage")
+        assert all("stage/" in p for p in attempted_paths)
 
     def teardown_method(self):
         fetch_csv_reports._github_token_cache = None

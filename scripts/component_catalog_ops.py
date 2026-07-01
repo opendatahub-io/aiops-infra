@@ -109,6 +109,8 @@ def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
 
     if (target / ".git").is_dir():
         try:
+            gitlab_ops.run_git(["git", "-C", str(target), "reset", "--hard"], timeout=30)
+            gitlab_ops.run_git(["git", "-C", str(target), "clean", "-fd"], timeout=30)
             gitlab_ops.run_git(
                 ["git", "-C", str(target), "pull", "--ff-only"],
                 timeout=60,

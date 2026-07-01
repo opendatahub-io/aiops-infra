@@ -88,7 +88,7 @@ class TestFormatText:
             "release": "rhoai-3.4",
             "code": "hermetic_task.hermetic",
             "component_filter": None,
-            "csv_path": "prod/release_day/conforma-violations-report.csv",
+            "csv_path": "prod/future/build_type_latest/conforma-violations-report.csv",
             "total_commits_checked": 5,
             "history_range": {"oldest": "2026-05-01T00:00:00Z", "newest": "2026-06-01T00:00:00Z"},
             "currently_present": True,
@@ -106,7 +106,7 @@ class TestFormatText:
             "release": "rhoai-3.4",
             "code": "hermetic_task.hermetic",
             "component_filter": None,
-            "csv_path": "prod/release_day/conforma-violations-report.csv",
+            "csv_path": "prod/future/build_type_latest/conforma-violations-report.csv",
             "total_commits_checked": 3,
             "history_range": {"oldest": "2026-04-01T00:00:00Z", "newest": "2026-06-01T00:00:00Z"},
             "currently_present": False,
@@ -144,15 +144,15 @@ class TestTraceHistory:
 
     def test_no_csv_path_found(self):
         with patch.object(violation_history, "_find_csv_path", return_value=None):
-            result = violation_history.trace_history("rhoai-3.4", "hermetic_task.hermetic")
+            result = violation_history.trace_history("rhoai-3.4", "hermetic_task.hermetic", environment="prod")
         assert "error" in result
 
     def test_no_commits_found(self):
         with (
-            patch.object(violation_history, "_find_csv_path", return_value="prod/release_day/report.csv"),
+            patch.object(violation_history, "_find_csv_path", return_value="prod/future/build_type_latest/report.csv"),
             patch.object(violation_history, "_fetch_commits", return_value=[]),
         ):
-            result = violation_history.trace_history("rhoai-3.4", "hermetic_task.hermetic")
+            result = violation_history.trace_history("rhoai-3.4", "hermetic_task.hermetic", environment="prod")
         assert "error" in result
 
     def test_basic_trace(self):
@@ -162,11 +162,11 @@ class TestTraceHistory:
             {"sha": "ccc333ddd444", "date": "2026-05-01T00:00:00Z", "message": "Update report"},
         ]
         with (
-            patch.object(violation_history, "_find_csv_path", return_value="prod/release_day/report.csv"),
+            patch.object(violation_history, "_find_csv_path", return_value="prod/future/build_type_latest/report.csv"),
             patch.object(violation_history, "_fetch_commits", return_value=commits),
             patch.object(violation_history, "_fetch_csv_content", return_value=csv_content),
         ):
-            result = violation_history.trace_history("rhoai-3.4", "hermetic_task.hermetic")
+            result = violation_history.trace_history("rhoai-3.4", "hermetic_task.hermetic", environment="prod")
 
         assert "error" not in result
         assert result["currently_present"] is True
@@ -197,7 +197,7 @@ class TestTraceHistory:
             patch.object(violation_history, "_fetch_commits", return_value=commits),
             patch.object(violation_history, "_fetch_csv_content", side_effect=mock_fetch_csv),
         ):
-            result = violation_history.trace_history("rhoai-3.4", "hermetic_task.hermetic", until_found=True)
+            result = violation_history.trace_history("rhoai-3.4", "hermetic_task.hermetic", environment="prod", until_found=True)
 
         assert "error" not in result
         assert call_count == 2
@@ -215,6 +215,7 @@ class TestTraceHistory:
             result = violation_history.trace_history(
                 "rhoai-3.4",
                 "hermetic_task.hermetic",
+                environment="prod",
                 csv_path_override="prod/future/build_type_latest/report.csv",
             )
 

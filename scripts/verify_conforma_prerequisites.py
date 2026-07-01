@@ -58,19 +58,21 @@ def _check_python_deps() -> dict:
             "ok": False,
             "name": "python_deps",
             "error": f"Missing Python packages: {', '.join(missing)}",
-            "fix": "Run: uv sync  (or: pip install -e .)",
+            "fix": "uv sync\n(or: pip install -e .)",
         }
     return {"ok": True, "name": "python_deps", "error": None, "fix": None, "detail": "All installed"}
 
 
 def _check_konflux() -> dict:
-    """Check that Konflux tenant is configured (KONFLUX_TENANT, KONFLUX_CLUSTER_DOMAIN).
+    """Check that Konflux tenant is configured and cluster is reachable.
 
     Primary path: user provides KONFLUX_TENANT in .work/.env alongside GITLAB_HOST,
     then KONFLUX_CLUSTER_DOMAIN is auto-discovered by konflux_tenant_env_discovery.py.
 
     Auto-discovery depends on GitLab auth. If GitLab is not configured, this
     check reports the dependency rather than a generic "discovery failed".
+
+    After verifying config, tests actual connectivity via oc/kubectl whoami.
     """
     # The module-level load() may have skipped discovery because the connectivity
     # state file didn't exist yet. _check_gitlab_auth() writes it on success, so
@@ -81,12 +83,6 @@ def _check_konflux() -> dict:
 
     has_tenant = bool(os.environ.get("KONFLUX_TENANT"))
     has_cluster_domain = bool(os.environ.get("KONFLUX_CLUSTER_DOMAIN"))
-
-    if has_tenant and has_cluster_domain:
-        cluster_domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
-        cluster_id = cluster_domain.split(".")[0] if cluster_domain else ""
-        detail = f"Cluster: {cluster_id}" if cluster_id else None
-        return {"ok": True, "name": "konflux", "error": None, "fix": None, "detail": detail}
 
     if not has_tenant:
         return {
@@ -102,65 +98,172 @@ def _check_konflux() -> dict:
 
     # KONFLUX_TENANT is set but CLUSTER_DOMAIN is missing — discovery didn't work.
     # Distinguish "blocked by gitlab" from a discovery-specific failure.
-    host = os.environ.get("GITLAB_HOST", "")
-    if not host:
-        return {
-            "ok": False,
-            "name": "konflux",
-            "error": "Blocked by gitlab — GITLAB_HOST not set (required for auto-discovery)",
-            "fix": "Fix the gitlab check first, then re-run. KONFLUX_CLUSTER_DOMAIN will auto-discover.",
-        }
-
-    try:
-        import gitlab_ops
-        token = gitlab_ops.discover_token(f"https://{host}")
-    except Exception:
-        token = os.environ.get("GITLAB_TOKEN")
-
-    if not token:
-        return {
-            "ok": False,
-            "name": "konflux",
-            "error": "Blocked by gitlab — no token (required for auto-discovery)",
-            "fix": "Fix the gitlab check first, then re-run. KONFLUX_CLUSTER_DOMAIN will auto-discover.",
-        }
-
-    # GitLab looks OK — try discovery directly to get the specific failure reason.
-    tenant = os.environ.get("KONFLUX_TENANT", "")
-    preferred = os.environ.get("PREFERRED_KONFLUX_CLUSTER")
-    try:
-        import konflux_tenant_env_discovery
-        konflux_tenant_env_discovery.discover(tenant, preferred_cluster=preferred)
-        # Discovery succeeded — derive secondary vars so everything is consistent.
-        konflux_environment.load()
-        cluster_domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
-        cluster_id = cluster_domain.split(".")[0] if cluster_domain else ""
-        detail = f"Cluster: {cluster_id}" if cluster_id else None
-        return {"ok": True, "name": "konflux", "error": None, "fix": None, "detail": detail}
-    except Exception as exc:
-        error_msg = str(exc)
-        # Provide actionable fix based on the specific error.
-        if "multiple clusters" in error_msg.lower():
+    if not has_cluster_domain:
+        host = os.environ.get("GITLAB_HOST", "")
+        if not host:
             return {
                 "ok": False,
                 "name": "konflux",
-                "error": error_msg,
+                "error": "Blocked by gitlab — GITLAB_HOST not set (required for auto-discovery)",
+                "fix": "Fix the gitlab check first, then re-run. KONFLUX_CLUSTER_DOMAIN will auto-discover.",
+            }
+
+        try:
+            import gitlab_ops
+            token = gitlab_ops.discover_token(f"https://{host}")
+        except Exception:
+            token = os.environ.get("GITLAB_TOKEN")
+
+        if not token:
+            return {
+                "ok": False,
+                "name": "konflux",
+                "error": "Blocked by gitlab — no token (required for auto-discovery)",
+                "fix": "Fix the gitlab check first, then re-run. KONFLUX_CLUSTER_DOMAIN will auto-discover.",
+            }
+
+        # GitLab looks OK — try discovery directly to get the specific failure reason.
+        tenant = os.environ.get("KONFLUX_TENANT", "")
+        preferred = os.environ.get("PREFERRED_KONFLUX_CLUSTER")
+        try:
+            import konflux_tenant_env_discovery
+            konflux_tenant_env_discovery.discover(tenant, preferred_cluster=preferred)
+            # Discovery succeeded — derive secondary vars so everything is consistent.
+            konflux_environment.load()
+            cluster_domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
+            if not cluster_domain:
+                return {
+                    "ok": False,
+                    "name": "konflux",
+                    "error": "Discovery succeeded but KONFLUX_CLUSTER_DOMAIN is still unset",
+                    "fix": (
+                        "This is unexpected. Try manually setting:\n"
+                        "  KONFLUX_CLUSTER_DOMAIN=your-cluster-domain"
+                    ),
+                }
+        except Exception as exc:
+            error_msg = str(exc)
+            # Provide actionable fix based on the specific error.
+            if "multiple clusters" in error_msg.lower():
+                return {
+                    "ok": False,
+                    "name": "konflux",
+                    "error": error_msg,
+                    "fix": (
+                        "Add to .work/.env:\n"
+                        "  PREFERRED_KONFLUX_CLUSTER=your-cluster-id"
+                    ),
+                }
+            return {
+                "ok": False,
+                "name": "konflux",
+                "error": f"Auto-discovery failed: {error_msg}",
                 "fix": (
-                    "Add to .work/.env:\n"
-                    "  PREFERRED_KONFLUX_CLUSTER=your-cluster-id"
+                    "Retry discovery:\n"
+                    "  python3 scripts/konflux_tenant_env_discovery.py --tenant $KONFLUX_TENANT --human\n"
+                    "If discovery cannot work in your environment, add manually to .work/.env:\n"
+                    "  KONFLUX_CLUSTER_DOMAIN=your-cluster-domain"
                 ),
             }
+
+    # Config looks good — now test actual connectivity via DNS + HTTPS probe
+    cluster_domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
+    cluster_id = cluster_domain.split(".")[0] if cluster_domain else ""
+    api_host = f"api.{cluster_domain}.openshiftapps.com"
+
+    dns_ok, https_ok, probe_error = _probe_konflux_cluster(api_host)
+
+    if not dns_ok:
         return {
             "ok": False,
             "name": "konflux",
-            "error": f"Auto-discovery failed: {error_msg}",
+            "error": probe_error,
             "fix": (
-                "Retry discovery:\n"
-                "  python3 scripts/konflux_tenant_env_discovery.py --tenant $KONFLUX_TENANT --human\n"
-                "If discovery cannot work in your environment, add manually to .work/.env:\n"
-                "  KONFLUX_CLUSTER_DOMAIN=your-cluster-domain"
+                f"VPN CONNECTION REQUIRED: Cannot resolve {api_host}\n"
+                f"Connect to Red Hat VPN, then retry."
             ),
         }
+
+    if not https_ok:
+        return {
+            "ok": False,
+            "name": "konflux",
+            "error": probe_error,
+            "fix": (
+                f"Konflux cluster {cluster_id} DNS resolves but HTTPS connection failed.\n"
+                f"Connect to Red Hat VPN, then retry."
+            ),
+        }
+
+    # Network is reachable — try oc/kubectl auth if available
+    conn_result = konflux_environment.ConnectivityResult()
+    konflux_environment._check_konflux_connectivity(conn_result)
+
+    if conn_result.konflux_reachable is True:
+        return {
+            "ok": True,
+            "name": "konflux",
+            "error": None,
+            "fix": None,
+            "detail": f"Cluster: {cluster_id} (authenticated)",
+        }
+
+    if conn_result.konflux_reachable is False:
+        error_detail = conn_result.error_details.get("konflux", "Cluster not reachable")
+        return {
+            "ok": False,
+            "name": "konflux",
+            "error": error_detail,
+            "fix": (
+                f"Cluster {cluster_id} is reachable but not authenticated.\n"
+                f"Authenticate with:\n"
+                f"  oc login --server=https://{api_host}:6443"
+            ),
+        }
+
+    # oc/kubectl not available or EXTERNAL_API not set — DNS+HTTPS passed, that's enough
+    return {
+        "ok": True,
+        "name": "konflux",
+        "error": None,
+        "fix": None,
+        "detail": f"Cluster: {cluster_id} (reachable)",
+    }
+
+
+def _probe_konflux_cluster(api_host: str) -> tuple[bool, bool, str | None]:
+    """DNS + HTTPS probe for a Konflux cluster API host.
+
+    Returns (dns_ok, https_ok, error_message).
+    """
+    import socket
+
+    try:
+        socket.getaddrinfo(api_host, 6443)
+    except (socket.gaierror, OSError) as exc:
+        return False, False, f"Cannot resolve {api_host}: {exc}"
+
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    url = f"https://{api_host}:6443/healthz"
+    try:
+        ctx = ssl.create_default_context()
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            _ = resp.status
+        return True, True, None
+    except urllib.error.HTTPError:
+        # Any HTTP response (401, 403, etc.) means HTTPS works
+        return True, True, None
+    except urllib.error.URLError as exc:
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc):
+            # SSL cert issue but connection worked
+            return True, True, None
+        return True, False, f"Cannot connect to https://{api_host}:6443: {exc}"
+    except (OSError, ConnectionError) as exc:
+        return True, False, f"Cannot connect to https://{api_host}:6443: {exc}"
 
 
 def _check_dotenv() -> dict:
@@ -171,7 +274,7 @@ def _check_dotenv() -> dict:
             "ok": False,
             "name": "dotenv",
             "error": ".work/.env not found",
-            "fix": "Run: cp .work/.env.example .work/.env  (then fill in tokens)",
+            "fix": "cp .work/.env.example .work/.env\n(then fill in tokens)",
         }
     return {"ok": True, "name": "dotenv", "error": None, "fix": None, "detail": ".work/.env"}
 
@@ -234,16 +337,60 @@ def _check_gitlab_auth() -> dict:
             "fix": None,
             "detail": f"Authenticated as: {result.get('user')}",
         }
+
+    error_str = result.get("error", "Unknown error")
     token_url = f"https://{host}/-/user_settings/personal_access_tokens"
+
+    # Detect VPN/DNS/connectivity failures and prioritize them in the fix message
+    is_vpn_issue = any(indicator in error_str for indicator in [
+        "Failed to resolve",
+        "Name or service not known",
+        "NameResolutionError",
+        "Max retries exceeded",
+        "Connection refused",
+        "Network is unreachable",
+    ])
+
+    if is_vpn_issue:
+        return {
+            "ok": False,
+            "name": "gitlab",
+            "error": error_str,
+            "fix": (
+                f"VPN CONNECTION REQUIRED: Cannot resolve {host}\n"
+                f"Connect to Red Hat VPN, then retry.\n"
+                f"\n"
+                f"If VPN is connected and the error persists, ensure you have a Personal Access Token ({token_url})"
+                f" with scopes: api, read_repository, write_repository in .work/.env:\n"
+                f"  GITLAB_TOKEN=glpat-your_token_here"
+            ),
+        }
+
+    # Check if token exists
+    has_token = bool(os.environ.get("GITLAB_TOKEN"))
+    if not has_token:
+        return {
+            "ok": False,
+            "name": "gitlab",
+            "error": error_str,
+            "fix": (
+                f"No GitLab token found in .work/.env\n"
+                f"Create a Personal Access Token ({token_url})"
+                f" with scopes: api, read_repository, write_repository and add to .work/.env:\n"
+                f"  GITLAB_TOKEN=glpat-your_token_here"
+            ),
+        }
+
+    # Token exists but auth failed → invalid/expired
     return {
         "ok": False,
         "name": "gitlab",
-        "error": result.get("error", "Unknown error"),
+        "error": error_str,
         "fix": (
-            f"Ensure VPN is connected, then create a Personal Access Token ({token_url})"
-            f" with scopes: api, read_repository, write_repository"
-            f" and add to .work/.env:\n"
-            f"  GITLAB_TOKEN=glpat-your_token_here"
+            f"GitLab authentication failed (token exists but is invalid or expired)\n"
+            f"Regenerate your Personal Access Token ({token_url})"
+            f" with scopes: api, read_repository, write_repository and update .work/.env:\n"
+            f"  GITLAB_TOKEN=glpat-your_new_token_here"
         ),
     }
 
@@ -261,15 +408,61 @@ def _check_jira_auth() -> dict:
             "fix": None,
             "detail": f"Authenticated as: {result.get('user')}",
         }
+
+    error_str = result.get("error", "Unknown error")
+    has_token = bool(os.environ.get("JIRA_API_TOKEN"))
+    has_email = bool(os.environ.get("JIRA_EMAIL"))
+
+    # Detect VPN/connectivity failures (Jira is VPN-gated like GitLab)
+    is_vpn_issue = any(indicator in error_str for indicator in [
+        "Failed to resolve",
+        "Name or service not known",
+        "NameResolutionError",
+        "Max retries exceeded",
+        "Connection refused",
+        "Network is unreachable",
+    ])
+
+    if is_vpn_issue:
+        return {
+            "ok": False,
+            "name": "jira",
+            "error": error_str,
+            "fix": (
+                "VPN CONNECTION REQUIRED: Cannot reach Jira (redhat.atlassian.net)\n"
+                "Connect to Red Hat VPN, then retry.\n"
+                "\n"
+                "If VPN is connected and the error persists, ensure you have Jira credentials in .work/.env:\n"
+                "  JIRA_API_TOKEN=your_jira_api_token\n"
+                "  JIRA_EMAIL=you@redhat.com"
+            ),
+        }
+
+    # Distinguish between missing credentials vs invalid credentials
+    if not has_token and not has_email:
+        return {
+            "ok": False,
+            "name": "jira",
+            "error": error_str,
+            "fix": (
+                "No Jira credentials found in .work/.env\n"
+                "Create an API token (https://id.atlassian.com/manage-profile/security/api-tokens)"
+                " and add to .work/.env:\n"
+                "  JIRA_API_TOKEN=your_jira_api_token\n"
+                "  JIRA_EMAIL=you@redhat.com"
+            ),
+        }
+
+    # Token exists but auth failed → invalid/expired
     return {
         "ok": False,
         "name": "jira",
-        "error": result.get("error", "Unknown error"),
+        "error": error_str,
         "fix": (
-            "Create an API token (https://id.atlassian.com/manage-profile/security/api-tokens)"
-            " and add to .work/.env (JIRA_EMAIL auto-derives on first successful auth):\n"
-            "  JIRA_API_TOKEN=your_jira_api_token\n"
-            "  JIRA_EMAIL=you@redhat.com"
+            "Jira authentication failed (token exists but is invalid or expired)\n"
+            "Regenerate your API token (https://id.atlassian.com/manage-profile/security/api-tokens)"
+            " and update .work/.env:\n"
+            "  JIRA_API_TOKEN=your_new_jira_api_token"
         ),
     }
 
@@ -313,6 +506,194 @@ def _check_slack_auth() -> dict:
     }
 
 
+_QUAY_AUTH_CONFIG_PATHS = [
+    Path(os.environ.get("DOCKER_CONFIG", "")) / "config.json",
+    Path.home() / ".docker" / "config.json",
+    Path(os.environ.get("XDG_RUNTIME_DIR", "")) / "containers" / "auth.json",
+    Path.home() / ".config" / "containers" / "auth.json",
+]
+
+_QUAY_TEST_URL = "https://quay.io/v2/rhoai/odh-dashboard-rhel9/tags/list"
+
+
+def _find_quay_auth() -> tuple[str | None, Path | None]:
+    """Find quay.io credentials from standard container auth config files.
+
+    Returns (base64_auth_value, config_path) or (None, None).
+    """
+    for config_path in _QUAY_AUTH_CONFIG_PATHS:
+        if not config_path.is_file():
+            continue
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            auths = data.get("auths", {})
+            for key in ("quay.io", "https://quay.io", "quay.io/rhoai"):
+                entry = auths.get(key, {})
+                auth_val = entry.get("auth", "")
+                if auth_val:
+                    return auth_val, config_path
+        except (json.JSONDecodeError, OSError):
+            continue
+    return None, None
+
+
+def _check_quay_auth() -> dict:
+    """Check quay.io registry authentication.
+
+    EC validate needs registry credentials to pull private container images.
+    Without auth, all components get builtin.image.accessible and no policy
+    rules are evaluated.
+    """
+    import requests
+
+    auth_val, config_path = _find_quay_auth()
+
+    if auth_val is None:
+        searched = [str(p) for p in _QUAY_AUTH_CONFIG_PATHS if p.parent.exists()]
+        return {
+            "ok": False,
+            "name": "quay",
+            "error": (
+                "Container image violations cannot be confirmed against the "
+                "actual container images in the registry — quay.io "
+                "authentication is required"
+            ),
+            "fix": (
+                "podman login quay.io\n"
+                "(Use your quay.io credentials. This stores auth in "
+                "~/.config/containers/auth.json which EC reads automatically.)\n"
+                f"Searched: {', '.join(searched) or '(no standard paths found)'}"
+            ),
+        }
+
+    token_url = (
+        "https://quay.io/v2/auth"
+        "?service=quay.io"
+        "&scope=repository:rhoai/odh-dashboard-rhel9:pull"
+    )
+    try:
+        token_resp = requests.get(
+            token_url,
+            headers={"Authorization": f"Basic {auth_val}"},
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        return {
+            "ok": False,
+            "name": "quay",
+            "error": f"quay.io connectivity check failed: {exc}",
+            "fix": (
+                "Ensure network access to quay.io is available.\n"
+                "If behind a proxy, configure HTTPS_PROXY in .work/.env"
+            ),
+        }
+
+    if token_resp.status_code == 401:
+        return {
+            "ok": False,
+            "name": "quay",
+            "error": (
+                "Container image violations cannot be confirmed against the "
+                "actual container images in the registry — quay.io "
+                "credentials are invalid or expired"
+            ),
+            "fix": (
+                "podman login quay.io\n"
+                "(Re-authenticate with valid credentials. "
+                f"Current auth config: {config_path})"
+            ),
+        }
+
+    if token_resp.status_code != 200:
+        return {
+            "ok": False,
+            "name": "quay",
+            "error": (
+                "Container image violations cannot be confirmed against the "
+                f"actual container images in the registry — quay.io auth "
+                f"returned HTTP {token_resp.status_code}"
+            ),
+            "fix": (
+                "podman login quay.io\n"
+                f"Current auth config: {config_path}"
+            ),
+        }
+
+    token_data = token_resp.json()
+    bearer_token = token_data.get("token", "")
+    if not bearer_token:
+        return {
+            "ok": False,
+            "name": "quay",
+            "error": (
+                "Container image violations cannot be confirmed against the "
+                "actual container images in the registry — quay.io auth "
+                "returned no token"
+            ),
+            "fix": (
+                "podman login quay.io\n"
+                f"Current auth config: {config_path}"
+            ),
+        }
+
+    try:
+        resp = requests.head(
+            _QUAY_TEST_URL,
+            headers={"Authorization": f"Bearer {bearer_token}"},
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        return {
+            "ok": False,
+            "name": "quay",
+            "error": f"quay.io connectivity check failed: {exc}",
+            "fix": (
+                "Ensure network access to quay.io is available.\n"
+                "If behind a proxy, configure HTTPS_PROXY in .work/.env"
+            ),
+        }
+
+    if resp.status_code == 403:
+        return {
+            "ok": False,
+            "name": "quay",
+            "error": (
+                "Container image violations cannot be confirmed against the "
+                "actual container images in the registry — quay.io "
+                "credentials lack access to RHOAI images"
+            ),
+            "fix": (
+                "Ensure your quay.io account has read access to the "
+                "quay.io/rhoai organization.\n"
+                "podman login quay.io\n"
+                f"Current auth config: {config_path}"
+            ),
+        }
+
+    if resp.status_code not in (200, 301, 302):
+        return {
+            "ok": False,
+            "name": "quay",
+            "error": (
+                "Container image violations cannot be confirmed against the "
+                f"actual container images in the registry — quay.io "
+                f"returned HTTP {resp.status_code}"
+            ),
+            "fix": (
+                "podman login quay.io\n"
+                f"Current auth config: {config_path}"
+            ),
+        }
+
+    return {
+        "ok": True,
+        "name": "quay",
+        "error": None,
+        "fix": None,
+        "detail": f"Authenticated (config: {config_path})",
+    }
+
+
 def run_all_checks() -> list[dict]:
     """Run all prerequisite checks and return results."""
     checks = [
@@ -321,6 +702,7 @@ def run_all_checks() -> list[dict]:
         _check_gitlab_auth,
         _check_konflux,
         _check_github_auth,
+        _check_quay_auth,
         _check_jira_auth,
         _check_slack_auth,
     ]
@@ -343,7 +725,7 @@ def _is_code_line(line: str) -> bool:
     stripped = line.strip()
     if re.match(r"^[A-Z_]+=", stripped):
         return True
-    if re.match(r"^(echo|python3|bash|Run:|cp |pip |uv )", stripped):
+    if re.match(r"^(echo|python3|bash|cp |pip |uv |podman |docker )", stripped):
         return True
     return False
 
@@ -526,7 +908,26 @@ def main() -> int:
     required_ok = all(r["ok"] for r in results if not r.get("optional"))
 
     if args.output_format == "json":
-        print(json.dumps(results, indent=2))
+        slack_warn = next(
+            (r for r in results if r.get("name") == "slack" and r.get("optional") and not r.get("ok")),
+            None,
+        )
+        output: dict = {
+            "display": _format_markdown(results),
+            "checks": results,
+            "passed": required_ok,
+        }
+        if slack_warn:
+            error_detail = slack_warn.get("error", "no credentials found")
+            output["user_question"] = {
+                "question_text": (
+                    f"Slack is not configured ({error_detail}). "
+                    "Without Slack, the coverage report will not include links to related Slack threads. "
+                    "Proceed without Slack?"
+                ),
+                "question_options": ["Yes, proceed without Slack", "No, set up Slack first"],
+            }
+        print(json.dumps(output, indent=2))
     elif args.output_format == "markdown":
         print(_format_markdown(results))
     else:

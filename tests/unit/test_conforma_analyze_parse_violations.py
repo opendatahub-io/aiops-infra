@@ -135,7 +135,7 @@ class TestParseCsvFile:
 class TestBuildViolationsIndex:
     def test_basic_structure(self, tmp_csv):
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
-        index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
 
         assert "violation_data" in index
         vd = index["violation_data"]
@@ -147,7 +147,7 @@ class TestBuildViolationsIndex:
 
     def test_summary_counts(self, tmp_csv):
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
-        index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
 
         summary = index["violation_data"]["summary"]["rhoai-3.4"]
         assert summary["total_violations"] == 3
@@ -156,7 +156,7 @@ class TestBuildViolationsIndex:
 
     def test_violations_by_component(self, tmp_csv):
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
-        index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
 
         by_comp = index["violation_data"]["violations_by_component"]
         assert "odh-model-server-v3-4" in by_comp
@@ -164,7 +164,7 @@ class TestBuildViolationsIndex:
     def test_failed_releases_included(self, tmp_csv):
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
         failed = [{"release": "rhoai-3.5", "error": "branch not found"}]
-        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], failed_releases=failed)
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod", failed_releases=failed)
 
         assert "failed_releases" in index["violation_data"]
         assert index["violation_data"]["failed_releases"][0]["release"] == "rhoai-3.5"
@@ -185,7 +185,7 @@ class TestBuildViolationsIndex:
         records.extend(parse_violations.parse_csv_file(csv1, "rhoai-3.4"))
         records.extend(parse_violations.parse_csv_file(csv2, "rhoai-3.5"))
 
-        index = parse_violations.build_violations_index(records, ["rhoai-3.4", "rhoai-3.5"])
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4", "rhoai-3.5"], "prod")
         assert len(index["violation_data"]["releases"]) == 2
         assert len(index["violation_data"]["summary"]) == 2
 
@@ -258,14 +258,14 @@ class TestBuildUpcomingViolationsSection:
         records = parse_violations.parse_warnings_csv_file(
             tmp_warnings_csv, "rhoai-3.4", threshold_days=21, reference_date=ref
         )
-        section = parse_violations._build_upcoming_violations_section(records, ["rhoai-3.4"], 21)
+        section = parse_violations._build_upcoming_violations_section(records, ["rhoai-3.4"], 21, "prod")
         assert "by_rule" in section
         assert "by_component" in section
         assert "summary" in section
         assert section["threshold_days"] == 21
 
     def test_empty_records(self):
-        section = parse_violations._build_upcoming_violations_section([], ["rhoai-3.4"], 21)
+        section = parse_violations._build_upcoming_violations_section([], ["rhoai-3.4"], 21, "prod")
         assert section == {}
 
 
@@ -277,7 +277,7 @@ class TestBuildViolationsIndexWithUpcoming:
             tmp_warnings_csv, "rhoai-3.4", threshold_days=21, reference_date=ref
         )
         index = parse_violations.build_violations_index(
-            violation_records, ["rhoai-3.4"], upcoming_records=upcoming_records
+            violation_records, ["rhoai-3.4"], "prod", upcoming_records=upcoming_records
         )
         assert "upcoming_violations" in index["violation_data"]
         upcoming = index["violation_data"]["upcoming_violations"]
@@ -286,7 +286,7 @@ class TestBuildViolationsIndexWithUpcoming:
 
     def test_no_upcoming_when_none(self, tmp_csv):
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
-        index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
         assert "upcoming_violations" not in index["violation_data"]
 
 
@@ -306,7 +306,7 @@ class TestEnrichWithCatalog:
         )
 
         records = parse_violations.parse_csv_file(tmp_csv, "rhoai-3.4")
-        index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
 
         ok = parse_violations._enrich_with_catalog(index)
         assert ok is True
@@ -337,7 +337,7 @@ class TestEnrichWithCatalog:
             tmp_warnings_csv, "rhoai-3.4", threshold_days=21, reference_date=ref
         )
         index = parse_violations.build_violations_index(
-            violation_records, ["rhoai-3.4"], upcoming_records=upcoming_records
+            violation_records, ["rhoai-3.4"], "prod", upcoming_records=upcoming_records
         )
 
         ok = parse_violations._enrich_with_catalog(index)
@@ -553,7 +553,7 @@ class TestSemanticViolationsInIndex:
             '"To exclude this rule add ""hermetic_task.hermetic"" to the `exclude` section.",sol\n'
         )
         records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
-        index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
 
         by_rule = index["violation_data"]["violations_by_rule"]
         assert "hermetic_task.hermetic" in by_rule
@@ -575,7 +575,7 @@ class TestSemanticViolationsInIndex:
             '"To exclude this rule add ""rpm_repos.ids_known:pkg:rpm/glib@2"" to the `exclude` section.",sol\n'
         )
         records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
-        index = parse_violations.build_violations_index(records, ["rhoai-3.4"])
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
 
         by_rule = index["violation_data"]["violations_by_rule"]
         entry = by_rule["rpm_repos.ids_known"]

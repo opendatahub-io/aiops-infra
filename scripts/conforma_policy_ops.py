@@ -138,6 +138,7 @@ def search_existing_exceptions(rule: str, policy_files: list[str], clone_dir: st
                         "imageUrl": exc.get("image_url", ""),
                         "effectiveUntil": exc["effective_until_value"],
                         "block_start_line": exc["start"] + 1,
+                        "exception_value": exc.get("value", rule),
                     }
                 )
 
@@ -189,8 +190,8 @@ def check_existing_exception_gate(
     rule: str,
     components: list[str],
     policy_files: list[str],
+    environment: str,
     clone_dir: str | None = None,
-    environment: str = "prod",
     prefetched_mrs: list[dict] | None = None,
     skip_refresh: bool = False,
     aliases: dict[str, set[str]] | None = None,
@@ -397,6 +398,7 @@ def check_existing_exception_gate(
                         "componentNames": sorted(exc_comps),
                         "effectiveUntil": eu,
                         "covers_components": sorted(overlap),
+                        "exception_value": exc.get("exception_value", rule),
                     }
                 )
         elif not exc.get("has_componentNames"):
@@ -413,6 +415,7 @@ def check_existing_exception_gate(
                             "imageUrl": image_url,
                             "effectiveUntil": eu,
                             "covers_components": sorted(matched),
+                            "exception_value": exc.get("exception_value", rule),
                             "note": f"imageUrl-scoped exception ({image_url} covers base name '{conforma_mr_ops._extract_image_base(image_url)}')",
                         }
                     )
@@ -425,6 +428,7 @@ def check_existing_exception_gate(
                         "componentNames": [],
                         "effectiveUntil": eu,
                         "covers_components": sorted(requested),
+                        "exception_value": exc.get("exception_value", rule),
                         "note": "Unscoped exception (no componentNames, no imageUrl) — covers all components for this rule",
                     }
                 )
@@ -485,7 +489,7 @@ def main() -> int:
     p_gate.add_argument("--policy-files", required=True,
                         help="Comma-separated list of policy file basenames to scope the gate check")
     p_gate.add_argument("--clone-dir", default=None)
-    p_gate.add_argument("--environment", default="prod")
+    p_gate.add_argument("--environment", required=True, choices=["prod", "stage"])
 
     args = parser.parse_args()
 

@@ -123,7 +123,7 @@ class TestAuthHeadersForUrl:
 
     def test_gitlab_url_gets_gitlab_token(self):
         with patch.object(mod, "_get_gitlab_token", return_value="gl-tok"):
-            headers = mod._auth_headers_for_url("https://gitlab.cee.redhat.com/project")
+            headers = mod._auth_headers_for_url("https://gitlab.corp.internal/project")
         assert headers == {"PRIVATE-TOKEN": "gl-tok"}
 
     def test_unknown_host_gets_no_auth(self):
@@ -254,12 +254,12 @@ class TestFindLatestGuide:
     def test_finds_latest_by_mtime(self, tmp_path):
         old_dir = tmp_path / "20260601-100000"
         old_dir.mkdir()
-        old_guide = old_dir / "conforma-resolution-guide.md"
+        old_guide = old_dir / "conforma-status-and-resolution-guide.md"
         old_guide.write_text("old", encoding="utf-8")
 
         new_dir = tmp_path / "20260602-100000"
         new_dir.mkdir()
-        new_guide = new_dir / "conforma-resolution-guide.md"
+        new_guide = new_dir / "conforma-status-and-resolution-guide.md"
         new_guide.write_text("new", encoding="utf-8")
 
         result = mod.find_latest_guide(str(tmp_path))

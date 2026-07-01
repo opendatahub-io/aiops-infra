@@ -19,6 +19,8 @@ import json
 import os
 import re
 import sys
+from datetime import datetime
+from pathlib import Path
 
 import gitlab_ops
 import konflux_environment
@@ -53,12 +55,30 @@ def version_to_konflux_app(version_dir: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def extract_environment(raw: str) -> tuple[str, str]:
+    """Extract environment (stage/prod) from a user query.
+
+    Returns (cleaned_query, environment).  Environment defaults to "prod"
+    when the user does not specify one.
+    """
+    text = raw.strip()
+    env = "prod"
+    cleaned = re.sub(r"\b(stage|prod)\b", "", text, flags=re.IGNORECASE)
+    if re.search(r"\bstage\b", text, re.IGNORECASE):
+        env = "stage"
+    elif re.search(r"\bprod\b", text, re.IGNORECASE):
+        env = "prod"
+    return cleaned.strip(), env
+
+
 def parse_query(raw: str) -> str | None:
     """Normalize user input into a candidate version directory name.
 
     Returns the candidate (e.g. "v3.5-ea.1") or None if parsing fails.
+    Environment keywords (stage/prod) are stripped before parsing.
     """
-    text = raw.strip().lower()
+    text, _ = extract_environment(raw)
+    text = text.strip().lower()
     if not text:
         return None
 
@@ -188,15 +208,19 @@ def _format_resolved(
     cluster_domain: str,
     tenant: str,
     policy_dir: str,
+    environment: str,
     links: dict | None = None,
     end_of_support: str | None = None,
+    upcoming_release_date: str | None = None,
 ) -> str:
     release = version_to_release(version_dir)
     app = version_to_konflux_app(version_dir)
 
+    app_text = app
     cluster_text = cluster_domain
     if links and links.get("cluster_console"):
-        cluster_text = f"[{cluster_domain}]({links['cluster_console']})"
+        console_url = links["cluster_console"]
+        app_text = f"[{app}]({console_url})"
 
     policy_dir_text = policy_dir
     if links and links.get("policy_dir"):
@@ -206,7 +230,13 @@ def _format_resolved(
     if links and links.get("policy_files"):
         policy_file_links = [f"[{f['name']}]({f['url']})" for f in links["policy_files"]]
 
+    import release_dates
+    from conforma_constants import build_report_url
+
     eos_text = end_of_support if end_of_support else "Unknown (not in release_dates.yaml)"
+    version_label = release_dates.format_version_label(release)
+    product_pages_url = release_dates.PRODUCT_PAGES_URL
+    source_csv_url = build_report_url(release, environment)
 
     lines = [
         "### Conforma Workflow \u2014 Context Confirmation",
@@ -215,15 +245,18 @@ def _format_resolved(
         "|-------|-------|",
         f"| **User requested** | {query} |",
         f"| **Release branch** | {release} |",
-        f"| **Konflux Application** | {app} |",
+        f"| **Source CSV** | [{release}]({source_csv_url}) |",
+        f"| **Konflux Application** | {app_text} |",
         f"| **Cluster domain** | {cluster_text} |",
         f"| **Tenant** | {tenant} |",
         f"| **Conforma policy dir** | {policy_dir_text} |",
-        f"| **Environment** | prod |",
-        f"| **End of Support** | {eos_text} |",
+        f"| **Environment** | {environment} |",
     ]
+    if upcoming_release_date:
+        lines.append(f"| **Upcoming release date ({version_label})** | {upcoming_release_date} — verify on [Product Pages]({product_pages_url}) |")
+    lines.append(f"| **End of Support ({version_label})** | {eos_text} — verify on [Product Pages]({product_pages_url}) |")
     if policy_file_links:
-        files_cell = "<br>".join(f"• {link}" for link in policy_file_links)
+        files_cell = " · ".join(policy_file_links)
         lines.append(f"| **Policy files** | {files_cell} |")
     lines.extend([
         "",
@@ -292,9 +325,19 @@ def _format_error(messages: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def resolve(query: str) -> dict:
-    """Resolve a user query into full release context. Returns JSON-serializable dict."""
+def resolve(query: str, environment_override: str | None = None) -> dict:
+    """Resolve a user query into full release context. Returns JSON-serializable dict.
+
+    Args:
+        query: User's release query (e.g. "rhoai-3.5-ea.1", "stage 3.4").
+        environment_override: Explicit environment ("stage" or "prod"). When set,
+            takes precedence over any environment keyword in *query*.
+    """
     konflux_environment.load()
+
+    _, environment = extract_environment(query)
+    if environment_override:
+        environment = environment_override
 
     cluster_domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
     tenant = os.environ.get("KONFLUX_TENANT") or os.environ.get("KONFLUX_NAMESPACE", "")
@@ -343,13 +386,17 @@ def resolve(query: str) -> dict:
         release_branch = version_to_release(v)
         konflux_app = version_to_konflux_app(v)
         eos_date = release_dates.get_eos_date(release_branch)
+        upcoming_release_date = release_dates.get_upcoming_release_date(release_branch)
         links = _build_links(
             cluster_domain, policy_dir, gitlab_host, gitlab_project, policy_files, app_slug,
-            tenant=tenant, konflux_app=konflux_app, environment="prod",
+            tenant=tenant, konflux_app=konflux_app, environment=environment,
         )
         display = _format_resolved(
-            query, v, cluster_domain, tenant, policy_dir, links,
+            query, v, cluster_domain, tenant, policy_dir,
+            environment=environment,
+            links=links,
             end_of_support=eos_date,
+            upcoming_release_date=upcoming_release_date,
         )
         return {
             "status": "resolved",
@@ -360,11 +407,14 @@ def resolve(query: str) -> dict:
             "cluster_id": cluster_id,
             "tenant": tenant,
             "conforma_policy_dir": policy_dir,
-            "environment": "prod",
+            "environment": environment,
             "end_of_support": eos_date,
+            "upcoming_release_date": upcoming_release_date,
             "available_versions": available,
             "links": links,
             "confirmation_display": display,
+            "question_text": f"Proceed with release {release_branch} on cluster {cluster_domain} (tenant: {tenant})?",
+            "question_options": ["Yes", "No, change something"],
         }
 
     if len(matches) > 1:
@@ -451,6 +501,17 @@ def list_all() -> dict:
 # ---------------------------------------------------------------------------
 
 
+def create_rundir(output_dir: str) -> str:
+    """Create a timestamped run directory under *output_dir*.
+
+    Returns the absolute path of the created directory.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    rundir = Path(output_dir) / timestamp
+    rundir.mkdir(parents=True, exist_ok=True)
+    return str(rundir)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Resolve a release query into Konflux application context."
@@ -458,12 +519,36 @@ def main() -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--query", help="Release identifier from user (e.g. 'rhoai-3.5-ea.1', '3.4')")
     group.add_argument("--list", action="store_true", help="List all available versions")
+    parser.add_argument(
+        "--environment",
+        choices=["stage", "prod"],
+        help="Explicit environment override. When set, takes precedence over "
+             "any environment keyword extracted from --query.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        help="Create a timestamped run directory under this path and save resolve-context.json into it. "
+             "Only takes effect when status is 'resolved'.",
+    )
     args = parser.parse_args()
 
     if args.list:
         result = list_all()
     else:
-        result = resolve(args.query)
+        result = resolve(args.query, environment_override=args.environment)
+
+    if args.output_dir and result.get("status") == "resolved":
+        existing_context = Path(args.output_dir) / "resolve-context.json"
+        if existing_context.is_file():
+            rundir = str(Path(args.output_dir))
+            print(f"Reusing existing run directory: {rundir}", file=sys.stderr)
+        else:
+            rundir = create_rundir(args.output_dir)
+            print(f"Run directory created: {rundir}", file=sys.stderr)
+        result["rundir"] = rundir
+        context_path = Path(rundir) / "resolve-context.json"
+        context_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        print(f"Context saved to: {context_path}", file=sys.stderr)
 
     json.dump(result, sys.stdout, indent=2)
     print()

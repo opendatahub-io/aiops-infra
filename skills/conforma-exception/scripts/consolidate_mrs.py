@@ -344,8 +344,8 @@ def update_jira_links(
 def consolidate(
     psx_url: str,
     rule: str,
+    environment: str,
     rhoaieng_url: str | None = None,
-    environment: str = "prod",
     vendor_tag: str | None = None,
     spreadsheet_url: str | None = None,
     template: str | None = None,
@@ -486,7 +486,7 @@ def consolidate(
         all_comps = [c for s in version_specs for c in s["components"]]
         comp_type = detect_component_type(all_comps)
         target_file = get_target_file(comp_type, environment, False)
-        new_title = _build_mr_title_consolidated(rule, version_specs, vendor_tag)
+        new_title = _build_mr_title_consolidated(rule, version_specs, environment, vendor_tag)
         new_body = _build_mr_body_consolidated(
             rule=rule,
             version_specs=version_specs,
@@ -569,7 +569,7 @@ def parse_args() -> argparse.Namespace:
         help="Conforma rule (e.g. rpm_signature.allowed:9386b48a1a693c5c)",
     )
     parser.add_argument("--rhoaieng-url", default=None, help="RHOAIENG Jira ticket URL")
-    parser.add_argument("--environment", default="prod", choices=["prod", "stage"])
+    parser.add_argument("--environment", required=True, choices=["prod", "stage"])
     parser.add_argument("--vendor-tag", default=None, help="Vendor tag (e.g. AMD, Intel)")
     parser.add_argument("--spreadsheet-url", default=None, help="Tracking spreadsheet URL")
     parser.add_argument("--template", default=None, help="Template category ID")

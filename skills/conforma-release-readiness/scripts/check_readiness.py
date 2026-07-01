@@ -25,7 +25,7 @@ def load_violations(violations_path: Path) -> dict:
     return data.get("violation_data", data)
 
 
-def load_exceptions(clone_dir: Path, environment: str = "prod") -> list[dict]:
+def load_exceptions(clone_dir: Path, environment: str) -> list[dict]:
     """Load active exceptions from a konflux-release-data clone."""
     # Reuse manage_exceptions scanning
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "conforma-exception" / "scripts"))
@@ -119,7 +119,7 @@ def main() -> int:
     parser.add_argument("--release", required=True, help="Release branch (e.g. rhoai-3.5)")
     parser.add_argument("--violations-input", required=True, help="Path to conforma-analyze violations YAML")
     parser.add_argument("--clone-dir", default=None, help="Path to konflux-release-data clone")
-    parser.add_argument("--environment", default="prod", help="Environment (prod/stage)")
+    parser.add_argument("--environment", required=True, choices=["prod", "stage"], help="Environment (prod/stage)")
     parser.add_argument("--soon-days", type=int, default=14, help="Warn if exception expires within N days")
     parser.add_argument("--format", choices=["json", "text"], default="json", help="Output format")
     args = parser.parse_args()

@@ -30,7 +30,7 @@ releases:
     support_end: "2026-06-19"
   rhoai-3.5-ea.2:
     branch: rhoai-3.5-ea.2
-    support_end: "2026-07-17"
+    support_end: "2026-07-16"
   rhoai-3.5:
     branch: rhoai-3.5
     support_end: "2027-01-05"

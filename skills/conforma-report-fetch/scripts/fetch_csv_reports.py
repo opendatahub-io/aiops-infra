@@ -59,22 +59,14 @@ REPO_ROOT = _setup_env.REPO_ROOT
 WORK_DIR = SKILL_DIR / ".work"
 
 
-CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
-RAW_DOWNLOAD_BASE = "https://raw.githubusercontent.com"
-CSV_FILENAME = "conforma-violations-report.csv"
-WARNINGS_CSV_FILENAME = "conforma-warnings-report.csv"
-
-CSV_PATHS = [
-    f"prod/release_day/{CSV_FILENAME}",
-    f"prod/future/build_type_latest/{CSV_FILENAME}",
-    f"prod/future/build_type_nightly/{CSV_FILENAME}",
-]
-
-WARNINGS_CSV_PATHS = [
-    f"prod/release_day/{WARNINGS_CSV_FILENAME}",
-    f"prod/future/build_type_latest/{WARNINGS_CSV_FILENAME}",
-    f"prod/future/build_type_nightly/{WARNINGS_CSV_FILENAME}",
-]
+from conforma_constants import (  # noqa: E402
+    CONFORMA_REPORTER_REPO,
+    CSV_FILENAME,
+    RAW_DOWNLOAD_BASE,
+    WARNINGS_CSV_FILENAME,
+    csv_paths_for_environment,
+    warnings_csv_paths_for_environment,
+)
 
 _github_token_cache: str | None = None
 
@@ -232,17 +224,18 @@ def _fetch_last_commit_info_gh(release: str, csv_path: str) -> dict[str, str]:
     return empty
 
 
-def fetch_csv_for_release(release: str, output_dir: Path) -> dict:
+def fetch_csv_for_release(release: str, output_dir: Path, environment: str) -> dict:
     """Fetch the violations CSV for a single release branch via raw download.
 
-    Tries CSV_PATHS in order (prod/release_day first, then fallbacks
-    under prod/future/). Downloads directly from raw.githubusercontent.com
-    to handle multi-megabyte report files without API size limits.
+    Tries CSV paths in order (build_type_latest first, then
+    build_type_nightly) for the given environment. Downloads directly from
+    raw.githubusercontent.com to handle multi-megabyte report files
+    without API size limits.
     """
     output_file = output_dir / f"{release}.csv"
     last_error = ""
 
-    for csv_path in CSV_PATHS:
+    for csv_path in csv_paths_for_environment(environment):
         err = _download_file_raw(csv_path, release, output_file)
         if err is None:
             commit_info = _fetch_last_commit_info(release, csv_path)
@@ -265,7 +258,7 @@ def fetch_csv_for_release(release: str, output_dir: Path) -> dict:
     }
 
 
-def fetch_warnings_csv_for_release(release: str, output_dir: Path) -> dict:
+def fetch_warnings_csv_for_release(release: str, output_dir: Path, environment: str) -> dict:
     """Fetch the warnings CSV for a single release branch via raw download.
 
     Same fallback logic as fetch_csv_for_release but for the warnings report.
@@ -274,7 +267,7 @@ def fetch_warnings_csv_for_release(release: str, output_dir: Path) -> dict:
     output_file = output_dir / f"{release}-warnings.csv"
     last_error = ""
 
-    for csv_path in WARNINGS_CSV_PATHS:
+    for csv_path in warnings_csv_paths_for_environment(environment):
         err = _download_file_raw(csv_path, release, output_file)
         if err is None:
             commit_info = _fetch_last_commit_info(release, csv_path)
@@ -472,6 +465,12 @@ def main() -> int:
         help="Skip fetching warnings CSVs (by default both violations and warnings are fetched)",
     )
     parser.add_argument(
+        "--environment",
+        required=True,
+        choices=["prod", "stage"],
+        help="Target environment (prod or stage) — determines which CSV paths to fetch from",
+    )
+    parser.add_argument(
         "--metadata-file",
         default=None,
         help="Write JSON metadata to this file instead of stdout (avoids stdout/stderr mixing issues)",
@@ -534,7 +533,7 @@ def main() -> int:
         warning_results = []
         for release in releases:
             print(f"Fetching {release} violations...", file=sys.stderr)
-            result = fetch_csv_for_release(release, output_dir)
+            result = fetch_csv_for_release(release, output_dir, environment=args.environment)
             results.append(result)
             if result["status"] == "fetched":
                 source = result.get("source_path", "")
@@ -547,7 +546,7 @@ def main() -> int:
 
             if include_warnings:
                 print(f"Fetching {release} warnings...", file=sys.stderr)
-                warn_result = fetch_warnings_csv_for_release(release, output_dir)
+                warn_result = fetch_warnings_csv_for_release(release, output_dir, environment=args.environment)
                 warning_results.append(warn_result)
                 if warn_result["status"] == "fetched":
                     source = warn_result.get("source_path", "")

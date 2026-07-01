@@ -72,7 +72,7 @@ SAMPLE_CATALOG = {
 }
 
 
-def _make_run(run_id, status="completed", conclusion="success", created="2026-06-17T10:00:00Z", updated="2026-06-17T10:05:00Z", release="rhoai-3.5-ea.1"):
+def _make_run(run_id, status="completed", conclusion="success", created="2026-06-17T10:00:00Z", updated="2026-06-17T10:05:00Z", release="rhoai-3.5-ea.1", environment="prod"):
     return {
         "id": run_id,
         "status": status,
@@ -83,7 +83,7 @@ def _make_run(run_id, status="completed", conclusion="success", created="2026-06
         "head_sha": "abc123def456",
         "head_branch": "main",
         "run_attempt": 1,
-        "display_title": f"Conforma Reporter (target env: prod): {release} (nightly)",
+        "display_title": f"Conforma Reporter (target env: {environment}): {release} (nightly)",
     }
 
 
@@ -206,7 +206,7 @@ class TestFetchWorkflowRuns:
         mock_get.return_value = _api_response(runs)
 
         result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "rhoai-3.5", 5, "token123"
+            "org/repo", "workflow.yaml", "rhoai-3.5", 5, "token123", "prod"
         )
         assert "runs" in result
         assert len(result["runs"]) == 2
@@ -222,7 +222,7 @@ class TestFetchWorkflowRuns:
         mock_get.return_value = _api_response(runs)
 
         result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "rhoai-3.5-ea.2", 5, "token123"
+            "org/repo", "workflow.yaml", "rhoai-3.5-ea.2", 5, "token123", "prod"
         )
         assert "runs" in result
         assert len(result["runs"]) == 2
@@ -234,17 +234,50 @@ class TestFetchWorkflowRuns:
         mock_get.return_value = _api_response(runs)
 
         result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "rhoai-3.5-ea.2", 5, "token123"
+            "org/repo", "workflow.yaml", "rhoai-3.5-ea.2", 5, "token123", "prod"
         )
         assert "runs" in result
         assert len(result["runs"]) == 0
+
+    @patch("check_tooling_health.requests.get")
+    def test_filters_by_environment(self, mock_get):
+        runs = [
+            _make_run(1, release="rhoai-3.5-ea.2", environment="prod"),
+            _make_run(2, release="rhoai-3.5-ea.2", environment="stage"),
+            _make_run(3, release="rhoai-3.5-ea.2", environment="prod"),
+            _make_run(4, release="rhoai-3.5-ea.2", environment="stage"),
+        ]
+        mock_get.return_value = _api_response(runs)
+
+        result = check_tooling_health._fetch_workflow_runs(
+            "org/repo", "workflow.yaml", "rhoai-3.5-ea.2", 5, "token123",
+            environment="stage",
+        )
+        assert "runs" in result
+        assert len(result["runs"]) == 2
+        assert all("target env: stage" in r["display_title"] for r in result["runs"])
+
+    @patch("check_tooling_health.requests.get")
+    def test_explicit_prod_environment(self, mock_get):
+        runs = [
+            _make_run(1, release="rhoai-3.5-ea.2", environment="prod"),
+            _make_run(2, release="rhoai-3.5-ea.2", environment="stage"),
+        ]
+        mock_get.return_value = _api_response(runs)
+
+        result = check_tooling_health._fetch_workflow_runs(
+            "org/repo", "workflow.yaml", "rhoai-3.5-ea.2", 5, "token123", "prod",
+        )
+        assert "runs" in result
+        assert len(result["runs"]) == 1
+        assert "target env: prod" in result["runs"][0]["display_title"]
 
     @patch("check_tooling_health.requests.get")
     def test_404_error(self, mock_get):
         mock_get.return_value = MagicMock(status_code=404, text="Not found")
 
         result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "no-branch", 5, "token123"
+            "org/repo", "workflow.yaml", "no-branch", 5, "token123", "prod"
         )
         assert "error" in result
         assert "404" in result["error"]
@@ -254,7 +287,7 @@ class TestFetchWorkflowRuns:
         mock_get.return_value = MagicMock(status_code=401, text="Unauthorized")
 
         result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "main", 5, "bad_token"
+            "org/repo", "workflow.yaml", "main", 5, "bad_token", "prod"
         )
         assert "error" in result
         assert "401" in result["error"]
@@ -266,7 +299,7 @@ class TestFetchWorkflowRuns:
         mock_get.side_effect = requests.ConnectionError("Connection refused")
 
         result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "main", 5, "token123"
+            "org/repo", "workflow.yaml", "main", 5, "token123", "prod"
         )
         assert "error" in result
         assert "request failed" in result["error"]
@@ -286,7 +319,7 @@ class TestCheckAllTools:
         mock_get.return_value = _api_response(runs)
 
         result = check_tooling_health.check_all_tools(
-            "rhoai-3.5-ea.1", catalog_path=None
+            "rhoai-3.5-ea.1", environment="prod", catalog_path=None
         )
         assert result["release"] == "rhoai-3.5-ea.1"
         assert result["overall_health"] == "healthy"
@@ -300,7 +333,7 @@ class TestCheckAllTools:
         mock_get.return_value = _api_response(runs)
 
         with patch("check_tooling_health.load_catalog", return_value=SAMPLE_CATALOG):
-            result = check_tooling_health.check_all_tools("rhoai-3.5-ea.1")
+            result = check_tooling_health.check_all_tools("rhoai-3.5-ea.1", environment="prod")
 
         assert result["overall_health"] == "unhealthy"
         tool = result["tools"][0]
@@ -311,7 +344,7 @@ class TestCheckAllTools:
     def test_no_token(self, mock_token):
         mock_token.return_value = ""
 
-        result = check_tooling_health.check_all_tools("rhoai-3.5-ea.1")
+        result = check_tooling_health.check_all_tools("rhoai-3.5-ea.1", environment="prod")
         assert result["overall_health"] == "error"
         assert "error" in result
 
@@ -326,7 +359,7 @@ class TestCheckAllTools:
         mock_get.return_value = _api_response(runs)
 
         with patch("check_tooling_health.load_catalog", return_value=SAMPLE_CATALOG):
-            result = check_tooling_health.check_all_tools("rhoai-3.5-ea.1")
+            result = check_tooling_health.check_all_tools("rhoai-3.5-ea.1", environment="prod")
 
         assert result["overall_health"] == "in_progress"
 
@@ -375,7 +408,7 @@ class TestCLIOutput:
         output_file = tmp_path / "health.json"
 
         with patch("check_tooling_health.load_catalog", return_value=SAMPLE_CATALOG):
-            with patch("sys.argv", ["check_tooling_health.py", "--release", "rhoai-3.5-ea.1", "--output", str(output_file)]):
+            with patch("sys.argv", ["check_tooling_health.py", "--release", "rhoai-3.5-ea.1", "--environment", "prod", "--output", str(output_file)]):
                 exit_code = check_tooling_health.main()
 
         assert exit_code == 0

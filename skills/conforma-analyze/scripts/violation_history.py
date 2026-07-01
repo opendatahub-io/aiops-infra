@@ -56,15 +56,12 @@ import requests
 
 import _setup_env  # noqa: F401 -- loads .work/.env and adds scripts/ to sys.path
 
-CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
-RAW_DOWNLOAD_BASE = "https://raw.githubusercontent.com"
-GITHUB_API = "https://api.github.com"
-
-CSV_PATHS = [
-    "prod/release_day/conforma-violations-report.csv",
-    "prod/future/build_type_latest/conforma-violations-report.csv",
-    "prod/future/build_type_nightly/conforma-violations-report.csv",
-]
+from conforma_constants import (
+    CONFORMA_REPORTER_REPO,
+    GITHUB_API,
+    RAW_DOWNLOAD_BASE,
+    csv_paths_for_environment,
+)
 
 _github_token_cache: str | None = None
 
@@ -102,12 +99,12 @@ def _gh_headers() -> dict[str, str]:
     }
 
 
-def _find_csv_path(ref: str) -> str | None:
-    """Probe CSV_PATHS in order and return the first that exists on *ref*."""
+def _find_csv_path(ref: str, environment: str) -> str | None:
+    """Probe CSV paths in order and return the first that exists on *ref*."""
     token = _get_github_token()
     if not token:
         return None
-    for csv_path in CSV_PATHS:
+    for csv_path in csv_paths_for_environment(environment):
         url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{ref}/{csv_path}"
         try:
             resp = requests.head(url, headers={"Authorization": f"token {token}"}, timeout=30)
@@ -203,6 +200,7 @@ def _check_violation_in_csv(
 def trace_history(
     release: str,
     code: str,
+    environment: str,
     component: str | None = None,
     max_commits: int = 100,
     csv_path_override: str | None = None,
@@ -223,7 +221,7 @@ def trace_history(
         print(f"Using specified CSV path: {csv_path}", file=sys.stderr)
     else:
         print(f"Probing CSV path on {release}...", file=sys.stderr)
-        csv_path = _find_csv_path(release)
+        csv_path = _find_csv_path(release, environment)
         if not csv_path:
             return {"error": f"No violations CSV found on branch {release}", "release": release, "code": code}
         print(f"  Resolved: {csv_path}", file=sys.stderr)
@@ -479,6 +477,12 @@ def main() -> int:
         default="json",
         help="Output format (default: json)",
     )
+    parser.add_argument(
+        "--environment",
+        required=True,
+        choices=["prod", "stage"],
+        help="Target environment (prod or stage) — determines which CSV paths to probe",
+    )
     args = parser.parse_args()
 
     data = trace_history(
@@ -488,6 +492,7 @@ def main() -> int:
         max_commits=args.max_commits,
         csv_path_override=args.csv_path,
         until_found=args.until_found,
+        environment=args.environment,
     )
 
     if args.format == "json":

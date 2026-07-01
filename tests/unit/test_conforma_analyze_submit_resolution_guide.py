@@ -1,7 +1,7 @@
 """Tests for conforma-analyze submit_resolution_guide.py.
 
-The guide is always submitted to the root of the release branch
-(conforma-resolution-guide.md). Legacy guides in prod/release_day/ are
+The guide is submitted to {environment}/conforma-status-and-resolution-guide.md on the
+release branch. Legacy guides in prod/future/build_type_latest/ and the repo root are
 cleaned up automatically when --metadata-file is provided.
 """
 
@@ -18,7 +18,7 @@ import submit_resolution_guide as mod
 @pytest.fixture
 def sample_guide(tmp_path):
     """Create a sample resolution guide file."""
-    guide = tmp_path / "conforma-resolution-guide.md"
+    guide = tmp_path / "conforma-status-and-resolution-guide.md"
     guide.write_text("# Test Guide\n\nSome content.", encoding="utf-8")
     return guide
 
@@ -31,7 +31,7 @@ def sample_metadata(tmp_path):
         "releases": {
             "rhoai-3.5-ea.2": {
                 "path": ".work/20260610/rhoai-3.5-ea.2.csv",
-                "source_path": "prod/release_day/conforma-violations-report.csv",
+                "source_path": "prod/future/build_type_latest/conforma-violations-report.csv",
                 "created_at": "2026-06-10T12:00:00Z",
                 "source_sha": "abc123",
             }
@@ -46,6 +46,7 @@ class TestDryRun:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
+                environment="prod",
                 dry_run=True,
             )
             mock_get.assert_not_called()
@@ -54,16 +55,27 @@ class TestDryRun:
         assert result["dry_run"] is True
         assert result["committed"] is False
         assert "rhoai-3.5-ea.2" in result["url"]
-        assert result["target_path"] == "conforma-resolution-guide.md"
+        assert result["target_path"] == "prod/conforma-status-and-resolution-guide.md"
 
-    def test_dry_run_targets_root(self, sample_guide):
+    def test_dry_run_targets_environment_dir(self, sample_guide):
         result = mod.submit_resolution_guide(
             guide_file=str(sample_guide),
             release="rhoai-3.4",
+            environment="prod",
             dry_run=True,
         )
-        assert result["target_path"] == "conforma-resolution-guide.md"
+        assert result["target_path"] == "prod/conforma-status-and-resolution-guide.md"
         assert result["branch"] == "rhoai-3.4"
+
+    def test_dry_run_stage_environment(self, sample_guide):
+        result = mod.submit_resolution_guide(
+            guide_file=str(sample_guide),
+            release="rhoai-3.5-ea.2",
+            environment="stage",
+            dry_run=True,
+        )
+        assert result["target_path"] == "stage/conforma-status-and-resolution-guide.md"
+        assert "stage" in result["url"]
 
 
 class TestFileNotFound:
@@ -71,6 +83,7 @@ class TestFileNotFound:
         result = mod.submit_resolution_guide(
             guide_file=str(tmp_path / "nonexistent.md"),
             release="rhoai-3.5-ea.2",
+            environment="prod",
         )
         assert "error" in result
         assert result["committed"] is False
@@ -86,6 +99,7 @@ class TestBranchCheck:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-99.99",
+                environment="prod",
             )
         assert "error" in result
         assert "not found" in result["error"].lower()
@@ -99,7 +113,7 @@ class TestCreateNewFile:
         put_resp = MagicMock(status_code=201)
         put_resp.json.return_value = {
             "content": {
-                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/conforma-resolution-guide.md",
+                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/prod/conforma-status-and-resolution-guide.md",
                 "sha": "abc123",
             }
         }
@@ -117,6 +131,7 @@ class TestCreateNewFile:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
+                environment="prod",
             )
 
         assert result["committed"] is True
@@ -151,6 +166,7 @@ class TestUpdateExistingFile:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
+                environment="prod",
             )
 
         assert result["committed"] is True
@@ -165,7 +181,7 @@ class TestResolveOldPath:
             metadata_file=str(sample_metadata),
             release="rhoai-3.5-ea.2",
         )
-        assert result == "prod/release_day/conforma-violations-resolution-guide.md"
+        assert result == "prod/future/build_type_latest/conforma-violations-resolution-guide.md"
 
     def test_returns_none_without_metadata(self):
         assert mod._resolve_old_path(None, "rhoai-3.5-ea.2") is None
@@ -186,20 +202,30 @@ class TestResolveOldPath:
         assert mod._resolve_old_path(str(bad), "rhoai-3.5-ea.2") is None
 
 
-class TestRootDirSubmission:
-    def test_always_targets_root(self, sample_guide):
+class TestEnvironmentTargetPath:
+    def test_prod_targets_prod_dir(self, sample_guide):
         result = mod.submit_resolution_guide(
             guide_file=str(sample_guide),
             release="rhoai-3.5-ea.2",
+            environment="prod",
             dry_run=True,
         )
-        assert result["target_path"] == "conforma-resolution-guide.md"
-        assert result["committed"] is False
+        assert result["target_path"] == "prod/conforma-status-and-resolution-guide.md"
+
+    def test_stage_targets_stage_dir(self, sample_guide):
+        result = mod.submit_resolution_guide(
+            guide_file=str(sample_guide),
+            release="rhoai-3.5-ea.2",
+            environment="stage",
+            dry_run=True,
+        )
+        assert result["target_path"] == "stage/conforma-status-and-resolution-guide.md"
 
     def test_no_error_without_metadata(self, sample_guide):
         result = mod.submit_resolution_guide(
             guide_file=str(sample_guide),
             release="rhoai-3.5-ea.2",
+            environment="prod",
             dry_run=True,
         )
         assert "error" not in result
@@ -226,6 +252,7 @@ class TestErrorHandling:
             result = mod.submit_resolution_guide(
                 guide_file=str(sample_guide),
                 release="rhoai-3.5-ea.2",
+                environment="prod",
             )
 
         assert "error" in result

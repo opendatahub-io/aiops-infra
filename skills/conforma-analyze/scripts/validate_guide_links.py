@@ -7,7 +7,7 @@ Auth tokens are applied automatically for GitHub and GitLab URLs.
 Usage:
     # Validate a specific guide file:
     python3 skills/conforma-analyze/scripts/validate_guide_links.py \
-      --guide-file .work/20260610-143449/conforma-resolution-guide.md
+      --guide-file .work/20260610-143449/conforma-status-and-resolution-guide.md
 
     # Auto-find the most recent guide in .work/:
     python3 skills/conforma-analyze/scripts/validate_guide_links.py --latest
@@ -141,7 +141,7 @@ def _auth_headers_for_url(url: str) -> dict[str, str]:
 def _check_single_link(url: str) -> LinkCheckResult:
     """Validate a single external URL with a HEAD request (GET fallback)."""
     headers = _auth_headers_for_url(url)
-    headers["User-Agent"] = "conforma-resolution-guide-link-checker/1.0"
+    headers["User-Agent"] = "conforma-status-and-resolution-guide-link-checker/1.0"
 
     for method in (requests.head, requests.get):
         try:
@@ -218,7 +218,7 @@ def validate_guide_links(
 
 def find_latest_guide(work_dir: str = ".work") -> str | None:
     """Find the most recently modified resolution guide in the work directory."""
-    pattern = os.path.join(work_dir, "*", "conforma-resolution-guide.md")
+    pattern = os.path.join(work_dir, "*", "conforma-status-and-resolution-guide.md")
     candidates = glob.glob(pattern)
     if not candidates:
         return None

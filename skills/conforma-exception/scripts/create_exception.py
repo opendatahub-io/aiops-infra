@@ -240,7 +240,7 @@ def main() -> int:
     parser.add_argument("--rule", default=None)
     parser.add_argument("--components", default=None)
     parser.add_argument("--effective-until-date", default=None)
-    parser.add_argument("--environment", default="prod", choices=["prod", "stage"])
+    parser.add_argument("--environment", required=True, choices=["prod", "stage"])
     parser.add_argument("--rhoaieng-url", default=None, help="Deprecated alias for --violation-jira-url")
     parser.add_argument("--violation-jira-url", default=None, help="Existing RHOAIENG violation report URL")
     parser.add_argument("--remediation-jira-url", default=None, help="Existing RHOAIENG remediation URL")
