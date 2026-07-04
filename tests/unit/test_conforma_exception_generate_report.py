@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+import yaml
+
+import conforma_context_ops
 import generate_report
 
 
@@ -163,3 +169,55 @@ class TestBuildActionPlan:
         remove_action = plan["actions"][0]
         assert remove_action["is_unscoped"] is True
         assert remove_action["resolved_in"] == ["rhoai-3.4"]
+
+
+class TestContextIntegration:
+    """Tests for context-based parameter discovery in main()."""
+
+    def _setup_run(self, tmp_path):
+        """Create a run directory with context.yaml and assessed YAML file."""
+        run_dir = tmp_path / "20260703-120000"
+        run_dir.mkdir()
+
+        assessed_data = _minimal_expired_data()
+        assessed_path = run_dir / "assessed.yaml"
+        assessed_path.write_text(yaml.dump(assessed_data), encoding="utf-8")
+
+        context = {
+            "application": {"release": "rhoai-3.4"},
+            "environment": "prod",
+            "run": {"run_dir": conforma_context_ops.contract_home(run_dir)},
+            "steps": {
+                "assess": {
+                    "status": "completed",
+                    "assessed_yaml": "assessed.yaml",
+                },
+            },
+        }
+        context_path = run_dir / "context.yaml"
+        context_path.write_text(yaml.dump(context), encoding="utf-8")
+
+        work_dir = tmp_path / ".conforma"
+        work_dir.mkdir(exist_ok=True)
+        active_link = work_dir / ".conforma-active"
+        active_link.symlink_to(run_dir)
+
+        return run_dir, work_dir
+
+    def test_resolves_params_from_context(self, tmp_path, monkeypatch):
+        """Zero-arg invocation resolves assessed-input, output, environment from context."""
+        run_dir, work_dir = self._setup_run(tmp_path)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["generate_report.py"])
+
+        rc = generate_report.main()
+        assert rc == 0
+        assert (run_dir / "exceptions-report.md").is_file()
+
+    def test_no_context_requires_assessed_input(self, tmp_path, monkeypatch):
+        """Without context and without --assessed-input, main() exits with error."""
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty"))
+        monkeypatch.setattr("sys.argv", ["generate_report.py"])
+
+        with pytest.raises(SystemExit):
+            generate_report.main()

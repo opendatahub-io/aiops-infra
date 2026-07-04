@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+import conforma_context_ops
 import validate_inputs
 from validate_inputs import RhoaiVersion
 
@@ -227,3 +229,17 @@ class TestStageWorkflowOverride:
     def test_fix_target_version_in_result(self):
         result = validate_inputs.validate_all(self._make_args())
         assert result["fix_target_version"] == "rhoai-3.5"
+
+
+class TestContextIntegration:
+    """Tests for discover_work_dir fallback in lookup_component_names."""
+
+    def test_clone_root_uses_conforma_workdir(self, tmp_path, monkeypatch):
+        """lookup_component_names uses discover_work_dir() for clone root."""
+        work_dir = tmp_path / ".conforma"
+        work_dir.mkdir()
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+
+        result = conforma_context_ops.discover_work_dir()
+        expected = work_dir / "konflux-release-data"
+        assert result / "konflux-release-data" == expected

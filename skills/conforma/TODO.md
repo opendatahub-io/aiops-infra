@@ -9,7 +9,7 @@ review the plan one more time, find and fix, gaps, mistakes, discrepancies, impl
 3. esnure the exception process follows the steps that not all violations need VP approval
 
 4. review, improve and implement 'Central Run Context File for Conforma Workflows' plan originally written by cursor
-Introduce a run-context.yaml file per timestamped .work/ directory that serves as the single source of truth for all conforma run parameters. A new shared module scripts/run_context_ops.py manages reads/writes, each script reads defaults from it (CLI args override), and each step persists its outputs back into it.
+Introduce a run-context.yaml file per timestamped ~/.conforma/ directory that serves as the single source of truth for all conforma run parameters. A new shared module scripts/run_context_ops.py manages reads/writes, each script reads defaults from it (CLI args override), and each step persists its outputs back into it.
 
 5. review, improve and implement 'Conforma Live Workflow Verification' plan originaly created by cursor
 Add a runtime verification layer to conforma skill workflows that validates all outputs end-to-end before presenting results to the user, then commits verified outputs to the repo. Start with conforma-analyze (most mature, most outputs) and design the framework to be extensible to other conforma skills.
@@ -33,9 +33,9 @@ rpm_packages.unique_version (annobin, audit-libs, git, git-core, git-core-doc, l
 
 
 
-13. why sbom_spdx.allowed_package_sources (https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl) wasn't found as being covered by https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/19385 ?
+13. why sbom_spdx.allowed_package_sources (https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl) wasn't found as being covered by .../merge_requests/19385 ?
 
-14. why rpm_signature.allowed (8a3872bf3228467c) for odh-vllm-cpu-v3-5-ea-2 was not found as covered by https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/19385 ?
+14. why rpm_signature.allowed (8a3872bf3228467c) for odh-vllm-cpu-v3-5-ea-2 was not found as covered by ..../-/merge_requests/19385 ?
 
 
 15. remove the whole section

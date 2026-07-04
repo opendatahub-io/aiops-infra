@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
+import conforma_context_ops
 import resolve_release_context as mod
 
 
@@ -456,6 +459,35 @@ class TestBuildLinks:
         names = [f["name"] for f in links["policy_files"]]
         assert names == ["fbc-rhoai-stage.yaml", "registry-rhoai-stage.yaml"]
 
+    def test_self_service_files_included_in_links(self):
+        links = mod._build_links(
+            cluster_domain="stone-prod-p02.hjvn.p1",
+            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.cee.redhat.com",
+            gitlab_project="releng/konflux-release-data",
+            policy_files=["fbc-rhoai-stage.yaml", "registry-rhoai-stage.yaml"],
+            app_slug="rhoai",
+            environment="stage",
+            self_service_files=["fbc-rhoai-stage.yaml", "registry-rhoai-stage.yaml"],
+        )
+        assert "self_service_exception_files" in links
+        ss_names = [f["name"] for f in links["self_service_exception_files"]]
+        assert ss_names == ["fbc-rhoai-stage.yaml", "registry-rhoai-stage.yaml"]
+        for f in links["self_service_exception_files"]:
+            assert "/exceptions/" in f["url"]
+
+    def test_self_service_files_empty_when_none_provided(self):
+        links = mod._build_links(
+            cluster_domain="stone-prod-p02.hjvn.p1",
+            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.cee.redhat.com",
+            gitlab_project="releng/konflux-release-data",
+            policy_files=["fbc-rhoai-stage.yaml"],
+            app_slug="rhoai",
+            environment="stage",
+        )
+        assert "self_service_exception_files" not in links
+
     def test_policy_files_unfiltered_without_environment(self):
         all_files = [
             "fbc-rhoai-prod.yaml",
@@ -537,7 +569,8 @@ class TestOutputDir:
         assert result["status"] == "not_found"
         assert "rundir" not in result
 
-    def test_main_with_output_dir(self, mock_env, tmp_path, capsys):
+    def test_main_with_output_dir(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "conforma-work"))
         with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
             with patch("sys.argv", ["prog", "--query", "3.4", "--output-dir", str(tmp_path)]):
                 exit_code = mod.main()
@@ -548,14 +581,15 @@ class TestOutputDir:
         assert output["status"] == "resolved"
         assert "rundir" in output
 
-        rundir = __import__("pathlib").Path(output["rundir"])
+        rundir = Path(output["rundir"])
         assert rundir.is_dir()
-        context_file = rundir / "resolve-context.json"
-        assert context_file.exists()
-        saved = json.loads(context_file.read_text(encoding="utf-8"))
+        assert (rundir / "resolve-context.json").is_file()
+        assert (rundir / "context.yaml").is_file()
+        saved = json.loads((rundir / "resolve-context.json").read_text(encoding="utf-8"))
         assert saved["release"] == "rhoai-3.4"
 
-    def test_main_with_environment_flag(self, mock_env, tmp_path, capsys):
+    def test_main_with_environment_flag(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "conforma-work"))
         with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
             with patch("sys.argv", ["prog", "--query", "3.4", "--environment", "stage", "--output-dir", str(tmp_path)]):
                 exit_code = mod.main()
@@ -565,7 +599,8 @@ class TestOutputDir:
         output = json.loads(stdout)
         assert output["environment"] == "stage"
 
-    def test_main_without_output_dir(self, mock_env, capsys):
+    def test_main_without_output_dir_creates_rundir(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
             with patch("sys.argv", ["prog", "--query", "3.4"]):
                 exit_code = mod.main()
@@ -573,9 +608,14 @@ class TestOutputDir:
         assert exit_code == 0
         stdout = capsys.readouterr().out
         output = json.loads(stdout)
-        assert "rundir" not in output
+        assert "rundir" in output
+        rundir = Path(output["rundir"])
+        assert rundir.is_dir()
+        assert (rundir / "resolve-context.json").is_file()
+        assert (rundir / "context.yaml").is_file()
 
-    def test_reuses_existing_rundir(self, mock_env, tmp_path, capsys):
+    def test_reuses_existing_rundir(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "conforma-work"))
         rundir = tmp_path / "20260629-143854"
         rundir.mkdir()
         (rundir / "resolve-context.json").write_text("{}")
@@ -597,6 +637,139 @@ class TestOutputDir:
 
         assert exit_code == 1
         assert not list(tmp_path.iterdir())
+
+
+# ---------------------------------------------------------------------------
+# context.yaml and .conforma-active symlink
+# ---------------------------------------------------------------------------
+
+
+class TestContextYaml:
+    def test_context_yaml_contains_application_data(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        with patch.object(mod, "list_version_dirs", return_value=["v3.5-ea.1"]):
+            with patch("sys.argv", ["prog", "--query", "3.5-ea.1"]):
+                mod.main()
+
+        stdout = capsys.readouterr().out
+        output = json.loads(stdout)
+        rundir = Path(output["rundir"])
+        ctx = yaml.safe_load((rundir / "context.yaml").read_text())
+        assert ctx["application"]["name"] == "rhoai"
+        assert ctx["application"]["version"] == "3.5-ea.1"
+        assert ctx["application"]["release"] == "rhoai-3.5-ea.1"
+        assert ctx["application"]["konflux_app"] == "rhoai-v3-5-ea-1"
+
+    def test_context_yaml_contains_environment(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            with patch("sys.argv", ["prog", "--query", "stage 3.4"]):
+                mod.main()
+
+        stdout = capsys.readouterr().out
+        output = json.loads(stdout)
+        rundir = Path(output["rundir"])
+        ctx = yaml.safe_load((rundir / "context.yaml").read_text())
+        assert ctx["environment"] == "stage"
+
+    def test_context_yaml_contains_resolve_section(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES", "fbc-rhoai-prod.yaml,registry-rhoai-prod.yaml")
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            with patch("sys.argv", ["prog", "--query", "3.4"]):
+                mod.main()
+
+        stdout = capsys.readouterr().out
+        output = json.loads(stdout)
+        rundir = Path(output["rundir"])
+        ctx = yaml.safe_load((rundir / "context.yaml").read_text())
+        assert ctx["resolve"]["version_dir"] == "v3.4"
+        assert ctx["resolve"]["cluster_domain"] == "stone-prod-p02.hjvn.p1"
+        assert ctx["resolve"]["tenant"] == "rhoai-tenant"
+        assert "fbc-rhoai-prod.yaml" in ctx["resolve"]["policy_files"]
+
+    def test_context_yaml_has_run_section(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            with patch("sys.argv", ["prog", "--query", "3.4"]):
+                mod.main()
+
+        stdout = capsys.readouterr().out
+        output = json.loads(stdout)
+        rundir = Path(output["rundir"])
+        ctx = yaml.safe_load((rundir / "context.yaml").read_text())
+        assert "run" in ctx
+        assert "created_at" in ctx["run"]
+        assert "run_dir" in ctx["run"]
+
+    def test_context_yaml_excludes_display_fields(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            with patch("sys.argv", ["prog", "--query", "3.4"]):
+                mod.main()
+
+        stdout = capsys.readouterr().out
+        output = json.loads(stdout)
+        rundir = Path(output["rundir"])
+        ctx = yaml.safe_load((rundir / "context.yaml").read_text())
+        assert "confirmation_display" not in ctx
+        assert "question_text" not in ctx
+        assert "question_options" not in ctx
+
+
+class TestConformaActiveSymlink:
+    def test_symlink_created_on_resolve(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            with patch("sys.argv", ["prog", "--query", "3.4"]):
+                mod.main()
+
+        link = tmp_path / conforma_context_ops.ACTIVE_LINK
+        assert link.is_symlink()
+        stdout = capsys.readouterr().out
+        output = json.loads(stdout)
+        assert link.resolve() == Path(output["rundir"]).resolve()
+
+    def test_symlink_not_created_on_error(self, mock_env, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            with patch("sys.argv", ["prog", "--query", "9.9"]):
+                mod.main()
+
+        link = tmp_path / conforma_context_ops.ACTIVE_LINK
+        assert not link.exists()
+
+
+# ---------------------------------------------------------------------------
+# policy_files in resolve output
+# ---------------------------------------------------------------------------
+
+
+class TestPolicyFilesInResult:
+    def test_resolved_includes_filtered_policy_files(self, mock_env, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES",
+                           "fbc-rhoai-prod.yaml,fbc-rhoai-stage.yaml,registry-rhoai-prod.yaml")
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            result = mod.resolve("3.4")
+
+        assert result["status"] == "resolved"
+        assert "policy_files" in result
+        assert result["policy_files"] == ["fbc-rhoai-prod.yaml", "registry-rhoai-prod.yaml"]
+
+    def test_policy_files_filtered_by_stage(self, mock_env, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES",
+                           "fbc-rhoai-prod.yaml,fbc-rhoai-stage.yaml")
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            result = mod.resolve("stage 3.4")
+
+        assert result["policy_files"] == ["fbc-rhoai-stage.yaml"]
+
+    def test_policy_files_empty_when_no_env(self, mock_env, monkeypatch):
+        monkeypatch.delenv("KONFLUX_CONFORMA_POLICY_FILES", raising=False)
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            result = mod.resolve("3.4")
+
+        assert result["policy_files"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -622,7 +795,9 @@ class TestUpcomingReleaseDate:
     def test_resolved_result_includes_upcoming_release_date(self):
         with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
              patch.object(mod.release_dates, "_fetch_release_data", return_value={
-                 "supported": [{"version": "3.5", "products": {"rhoai": {"upcoming_release": {"date": "2026-08-15"}}}}],
+                 "supported": [{"version": "3.5", "products": {"rhoai": {
+                     "milestones": [{"type": "ga", "date": "2026-08-15", "version": "3.5"}],
+                 }}}],
              }):
             result = mod.resolve("3.5")
 
@@ -632,12 +807,15 @@ class TestUpcomingReleaseDate:
     def test_confirmation_display_contains_upcoming_release_date(self):
         with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
              patch.object(mod.release_dates, "_fetch_release_data", return_value={
-                 "supported": [{"version": "3.5", "products": {"rhoai": {"upcoming_release": {"date": "2026-08-15"}}}}],
+                 "supported": [{"version": "3.5", "products": {"rhoai": {
+                     "milestones": [{"type": "ga", "date": "2026-08-15", "version": "3.5"}],
+                 }}}],
              }):
             result = mod.resolve("3.5")
 
         assert "Upcoming release date (RHOAI 3.5)" in result["confirmation_display"]
         assert "2026-08-15" in result["confirmation_display"]
+        assert "based on [rhai-release-data.yaml]" in result["confirmation_display"]
         assert "Product Pages" in result["confirmation_display"]
 
     def test_upcoming_release_date_none_omits_row(self):
@@ -647,3 +825,64 @@ class TestUpcomingReleaseDate:
 
         assert result["upcoming_release_date"] is None
         assert "Upcoming release date" not in result["confirmation_display"]
+
+
+# ---------------------------------------------------------------------------
+# code_freeze_date in resolve output
+# ---------------------------------------------------------------------------
+
+
+class TestCodeFreezeDate:
+    @pytest.fixture(autouse=True)
+    def mock_env(self, monkeypatch):
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        monkeypatch.setenv("KONFLUX_TENANT", "rhoai-tenant")
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "config/x/product/EnterpriseContractPolicy")
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")
+        monkeypatch.setenv("GITLAB_TOKEN", "fake")
+
+    @pytest.fixture(autouse=True)
+    def _clear_release_data_cache(self):
+        mod.release_dates._release_data_cache = None
+        yield
+        mod.release_dates._release_data_cache = None
+
+    def test_resolved_result_includes_code_freeze_date(self):
+        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
+             patch.object(mod.release_dates, "_fetch_release_data", return_value={
+                 "supported": [{"version": "3.5", "products": {"rhoai": {
+                     "milestones": [
+                         {"type": "ga", "date": "2026-08-20", "version": "3.5"},
+                         {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
+                     ],
+                 }}}],
+             }):
+            result = mod.resolve("3.5")
+
+        assert result["status"] == "resolved"
+        assert result["code_freeze_date"] == "2026-07-24"
+
+    def test_confirmation_display_contains_code_freeze_date(self):
+        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
+             patch.object(mod.release_dates, "_fetch_release_data", return_value={
+                 "supported": [{"version": "3.5", "products": {"rhoai": {
+                     "milestones": [
+                         {"type": "ga", "date": "2026-08-20", "version": "3.5"},
+                         {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
+                     ],
+                 }}}],
+             }):
+            result = mod.resolve("3.5")
+
+        assert "Code freeze (RHOAI 3.5)" in result["confirmation_display"]
+        assert "2026-07-24" in result["confirmation_display"]
+        assert "based on [rhai-release-data.yaml]" in result["confirmation_display"]
+        assert "Product Pages" in result["confirmation_display"]
+
+    def test_code_freeze_date_none_omits_row(self):
+        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
+             patch.object(mod.release_dates, "_fetch_release_data", return_value=None):
+            result = mod.resolve("3.5")
+
+        assert result["code_freeze_date"] is None
+        assert "Code freeze" not in result["confirmation_display"]

@@ -268,7 +268,7 @@ def discover(
         available = ", ".join(c.cluster_id for c in discovered_clusters)
         raise DiscoveryError(
             f"Tenant '{tenant}' exists on multiple clusters: {available}\n"
-            f"Set PREFERRED_KONFLUX_CLUSTER in .work/.env or pass --preferred-cluster.",
+            f"Set PREFERRED_KONFLUX_CLUSTER in ~/.conforma/.env or pass --preferred-cluster.",
             exit_code=10,
         )
 

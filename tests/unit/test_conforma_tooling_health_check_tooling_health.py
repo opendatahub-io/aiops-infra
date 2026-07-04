@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import check_tooling_health
+import conforma_context_ops
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +325,7 @@ class TestCheckAllTools:
         assert result["release"] == "rhoai-3.5-ea.1"
         assert result["overall_health"] == "healthy"
         assert len(result["tools"]) >= 0
+        assert "display" in result
 
     @patch("check_tooling_health.github_ops.get_token")
     @patch("check_tooling_health.requests.get")
@@ -393,6 +395,118 @@ class TestComputeOverallHealth:
 
 
 # ---------------------------------------------------------------------------
+# Display rendering tests
+# ---------------------------------------------------------------------------
+
+
+class TestRenderDisplay:
+    def test_unhealthy_with_last_success(self):
+        tools = [
+            {
+                "name": "conforma-reporter",
+                "latest_run": {
+                    "id": 555,
+                    "url": "https://github.com/org/repo/actions/runs/555",
+                    "conclusion": "failure",
+                    "status": "completed",
+                    "updated_at": "2026-07-02T03:07:25Z",
+                },
+                "health": {
+                    "status": "unhealthy",
+                    "consecutive_failures": 4,
+                    "last_success": {
+                        "id": 500,
+                        "url": "https://github.com/org/repo/actions/runs/500",
+                        "completed_at": "2026-06-28T12:00:00Z",
+                    },
+                },
+            }
+        ]
+        result = check_tooling_health._render_display(tools)
+        assert "[#555](" in result
+        assert "failure" in result
+        assert "[#500](" in result
+        assert "2026-06-28" in result
+        assert "UNHEALTHY" in result
+        assert "4" in result
+        assert "stale" in result
+
+    def test_unhealthy_no_last_success(self):
+        tools = [
+            {
+                "name": "conforma-reporter",
+                "latest_run": {
+                    "id": 555,
+                    "url": "https://github.com/org/repo/actions/runs/555",
+                    "conclusion": "failure",
+                    "status": "completed",
+                    "updated_at": "2026-07-02T03:07:25Z",
+                },
+                "health": {
+                    "status": "unhealthy",
+                    "consecutive_failures": 3,
+                    "last_success": None,
+                },
+            }
+        ]
+        result = check_tooling_health._render_display(tools)
+        assert "None found" in result
+        assert "UNHEALTHY" in result
+
+    def test_healthy(self):
+        tools = [
+            {
+                "name": "conforma-reporter",
+                "latest_run": {
+                    "id": 100,
+                    "url": "https://github.com/org/repo/actions/runs/100",
+                    "conclusion": "success",
+                    "status": "completed",
+                    "updated_at": "2026-07-01T10:00:00Z",
+                },
+                "health": {
+                    "status": "healthy",
+                    "consecutive_failures": 0,
+                    "last_success": {
+                        "id": 100,
+                        "url": "https://github.com/org/repo/actions/runs/100",
+                        "completed_at": "2026-07-01T10:00:00Z",
+                    },
+                },
+            }
+        ]
+        result = check_tooling_health._render_display(tools)
+        assert "HEALTHY" in result
+        assert "[#100](" in result
+        assert "stale" not in result
+
+    def test_in_progress(self):
+        tools = [
+            {
+                "name": "conforma-reporter",
+                "latest_run": {
+                    "id": 200,
+                    "url": "https://github.com/org/repo/actions/runs/200",
+                    "conclusion": None,
+                    "status": "in_progress",
+                    "updated_at": "2026-07-02T10:00:00Z",
+                },
+                "health": {
+                    "status": "in_progress",
+                    "consecutive_failures": 0,
+                    "last_success": None,
+                },
+            }
+        ]
+        result = check_tooling_health._render_display(tools)
+        assert "IN_PROGRESS" in result
+
+    def test_empty_tools(self):
+        result = check_tooling_health._render_display([])
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
 # Output file tests
 # ---------------------------------------------------------------------------
 
@@ -425,7 +539,22 @@ class TestCLIOutput:
 
 
 class TestResolutionGuideIntegration:
-    def test_render_tooling_health_unhealthy(self):
+    def test_render_tooling_health_uses_display_field(self):
+        from generate_resolution_guide import _render_tooling_health
+
+        display_table = (
+            "| Tool | Status | Latest Run | Consecutive Failures | Last Success |\n"
+            "|------|--------|------------|---------------------|--------------|\n"
+            "| conforma-reporter | UNHEALTHY | [#12345](https://github.com/org/repo/actions/runs/12345) -- failure (2026-06-17) | 3 | [#12340](https://github.com/org/repo/actions/runs/12340) (2026-06-15) |\n"
+            "\n"
+            "**⚠ WARNING: The violation data in this report may be stale because the conforma-reporter workflow is failing.**\n"
+        )
+        data = {"display": display_table, "tools": []}
+        result = _render_tooling_health(data)
+        assert result.startswith("## Tooling Health\n\n")
+        assert display_table in result
+
+    def test_render_tooling_health_fallback_without_display(self):
         from generate_resolution_guide import _render_tooling_health
 
         data = {
@@ -457,7 +586,7 @@ class TestResolutionGuideIntegration:
         assert "conforma-reporter" in result
         assert "stale" in result
 
-    def test_render_tooling_health_healthy(self):
+    def test_render_tooling_health_healthy_fallback(self):
         from generate_resolution_guide import _render_tooling_health
 
         data = {
@@ -531,3 +660,66 @@ class TestResolutionGuideIntegration:
         }
         line = _tooling_health_executive_line(data)
         assert line is None
+
+
+class TestContextIntegration:
+    """Tests for context.yaml auto-discovery and update."""
+
+    def test_reads_release_and_env_from_context(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
+            "environment": "prod",
+        })
+        conforma_context_ops.set_active(run_dir)
+
+        monkeypatch.setattr("sys.argv", ["check_tooling_health.py"])
+        with patch("check_tooling_health.check_all_tools", return_value={"release": "rhoai-3.5-ea.1", "tools": []}) as mock_check:
+            rc = check_tooling_health.main()
+        assert rc == 0
+        mock_check.assert_called_once()
+        assert mock_check.call_args[0][0] == "rhoai-3.5-ea.1"
+        assert mock_check.call_args[1]["environment"] == "prod"
+
+    def test_updates_context_after_check(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
+            "environment": "prod",
+        })
+        conforma_context_ops.set_active(run_dir)
+
+        monkeypatch.setattr("sys.argv", ["check_tooling_health.py"])
+        with patch("check_tooling_health.check_all_tools", return_value={"release": "rhoai-3.5-ea.1", "tools": []}):
+            check_tooling_health.main()
+
+        ctx = conforma_context_ops.load(run_dir)
+        assert ctx["steps"]["tooling_health"]["status"] == "completed"
+        assert ctx["steps"]["tooling_health"]["health_json"] == "tooling-health.json"
+
+    def test_cli_overrides_context(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
+            "environment": "prod",
+        })
+        conforma_context_ops.set_active(run_dir)
+
+        monkeypatch.setattr("sys.argv", [
+            "check_tooling_health.py",
+            "--release", "rhoai-3.4",
+            "--environment", "stage",
+        ])
+        with patch("check_tooling_health.check_all_tools", return_value={"release": "rhoai-3.4", "tools": []}) as mock_check:
+            check_tooling_health.main()
+        assert mock_check.call_args[0][0] == "rhoai-3.4"
+        assert mock_check.call_args[1]["environment"] == "stage"
+
+    def test_no_context_requires_explicit_args(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setattr("sys.argv", ["check_tooling_health.py"])
+        with pytest.raises(SystemExit):
+            check_tooling_health.main()

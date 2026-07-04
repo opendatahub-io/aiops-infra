@@ -13,7 +13,7 @@ Verify and troubleshoot Slack authentication. This skill references `scripts/sla
 
 **NEVER ask the user to paste tokens or secrets into the chat window.**
 
-All credentials go in `.work/.slack-secrets` (temporary, deleted after import) or `.work/.env`. Never accept secrets via chat — always instruct the user to write them to a file directly using their editor or terminal.
+All credentials go in `~/.conforma/.slack-secrets` (temporary, deleted after import) or `~/.conforma/.env`. Never accept secrets via chat — always instruct the user to write them to a file directly using their editor or terminal.
 
 ## Slack is Optional in the Conforma Workflow
 
@@ -35,7 +35,7 @@ This checks:
 - `slackdump` binary is installed and on PATH
 - Auth credentials exist in `~/.cache/slackdump/`
 - The session is still valid
-- `SLACK_WORKSPACE_URL` is available (from infrastructure discovery or `.work/.env`) for building search links
+- `SLACK_WORKSPACE_URL` is available (from infrastructure discovery or `~/.conforma/.env`) for building search links
 
 ## First-Time Setup
 
@@ -69,7 +69,7 @@ This method requires only a browser where you're already logged into Slack. No l
 
 4. **Get the cookie** — switch to Application tab (Chrome/Edge) or Storage tab (Firefox) → Cookies → select your Slack domain → find the cookie named `d` → copy its value (starts with `xoxd-`).
 
-5. Write both values to `.work/.slack-secrets`:
+5. Write both values to `~/.conforma/.slack-secrets`:
    ```
    SLACK_TOKEN=xoxc-...
    SLACK_COOKIE=xoxd-...
@@ -78,8 +78,8 @@ This method requires only a browser where you're already logged into Slack. No l
 **Agent imports and cleans up:**
 
 ```bash
-slackdump workspace import .work/.slack-secrets
-rm -f .work/.slack-secrets
+slackdump workspace import ~/.conforma/.slack-secrets
+rm -f ~/.conforma/.slack-secrets
 ```
 
 The credentials are encrypted and stored in `~/.cache/slackdump/`. The secrets file is deleted immediately after import.
@@ -96,7 +96,7 @@ This opens a browser window for interactive login. Works well on native Linux/ma
 
 ### 3. Set workspace URL
 
-Ensure `SLACK_WORKSPACE_URL` is available. If auto-discovery populates it, no action needed. Otherwise add to `.work/.env`:
+Ensure `SLACK_WORKSPACE_URL` is available. If auto-discovery populates it, no action needed. Otherwise add to `~/.conforma/.env`:
 
 ```
 SLACK_WORKSPACE_URL=https://redhat-internal.slack.com
@@ -117,8 +117,8 @@ When the agent detects that Slack auth is missing or expired, follow this exact 
 
 2. **Provide the extraction steps** (Console snippet for token, Application → Cookies for `d` cookie).
 
-3. **Instruct the user** to write the values to `.work/.slack-secrets`:
-   > Using your editor or terminal, create `.work/.slack-secrets` with:
+3. **Instruct the user** to write the values to `~/.conforma/.slack-secrets`:
+   > Using your editor or terminal, create `~/.conforma/.slack-secrets` with:
    > ```
    > SLACK_TOKEN=xoxc-<your-token>
    > SLACK_COOKIE=xoxd-<your-cookie>
@@ -128,7 +128,7 @@ When the agent detects that Slack auth is missing or expired, follow this exact 
 
 5. **Import and verify**:
    ```bash
-   slackdump workspace import .work/.slack-secrets && rm -f .work/.slack-secrets
+   slackdump workspace import ~/.conforma/.slack-secrets && rm -f ~/.conforma/.slack-secrets
    python3 scripts/slack_ops.py verify-auth
    ```
 
@@ -159,14 +159,14 @@ Session cookies have expired (typically after several weeks of inactivity).
 **Fix:** Repeat the authentication steps above. For Method A, the user extracts fresh token/cookie from the browser. The agent re-imports:
 
 ```bash
-slackdump workspace import .work/.slack-secrets && rm -f .work/.slack-secrets
+slackdump workspace import ~/.conforma/.slack-secrets && rm -f ~/.conforma/.slack-secrets
 ```
 
 ### "team_url is empty in verify-auth output"
 
 `SLACK_WORKSPACE_URL` is not set. Search links in coverage reports won't be clickable.
 
-**Fix:** Add to `.work/.env`:
+**Fix:** Add to `~/.conforma/.env`:
 
 ```
 SLACK_WORKSPACE_URL=https://redhat-internal.slack.com

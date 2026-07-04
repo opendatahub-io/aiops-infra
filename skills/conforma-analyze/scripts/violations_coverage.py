@@ -8,8 +8,8 @@ pre-rendered markdown table.
 
 Usage:
     python3 skills/conforma-analyze/scripts/violations_coverage.py \\
-      --violations-yaml .work/20260610-103554/violations.yaml \\
-      --clone-dir .work/konflux-release-data \\
+      --violations-yaml ~/.conforma/20260610-103554/violations.yaml \\
+      --clone-dir ~/.conforma/konflux-release-data \\
       --environment prod
 """
 
@@ -18,6 +18,7 @@ from __future__ import annotations
 import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
 import argparse
+import conforma_context_ops
 import fnmatch
 import json
 import sys
@@ -506,15 +507,14 @@ def _run_ec_coverage(
 
     ec_binary = conforma_ec_validate.ensure_ec_binary()
 
-    spec_path = conforma_ec_validate.build_snapshot_from_csv(
+    spec_path, all_entries = conforma_ec_validate.build_snapshot_from_csv(
         csv_path, str(work_dir / "spec.json")
     )
-    spec_data = json.loads(spec_path.read_text())
-    all_component_names = [c["name"] for c in spec_data["components"]]
-    _log(f"  Snapshot: {spec_path} ({len(all_component_names)} components)")
+    all_component_names = [e["name"] for e in all_entries]
+    _log(f"  Snapshot: {spec_path} ({len(all_entries)} image entries, {len(set(all_component_names))} unique components)")
 
     component_groups = _group_components_by_policy(
-        all_component_names, policy_paths, mapping_rules,
+        list(dict.fromkeys(all_component_names)), policy_paths, mapping_rules,
     )
 
     merged_violations: dict[str, set[str]] = {}
@@ -529,28 +529,45 @@ def _run_ec_coverage(
         policy_work_dir = work_dir / policy_path.stem
         policy_work_dir.mkdir(parents=True, exist_ok=True)
 
-        _log(f"  Validating against {policy_path.name} ({len(assigned_components)} components)...")
+        policy_entries = [e for e in all_entries if e["name"] in assigned_components]
+        base_image_groups = conforma_ec_validate.group_entries_by_base_image(policy_entries)
+
+        _log(f"  Validating against {policy_path.name} ({len(assigned_components)} components, {len(base_image_groups)} batches)...")
 
         local_policy = conforma_ec_validate.prepare_policy_for_local_use(
             str(policy_path), str(policy_work_dir / "policy-local.yaml")
         )
-        ec_output = conforma_ec_validate.run_ec_validate(
-            ec_binary, str(spec_path), str(local_policy), str(policy_work_dir)
-        )
 
-        ec_violations = conforma_ec_validate.extract_ec_violations(ec_output)
-        ec_successes = conforma_ec_validate.extract_ec_successes(ec_output)
+        batches_succeeded = 0
+        batches_failed = 0
+        for batch_idx, (base_url, entries) in enumerate(base_image_groups.items(), 1):
+            batch_dir = policy_work_dir / f"batch-{batch_idx:03d}"
+            batch_dir.mkdir(parents=True, exist_ok=True)
 
-        for comp, codes in ec_violations.items():
-            if comp in assigned_components:
+            batch_spec = conforma_ec_validate.build_snapshot_from_entries(
+                entries, str(batch_dir / "spec.json")
+            )
+            _log(f"    Batch {batch_idx}/{len(base_image_groups)}: {base_url} ({len(entries)} digests)...")
+
+            try:
+                ec_output = conforma_ec_validate.run_ec_validate(
+                    ec_binary, str(batch_spec), str(local_policy), str(batch_dir)
+                )
+            except conforma_ec_validate.EcValidateError as exc:
+                batches_failed += 1
+                _log(f"    Batch {batch_idx}/{len(base_image_groups)} FAILED: {base_url} — {str(exc)[:200]}")
+                continue
+
+            batches_succeeded += 1
+            ec_violations = conforma_ec_validate.extract_ec_violations(ec_output)
+            ec_successes_batch = conforma_ec_validate.extract_ec_successes(ec_output)
+
+            for comp, codes in ec_violations.items():
                 merged_violations.setdefault(comp, set()).update(codes)
-        for comp, codes in ec_successes.items():
-            if comp in assigned_components:
+            for comp, codes in ec_successes_batch.items():
                 merged_successes.setdefault(comp, set()).update(codes)
 
-        n_viols = sum(len(v) for comp, v in ec_violations.items() if comp in assigned_components)
-        n_succ = sum(len(v) for comp, v in ec_successes.items() if comp in assigned_components)
-        _log(f"    {policy_path.name}: {n_viols} violations, {n_succ} successes (filtered to mapped components)")
+        _log(f"    {policy_path.name}: {batches_succeeded}/{batches_succeeded + batches_failed} batches succeeded")
 
     total_viols = sum(len(v) for v in merged_violations.values())
     total_succ = sum(len(v) for v in merged_successes.values())
@@ -647,6 +664,7 @@ def check_violations_coverage(
     metadata_file: str | None = None,
     release: str | None = None,
     csv_path: str | None = None,
+    self_service_files: list[str] | None = None,
 ) -> dict:
     """Batch coverage check: read a violations YAML and check each violation's components
     against existing exceptions in the policy file.
@@ -810,6 +828,30 @@ def check_violations_coverage(
             rule, all_components, ec_violations, ec_successes,
         )
 
+        # Self-service exception coverage (supplements EC, which doesn't see exceptions/ files).
+        if self_service_files and uncovered:
+            ss_result = conforma_policy_ops.search_self_service_exceptions(
+                rule=rule,
+                self_service_files=self_service_files,
+                clone_dir=clone_dir,
+                csv_path=csv_path,
+            )
+            if ss_result.get("checked"):
+                ss_covered = ss_result.get("covered_components", set())
+                if ss_result.get("has_unscoped"):
+                    ss_covered = set(all_components)
+                rescued = [c for c in uncovered if c in ss_covered]
+                if rescued:
+                    covered = covered + rescued
+                    uncovered = [c for c in uncovered if c not in ss_covered]
+                    if not uncovered:
+                        coverage = "fully_covered"
+                        coverage_label = "fully covered (verified by self-service exception file)"
+                    else:
+                        coverage = "partially_covered"
+                        coverage_label = f"{len(uncovered)} of {len(all_components)} without exception coverage"
+                    _log(f"    Self-service exceptions rescued {len(rescued)} component(s) from {ss_result.get('source_files', [])}")
+
         # Gate check for enrichment metadata (expiry dates, policy file links).
         gate = conforma_policy_ops.check_existing_exception_gate(
             rule=rule,
@@ -909,19 +951,19 @@ def check_violations_coverage(
         search_urls = _build_search_urls(rule, slack_team_url)
         if search_urls["mr"]:
             mr_label = (
-                (mr_label + f" ([manual search]({search_urls['mr']}))") if mr_label else f"[manual search]({search_urls['mr']})"
+                (mr_label + f" ([try manual search]({search_urls['mr']}))") if mr_label else f"[try manual search]({search_urls['mr']})"
             )
         if search_urls["jira"]:
             jira_label = (
-                (jira_label + f" ([manual search]({search_urls['jira']}))")
+                (jira_label + f" ([try manual search]({search_urls['jira']}))")
                 if jira_label
-                else f"[manual search]({search_urls['jira']})"
+                else f"[try manual search]({search_urls['jira']})"
             )
         if search_urls["slack"]:
             slack_label = (
-                (slack_label + f" ([manual search]({search_urls['slack']}))")
+                (slack_label + f" ([try manual search]({search_urls['slack']}))")
                 if slack_label
-                else f"[manual search]({search_urls['slack']})"
+                else f"[try manual search]({search_urls['slack']})"
             )
 
         status_label, next_steps, next_steps_short = _determine_status_and_next_steps(
@@ -1016,9 +1058,7 @@ def _render_violations_markdown_table(
 ) -> str:
     """Pre-render a markdown table from violations coverage results.
 
-    Columns: #, Violation, Count, Status, Next Steps.
-    Detailed cross-reference data (components, Merge Requests, Jira, Slack) is in the
-    Resolution Guide section below the table.
+    Columns: #, Violation, Count, Status, Jira, Next Steps.
     """
     meta = report_meta or {}
     lines: list[str] = []
@@ -1044,8 +1084,8 @@ def _render_violations_markdown_table(
     )
     lines.append("")
 
-    lines.append("| # | Violation | Count | Status | Next Steps |")
-    lines.append("|---|-----------|-------|--------|------------|")
+    lines.append("| # | Violation | Count | Status | Jira | Next Steps |")
+    lines.append("|---|-----------|-------|--------|------|------------|")
 
     for i, v in enumerate(results, 1):
         rule = f"`{v['rule']}`"
@@ -1058,8 +1098,9 @@ def _render_violations_markdown_table(
         elif v.get("coverage") == "partially_covered" and total_count:
             uncovered = total_count - covered_count
             status = f"Exception granted ({covered_count}/{total_count} components covered, {uncovered} without coverage)"
+        jira = v.get("open_jira_label", "")
         ns = v.get("next_steps_short", v["next_steps"])
-        lines.append(f"| {i} | {rule} | {viol_count} | {status} | {ns} |")
+        lines.append(f"| {i} | {rule} | {viol_count} | {status} | {jira} | {ns} |")
 
     lines.append("")
     lines.append("*See the **Resolution Guide** section below for full resolution details per violation.*")
@@ -1069,10 +1110,15 @@ def _render_violations_markdown_table(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Batch violations coverage check")
-    parser.add_argument("--violations-yaml", required=True)
-    parser.add_argument("--csv", required=True, help="Path to source CSV report (for ec validate image)")
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    parser.add_argument("--violations-yaml", default=None)
+    parser.add_argument("--csv", default=None, help="Path to source CSV report (for ec validate image)")
     parser.add_argument("--clone-dir", default=None)
-    parser.add_argument("--environment", required=True, choices=["prod", "stage"])
+    parser.add_argument("--environment", default=None, choices=["prod", "stage"])
     parser.add_argument("--require-jira", type=lambda v: v.lower() in ("true", "1", "yes"), default=True)
     parser.add_argument("--require-slack", type=lambda v: v.lower() in ("true", "1", "yes"), default=True)
     parser.add_argument("--metadata-file", default=None, help="Path to fetch-metadata.json for report header")
@@ -1107,7 +1153,43 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
+
+    violations_yaml = args.violations_yaml
+    if violations_yaml is None and context and run_dir:
+        parse_output = conforma_context_ops.get(run_dir, "steps.parse.violations_yaml", None)
+        if parse_output:
+            violations_yaml = str(Path(run_dir) / parse_output)
+    if not violations_yaml:
+        print("Error: --violations-yaml is required when no run context is available", file=sys.stderr)
+        return 1
+
+    csv_path = args.csv
+    if csv_path is None and context and run_dir:
+        csv_files = conforma_context_ops.get(run_dir, "steps.fetch.csv_files", None)
+        if csv_files:
+            csv_path = str(Path(run_dir) / csv_files[0])
+    if not csv_path:
+        print("Error: --csv is required when no run context is available", file=sys.stderr)
+        return 1
+
+    release = args.release
+    if release is None and context:
+        release = conforma_context_ops.get(run_dir, "application.release", None)
+
+    clone_dir = args.clone_dir
+
     pf: list[str] | None = None
+    ssf: list[str] | None = None
     if args.policy_files:
         pf = [f.strip() for f in args.policy_files.split(",")]
     elif args.resolve_context_json:
@@ -1115,33 +1197,58 @@ def main() -> int:
             rc = json.loads(Path(args.resolve_context_json).read_text(encoding="utf-8"))
             policy_file_entries = rc.get("links", {}).get("policy_files", [])
             pf = [entry["name"] for entry in policy_file_entries if entry.get("name")]
+            ss_entries = rc.get("links", {}).get("self_service_exception_files", [])
+            if ss_entries:
+                ssf = [entry["name"] for entry in ss_entries if entry.get("name")]
+            elif rc.get("self_service_files"):
+                ssf = rc["self_service_files"]
         except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
             print(f"WARNING: Could not extract policy files from resolve context: {exc}", file=sys.stderr)
+    elif context:
+        ctx_pf = conforma_context_ops.get(run_dir, "resolve.policy_files", None)
+        if ctx_pf:
+            pf = ctx_pf
+        ctx_ssf = conforma_context_ops.get(run_dir, "resolve.self_service_files", None)
+        if ctx_ssf:
+            ssf = ctx_ssf
 
     if not pf:
         print(
-            "ERROR: --policy-files is required (provide directly or via --resolve-context-json)",
+            "ERROR: --policy-files is required (provide directly, via --resolve-context-json, or via context.yaml)",
             file=sys.stderr,
         )
         return 1
+
+    output_file = args.output
+    if output_file is None and run_dir:
+        output_file = str(Path(run_dir) / "coverage.json")
+
     result = check_violations_coverage(
-        violations_yaml_path=args.violations_yaml,
+        violations_yaml_path=violations_yaml,
         policy_files=pf,
-        clone_dir=args.clone_dir,
-        environment=args.environment,
+        clone_dir=clone_dir,
+        environment=environment,
         require_jira=args.require_jira,
         require_slack=args.require_slack,
         metadata_file=args.metadata_file,
-        release=args.release,
-        csv_path=args.csv,
+        release=release,
+        csv_path=csv_path,
+        self_service_files=ssf,
     )
     output_json = json.dumps(result, indent=2)
-    if args.output:
-        output_path = Path(args.output)
+    if output_file:
+        output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(output_json + "\n", encoding="utf-8")
     else:
         print(output_json)
+
+    if run_dir and "error" not in result:
+        step_outputs: dict = {"coverage_json": "coverage.json"}
+        if clone_dir:
+            step_outputs["clone_dir"] = conforma_context_ops.contract_home(Path(clone_dir))
+        conforma_context_ops.update_step(run_dir, "coverage", "completed", **step_outputs)
+
     return 1 if "error" in result else 0
 
 

@@ -11,8 +11,8 @@ Report bugs, enhancement requests, or general feedback about Conforma skills by 
 
 ## Prerequisites
 
-- `GITHUB_TOKEN` in `.work/.env` -- for GitHub repos
-- `GITLAB_TOKEN` in `.work/.env` -- for GitLab repos
+- `GITHUB_TOKEN` in `~/.conforma/.env` -- for GitHub repos
+- `GITLAB_TOKEN` in `~/.conforma/.env` -- for GitLab repos
 - `git` available on PATH
 - Current working directory must be inside a git repository
 
@@ -182,7 +182,7 @@ CLI flags -- the agent already has it from the failure.
 
 ### When NOT to use
 
-- User configuration errors (wrong token, missing `.work/.env`, VPN down)
+- User configuration errors (wrong token, missing `~/.conforma/.env`, VPN down)
 - Transient network failures
 - Expected failures documented in the skill (e.g., "some branches may not have CSVs")
 
@@ -262,7 +262,7 @@ Follow these steps **in order**. Steps 0-1 are shared with the interactive workf
 ```bash
 python3 skills/conforma-feedback/scripts/submit_feedback.py classify-error \
     --exception-type "FileNotFoundError" \
-    --error-message "query.py not found at .work/component-maturity/..." \
+    --error-message "query.py not found at ~/.conforma/component-maturity/..." \
     --script-path "scripts/component_catalog_ops.py"
 ```
 

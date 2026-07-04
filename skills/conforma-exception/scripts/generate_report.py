@@ -10,17 +10,21 @@ adapts automatically based on the input scope.
 
 Usage:
     python3 scripts/generate_report.py \\
-      --assessed-input .work/assessed-exceptions.yaml \\
-      --output .work/exceptions-report.md
+      --assessed-input ~/.conforma/20260703-120000/assessed-exceptions.yaml \\
+      --output ~/.conforma/20260703-120000/exceptions-report.md
 
     # Also write a machine-readable action plan for the agent:
     python3 scripts/generate_report.py \\
-      --assessed-input .work/assessed-exceptions.yaml \\
-      --output .work/exceptions-report.md \\
-      --action-plan-output .work/action-plan.json
+      --assessed-input ~/.conforma/20260703-120000/assessed-exceptions.yaml \\
+      --output ~/.conforma/20260703-120000/exceptions-report.md \\
+      --action-plan-output ~/.conforma/20260703-120000/action-plan.json
 """
 
 from __future__ import annotations
+
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
+import conforma_context_ops  # noqa: E402
 
 import argparse
 import json
@@ -499,13 +503,18 @@ def build_action_plan(data: dict) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate a markdown report from assessed exceptions")
     parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    parser.add_argument(
         "--assessed-input",
-        required=True,
+        default=None,
         help="Path to assessed-exceptions.yaml",
     )
     parser.add_argument(
         "--output",
-        required=True,
+        default=None,
         help="Output path for the markdown report (.md)",
     )
     parser.add_argument(
@@ -515,21 +524,49 @@ def main() -> int:
     )
     parser.add_argument(
         "--environment",
-        required=True,
+        default=None,
         choices=["prod", "stage"],
         help="Target environment (prod or stage) — determines fallback report URLs",
     )
     args = parser.parse_args()
 
-    input_path = Path(args.assessed_input)
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
+
+    assessed_input = args.assessed_input
+    if assessed_input is None and context:
+        ctx_assessed = conforma_context_ops.get(run_dir, "steps.assess.assessed_yaml", None)
+        if ctx_assessed:
+            assessed_input = str(Path(run_dir) / ctx_assessed)
+    if assessed_input is None:
+        print("Error: --assessed-input is required when no run context is available", file=sys.stderr)
+        return 1
+
+    output = args.output
+    if output is None and run_dir:
+        output = str(Path(run_dir) / "exceptions-report.md")
+
+    if output is None:
+        print("Error: --output is required when no run context is available", file=sys.stderr)
+        return 1
+
+    input_path = Path(assessed_input)
     if not input_path.is_file():
         print(f"Error: assessment file not found: {input_path}", file=sys.stderr)
         return 1
 
     data = _load_assessment(input_path)
-    report = generate_markdown(data, environment=args.environment)
+    report = generate_markdown(data, environment=environment)
 
-    output_path = Path(args.output)
+    output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")
 

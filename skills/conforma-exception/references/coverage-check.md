@@ -9,8 +9,8 @@ This reference is the canonical source for the coverage check workflow. It is us
 All auth is verified upfront by `python3 scripts/verify_conforma_prerequisites.py` (conforma-analyze workflow step 1). If that passed, the coverage check has everything it needs:
 
 - Violations parsed into a YAML file via `parse_violations.py` (steps 1–4)
-- GitLab auth (token in `.work/.env`, VPN active)
-- Jira auth (token + email in `.work/.env`)
+- GitLab auth (token in `~/.conforma/.env`, VPN active)
+- Jira auth (token + email in `~/.conforma/.env`)
 - Slack auth (slackdump installed + logged in)
 - The `konflux-release-data` repo clone (managed automatically by the script)
 
@@ -24,14 +24,14 @@ The `konflux-release-data` GitLab repo is large and slow to clone (~40s). The `v
 - If the fetch fails (VPN down), the script aborts with a clear error
 - If the directory doesn't exist, the script clones it using `GITLAB_TOKEN` from the environment
 
-No manual clone management is needed — just pass `--clone-dir .work/konflux-release-data`.
+No manual clone management is needed — just pass `--clone-dir ~/.conforma/konflux-release-data`.
 
 ## Running the Coverage Check
 
 ```bash
 python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
-  --clone-dir .work/konflux-release-data \
+  --clone-dir ~/.conforma/konflux-release-data \
   --environment prod > "$RUNDIR/coverage.json"
 ```
 

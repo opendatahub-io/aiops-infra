@@ -120,7 +120,7 @@ class TestFormatMarkdown:
     def test_failure_produces_sections(self):
         results = [
             _make_check(True, "python_deps"),
-            _make_check(False, "github", fix="Add to .work/.env:\n  GITHUB_TOKEN=ghp_xxx"),
+            _make_check(False, "github", fix="Add to ~/.conforma/.env:\n  GITHUB_TOKEN=ghp_xxx"),
         ]
         output = prereqs._format_markdown(results)
         assert "### \u2705 python_deps" in output
@@ -129,7 +129,7 @@ class TestFormatMarkdown:
 
     def test_failure_fix_has_code_block(self):
         results = [
-            _make_check(False, "infra", fix="Add to .work/.env:\n  GITLAB_HOST=my-host\n  TENANT=my-tenant"),
+            _make_check(False, "infra", fix="Add to ~/.conforma/.env:\n  GITLAB_HOST=my-host\n  TENANT=my-tenant"),
         ]
         output = prereqs._format_markdown(results)
         assert "```bash" in output
@@ -193,7 +193,7 @@ class TestIsCodeLine:
         assert prereqs._is_code_line("echo 'hello'") is True
         assert prereqs._is_code_line("python3 scripts/foo.py") is True
         assert prereqs._is_code_line("bash scripts/install.sh") is True
-        assert prereqs._is_code_line("cp .work/.env.example .work/.env") is True
+        assert prereqs._is_code_line("cp ~/.conforma/.env.example ~/.conforma/.env") is True
         assert prereqs._is_code_line("uv sync") is True
 
     def test_prose_is_not_code(self):
@@ -206,7 +206,7 @@ class TestFormatFixMarkdown:
     """Tests for fix text splitting into prose and code blocks."""
 
     def test_mixed_prose_and_code(self):
-        fix = "Add to .work/.env:\n  GITLAB_HOST=my-host\n  TENANT=my-tenant\nThen re-run."
+        fix = "Add to ~/.conforma/.env:\n  GITLAB_HOST=my-host\n  TENANT=my-tenant\nThen re-run."
         output = prereqs._format_fix_markdown(fix)
         assert "```bash" in output
         assert "GITLAB_HOST=my-host" in output

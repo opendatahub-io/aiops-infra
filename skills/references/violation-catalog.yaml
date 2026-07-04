@@ -442,6 +442,126 @@ violations:
         a code fix. DevOps has merge access to the exceptions file directly.
       exception_template_category: fbc_pruning_test
 
+  - id: builtin.attestation.signature_check
+    type: conforma_violation
+    title: "No image attestations found matching the given public key"
+    description: >-
+      The Conforma engine verifies that every container image has a signed
+      SLSA Provenance attestation (.att OCI artifact) that matches the expected
+      public key. This is a built-in check that runs automatically on every
+      validation, regardless of the policy rules configured. When no .att
+      artifact exists on the image registry (quay.io), the check fails.
+      Attestations are normally created by Tekton Chains, which observes
+      completed PipelineRuns and automatically generates signed SLSA provenance
+      attestations. Chains pushes .sig (image signature) and .att (attestation)
+      OCI artifacts alongside the image. If Chains fails or is not configured,
+      the attestation will be missing.
+    conforma_rule_codes:
+      - builtin.attestation.signature_check
+    aliases:
+      - "attestation signature check"
+      - "no matching attestations"
+      - "attestation signature"
+      - "missing attestation"
+      - "no image attestations"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "No image attestations found matching the given public key. Verify the correct public key was provided, and one or more attestations were created. Error: no matching attestations"
+    fix_steps:
+      - action: "Confirm no .att artifact exists on quay.io by checking the image tags page for a corresponding .att tag"
+      - action: "Run 'cosign tree <IMAGE>' to list all supply chain artifacts (signatures, attestations, SBOMs) attached to the image"
+        reference: "https://conforma.dev/docs/user-guide/cosign.html"
+      - action: "Find the most recent PipelineRun that built this image and check the annotation 'chains.tekton.dev/signed' — 'true' means Chains succeeded, 'failed' means it did not"
+        reference: "https://konflux-ci.dev/docs/troubleshooting/releases/"
+      - action: "If 'chains.tekton.dev/signed=failed': check the Tekton Chains controller logs for UNAUTHORIZED errors pushing .sig/.att artifacts"
+      - action: "Verify the component service account 'build-pipeline-<COMPONENT_NAME>' has only the 'appstudio-pipeline-dockercfg-*' secret in its imagePullSecrets — extra or incorrect secrets cause Chains auth failures"
+        reference: "https://konflux-ci.dev/docs/troubleshooting/releases/"
+      - action: "Verify the public key in the EnterpriseContractPolicy matches the cluster signing key: kubectl get -n openshift-pipelines secret public-key -o json | jq -r '.data.\"cosign.pub\" | @base64d'"
+        reference: "https://conforma.dev/docs/user-guide/hitchhikers-guide.html"
+      - action: "Rebuild the component in Konflux — a successful build with properly configured Tekton Chains will create the attestation automatically"
+    exception_context:
+      when_to_exception: >-
+        Only if the image is intentionally not built through a Konflux pipeline
+        (e.g., a third-party image or an image built by another team's
+        infrastructure). The component team must confirm the image source
+        and whether attestation can be added through an alternative mechanism.
+      exception_template_category: attestation_missing
+
+  - id: builtin.attestation.syntax_check
+    type: conforma_violation
+    title: "Attestation syntax check failed"
+    description: >-
+      The Conforma engine verifies that the attestation attached to the image
+      has valid in-toto SLSA Provenance format. This is a built-in check that
+      runs automatically. A syntax failure typically means the attestation
+      exists but is malformed — either Tekton Chains produced a corrupt
+      attestation or the predicate type does not match expectations.
+    conforma_rule_codes:
+      - builtin.attestation.syntax_check
+    aliases:
+      - "attestation syntax"
+      - "attestation format"
+      - "malformed attestation"
+    classification:
+      resolution_path: operational
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "Attestation syntax check failed"
+    fix_steps:
+      - action: "Run 'cosign verify-attestation --type slsaprovenance --key cosign.pub <IMAGE> --insecure-ignore-tlog' to inspect the raw attestation content"
+        reference: "https://conforma.dev/docs/user-guide/cosign.html"
+      - action: "Run 'ec validate image --public-key cosign.pub --image <IMAGE> --policy \"\" --output policy-input' to export the raw attestation data for debugging"
+        reference: "https://conforma.dev/docs/user-guide/hitchhikers-guide.html"
+      - action: "Check the Tekton Chains controller version and logs for errors during attestation generation"
+      - action: "Rebuild the component in Konflux — Chains will regenerate the attestation"
+
+  - id: builtin.image.signature_check
+    type: conforma_violation
+    title: "Image signature check failed"
+    description: >-
+      The Conforma engine verifies that the container image itself has a valid
+      cosign signature (.sig OCI artifact) matching the expected public key.
+      This is a built-in check separate from the attestation signature check.
+      If the image was not signed by Tekton Chains (no .sig artifact on the
+      registry) or was signed with a different key, this check fails.
+    conforma_rule_codes:
+      - builtin.image.signature_check
+    aliases:
+      - "image signature check"
+      - "image signature"
+      - "missing signature"
+      - "signature check failed"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "Image signature check failed"
+      - "No image signatures found matching the given public key"
+    fix_steps:
+      - action: "Check quay.io for a .sig tag corresponding to the image digest"
+      - action: "Run 'cosign verify --key cosign.pub <IMAGE> --insecure-ignore-tlog' to test image signature verification"
+        reference: "https://conforma.dev/docs/user-guide/cosign.html"
+      - action: "Check the PipelineRun annotation 'chains.tekton.dev/signed' for success/failure"
+        reference: "https://konflux-ci.dev/docs/troubleshooting/releases/"
+      - action: "Verify the public key matches the cluster signing key"
+      - action: "Rebuild the component in Konflux"
+    exception_context:
+      when_to_exception: >-
+        Only if the image source does not support Tekton Chains signing
+        (e.g., externally built images). The component team must confirm.
+      exception_template_category: signature_missing
+
   - id: prefetch_dependencies.mode_not_permissive
     type: conforma_violation
     title: "Prefetch-dependencies mode is permissive"
@@ -567,6 +687,40 @@ known_false_alerts:
 # Used by generate_resolution_guide.py when a violation has no exact catalog match.
 # Matching: longest code_prefix wins (e.g. "sbom_spdx.allowed" beats "sbom_spdx").
 fallback_references:
+  - code_prefix: "builtin.attestation"
+    title: "Built-in attestation verification"
+    doc_urls:
+      - "https://conforma.dev/docs/user-guide/cosign.html"
+      - "https://conforma.dev/docs/user-guide/hitchhikers-guide.html"
+      - "https://konflux-ci.dev/docs/troubleshooting/releases/"
+    guidance: >-
+      Built-in attestation checks verify that images have signed SLSA Provenance
+      attestations created by Tekton Chains. Check the PipelineRun annotation
+      'chains.tekton.dev/signed' for success/failure, verify the component
+      service account has correct imagePullSecrets, and rebuild if needed.
+
+  - code_prefix: "builtin.image"
+    title: "Built-in image signature verification"
+    doc_urls:
+      - "https://conforma.dev/docs/user-guide/cosign.html"
+      - "https://konflux-ci.dev/docs/troubleshooting/releases/"
+    guidance: >-
+      Built-in image signature checks verify that the container image has a valid
+      cosign signature (.sig artifact) matching the expected public key. Verify
+      Tekton Chains is signing successfully and the correct public key is
+      configured in the EnterpriseContractPolicy.
+
+  - code_prefix: "builtin"
+    title: "Built-in Conforma checks"
+    doc_urls:
+      - "https://conforma.dev/docs/user-guide/hitchhikers-guide.html"
+      - "https://conforma.dev/docs/user-guide/cosign.html"
+    guidance: >-
+      Built-in Conforma checks run automatically on every validation regardless
+      of policy configuration. They verify image signatures and attestation
+      integrity. These are implemented in the Conforma CLI (not in Rego policy
+      rules). Check Tekton Chains signing status and rebuild if needed.
+
   - code_prefix: "sbom_spdx.disallowed_package_attributes"
     title: "SBOM/SPDX disallowed package attributes"
     doc_urls:

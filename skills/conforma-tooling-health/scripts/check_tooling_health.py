@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _setup_env  # noqa: F401, E402
 
+import conforma_context_ops  # noqa: E402
 import requests  # noqa: E402
 import yaml  # noqa: E402
 
@@ -318,6 +319,59 @@ def check_tool_health(
     return tool_result
 
 
+def _render_display(tools_results: list[dict]) -> str:
+    """Render a markdown table summarising tool health with clickable run links.
+
+    No section header is included — consumers prepend their own.
+    Returns empty string when *tools_results* is empty.
+    """
+    if not tools_results:
+        return ""
+
+    lines = [
+        "| Tool | Status | Latest Run | Consecutive Failures | Last Success |",
+        "|------|--------|------------|---------------------|--------------|",
+    ]
+
+    for tool in tools_results:
+        name = tool.get("name", "unknown")
+        health = tool.get("health", {})
+        status = health.get("status", "unknown").upper()
+        consecutive = health.get("consecutive_failures", 0)
+
+        latest_run = tool.get("latest_run")
+        if latest_run:
+            run_id = latest_run.get("id", "")
+            run_url = latest_run.get("url", "")
+            conclusion = latest_run.get("conclusion") or latest_run.get("status", "")
+            run_date = latest_run.get("updated_at", "")[:10]
+            latest_cell = f"[#{run_id}]({run_url}) -- {conclusion} ({run_date})"
+        else:
+            latest_cell = "N/A"
+
+        last_success = health.get("last_success")
+        if last_success:
+            ls_id = last_success.get("id", "")
+            ls_url = last_success.get("url", "")
+            ls_date = last_success.get("completed_at", "")[:10]
+            success_cell = f"[#{ls_id}]({ls_url}) ({ls_date})"
+        else:
+            success_cell = "None found"
+
+        lines.append(f"| {name} | {status} | {latest_cell} | {consecutive} | {success_cell} |")
+
+    unhealthy_tools = [t for t in tools_results if t.get("health", {}).get("status") in ("unhealthy", "error")]
+    if unhealthy_tools:
+        names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)
+        lines.extend([
+            "",
+            f"**⚠ WARNING: The violation data in this report may be stale because the {names} workflow is failing.**",
+        ])
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def check_all_tools(release: str, environment: str, max_runs: int = 5, catalog_path: Path | None = None) -> dict:
     """Check health for all tools defined in the catalog.
 
@@ -330,7 +384,7 @@ def check_all_tools(release: str, environment: str, max_runs: int = 5, catalog_p
             "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "tools": [],
             "overall_health": "error",
-            "error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)",
+            "error": "No GitHub token found (set GITHUB_TOKEN in ~/.conforma/.env)",
         }
 
     catalog = load_catalog(catalog_path)
@@ -356,6 +410,7 @@ def check_all_tools(release: str, environment: str, max_runs: int = 5, catalog_p
         "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "tools": tools_results,
         "overall_health": overall,
+        "display": _render_display(tools_results),
     }
 
     if overall in ("unhealthy", "error"):
@@ -423,8 +478,13 @@ def main() -> int:
         description="Check health of conforma infrastructure tools"
     )
     parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    parser.add_argument(
         "--release",
-        required=True,
+        default=None,
         help="Release branch name (e.g. rhoai-3.5-ea.1)",
     )
     parser.add_argument(
@@ -440,7 +500,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--environment",
-        required=True,
+        default=None,
         choices=["prod", "stage"],
         help="Target environment to filter workflow runs",
     )
@@ -451,18 +511,38 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
+    release = conforma_context_ops.resolve_arg(args, "release", context, "application.release")
+
+    output_file = args.output
+    if output_file is None and run_dir:
+        output_file = str(Path(run_dir) / "tooling-health.json")
+
     catalog_path = Path(args.catalog) if args.catalog else None
-    result = check_all_tools(args.release, environment=args.environment, max_runs=args.max_runs, catalog_path=catalog_path)
+    result = check_all_tools(release, environment=environment, max_runs=args.max_runs, catalog_path=catalog_path)
 
     output_json = json.dumps(result, indent=2)
 
-    if args.output:
-        output_path = Path(args.output)
+    if output_file:
+        output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(output_json, encoding="utf-8")
         print(f"Tooling health written to {output_path}", file=sys.stderr)
     else:
         print(output_json)
+
+    if run_dir:
+        step_outputs: dict = {"health_json": "tooling-health.json"}
+        conforma_context_ops.update_step(run_dir, "tooling_health", "completed", **step_outputs)
 
     return 0
 

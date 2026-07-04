@@ -20,11 +20,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
 
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
+import conforma_context_ops  # noqa: E402
+
 # Relative paths within a konflux-release-data clone for component name lookups.
 # RPA = ReleasePlanAdmission (primary source, version-specific files)
 # PDS = ProjectDevelopmentStream source files (fallback, uses {{.versionName}} placeholders)
 #       These are the authoritative source; the auto-generated/ folder is derived from them.
-# These are populated by Konflux tenant env discovery (or manually via .work/.env).
+# These are populated by Konflux tenant env discovery (or manually via ~/.conforma/.env).
 _KONFLUX_CLUSTER_DOMAIN = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
 _KONFLUX_CLUSTER_ID = os.environ.get("KONFLUX_CLUSTER_ID", "")
 _TENANT = os.environ.get("KONFLUX_TENANT", "")
@@ -224,7 +228,7 @@ def lookup_component_names(
     from pathlib import Path
 
     if rpa_dir is None:
-        clone_root = Path(".work/konflux-release-data")
+        clone_root = conforma_context_ops.discover_work_dir() / "konflux-release-data"
     else:
         rpa_dir_path = Path(rpa_dir)
         if rpa_dir_path.name == "rhoai" or KONFLUX_RPA_SUBPATH.endswith(str(rpa_dir_path.relative_to(rpa_dir_path.anchor))):

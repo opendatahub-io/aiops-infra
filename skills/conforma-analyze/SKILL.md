@@ -55,7 +55,7 @@ python3 scripts/verify_conforma_prerequisites.py --fix
 
 This single command verifies:
 - Python dependencies installed
-- `.work/.env` exists with tokens
+- `~/.conforma/.env` exists with tokens
 - Infrastructure discovered (GITLAB_HOST, KONFLUX_CLUSTER_DOMAIN)
 - GitHub authentication (conforma-reporter access)
 - GitLab authentication (VPN + token)
@@ -128,14 +128,14 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
 
    **Slack is optional.** If exit code is 0 and the JSON contains a `user_question` key: render the `display` field directly, then use AskQuestion with `user_question.question_text` and `user_question.question_options` verbatim. If the user chooses "No, set up Slack first", follow the `slack-auth` skill. Otherwise continue — pass `--require-slack false` to `violations_coverage.py` in step 6.
 
-2. **Resolve release context**: Run the context resolution script with Bash description: `"Resolve release context for <extracted_release_text>"`. Extract the release identifier from the user's query (e.g., "rhoai-3.5-ea.1", "3.4", "3.5 ea 1") and pass it to the script. If the user mentions an environment ("stage" or "prod"), **always pass it via `--environment`** — do not rely on keyword extraction from the query string. If the user provided a GitHub URL, extract the branch from the `/blob/<branch>/` segment and use that as the query. **Always pass `--output-dir .work`** — the script creates a timestamped run directory, saves `resolve-context.json` inside it, and includes the `rundir` path in its JSON output.
+2. **Resolve release context**: Run the context resolution script with Bash description: `"Resolve release context for <extracted_release_text>"`. Extract the release identifier from the user's query (e.g., "rhoai-3.5-ea.1", "3.4", "3.5 ea 1") and pass it to the script. If the user mentions an environment ("stage" or "prod"), **always pass it via `--environment`** — do not rely on keyword extraction from the query string. If the user provided a GitHub URL, extract the branch from the `/blob/<branch>/` segment and use that as the query. **Always pass `--output-dir ~/.conforma`** — the script creates a timestamped run directory, saves `resolve-context.json` inside it, and includes the `rundir` path in its JSON output.
 
    ```bash
    # Without explicit environment (defaults to prod):
-   python3 scripts/resolve_release_context.py --query "<extracted_release_text>" --output-dir .work
+   python3 scripts/resolve_release_context.py --query "<extracted_release_text>" --output-dir ~/.conforma
 
    # With explicit environment (stage or prod):
-   python3 scripts/resolve_release_context.py --query "<extracted_release_text>" --environment stage --output-dir .work
+   python3 scripts/resolve_release_context.py --query "<extracted_release_text>" --environment stage --output-dir ~/.conforma
    ```
 
    Parse the JSON output. Present the `confirmation_display` field **verbatim as markdown** (NOT in a code block) so that embedded links are clickable.
@@ -144,7 +144,7 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
    - **`"resolved"`**: Use AskQuestion with `question_text` and `question_options` from the resolved JSON verbatim. On "Yes", set: `RELEASE=<.release>`, `KONFLUX_APP=<.konflux_app>`, `RUNDIR=<.rundir>`, `ENVIRONMENT=<.environment>`. The script has already created the run directory and saved `resolve-context.json` inside it.
 
      **Upcoming release date (HARD REQUIREMENT):** Check the `upcoming_release_date` field in the resolved JSON. If it is `null` or missing, the workflow **MUST NOT proceed**. Ask the user to provide the upcoming release date manually (YYYY-MM-DD format). Once provided, update the `resolve-context.json` file in `$RUNDIR` with the user-supplied value (add/update the `"upcoming_release_date"` field), so downstream steps (especially step 9) can read it. Also pass it explicitly via `--upcoming-release-date` to the resolution guide generator in step 9.
-   - **`"ambiguous"`**: Use AskQuestion with the numbered candidates from `candidates[]`. After the user selects, re-run with `--query "<selected_version_dir>" --output-dir .work` to get a "resolved" result.
+   - **`"ambiguous"`**: Use AskQuestion with the numbered candidates from `candidates[]`. After the user selects, re-run with `--query "<selected_version_dir>" --output-dir ~/.conforma` to get a "resolved" result.
    - **`"not_found"`** or **`"error"`**: Present the `confirmation_display` verbatim and **stop**. Do NOT attempt to guess or proceed without a resolved context. No run directory is created for non-resolved statuses.
 
    If the user did not mention any release and you cannot extract one from their query, use `--list` to show available versions and ask the user to pick:
@@ -162,12 +162,12 @@ python3 skills/conforma-tooling-health/scripts/check_tooling_health.py \
   --output "$RUNDIR/tooling-health.json"
 ```
 
-   Parse the JSON output and act on `overall_health`:
+   Parse the JSON output and act on `overall_health`. For **all non-healthy states**, first render the `display` field from the JSON **as markdown** (not in a code block) — this shows a table with clickable links to the latest run and last success so the user can investigate before answering. Then act on the status:
 
    - **`"healthy"`** -- proceed silently to step 4 (fetch reports).
-   - **`"unhealthy"` or `"error"`** -- use AskQuestion with `question_text` and `question_options` from the tooling health JSON verbatim. Only proceed to step 4 if the user confirms.
-   - **`"in_progress"`** -- use AskQuestion with `question_text` and `question_options` from the tooling health JSON verbatim. If the user chooses to wait, monitor the run using `python3 scripts/run_github_workflow.py monitor --repo-url https://github.com/red-hat-data-services/conforma-reporter --run-id RUN_ID --timeout 60 --poll-interval 60`, then re-run `check_tooling_health.py` to refresh status. If the run fails after waiting, fall back to the unhealthy prompt.
-   - **`"no_runs"`** -- warn ("No conforma-reporter runs found for this branch -- report may not exist") and proceed.
+   - **`"unhealthy"` or `"error"`** -- render the `display` field as markdown, then use AskQuestion with `question_text` and `question_options` from the tooling health JSON verbatim. Only proceed to step 4 if the user confirms.
+   - **`"in_progress"`** -- render the `display` field as markdown, then use AskQuestion with `question_text` and `question_options` from the tooling health JSON verbatim. If the user chooses to wait, monitor the run using `python3 scripts/run_github_workflow.py monitor --repo-url https://github.com/red-hat-data-services/conforma-reporter --run-id RUN_ID --timeout 60 --poll-interval 60`, then re-run `check_tooling_health.py` to refresh status. If the run fails after waiting, fall back to the unhealthy prompt.
+   - **`"no_runs"`** -- render the `display` field as markdown, warn ("No conforma-reporter runs found for this branch -- report may not exist") and proceed.
 
    The `$RUNDIR` variable from step 2 is used by ALL subsequent steps — never change it mid-workflow.
 
@@ -207,19 +207,19 @@ python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
 
 ```bash
 python3 skills/conforma-analyze/scripts/parse_violations.py \
-  --reports-dir .work/20260604-123000 \
+  --reports-dir ~/.conforma/20260604-123000 \
   --release "$RELEASE" \
   --environment "$ENVIRONMENT" \
-  --output .work/20260604-123000/violations.yaml
+  --output ~/.conforma/20260604-123000/violations.yaml
 ```
 
    To customize the enforcement threshold:
 
 ```bash
 python3 skills/conforma-analyze/scripts/parse_violations.py \
-  --reports-dir .work/20260604-123000 \
+  --reports-dir ~/.conforma/20260604-123000 \
   --environment "$ENVIRONMENT" \
-  --output .work/20260604-123000/violations.yaml \
+  --output ~/.conforma/20260604-123000/violations.yaml \
   --upcoming-threshold-days 14
 ```
 
@@ -227,13 +227,13 @@ python3 skills/conforma-analyze/scripts/parse_violations.py \
 
 ```bash
 python3 skills/conforma-analyze/scripts/parse_violations.py \
-  --reports-dir .work/20260604-123000 \
+  --reports-dir ~/.conforma/20260604-123000 \
   --environment "$ENVIRONMENT" \
-  --output .work/20260604-123000/violations.yaml \
+  --output ~/.conforma/20260604-123000/violations.yaml \
   --no-catalog
 ```
 
-6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations for $RELEASE"`. Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `.work/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` for ownership, `--metadata-file` and `--release` for the report header and staleness check. **Save the output to a file** — do NOT present the analysis in the chat (the executive summary in step 9 covers the key data; the full analysis is linked as a detailed document):
+6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations for $RELEASE"`. Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `~/.conforma/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` for ownership, `--metadata-file` and `--release` for the report header and staleness check. **Save the output to a file** — do NOT present the analysis in the chat (the executive summary in step 9 covers the key data; the full analysis is linked as a detailed document):
 
 ```bash
 python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
@@ -268,7 +268,7 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 
    All required auth (GitLab, Jira) was already verified in step 1. Slack is optional — if not configured, pass `--require-slack false`.
 
-   The script manages the `.work/konflux-release-data` clone (fresh fetch + reset). It enforces the repo clone policy: it will `git fetch` any existing `--clone-dir` and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
+   The script manages the `~/.conforma/konflux-release-data` clone (fresh fetch + reset). It enforces the repo clone policy: it will `git fetch` any existing `--clone-dir` and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
 
    **Save the output to a JSON file** for use by the resolution guide generator (step 8):
 
@@ -277,7 +277,7 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --csv "$RUNDIR/$RELEASE.csv" \
-  --clone-dir .work/konflux-release-data \
+  --clone-dir ~/.conforma/konflux-release-data \
   --environment "$ENVIRONMENT" \
   --release "$RELEASE" \
   --resolve-context-json "$RUNDIR/resolve-context.json" \
@@ -288,7 +288,7 @@ python3 skills/conforma-analyze/scripts/violations_coverage.py \
 python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --csv "$RUNDIR/$RELEASE.csv" \
-  --clone-dir .work/konflux-release-data \
+  --clone-dir ~/.conforma/konflux-release-data \
   --environment "$ENVIRONMENT" \
   --release "$RELEASE" \
   --require-slack false \
@@ -338,7 +338,10 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
    **RULE 2 — ORDERING (present THEN ask):**
    The executive summary content must appear in the agent's response text BEFORE the AskQuestion call for step 10. Never call AskQuestion in the same tool-call batch that reads the file. The sequence is: (a) read executive summary file → (b) paste its content into response → (c) THEN in a SEPARATE subsequent turn, ask about submission. This ensures the user sees the summary before being asked to act on it.
 
-   **Violating either rule is a hard failure regardless of model size, context window, or token budget.**
+   **RULE 3 — MUST PROCEED TO STEP 10:**
+   After rendering the executive summary, the agent MUST immediately proceed to step 10 (submission) in the same response — do NOT stop, wait for user input, or end the turn after presenting the summary. The workflow is not complete until the user has been asked about submission. Stopping after the executive summary without proceeding to step 10 is a hard failure.
+
+   **Violating any of these rules is a hard failure regardless of model size, context window, or token budget.**
 
    ---
 

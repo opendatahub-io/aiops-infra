@@ -8,10 +8,13 @@ cleaned up automatically when --metadata-file is provided.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
+import conforma_context_ops
 import submit_resolution_guide as mod
 
 
@@ -30,7 +33,7 @@ def sample_metadata(tmp_path):
     meta.write_text(json.dumps({
         "releases": {
             "rhoai-3.5-ea.2": {
-                "path": ".work/20260610/rhoai-3.5-ea.2.csv",
+                "path": "~/.conforma/20260610/rhoai-3.5-ea.2.csv",
                 "source_path": "prod/future/build_type_latest/conforma-violations-report.csv",
                 "created_at": "2026-06-10T12:00:00Z",
                 "source_sha": "abc123",
@@ -257,3 +260,100 @@ class TestErrorHandling:
 
         assert "error" in result
         assert result["committed"] is False
+
+
+class TestContextIntegration:
+    """Tests for context-based parameter discovery in main()."""
+
+    def _setup_run_with_guide(self, tmp_path):
+        """Create a run directory with context.yaml and a guide file."""
+        run_dir = tmp_path / "20260703-120000"
+        run_dir.mkdir()
+
+        guide = run_dir / "conforma-status-and-resolution-guide.md"
+        guide.write_text("# Guide\n\nContent.", encoding="utf-8")
+
+        context = {
+            "application": {"release": "rhoai-3.5-ea.2"},
+            "environment": "prod",
+            "run": {"run_dir": conforma_context_ops.contract_home(run_dir)},
+            "steps": {
+                "resolution_guide": {
+                    "status": "completed",
+                    "guide_file": "conforma-status-and-resolution-guide.md",
+                },
+            },
+        }
+        context_path = run_dir / "context.yaml"
+        context_path.write_text(yaml.dump(context), encoding="utf-8")
+
+        work_dir = tmp_path / ".conforma"
+        work_dir.mkdir(exist_ok=True)
+        active_link = work_dir / ".conforma-active"
+        active_link.symlink_to(run_dir)
+
+        return run_dir, work_dir
+
+    def test_reads_params_from_context(self, tmp_path, monkeypatch):
+        """Zero-arg invocation resolves guide, release, environment from context."""
+        run_dir, work_dir = self._setup_run_with_guide(tmp_path)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py", "--dry-run"])
+
+        rc = mod.main()
+        assert rc == 0
+
+    def test_updates_context_after_submit(self, tmp_path, monkeypatch):
+        """Non-dry-run submit records steps.submit in context."""
+        run_dir, work_dir = self._setup_run_with_guide(tmp_path)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py"])
+
+        branch_resp = MagicMock(status_code=200)
+        contents_resp = MagicMock(status_code=404)
+        put_resp = MagicMock(status_code=201)
+        put_resp.json.return_value = {
+            "content": {"html_url": "https://github.com/test/blob/guide.md", "sha": "abc"}
+        }
+
+        def mock_get(url, **kwargs):
+            if "branches" in url:
+                return branch_resp
+            return contents_resp
+
+        with (
+            patch.object(mod, "_get_github_token", return_value="token"),
+            patch.object(mod.requests, "get", side_effect=mock_get),
+            patch.object(mod.requests, "put", return_value=put_resp),
+            patch.object(mod.requests, "delete", return_value=MagicMock(status_code=404)),
+        ):
+            rc = mod.main()
+
+        assert rc == 0
+        ctx = conforma_context_ops.load(run_dir)
+        assert ctx["steps"]["submit"]["status"] == "completed"
+
+    def test_cli_overrides_context(self, tmp_path, monkeypatch):
+        """Explicit CLI args override context values."""
+        run_dir, work_dir = self._setup_run_with_guide(tmp_path)
+        guide = tmp_path / "other-guide.md"
+        guide.write_text("# Other\n\nContent.", encoding="utf-8")
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", [
+            "submit_resolution_guide.py",
+            "--guide-file", str(guide),
+            "--release", "rhoai-3.4",
+            "--environment", "stage",
+            "--dry-run",
+        ])
+
+        rc = mod.main()
+        assert rc == 0
+
+    def test_no_context_requires_explicit_args(self, tmp_path, monkeypatch):
+        """Without context and without required args, main() exits with error."""
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty"))
+        monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py", "--dry-run"])
+
+        with pytest.raises(SystemExit):
+            mod.main()

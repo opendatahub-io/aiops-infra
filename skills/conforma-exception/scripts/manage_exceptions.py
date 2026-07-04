@@ -17,15 +17,15 @@ Usage:
 
   # Assess expired exceptions against violations data
   python3 scripts/manage_exceptions.py --assess-expired \\
-    --violations-input .work/conforma-violations.yaml \\
+    --violations-input ~/.conforma/20260703-120000/violations.yaml \\
     --environment prod \\
-    --output .work/assessed-exceptions.yaml
+    --output ~/.conforma/20260703-120000/assessed-exceptions.yaml
 
   # Assess all exceptions (expired + active)
   python3 scripts/manage_exceptions.py --assess-all \\
-    --violations-input .work/conforma-violations.yaml \\
+    --violations-input ~/.conforma/20260703-120000/violations.yaml \\
     --environment prod \\
-    --output .work/assessed-exceptions.yaml
+    --output ~/.conforma/20260703-120000/assessed-exceptions.yaml
 
   # Search exceptions by component name (fuzzy matching)
   python3 scripts/manage_exceptions.py --search-by-component \\
@@ -36,6 +36,8 @@ Usage:
 from __future__ import annotations
 
 import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
+import conforma_context_ops  # noqa: E402
 
 import argparse
 import os
@@ -639,7 +641,7 @@ def annotate_expiry(exceptions: list[dict]) -> list[dict]:
 
 
 def _clone_repo(clone_dir: Path | None) -> tuple[Path, bool]:
-    """Clone konflux-release-data into .work/, or fetch-and-reset an existing .work/ clone.
+    """Clone konflux-release-data into ~/.conforma/, or fetch-and-reset an existing ~/.conforma/ clone.
 
     Policy: never silently reuse a stale clone.  If *clone_dir* points to an
     existing checkout we **always** ``git fetch`` first; if the fetch fails the
@@ -1033,6 +1035,11 @@ def cmd_search_by_component(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Manage conforma exceptions: find, assess, and search")
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--find-expired",
@@ -1073,9 +1080,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--environment",
-        default="prod",
+        default=None,
         choices=["prod", "stage"],
-        help="Target environment (default: prod)",
+        help="Target environment (auto-discovered from run context if omitted)",
     )
     parser.add_argument(
         "--clone-dir",
@@ -1095,6 +1102,20 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    args.environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
+
+    if args.clone_dir is None and context:
+        args.clone_dir = str(conforma_context_ops.discover_work_dir() / "konflux-release-data")
 
     if (args.assess_expired or args.assess_all) and not args.violations_input:
         parser.error("--violations-input is required when using --assess-expired or --assess-all")

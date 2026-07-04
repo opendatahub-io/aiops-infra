@@ -30,7 +30,11 @@ import konflux_environment  # noqa: E402
 konflux_environment.load()
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_CLONE_DIR = _REPO_ROOT / ".work" / "component-maturity"
+_DEFAULT_CLONE_DIR = (
+    Path(os.environ.get("CONFORMA_WORKDIR", "")) / "component-maturity"
+    if os.environ.get("CONFORMA_WORKDIR")
+    else Path.home() / ".conforma" / "component-maturity"
+)
 _DEFAULT_PROJECT = "data-hub/component-maturity"
 _SOFTWARE_CATALOG_PROJECT = "data-hub/software-catalog"
 

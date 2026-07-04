@@ -13,7 +13,7 @@ Verify and troubleshoot Jira authentication. This skill does not own any scripts
 
 **NEVER ask the user to paste tokens or secrets into the chat window.**
 
-Always instruct the user to write tokens to the `.work/.env` file directly (using their editor, `echo >>`, or another non-chat method). The `.work/` directory is gitignored and is the designated location for secrets.
+Always instruct the user to write tokens to the `~/.conforma/.env` file directly (using their editor, `echo >>`, or another non-chat method). The `~/.conforma/` directory is the designated location for secrets.
 
 ## Quick Verification
 
@@ -35,9 +35,9 @@ Auth requires both email and API token.
 **Fix — instruct the user:**
 
 ```bash
-# Add credentials to .work/.env (create if missing):
-echo 'JIRA_EMAIL=your.name@redhat.com' >> .work/.env
-echo 'JIRA_API_TOKEN=ATATT3xxxxxxxxxxx' >> .work/.env
+# Add credentials to ~/.conforma/.env (create if missing):
+echo 'JIRA_EMAIL=your.name@redhat.com' >> ~/.conforma/.env
+echo 'JIRA_API_TOKEN=ATATT3xxxxxxxxxxx' >> ~/.conforma/.env
 ```
 
 Generate a token at: https://id.atlassian.com/manage-profile/security/api-tokens
@@ -50,7 +50,7 @@ Token exists but is invalid or expired.
 
 1. Go to https://id.atlassian.com/manage-profile/security/api-tokens
 2. Create a new API token
-3. Update the token in `.work/.env` (edit the `JIRA_API_TOKEN=` line)
+3. Update the token in `~/.conforma/.env` (edit the `JIRA_API_TOKEN=` line)
 
 ### "acli not found" (for conforma-exception workflows)
 
@@ -77,16 +77,16 @@ jira_token = ATATT3xxxxxxxxxxx
 
 | Variable | Purpose | Source |
 |----------|---------|--------|
-| `JIRA_API_TOKEN` | Atlassian API token | `.work/.env` |
-| `JIRA_EMAIL` | Atlassian account email | `.work/.env` |
+| `JIRA_API_TOKEN` | Atlassian API token | `~/.conforma/.env` |
+| `JIRA_EMAIL` | Atlassian account email | `~/.conforma/.env` |
 | `JIRA_URL` | Jira instance URL | `https://redhat.atlassian.net` (default) |
 
 ## Token Storage
 
-All secrets go in `.work/.env` (gitignored, loaded by `_setup_env.py` and `konflux_environment.load()`):
+All secrets go in `~/.conforma/.env` (gitignored, loaded by `_setup_env.py` and `konflux_environment.load()`):
 
 ```
-# .work/.env — NOT committed to git
+# ~/.conforma/.env — NOT committed to git
 JIRA_EMAIL=your.name@redhat.com
 JIRA_API_TOKEN=ATATT3xxxxxxxxxxx
 ```

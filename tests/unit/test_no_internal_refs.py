@@ -35,7 +35,7 @@ class TestNoInternalRefs:
             lines.append("")
             lines.append(
                 "Use environment variables ($GITLAB_HOST, $KONFLUX_CLUSTER_DOMAIN, etc.) "
-                "or .work/.env instead of hardcoded values."
+                "or ~/.conforma/.env instead of hardcoded values."
             )
             pytest.fail("\n".join(lines))
 

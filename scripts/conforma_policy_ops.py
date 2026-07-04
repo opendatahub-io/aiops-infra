@@ -13,11 +13,15 @@ from pathlib import Path
 import conforma_mr_ops
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-WORK_DIR = _REPO_ROOT / "skills" / "conforma-exception" / ".work"
+WORK_DIR = (
+    Path(os.environ.get("CONFORMA_WORKDIR", ""))
+    if os.environ.get("CONFORMA_WORKDIR")
+    else Path.home() / ".conforma"
+)
 
 
 def _refresh_workdir_clone(clone_dir: Path) -> None:
-    """Fetch latest main and hard-reset an existing .work/ clone.
+    """Fetch latest main and hard-reset an existing clone.
 
     Raises subprocess.CalledProcessError if fetch fails (e.g. VPN down,
     host unreachable).  Callers must not silently fall back to stale data.
@@ -149,6 +153,160 @@ def search_existing_exceptions(rule: str, policy_files: list[str], clone_dir: st
         "permanent_exclusions": permanent_exclusions,
         "count": len(found_in),
         "permanent_count": len(permanent_exclusions),
+    }
+
+
+def _build_digest_to_component_map(csv_path: str) -> dict[str, str]:
+    """Build a mapping from image digest → component name from the source CSV.
+
+    Reads the same ``image`` column that ``build_snapshot_from_csv()`` uses.
+    Each ``image`` value is ``quay.io/repo/name@sha256:abcdef...``; we extract
+    the ``sha256:abcdef...`` portion and map it to the ``component_name``.
+    """
+    import csv as csv_mod
+
+    digest_map: dict[str, str] = {}
+    with open(csv_path, encoding="utf-8") as f:
+        for row in csv_mod.DictReader(f):
+            image = (row.get("image") or "").strip()
+            component = (row.get("component_name") or "").strip()
+            if not image or not component:
+                continue
+            if "@" in image:
+                digest = image.split("@", 1)[1]
+                digest_map[digest] = component
+    return digest_map
+
+
+def _self_service_rule_matches(entry_value: str, target_rule: str) -> bool:
+    """Check if a self-service entry's ``value`` matches a target violation rule.
+
+    Matching rules:
+    - Exact match: ``entry == rule``
+    - Entry is a subcode of the rule's base: ``entry == "base:subcode"`` and
+      ``rule == "base"`` or ``rule == "base:subcode"``
+    - Rule is a subcode of the entry's base: ``rule == "base:sub"`` and
+      ``entry == "base:sub"``
+
+    Examples:
+        ``("test.no_failed_tests:fbc-target-index-pruning-check",
+          "test.no_failed_tests:fbc-target-index-pruning-check")`` → True
+        ``("test.no_failed_tests:fbc-target-index-pruning-check",
+          "test.no_failed_tests")`` → True (entry is subcode of rule's base)
+        ``("schedule.weekday_restriction",
+          "schedule.weekday_restriction")`` → True
+    """
+    if entry_value == target_rule:
+        return True
+    entry_base = entry_value.split(":")[0]
+    rule_base = target_rule.split(":")[0]
+    if entry_base == rule_base:
+        return True
+    return False
+
+
+def search_self_service_exceptions(
+    rule: str,
+    self_service_files: list[str],
+    clone_dir: str | None = None,
+    csv_path: str | None = None,
+) -> dict:
+    """Search self-service exception files for coverage of a violation rule.
+
+    Self-service files live in ``exceptions/`` in the konflux-release-data
+    clone.  They are flat YAML lists of ``- value: rule.code`` entries with
+    optional ``imageRef``, ``componentNames``, and ``effectiveUntil``.
+
+    Unlike EC policy files, these are NOT processed by ``ec validate image``.
+    Coverage is determined by YAML parsing and digest cross-referencing.
+
+    *self_service_files* are basenames (e.g. ``["fbc-rhoai-stage.yaml"]``).
+    *csv_path* is needed to cross-reference ``imageRef`` digests to components.
+    """
+    import yaml
+
+    search_dir = Path(clone_dir) if clone_dir else WORK_DIR
+    exceptions_dir = search_dir / "exceptions"
+
+    if not exceptions_dir.exists():
+        return {"checked": False, "reason": f"exceptions/ directory not found in {search_dir}"}
+
+    digest_map: dict[str, str] | None = None
+    if csv_path and Path(csv_path).exists():
+        digest_map = _build_digest_to_component_map(csv_path)
+
+    now = datetime.now(timezone.utc)
+    matching_entries: list[dict] = []
+    covered_components: set[str] = set()
+    source_files: list[str] = []
+
+    for basename in self_service_files:
+        filepath = exceptions_dir / basename
+        if not filepath.exists():
+            continue
+
+        try:
+            data = yaml.safe_load(filepath.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        if not isinstance(data, list):
+            continue
+
+        rel_path = f"exceptions/{basename}"
+        file_had_match = False
+
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+
+            value = entry.get("value", "")
+            if not _self_service_rule_matches(value, rule):
+                continue
+
+            effective_until = entry.get("effectiveUntil")
+            if effective_until:
+                try:
+                    eu_str = str(effective_until).strip('"').strip("'")
+                    eu_dt = datetime.fromisoformat(eu_str.replace("Z", "+00:00"))
+                    if eu_dt <= now:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
+            file_had_match = True
+            entry_info: dict = {
+                "file": rel_path,
+                "value": value,
+                "imageRef": entry.get("imageRef", ""),
+                "effectiveUntil": str(effective_until) if effective_until else None,
+                "componentNames": entry.get("componentNames", []),
+                "has_componentNames": bool(entry.get("componentNames")),
+            }
+            matching_entries.append(entry_info)
+
+            comp_names = entry.get("componentNames", [])
+            image_ref = entry.get("imageRef", "")
+
+            if comp_names:
+                covered_components.update(comp_names)
+            elif image_ref and digest_map is not None:
+                component = digest_map.get(image_ref)
+                if component:
+                    covered_components.add(component)
+            elif not image_ref and not comp_names:
+                entry_info["unscoped"] = True
+
+        if file_had_match:
+            source_files.append(rel_path)
+
+    return {
+        "checked": True,
+        "rule": rule,
+        "matching_entries": matching_entries,
+        "covered_components": covered_components,
+        "source_files": source_files,
+        "has_unscoped": any(e.get("unscoped") for e in matching_entries),
     }
 
 

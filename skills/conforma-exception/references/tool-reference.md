@@ -7,19 +7,19 @@ When the user asks to see current Conforma exceptions (e.g. "show me current exc
 1. **Ensure the clone is fresh** — always fetch and abort if unreachable (or let the script clone a temp copy):
 
 ```bash
-if [ -d .work/konflux-release-data/.git ]; then
-  git -C .work/konflux-release-data fetch origin main || { echo "ERROR: git fetch failed — remote unreachable (VPN down?). Aborting." >&2; exit 1; }
-  git -C .work/konflux-release-data reset --hard origin/main
+if [ -d ~/.conforma/konflux-release-data/.git ]; then
+  git -C ~/.conforma/konflux-release-data fetch origin main || { echo "ERROR: git fetch failed — remote unreachable (VPN down?). Aborting." >&2; exit 1; }
+  git -C ~/.conforma/konflux-release-data reset --hard origin/main
 else
   GITLAB_TOKEN=$(glab config get token --host "$GITLAB_HOST")
-  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
+  git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST}/releng/konflux-release-data.git" ~/.conforma/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
 fi
 ```
 
 2. **Run the script** (from the skill directory):
 
 ```bash
-python3 skills/conforma-exception/scripts/list_exceptions.py --clone-dir .work/konflux-release-data
+python3 skills/conforma-exception/scripts/list_exceptions.py --clone-dir ~/.conforma/konflux-release-data
 ```
 
 3. **Print the output verbatim** — do NOT modify, reformat, or summarize the Markdown. The script produces a deterministic report with consistent table columns across all sections (Rule, Component / Image, RHOAI Version, Effective Until, Reference). RHOAI versions are derived from the actual data (componentName version suffixes like `-v3-4` → `3.4`, or `all` for imageUrl-scoped / unscoped exceptions) — never from YAML comments. All Jira ticket IDs and policy file names are rendered as clickable Markdown links.

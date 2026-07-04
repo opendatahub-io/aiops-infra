@@ -12,7 +12,7 @@ Search the konflux-release-data policy files for existing conforma exceptions ma
 ## Usage
 
 ```
-python3 scripts/conforma_policy_ops.py search-exceptions --rule <rule> --policy-files <file1,file2> [--clone-dir .work/konflux-release-data]
+python3 scripts/conforma_policy_ops.py search-exceptions --rule <rule> --policy-files <file1,file2> [--clone-dir ~/.conforma/konflux-release-data]
 ```
 
 ## Examples
@@ -24,7 +24,7 @@ python3 scripts/conforma_policy_ops.py search-exceptions \
 python3 scripts/conforma_policy_ops.py search-exceptions \
   --rule "rpm_signature.allowed:9386b48a1a693c5c" \
   --policy-files registry-rhoai-prod.yaml \
-  --clone-dir .work/konflux-release-data
+  --clone-dir ~/.conforma/konflux-release-data
 ```
 
 ## Prerequisites
@@ -60,6 +60,6 @@ import conforma_policy_ops
 result = conforma_policy_ops.search_existing_exceptions(
     rule="hermetic_task.hermetic",
     policy_files=["registry-rhoai-prod.yaml", "fbc-rhoai-prod.yaml"],
-    clone_dir=".work/konflux-release-data",
+    clone_dir="~/.conforma/konflux-release-data",
 )
 ```

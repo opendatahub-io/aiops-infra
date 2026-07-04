@@ -109,7 +109,7 @@ def authenticated_clone_url(project: str, instance_url: str | None = None) -> st
     if not token:
         raise ValueError(
             f"No GitLab token found for {host}. "
-            "Set GITLAB_TOKEN in .work/.env or configure glab."
+            "Set GITLAB_TOKEN in ~/.conforma/.env or configure glab."
         )
     return f"https://{host}/{project}.git"
 

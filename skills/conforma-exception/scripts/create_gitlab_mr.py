@@ -440,13 +440,13 @@ class AmbiguousPolicyFileError(Exception):
         super().__init__(
             f"Multiple policy files match {component_type}-*-{environment}.yaml: "
             f"{', '.join(candidates)}. "
-            f"Set KONFLUX_APPLICATION_SLUG in .work/.env (or via Konflux tenant env discovery) "
+            f"Set KONFLUX_APPLICATION_SLUG in ~/.conforma/.env (or via Konflux tenant env discovery) "
             f"to disambiguate, or pass --policy-file explicitly."
         )
 
 
 def _get_application_slug() -> str | None:
-    """Get the application slug from env (set by Konflux tenant env discovery or .work/.env).
+    """Get the application slug from env (set by Konflux tenant env discovery or ~/.conforma/.env).
 
     The application slug identifies which set of policy files belongs to the
     current application (e.g. 'rhoai' matches registry-rhoai-prod.yaml).

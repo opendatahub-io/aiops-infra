@@ -35,3 +35,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: check-no-dotwork-paths
+        name: no .work/ paths in conforma code
+        entry: python tests/check_no_dotwork_paths.py
+        language: system
+        pass_filenames: false
+        always_run: true

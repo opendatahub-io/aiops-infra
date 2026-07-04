@@ -31,17 +31,130 @@ class TestGetEosDate:
     def test_empty_string_returns_none(self):
         assert mod.get_eos_date("") is None
 
-    def test_dynamic_fallback_called_when_not_static(self):
-        with patch.object(mod, "_fetch_dynamic", return_value="2099-01-01") as mock_dyn:
+    def test_remote_fallback_called_when_not_static(self):
+        with patch.object(mod, "_get_eos_from_remote", return_value="2099-01-01") as mock_remote:
             result = mod.get_eos_date("rhoai-future-release")
-        mock_dyn.assert_called_once_with("rhoai-future-release")
+        mock_remote.assert_called_once_with("rhoai-future-release")
         assert result == "2099-01-01"
 
-    def test_static_takes_precedence_over_dynamic(self):
-        with patch.object(mod, "_fetch_dynamic", return_value="1999-01-01") as mock_dyn:
+    def test_remote_takes_precedence_over_static(self):
+        with patch.object(mod, "_get_eos_from_remote", return_value="2099-12-31"):
             result = mod.get_eos_date("rhoai-3.4")
-        mock_dyn.assert_not_called()
+        assert result == "2099-12-31"
+
+    def test_static_fallback_when_remote_returns_none(self):
+        with patch.object(mod, "_get_eos_from_remote", return_value=None):
+            result = mod.get_eos_date("rhoai-3.4")
         assert result == "2026-08-12"
+
+
+# ---------------------------------------------------------------------------
+# get_eos_date_with_source
+# ---------------------------------------------------------------------------
+
+
+class TestGetEosDateWithSource:
+    def test_static_source_returns_link(self):
+        with patch.object(mod, "_get_eos_from_remote", return_value=None):
+            date, source = mod.get_eos_date_with_source("rhoai-3.4")
+        assert date == "2026-08-12"
+        assert "release_dates.yaml" in source
+        assert source.startswith("[")
+
+    def test_remote_source_returns_link(self):
+        with patch.object(mod, "_get_eos_from_remote", return_value="2099-01-01"):
+            date, source = mod.get_eos_date_with_source("rhoai-3.4")
+        assert date == "2099-01-01"
+        assert "rhai-release-data.yaml" in source
+        assert source.startswith("[")
+
+    def test_unknown_release_returns_none_and_empty_source(self):
+        with patch.object(mod, "_get_eos_from_remote", return_value=None):
+            date, source = mod.get_eos_date_with_source("rhoai-99.0")
+        assert date is None
+        assert source == ""
+
+
+# ---------------------------------------------------------------------------
+# get_upcoming_release_date_with_source
+# ---------------------------------------------------------------------------
+
+
+class TestGetUpcomingReleaseDateWithSource:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        mod._release_data_cache = None
+        yield
+        mod._release_data_cache = None
+
+    def test_returns_date_and_link(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [{
+                "version": "3.5",
+                "products": {"rhoai": {
+                    "milestones": [{"type": "ga", "date": "2026-08-20", "version": "3.5"}],
+                }},
+            }],
+        }):
+            date, source = mod.get_upcoming_release_date_with_source("rhoai-3.5")
+        assert date == "2026-08-20"
+        assert "rhai-release-data.yaml" in source
+        assert source.startswith("[")
+
+    def test_returns_none_and_empty_source_when_not_found(self):
+        with patch.object(mod, "_fetch_release_data", return_value=None):
+            date, source = mod.get_upcoming_release_date_with_source("rhoai-3.5")
+        assert date is None
+        assert source == ""
+
+
+# ---------------------------------------------------------------------------
+# _get_eos_from_remote
+# ---------------------------------------------------------------------------
+
+
+class TestGetEosFromRemote:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        mod._release_data_cache = None
+        yield
+        mod._release_data_cache = None
+
+    def test_returns_date_when_field_exists(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [
+                {"version": "3.5", "support": {"end_of_support": "2027-01-05"}, "products": {"rhoai": {}}},
+            ],
+        }):
+            assert mod._get_eos_from_remote("rhoai-3.5") == "2027-01-05"
+
+    def test_returns_none_when_field_missing(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [
+                {"version": "3.5", "support": {"phase": "maintenance"}, "products": {"rhoai": {}}},
+            ],
+        }):
+            assert mod._get_eos_from_remote("rhoai-3.5") is None
+
+    def test_returns_none_when_fetch_fails(self):
+        with patch.object(mod, "_fetch_release_data", return_value=None):
+            assert mod._get_eos_from_remote("rhoai-3.5") is None
+
+    def test_returns_none_when_version_not_found(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [
+                {"version": "3.4", "support": {"end_of_support": "2026-08-12"}, "products": {"rhoai": {}}},
+            ],
+        }):
+            assert mod._get_eos_from_remote("rhoai-3.5") is None
+
+    def test_ea_release_maps_to_base_version(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [
+                {"version": "3.5", "support": {"end_of_support": "2027-01-05"}, "products": {"rhoai": {}}},
+            ],
+        }):
+            assert mod._get_eos_from_remote("rhoai-3.5-ea.2") == "2027-01-05"
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +355,66 @@ supported:
 """
 
 
+class TestReleaseMilestoneType:
+    def test_ga_release(self):
+        assert mod._release_to_milestone_type("rhoai-3.5") == "ga"
+
+    def test_ea1_release(self):
+        assert mod._release_to_milestone_type("rhoai-3.5-ea.1") == "ea1"
+
+    def test_ea2_release(self):
+        assert mod._release_to_milestone_type("rhoai-3.5-ea.2") == "ea2"
+
+    def test_bare_version(self):
+        assert mod._release_to_milestone_type("3.5") == "ga"
+
+    def test_bare_ea(self):
+        assert mod._release_to_milestone_type("3.5-ea.1") == "ea1"
+
+
+_RHOAI_MILESTONES_FIXTURE = {
+    "supported": [{
+        "version": "3.5",
+        "products": {"rhoai": {
+            "milestones": [
+                {"type": "ea1", "date": "2026-06-15", "version": "3.5"},
+                {"type": "ea2", "date": "2026-07-16", "version": "3.5"},
+                {"type": "ga", "date": "2026-08-20", "version": "3.5"},
+                {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
+            ],
+        }},
+    }],
+}
+
+_RHOAI_36_MILESTONES_FIXTURE = {
+    "supported": [{
+        "version": "3.6",
+        "products": {"rhoai": {
+            "milestones": [
+                {"type": "ea1", "date": "2026-09-01", "version": "3.6"},
+                {"type": "ea2", "date": "2026-10-01", "version": "3.6"},
+                {"type": "ga", "date": "2026-11-01", "version": "3.6"},
+                {"type": "ea1_code_freeze", "date": "2026-08-15", "version": "3.6"},
+                {"type": "ea2_code_freeze", "date": "2026-09-15", "version": "3.6"},
+                {"type": "ga_code_freeze", "date": "2026-10-15", "version": "3.6"},
+            ],
+        }},
+    }],
+}
+
+_RHOAI_OLD_MILESTONES_FIXTURE = {
+    "supported": [{
+        "version": "3.3",
+        "products": {"rhoai": {
+            "milestones": [
+                {"type": "ga", "date": "2026-04-01", "version": "3.3"},
+                {"type": "code_freeze", "date": "2026-03-15", "version": "3.3"},
+            ],
+        }},
+    }],
+}
+
+
 class TestGetUpcomingReleaseDate:
     @pytest.fixture(autouse=True)
     def _clear_cache(self):
@@ -249,39 +422,42 @@ class TestGetUpcomingReleaseDate:
         yield
         mod._release_data_cache = None
 
-    def test_returns_date_when_version_found(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [
-                {"version": "3.5", "products": {"rhoai": {"upcoming_release": {"date": "2026-08-15"}}}},
-            ],
-        }):
-            assert mod.get_upcoming_release_date("rhoai-3.5") == "2026-08-15"
+    def test_ga_query_returns_ga_date(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_MILESTONES_FIXTURE):
+            assert mod.get_upcoming_release_date("rhoai-3.5") == "2026-08-20"
+
+    def test_ea2_query_returns_ea2_date(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_MILESTONES_FIXTURE):
+            assert mod.get_upcoming_release_date("rhoai-3.5-ea.2") == "2026-07-16"
+
+    def test_ea1_query_returns_ea1_date(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_MILESTONES_FIXTURE):
+            assert mod.get_upcoming_release_date("rhoai-3.5-ea.1") == "2026-06-15"
 
     def test_returns_none_when_version_not_found(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [
-                {"version": "3.5", "products": {"rhoai": {"upcoming_release": {"date": "2026-08-15"}}}},
-            ],
-        }):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_MILESTONES_FIXTURE):
             assert mod.get_upcoming_release_date("rhoai-9.9") is None
 
     def test_returns_none_when_fetch_fails(self):
         with patch.object(mod, "_fetch_release_data", return_value=None):
             assert mod.get_upcoming_release_date("rhoai-3.5") is None
 
-    def test_ea_release_maps_to_base_version(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [
-                {"version": "3.5", "products": {"rhoai": {"upcoming_release": {"date": "2026-08-15"}}}},
-            ],
-        }):
-            assert mod.get_upcoming_release_date("rhoai-3.5-ea.2") == "2026-08-15"
-
-    def test_returns_none_when_no_upcoming_release_key(self):
+    def test_returns_none_when_no_milestones(self):
         with patch.object(mod, "_fetch_release_data", return_value={
             "supported": [
                 {"version": "3.5", "products": {"rhoai": {}}},
             ],
+        }):
+            assert mod.get_upcoming_release_date("rhoai-3.5") is None
+
+    def test_returns_none_when_milestone_type_not_found(self):
+        with patch.object(mod, "_fetch_release_data", return_value={
+            "supported": [{
+                "version": "3.5",
+                "products": {"rhoai": {
+                    "milestones": [{"type": "ea1", "date": "2026-06-15", "version": "3.5"}],
+                }},
+            }],
         }):
             assert mod.get_upcoming_release_date("rhoai-3.5") is None
 
@@ -292,6 +468,75 @@ class TestGetUpcomingReleaseDate:
     def test_returns_none_when_data_has_no_supported_key(self):
         with patch.object(mod, "_fetch_release_data", return_value={"other": "stuff"}):
             assert mod.get_upcoming_release_date("rhoai-3.5") is None
+
+
+class TestGetCodeFreezeDate:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        mod._release_data_cache = None
+        yield
+        mod._release_data_cache = None
+
+    def test_ga_query_returns_ga_code_freeze(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_MILESTONES_FIXTURE):
+            assert mod.get_code_freeze_date("rhoai-3.5") == "2026-07-24"
+
+    def test_ea1_query_returns_ea1_code_freeze(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_36_MILESTONES_FIXTURE):
+            assert mod.get_code_freeze_date("rhoai-3.6-ea.1") == "2026-08-15"
+
+    def test_ea2_query_returns_ea2_code_freeze(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_36_MILESTONES_FIXTURE):
+            assert mod.get_code_freeze_date("rhoai-3.6-ea.2") == "2026-09-15"
+
+    def test_ga_fallback_to_generic_code_freeze(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_OLD_MILESTONES_FIXTURE):
+            assert mod.get_code_freeze_date("rhoai-3.3") == "2026-03-15"
+
+    def test_returns_none_when_fetch_fails(self):
+        with patch.object(mod, "_fetch_release_data", return_value=None):
+            assert mod.get_code_freeze_date("rhoai-3.5") is None
+
+    def test_returns_none_when_version_not_found(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_MILESTONES_FIXTURE):
+            assert mod.get_code_freeze_date("rhoai-9.9") is None
+
+    def test_returns_none_when_milestone_absent(self):
+        fixture = {
+            "supported": [{
+                "version": "3.5",
+                "products": {"rhoai": {
+                    "milestones": [{"type": "ga", "date": "2026-08-20", "version": "3.5"}],
+                }},
+            }],
+        }
+        with patch.object(mod, "_fetch_release_data", return_value=fixture):
+            assert mod.get_code_freeze_date("rhoai-3.5") is None
+
+    def test_ea_no_fallback_to_generic_code_freeze(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_OLD_MILESTONES_FIXTURE):
+            assert mod.get_code_freeze_date("rhoai-3.3-ea.1") is None
+
+
+class TestGetCodeFreezeDateWithSource:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        mod._release_data_cache = None
+        yield
+        mod._release_data_cache = None
+
+    def test_returns_date_and_link(self):
+        with patch.object(mod, "_fetch_release_data", return_value=_RHOAI_MILESTONES_FIXTURE):
+            date, source = mod.get_code_freeze_date_with_source("rhoai-3.5")
+        assert date == "2026-07-24"
+        assert "rhai-release-data.yaml" in source
+        assert source.startswith("[")
+
+    def test_returns_none_and_empty_source_when_not_found(self):
+        with patch.object(mod, "_fetch_release_data", return_value=None):
+            date, source = mod.get_code_freeze_date_with_source("rhoai-3.5")
+        assert date is None
+        assert source == ""
 
 
 class TestFetchReleaseData:
@@ -380,6 +625,7 @@ class TestResolveReleaseContextEos:
 
         assert "End of Support (RHOAI 3.4)" in result["confirmation_display"]
         assert "2026-08-12" in result["confirmation_display"]
+        assert "based on [release_dates.yaml]" in result["confirmation_display"]
         assert "Product Pages" in result["confirmation_display"]
 
     def test_unknown_release_shows_unknown_in_display(self, monkeypatch):

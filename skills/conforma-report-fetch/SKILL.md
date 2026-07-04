@@ -57,7 +57,7 @@ If `release_day` is unavailable (e.g. for in-development versions), the script a
 ### Usage
 
 ```bash
-# Auto-detect releases, auto-create .work/<timestamp>/:
+# Auto-detect releases, auto-create ~/.conforma/<timestamp>/:
 python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py
 
 # Explicit releases:
@@ -76,7 +76,7 @@ python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
   --local-dir /path/to/csvs
 ```
 
-When `--output-dir` is omitted, the script creates a timestamped directory under `.work/` (relative to this skill) and updates the `.work/latest` symlink. The output directory contains `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release.
+When `--output-dir` is omitted, the script creates a timestamped directory under `~/.conforma/` (relative to this skill) and updates the `~/.conforma/latest` symlink. The output directory contains `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release.
 
 ### Release Auto-Detection
 
@@ -108,7 +108,7 @@ See [README.md](README.md) for shared prerequisites. Tekton mode requires these 
 - **`jq`**: Installed (used for JSON parsing and handover assembly)
 - **`curl`**, **`awk`**, **`sed`**: Standard Unix tools (used for API requests and log extraction)
 - **Namespace access**: Read access to the namespace specified by `KONFLUX_NAMESPACE`
-- **Environment variables** (via infrastructure discovery, or manually in `.work/.env`):
+- **Environment variables** (via infrastructure discovery, or manually in `~/.conforma/.env`):
   - `KONFLUX_CLUSTER_DOMAIN` — Konflux cluster domain (Tekton route and API URL are derived from this)
   - `KONFLUX_NAMESPACE` — target Konflux namespace
 
@@ -178,6 +178,6 @@ When the user asks to fetch a Conforma report from a PipelineRun:
 
 ## Relationship to Other Skills
 
-- **`conforma-analyze`**: Consumes both violation and warnings CSV reports from this skill. Calls `fetch_csv_reports.py` with `--output-dir` to write CSVs into its own `.work/` directory, then parses violations and identifies upcoming violations from warnings.
+- **`conforma-analyze`**: Consumes both violation and warnings CSV reports from this skill. Calls `fetch_csv_reports.py` with `--output-dir` to write CSVs into its own `~/.conforma/` directory, then parses violations and identifies upcoming violations from warnings.
 - **`conforma-parse`** (downstream): Consumes the Tekton handover from `fetch_tekton_report.sh` to parse violations and warnings from the raw JSON report.
 - **`conforma-exception`**: Manages exception creation. Can consume parsed output from either fetch mechanism.

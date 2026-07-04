@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pre-commit hook: reject commits if example files contain real secrets.
 
-Checks .work/.env.example for values that look like real tokens, passwords,
+Checks ~/.conforma/.env.example for values that look like real tokens, passwords,
 or infrastructure details rather than empty placeholders.
 
 Usage (as pre-commit hook — see .pre-commit-config.yaml):
@@ -87,7 +87,7 @@ def main() -> int:
     for issue in all_issues:
         print(issue, file=sys.stderr)
     print(
-        "\nFix: remove real values from example files. Real secrets go in .work/.env (gitignored).",
+        "\nFix: remove real values from example files. Real secrets go in ~/.conforma/.env.",
         file=sys.stderr,
     )
     return 1

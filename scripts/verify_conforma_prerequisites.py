@@ -3,7 +3,7 @@
 
 Checks (in order):
   1. Python dependencies (requests, yaml, gitlab, jira)
-  2. .work/.env file (secrets: tokens, credentials)
+  2. ~/.conforma/.env file (secrets: tokens, credentials)
   3. GitLab (GITLAB_HOST + VPN + token for konflux-release-data)
   4. Konflux (KONFLUX_TENANT + KONFLUX_CLUSTER_DOMAIN auto-discovery)
   5. GitHub authentication (private conforma-reporter access)
@@ -66,7 +66,7 @@ def _check_python_deps() -> dict:
 def _check_konflux() -> dict:
     """Check that Konflux tenant is configured and cluster is reachable.
 
-    Primary path: user provides KONFLUX_TENANT in .work/.env alongside GITLAB_HOST,
+    Primary path: user provides KONFLUX_TENANT in ~/.conforma/.env alongside GITLAB_HOST,
     then KONFLUX_CLUSTER_DOMAIN is auto-discovered by konflux_tenant_env_discovery.py.
 
     Auto-discovery depends on GitLab auth. If GitLab is not configured, this
@@ -90,7 +90,7 @@ def _check_konflux() -> dict:
             "name": "konflux",
             "error": "KONFLUX_TENANT not set",
             "fix": (
-                "Add to .work/.env:\n"
+                "Add to ~/.conforma/.env:\n"
                 "  KONFLUX_TENANT=your-konflux-tenant-name\n"
                 "Then re-run — KONFLUX_CLUSTER_DOMAIN will be auto-discovered."
             ),
@@ -150,7 +150,7 @@ def _check_konflux() -> dict:
                     "name": "konflux",
                     "error": error_msg,
                     "fix": (
-                        "Add to .work/.env:\n"
+                        "Add to ~/.conforma/.env:\n"
                         "  PREFERRED_KONFLUX_CLUSTER=your-cluster-id"
                     ),
                 }
@@ -161,7 +161,7 @@ def _check_konflux() -> dict:
                 "fix": (
                     "Retry discovery:\n"
                     "  python3 scripts/konflux_tenant_env_discovery.py --tenant $KONFLUX_TENANT --human\n"
-                    "If discovery cannot work in your environment, add manually to .work/.env:\n"
+                    "If discovery cannot work in your environment, add manually to ~/.conforma/.env:\n"
                     "  KONFLUX_CLUSTER_DOMAIN=your-cluster-domain"
                 ),
             }
@@ -267,16 +267,21 @@ def _probe_konflux_cluster(api_host: str) -> tuple[bool, bool, str | None]:
 
 
 def _check_dotenv() -> dict:
-    """Check that .work/.env exists."""
-    dotenv_path = REPO_ROOT / ".work" / ".env"
+    """Check that ~/.conforma/.env exists."""
+    dotenv_path = konflux_environment._resolve_dotenv_path()
     if not dotenv_path.is_file():
         return {
             "ok": False,
             "name": "dotenv",
-            "error": ".work/.env not found",
-            "fix": "cp .work/.env.example .work/.env\n(then fill in tokens)",
+            "error": "~/.conforma/.env not found",
+            "fix": (
+                "Create ~/.conforma/.env with your credentials:\n"
+                "  mkdir -p ~/.conforma\n"
+                "  touch ~/.conforma/.env\n"
+                "(then add tokens)"
+            ),
         }
-    return {"ok": True, "name": "dotenv", "error": None, "fix": None, "detail": ".work/.env"}
+    return {"ok": True, "name": "dotenv", "error": None, "fix": None, "detail": str(dotenv_path)}
 
 
 def _check_github_auth() -> dict:
@@ -299,7 +304,7 @@ def _check_github_auth() -> dict:
         "fix": (
             "Create a Personal Access Token (https://github.com/settings/tokens/new)"
             " with scope: repo (for private repos)"
-            " and add to .work/.env:\n"
+            " and add to ~/.conforma/.env:\n"
             "  GITHUB_TOKEN=ghp_your_token_here"
         ),
     }
@@ -314,7 +319,7 @@ def _check_gitlab_auth() -> dict:
             "name": "gitlab",
             "error": "GITLAB_HOST not set",
             "fix": (
-                "Add to .work/.env:\n"
+                "Add to ~/.conforma/.env:\n"
                 "  GITLAB_HOST=your-gitlab-host"
             ),
         }
@@ -361,7 +366,7 @@ def _check_gitlab_auth() -> dict:
                 f"Connect to Red Hat VPN, then retry.\n"
                 f"\n"
                 f"If VPN is connected and the error persists, ensure you have a Personal Access Token ({token_url})"
-                f" with scopes: api, read_repository, write_repository in .work/.env:\n"
+                f" with scopes: api, read_repository, write_repository in ~/.conforma/.env:\n"
                 f"  GITLAB_TOKEN=glpat-your_token_here"
             ),
         }
@@ -374,9 +379,9 @@ def _check_gitlab_auth() -> dict:
             "name": "gitlab",
             "error": error_str,
             "fix": (
-                f"No GitLab token found in .work/.env\n"
+                f"No GitLab token found in ~/.conforma/.env\n"
                 f"Create a Personal Access Token ({token_url})"
-                f" with scopes: api, read_repository, write_repository and add to .work/.env:\n"
+                f" with scopes: api, read_repository, write_repository and add to ~/.conforma/.env:\n"
                 f"  GITLAB_TOKEN=glpat-your_token_here"
             ),
         }
@@ -389,7 +394,7 @@ def _check_gitlab_auth() -> dict:
         "fix": (
             f"GitLab authentication failed (token exists but is invalid or expired)\n"
             f"Regenerate your Personal Access Token ({token_url})"
-            f" with scopes: api, read_repository, write_repository and update .work/.env:\n"
+            f" with scopes: api, read_repository, write_repository and update ~/.conforma/.env:\n"
             f"  GITLAB_TOKEN=glpat-your_new_token_here"
         ),
     }
@@ -432,7 +437,7 @@ def _check_jira_auth() -> dict:
                 "VPN CONNECTION REQUIRED: Cannot reach Jira (redhat.atlassian.net)\n"
                 "Connect to Red Hat VPN, then retry.\n"
                 "\n"
-                "If VPN is connected and the error persists, ensure you have Jira credentials in .work/.env:\n"
+                "If VPN is connected and the error persists, ensure you have Jira credentials in ~/.conforma/.env:\n"
                 "  JIRA_API_TOKEN=your_jira_api_token\n"
                 "  JIRA_EMAIL=you@redhat.com"
             ),
@@ -445,9 +450,9 @@ def _check_jira_auth() -> dict:
             "name": "jira",
             "error": error_str,
             "fix": (
-                "No Jira credentials found in .work/.env\n"
+                "No Jira credentials found in ~/.conforma/.env\n"
                 "Create an API token (https://id.atlassian.com/manage-profile/security/api-tokens)"
-                " and add to .work/.env:\n"
+                " and add to ~/.conforma/.env:\n"
                 "  JIRA_API_TOKEN=your_jira_api_token\n"
                 "  JIRA_EMAIL=you@redhat.com"
             ),
@@ -461,7 +466,7 @@ def _check_jira_auth() -> dict:
         "fix": (
             "Jira authentication failed (token exists but is invalid or expired)\n"
             "Regenerate your API token (https://id.atlassian.com/manage-profile/security/api-tokens)"
-            " and update .work/.env:\n"
+            " and update ~/.conforma/.env:\n"
             "  JIRA_API_TOKEN=your_new_jira_api_token"
         ),
     }
@@ -584,7 +589,7 @@ def _check_quay_auth() -> dict:
             "error": f"quay.io connectivity check failed: {exc}",
             "fix": (
                 "Ensure network access to quay.io is available.\n"
-                "If behind a proxy, configure HTTPS_PROXY in .work/.env"
+                "If behind a proxy, configure HTTPS_PROXY in ~/.conforma/.env"
             ),
         }
 
@@ -649,7 +654,7 @@ def _check_quay_auth() -> dict:
             "error": f"quay.io connectivity check failed: {exc}",
             "fix": (
                 "Ensure network access to quay.io is available.\n"
-                "If behind a proxy, configure HTTPS_PROXY in .work/.env"
+                "If behind a proxy, configure HTTPS_PROXY in ~/.conforma/.env"
             ),
         }
 

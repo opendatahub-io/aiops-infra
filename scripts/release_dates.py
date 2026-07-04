@@ -58,7 +58,14 @@ PRODUCT_PAGES_URL = "https://productpages.redhat.com/"
 
 _RELEASE_DATA_REPO = "red-hat-data-services/rhods-devops-infra"
 _RELEASE_DATA_PATH = "src/config/rhai-release-data.yaml"
+_RELEASE_DATA_FILE = "rhai-release-data.yaml"
 _RELEASE_DATA_BRANCH = "main"
+_RELEASE_DATA_URL = (
+    f"https://github.com/{_RELEASE_DATA_REPO}/blob/{_RELEASE_DATA_BRANCH}/{_RELEASE_DATA_PATH}"
+)
+_RELEASE_DATA_LINK = f"[{_RELEASE_DATA_FILE}]({_RELEASE_DATA_URL})"
+_STATIC_SOURCE_FILE = "release_dates.yaml"
+_STATIC_SOURCE_LINK = f"[{_STATIC_SOURCE_FILE}](scripts/{_STATIC_SOURCE_FILE})"
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +108,18 @@ def _release_to_base_version(release: str) -> str:
     return re.sub(r"^rhoai-", "", release).split("-ea.")[0]
 
 
+def _release_to_milestone_type(release: str) -> str:
+    """Determine the milestone type to look for based on the release string.
+
+    "rhoai-3.5" → "ga", "rhoai-3.5-ea.2" → "ea2", "rhoai-3.5-ea.1" → "ea1".
+    """
+    stripped = re.sub(r"^rhoai-", "", release)
+    ea_match = re.search(r"-ea\.?(\d+)$", stripped)
+    if ea_match:
+        return f"ea{ea_match.group(1)}"
+    return "ga"
+
+
 def _fetch_release_data() -> dict | None:
     """Fetch and cache rhai-release-data.yaml from GitHub."""
     global _release_data_cache
@@ -138,11 +157,53 @@ def _fetch_release_data() -> dict | None:
 def get_upcoming_release_date(release: str) -> Optional[str]:
     """Return the upcoming release date (YYYY-MM-DD) for a release.
 
-    Fetches rhai-release-data.yaml from rhods-devops-infra and extracts
-    the ``upcoming_release.date`` for the matching version.
+    Fetches rhai-release-data.yaml from rhods-devops-infra and finds the
+    milestone date matching the release type: GA date for GA queries
+    (e.g. "rhoai-3.5"), EA2 date for EA2 queries (e.g. "rhoai-3.5-ea.2").
 
-    Returns None when the data cannot be fetched or the version has no
-    upcoming release date configured.
+    Falls back to ``upcoming_release.date`` if no matching milestone exists.
+    Returns None when the data cannot be fetched or no date is found.
+    """
+    data = _fetch_release_data()
+    if data is None:
+        return None
+
+    base_version = _release_to_base_version(release)
+    target_type = _release_to_milestone_type(release)
+
+    for entry in data.get("supported", []):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("version", "")) != base_version:
+            continue
+        try:
+            rhoai = entry["products"]["rhoai"]
+        except (KeyError, TypeError):
+            return None
+
+        for milestone in rhoai.get("milestones", []):
+            if not isinstance(milestone, dict):
+                continue
+            if milestone.get("type") == target_type:
+                date_val = milestone.get("date")
+                if date_val:
+                    return str(date_val)
+
+        return None
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Dynamic fetching — stub for future implementation
+# ---------------------------------------------------------------------------
+
+
+def _get_eos_from_remote(release: str) -> Optional[str]:
+    """Try to extract end-of-support date from rhai-release-data.yaml.
+
+    Looks for ``support.end_of_support`` on the matching version entry.
+    Returns YYYY-MM-DD or None if the field does not exist.
     """
     data = _fetch_release_data()
     if data is None:
@@ -155,29 +216,11 @@ def get_upcoming_release_date(release: str) -> Optional[str]:
             continue
         if str(entry.get("version", "")) != base_version:
             continue
-        try:
-            date_val = entry["products"]["rhoai"]["upcoming_release"]["date"]
-            return str(date_val)
-        except (KeyError, TypeError):
-            return None
+        support = entry.get("support", {})
+        if isinstance(support, dict) and "end_of_support" in support:
+            return str(support["end_of_support"])
+        return None
 
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Dynamic fetching — stub for future implementation
-# ---------------------------------------------------------------------------
-
-
-def _fetch_dynamic(release: str) -> Optional[str]:
-    """Fetch EOS date from a live source. Not yet implemented.
-
-    Future candidates:
-    - Red Hat Product Lifecycle API
-    - A shared config repo (e.g. rhods-devops-infra/rhoai-release-data.yaml)
-
-    Returns YYYY-MM-DD or None.
-    """
     return None
 
 
@@ -197,10 +240,96 @@ def format_version_label(release: str) -> str:
 def get_eos_date(release: str) -> Optional[str]:
     """Return the raw end-of-support date (YYYY-MM-DD) for a release.
 
-    Checks the static YAML first; falls back to dynamic fetching (stub).
+    Checks rhai-release-data.yaml first; falls back to static release_dates.yaml.
     Returns None when the release is not found in either source.
     """
-    return _STATIC_DATES.get(release) or _fetch_dynamic(release)
+    return _get_eos_from_remote(release) or _STATIC_DATES.get(release)
+
+
+def get_eos_date_with_source(release: str) -> tuple[Optional[str], str]:
+    """Return ``(date, source_link)`` for the end-of-support date.
+
+    Tries rhai-release-data.yaml first, falls back to release_dates.yaml.
+    The source_link is a markdown link to the source file.
+    """
+    remote = _get_eos_from_remote(release)
+    if remote:
+        return remote, _RELEASE_DATA_LINK
+    static = _STATIC_DATES.get(release)
+    if static:
+        return static, _STATIC_SOURCE_LINK
+    return None, ""
+
+
+def get_code_freeze_date(release: str) -> Optional[str]:
+    """Return the code freeze date (YYYY-MM-DD) for a release.
+
+    Looks for ``{type}_code_freeze`` milestone in rhai-release-data.yaml
+    (e.g. ``ga_code_freeze`` for GA, ``ea1_code_freeze`` for EA1).
+    Falls back to generic ``code_freeze`` milestone for GA queries only
+    (used by older releases like 3.3-3.4).
+
+    Returns None when the data cannot be fetched, the version is not found,
+    or the milestone is absent (e.g. code freeze date already past and
+    removed from the YAML).
+    """
+    data = _fetch_release_data()
+    if data is None:
+        return None
+
+    base_version = _release_to_base_version(release)
+    target_type = _release_to_milestone_type(release)
+    code_freeze_type = f"{target_type}_code_freeze"
+
+    for entry in data.get("supported", []):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("version", "")) != base_version:
+            continue
+        try:
+            rhoai = entry["products"]["rhoai"]
+        except (KeyError, TypeError):
+            return None
+
+        for milestone in rhoai.get("milestones", []):
+            if not isinstance(milestone, dict):
+                continue
+            if milestone.get("type") == code_freeze_type:
+                date_val = milestone.get("date")
+                if date_val:
+                    return str(date_val)
+
+        if target_type == "ga":
+            for milestone in rhoai.get("milestones", []):
+                if not isinstance(milestone, dict):
+                    continue
+                if milestone.get("type") == "code_freeze":
+                    date_val = milestone.get("date")
+                    if date_val:
+                        return str(date_val)
+
+        return None
+
+    return None
+
+
+def get_code_freeze_date_with_source(release: str) -> tuple[Optional[str], str]:
+    """Return ``(date, source_link)`` for the code freeze date."""
+    date = get_code_freeze_date(release)
+    if date:
+        return date, _RELEASE_DATA_LINK
+    return None, ""
+
+
+def get_upcoming_release_date_with_source(release: str) -> tuple[Optional[str], str]:
+    """Return ``(date, source_link)`` for the upcoming release date.
+
+    The source_link is a markdown link to the source file.
+    """
+    date = get_upcoming_release_date(release)
+    if date:
+        return date, _RELEASE_DATA_LINK
+    return None, ""
 
 
 def get_effective_until(release: str) -> Optional[str]:

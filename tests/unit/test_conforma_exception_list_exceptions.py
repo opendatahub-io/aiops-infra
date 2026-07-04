@@ -5,8 +5,12 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+import yaml
+
+import conforma_context_ops
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -175,3 +179,54 @@ class TestRenderTable:
         assert "odh-dashboard" in lines[3]
         assert "all" in lines[3]
         assert "—" in lines[3]
+
+
+class TestContextIntegration:
+    """Tests for context-based parameter discovery in main()."""
+
+    def _setup_run(self, tmp_path):
+        """Create a run directory with context.yaml."""
+        run_dir = tmp_path / "20260703-120000"
+        run_dir.mkdir()
+
+        context = {
+            "application": {"release": "rhoai-3.5-ea.2"},
+            "environment": "prod",
+            "run": {"run_dir": conforma_context_ops.contract_home(run_dir)},
+            "steps": {},
+        }
+        context_path = run_dir / "context.yaml"
+        context_path.write_text(yaml.dump(context), encoding="utf-8")
+
+        work_dir = tmp_path / ".conforma"
+        work_dir.mkdir(exist_ok=True)
+        active_link = work_dir / ".conforma-active"
+        active_link.symlink_to(run_dir)
+
+        return run_dir, work_dir
+
+    def test_resolves_environment_from_context(self, tmp_path, monkeypatch):
+        """Context-based environment discovery works for list_exceptions."""
+        run_dir, work_dir = self._setup_run(tmp_path)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["list_exceptions.py"])
+
+        mock_repo = tmp_path / "fake-repo"
+        mock_repo.mkdir()
+
+        with (
+            patch.object(list_exceptions, "_clone_repo", return_value=(mock_repo, False)),
+            patch.object(list_exceptions, "scan_all_exceptions", return_value=[]),
+            patch.object(list_exceptions, "annotate_expiry", return_value=[]),
+            patch.object(list_exceptions, "_get_policy_files", return_value=[]),
+        ):
+            rc = list_exceptions.main()
+        assert rc == 0
+
+    def test_no_context_requires_environment(self, tmp_path, monkeypatch):
+        """Without context and without --environment, main() exits with error."""
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty"))
+        monkeypatch.setattr("sys.argv", ["list_exceptions.py"])
+
+        with pytest.raises(SystemExit):
+            list_exceptions.main()

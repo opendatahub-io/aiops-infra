@@ -83,6 +83,22 @@ Follow them in ALL generated content — code, comments, commit messages, docume
 - Use "Executive Summary" not "Key Takeaways" for report summary sections
 - Use "manual search" or "search manually" for actionable search links — not bare "search"
 - Merge Request titles for exceptions must be prefixed with [stage] or [prod]
+- Always use "~/.conforma/konflux-release-data" (never "work/konflux-release-data")
+- Always use "`~/.conforma/.env`" (never "`.work/.env`")
+- Always use "~/.conforma" (never "work")
+- Always use "~/.conforma/20260604-123000" (never "work/20260604-123000")
+- Always use "~/.conforma/20260604-123000/violations.yaml" (never "work/20260604-123000/violations.yaml")
+- Always use "`~/.conforma/latest`" (never "`.work/latest`")
+- Always use "`~/.conforma/konflux-release-data`" (never "`.work/konflux-release-data`")
+- Always use "`~/.conforma/`" (never "`.work/`")
+- Always use "~/.conforma/konflux-release-data`" (never "work/konflux-release-data`")
+- Always use "~/.conforma/konflux-release-data/.git" (never "work/konflux-release-data/.git")
+- Always use "~/.conforma/violations.yaml" (never "work/violations.yaml")
+- Always use "~/.conforma/.env" (never "work/.env")
+- Always use "`~/.conforma/.env`**" (never "`.work/.env`**")
+- Always use "`~/.conforma/.slack-secrets`" (never "`.work/.slack-secrets`")
+- Always use "~/.conforma/.slack-secrets" (never "work/.slack-secrets")
+- Always use "~/.conforma/component-maturity/.claude/skills/software-catalog-query/scripts/query.py" (never "work/component-maturity/.claude/skills/software-catalog-query/scripts/query.py")
 
 ### Behavior and Workflow
 

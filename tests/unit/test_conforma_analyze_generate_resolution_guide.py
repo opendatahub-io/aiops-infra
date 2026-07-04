@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 import yaml
 
+import conforma_context_ops
 import generate_resolution_guide as mod
 
 
@@ -50,6 +52,26 @@ def sample_catalog(tmp_path):
                     {"action": "Install RPMs from Red Hat repo"},
                 ],
             },
+            {
+                "id": "builtin.attestation.signature_check",
+                "type": "conforma_violation",
+                "title": "No image attestations found matching the given public key",
+                "conforma_rule_codes": ["builtin.attestation.signature_check"],
+                "classification": {
+                    "resolution_path": "mixed",
+                    "typical_owner": "devops",
+                    "estimated_effort": "medium",
+                    "requires_rebuild": True,
+                },
+                "fix_steps": [
+                    {"action": "Confirm no .att artifact exists on quay.io"},
+                    {"action": "Check chains.tekton.dev/signed annotation"},
+                    {"action": "Rebuild the component in Konflux"},
+                ],
+                "exception_context": {
+                    "when_to_exception": "Only if the image is not built through Konflux.",
+                },
+            },
         ],
         "known_false_alerts": [
             {
@@ -79,6 +101,18 @@ def sample_catalog(tmp_path):
                 "title": "Source image",
                 "doc_urls": ["https://example.com/source"],
                 "guidance": "Rebuild the component.",
+            },
+            {
+                "code_prefix": "builtin.attestation",
+                "title": "Built-in attestation verification",
+                "doc_urls": ["https://conforma.dev/docs/user-guide/cosign.html"],
+                "guidance": "Check Tekton Chains signing status and rebuild.",
+            },
+            {
+                "code_prefix": "builtin",
+                "title": "Built-in Conforma checks",
+                "doc_urls": ["https://conforma.dev/docs/user-guide/hitchhikers-guide.html"],
+                "guidance": "Check Tekton Chains and rebuild.",
             },
         ],
     }
@@ -225,6 +259,25 @@ class TestCatalogMatching:
         fb = mod._match_fallback_reference("source_image.exists", catalog)
         assert fb is not None
         assert fb["code_prefix"] == "source_image"
+
+    def test_builtin_attestation_signature_check_exact_match(self, sample_catalog):
+        catalog = mod._load_catalog(sample_catalog)
+        entry = mod._match_catalog_entry("builtin.attestation.signature_check", catalog)
+        assert entry is not None
+        assert entry["id"] == "builtin.attestation.signature_check"
+        assert entry["classification"]["typical_owner"] == "devops"
+
+    def test_builtin_attestation_fallback_for_unknown_builtin(self, sample_catalog):
+        catalog = mod._load_catalog(sample_catalog)
+        fb = mod._match_fallback_reference("builtin.attestation.new_check", catalog)
+        assert fb is not None
+        assert fb["code_prefix"] == "builtin.attestation"
+
+    def test_builtin_generic_fallback(self, sample_catalog):
+        catalog = mod._load_catalog(sample_catalog)
+        fb = mod._match_fallback_reference("builtin.something.else", catalog)
+        assert fb is not None
+        assert fb["code_prefix"] == "builtin"
 
 
 class TestKnownFalseAlerts:
@@ -665,6 +718,55 @@ class TestMetadataHeader:
         assert "prod/future/build_type_latest/conforma-violations-report.csv" in header
         assert "2026-06-10T05:19:05Z" in header
         assert "conforma-reporter" in header
+
+
+class TestMetadataTotalViolations:
+    def test_includes_total_violations_row(self):
+        header = mod._render_metadata_header(
+            release="rhoai-3.5",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            total_violations=162,
+        )
+        assert "| **Total violations** | 162 |" in header
+
+    def test_omits_total_violations_when_none(self):
+        header = mod._render_metadata_header(
+            release="rhoai-3.5",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+        assert "Total violations" not in header
+
+
+class TestMetadataCodeFreezeDate:
+    def test_includes_code_freeze_when_present(self):
+        header = mod._render_metadata_header(
+            release="rhoai-3.5",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            code_freeze_date="2026-07-24",
+        )
+        assert "Code freeze (RHOAI 3.5)" in header
+        assert "2026-07-24" in header
+        assert "Product Pages" in header
+
+    def test_omits_code_freeze_when_empty(self):
+        header = mod._render_metadata_header(
+            release="rhoai-3.5",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            code_freeze_date="",
+        )
+        assert "Code freeze" not in header
+
+    def test_omits_code_freeze_when_not_provided(self):
+        header = mod._render_metadata_header(
+            release="rhoai-3.5",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+        assert "Code freeze" not in header
 
 
 class TestRenderWorkScope:
@@ -1353,6 +1455,9 @@ class TestExecutiveSummaryFile:
     def test_full_guide_unchanged_with_executive_summary_flag(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
     ):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
         csv_content = (
             "type,component_name,image,message,effective_on,code,title,description,solution\n"
             'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
@@ -1370,11 +1475,16 @@ class TestExecutiveSummaryFile:
             source_created_at="2026-06-10T05:19:05Z",
         )
 
-        content_without = mod.generate_resolution_guide(**kwargs)
-        content_with = mod.generate_resolution_guide(
-            **kwargs,
-            executive_summary_file=str(tmp_path / "es.md"),
-        )
+        frozen = datetime(2026, 7, 4, 12, 0, 0, tzinfo=timezone.utc)
+        with patch("generate_resolution_guide.datetime") as mock_dt:
+            mock_dt.now.return_value = frozen
+            mock_dt.fromisoformat = datetime.fromisoformat
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            content_without = mod.generate_resolution_guide(**kwargs)
+            content_with = mod.generate_resolution_guide(
+                **kwargs,
+                executive_summary_file=str(tmp_path / "es.md"),
+            )
 
         assert content_without == content_with
 
@@ -2096,5 +2206,363 @@ class TestUpcomingReleaseDate:
         assert "**0 violations covered by currently active exceptions that expire before the upcoming release date (2026-08-15) — addressed by open Merge Requests extending past the release date**" in content
         assert "**1 violations without exception or open Merge Request**" in content
         assert "**0 violations addressed** by open Merge Requests (not yet merged)" in content
+
+
+class TestExecutiveSummaryViolationLinks:
+    """Violation titles in executive summary tables must link to their resolution guide sections."""
+
+    def test_violation_titles_are_anchor_links(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Bad attrs",,sbom_spdx.disallowed_package_attributes,'
+            "Disallowed attrs,desc,Fix attrs\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(sample_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/future/build_type_latest/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+
+        for rule in ["hermetic_task.hermetic", "sbom_spdx.disallowed_package_attributes"]:
+            anchor = mod._violation_anchor(rule)
+            link = f"[`{rule}`](#{anchor})"
+            exec_summary_section = content.split("## Executive Summary")[1].split("## Summary")[0]
+            assert link in exec_summary_section, (
+                f"Expected anchor link {link} in executive summary"
+            )
+
+    def test_anchor_links_match_resolution_guide_ids(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(sample_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/future/build_type_latest/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+        )
+
+        anchor = mod._violation_anchor("hermetic_task.hermetic")
+        assert f'<a id="{anchor}"></a>' in content
+        assert f"[`hermetic_task.hermetic`](#{anchor})" in content
+
+
+class TestCoverageSummaryPolicyFileLinks:
+    """Coverage summary line in executive summary includes policy file links."""
+
+    def test_coverage_line_includes_file_links(
+        self, tmp_path, sample_violations_yaml, sample_catalog,
+    ):
+        policy_files = [
+            {"name": "registry-rhoai-stage.yaml", "url": "https://gitlab.example.com/policy/registry-rhoai-stage.yaml"},
+            {"name": "exceptions/fbc-rhoai-stage.yaml", "url": "https://gitlab.example.com/exceptions/fbc-rhoai-stage.yaml"},
+        ]
+        data = {
+            "summary": {
+                "fully_covered": 1,
+                "partially_covered": 0,
+                "not_covered": 1,
+                "total_violations": 2,
+            },
+            "violations": [
+                {
+                    "rule": "hermetic_task.hermetic",
+                    "title": "Task called with hermetic param set",
+                    "total_components": 2,
+                    "all_components": ["comp-a-v3-5-ea-2", "comp-b-v3-5-ea-2"],
+                    "covered_components": ["comp-a-v3-5-ea-2", "comp-b-v3-5-ea-2"],
+                    "uncovered_components": [],
+                    "covered_count": 2,
+                    "uncovered_count": 0,
+                    "display_components": "comp-a-v3-5-ea-2, comp-b-v3-5-ea-2",
+                    "exception_expiry": {"is_permanent": False, "earliest_expiry": None},
+                    "open_merge_requests": [],
+                    "open_mr_label": "",
+                    "open_mr_search_url": "",
+                    "open_jira_tickets": [],
+                    "open_jira_label": "",
+                    "open_jira_search_url": "",
+                    "open_slack_threads": [],
+                    "open_slack_label": "",
+                    "open_slack_search_url": "",
+                    "next_steps": "Rerun",
+                    "next_steps_short": "Rerun",
+                    "status_label": "Covered",
+                    "coverage": "fully_covered",
+                    "coverage_label": "covered",
+                    "gate_status": "passed",
+                    "violation_count": 1,
+                },
+                {
+                    "rule": "sbom_spdx.disallowed_package_attributes",
+                    "title": "Disallowed package attributes",
+                    "total_components": 1,
+                    "all_components": ["comp-a-v3-5-ea-2"],
+                    "covered_components": [],
+                    "uncovered_components": ["comp-a-v3-5-ea-2"],
+                    "covered_count": 0,
+                    "uncovered_count": 1,
+                    "display_components": "comp-a-v3-5-ea-2",
+                    "exception_expiry": {},
+                    "open_merge_requests": [],
+                    "open_mr_label": "",
+                    "open_mr_search_url": "",
+                    "open_jira_tickets": [],
+                    "open_jira_label": "",
+                    "open_jira_search_url": "",
+                    "open_slack_threads": [],
+                    "open_slack_label": "",
+                    "open_slack_search_url": "",
+                    "next_steps": "Fix",
+                    "next_steps_short": "Fix",
+                    "status_label": "No coverage",
+                    "coverage": "not_covered",
+                    "gate_status": "error",
+                    "violation_count": 1,
+                },
+            ],
+            "markdown_table": "| # | Violation |\n|---|------|\n| 1 | hermetic |\n| 2 | sbom |",
+            "component_owners": {
+                "comp-a-v3-5-ea-2": "AI Safety",
+                "comp-b-v3-5-ea-2": "Model Runtimes",
+            },
+        }
+        cov_path = tmp_path / "coverage.json"
+        cov_path.write_text(json.dumps(data), encoding="utf-8")
+
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+            'violation,comp-b-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Bad attrs",,sbom_spdx.disallowed_package_attributes,'
+            "Disallowed attrs,desc,Fix attrs\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(cov_path),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/future/build_type_latest/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            policy_files=policy_files,
+        )
+
+        assert "registry-rhoai-stage.yaml" in content
+        assert "exceptions/fbc-rhoai-stage.yaml" in content
+        assert "covered** by exceptions in" in content
+
+    def test_metadata_header_includes_self_service_file_links(
+        self, tmp_path, sample_violations_yaml, sample_catalog,
+    ):
+        policy_files = [
+            {"name": "registry-rhoai-stage.yaml", "url": "https://gitlab.example.com/policy/registry-rhoai-stage.yaml"},
+            {"name": "exceptions/fbc-rhoai-stage.yaml", "url": "https://gitlab.example.com/exceptions/fbc-rhoai-stage.yaml"},
+        ]
+        data = {
+            "summary": {"fully_covered": 0, "partially_covered": 0, "not_covered": 1, "total_violations": 1},
+            "violations": [
+                {
+                    "rule": "hermetic_task.hermetic",
+                    "title": "Task called with hermetic param set",
+                    "total_components": 1,
+                    "all_components": ["comp-a-v3-5-ea-2"],
+                    "covered_components": [],
+                    "uncovered_components": ["comp-a-v3-5-ea-2"],
+                    "covered_count": 0,
+                    "uncovered_count": 1,
+                    "display_components": "comp-a-v3-5-ea-2",
+                    "exception_expiry": {},
+                    "open_merge_requests": [],
+                    "open_mr_label": "",
+                    "open_mr_search_url": "",
+                    "open_jira_tickets": [],
+                    "open_jira_label": "",
+                    "open_jira_search_url": "",
+                    "open_slack_threads": [],
+                    "open_slack_label": "",
+                    "open_slack_search_url": "",
+                    "next_steps": "Fix",
+                    "next_steps_short": "Fix",
+                    "status_label": "No coverage",
+                    "coverage": "not_covered",
+                    "gate_status": "error",
+                    "violation_count": 1,
+                },
+            ],
+            "markdown_table": "| # | Violation |\n|---|------|\n| 1 | hermetic |",
+            "component_owners": {"comp-a-v3-5-ea-2": "AI Safety"},
+        }
+        cov_path = tmp_path / "coverage.json"
+        cov_path.write_text(json.dumps(data), encoding="utf-8")
+
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(cov_path),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/future/build_type_latest/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            policy_files=policy_files,
+        )
+
+        assert "Conforma policy config" in content
+        assert "exceptions/fbc-rhoai-stage.yaml" in content
+        assert "https://gitlab.example.com/exceptions/fbc-rhoai-stage.yaml" in content
+
+
+class TestContextIntegration:
+    """Tests for context.yaml auto-discovery and parameter resolution."""
+
+    def _setup_run_with_artifacts(self, tmp_path, monkeypatch, sample_catalog, release="rhoai-3.5-ea.2"):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+
+        violations_data = {
+            "violation_data": {
+                "releases": [release],
+                "violations_by_rule": {
+                    "hermetic_task.hermetic": {
+                        "base_code": "hermetic_task.hermetic",
+                        "components": ["comp-a-v3-5-ea-2"],
+                    },
+                },
+                "violations_by_component": {
+                    "comp-a-v3-5-ea-2": {"jira_component": "AI Safety"},
+                },
+            }
+        }
+
+        coverage_data = {
+            "summary": {"fully_covered": 0, "partially_covered": 0, "not_covered": 1, "total_violations": 1},
+            "violations": [{
+                "rule": "hermetic_task.hermetic",
+                "title": "Hermetic build required",
+                "total_components": 1,
+                "covered_components": [],
+                "uncovered_components": ["comp-a-v3-5-ea-2"],
+                "covered_count": 0,
+                "uncovered_count": 1,
+                "display_components": "comp-a-v3-5-ea-2",
+                "open_merge_requests": [],
+                "open_mr_label": "",
+                "open_mr_search_url": "",
+                "open_jira_tickets": [],
+                "open_jira_label": "",
+                "open_jira_search_url": "",
+                "open_slack_threads": [],
+                "open_slack_label": "",
+                "open_slack_search_url": "",
+                "next_steps": "Fix in code",
+                "next_steps_short": "Fix in code",
+                "status_label": "No coverage",
+                "coverage": "not_covered",
+                "gate_status": "error",
+                "violation_count": 1,
+            }],
+            "markdown_table": "| # | Violation |\n|---|------|\n| 1 | hermetic |",
+            "component_owners": {"comp-a-v3-5-ea-2": "AI Safety"},
+        }
+
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": release, "version": "3.5-ea.2", "konflux_app": "rhoai-v3-5-ea-2"},
+            "environment": "prod",
+            "resolve": {
+                "policy_files": ["registry-rhoai-prod.yaml"],
+                "end_of_support": "2027-06-01",
+            },
+        })
+        conforma_context_ops.update_step(run_dir, "fetch", "completed",
+            csv_files=[f"{release}.csv"],
+            source_path="prod/future/build_type_latest/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            source_sha="abc123",
+        )
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
+        conforma_context_ops.update_step(run_dir, "coverage", "completed", coverage_json="coverage.json")
+        conforma_context_ops.set_active(run_dir)
+
+        (run_dir / "violations.yaml").write_text(yaml.dump(violations_data), encoding="utf-8")
+        (run_dir / "coverage.json").write_text(json.dumps(coverage_data), encoding="utf-8")
+        (run_dir / f"{release}.csv").write_text(csv_content)
+
+        return run_dir
+
+    def test_reads_all_params_from_context(self, tmp_path, monkeypatch, sample_catalog):
+        run_dir = self._setup_run_with_artifacts(tmp_path, monkeypatch, sample_catalog)
+        monkeypatch.setattr("sys.argv", [
+            "generate_resolution_guide.py",
+            "--catalog", str(sample_catalog),
+        ])
+        rc = mod.main()
+        assert rc == 0
+        assert (run_dir / "conforma-status-and-resolution-guide.md").is_file()
+        assert (run_dir / "executive-summary.md").is_file()
+
+    def test_updates_context_after_generation(self, tmp_path, monkeypatch, sample_catalog):
+        run_dir = self._setup_run_with_artifacts(tmp_path, monkeypatch, sample_catalog)
+        monkeypatch.setattr("sys.argv", [
+            "generate_resolution_guide.py",
+            "--catalog", str(sample_catalog),
+        ])
+        mod.main()
+        ctx = conforma_context_ops.load(run_dir)
+        assert ctx["steps"]["resolution_guide"]["status"] == "completed"
+        assert ctx["steps"]["resolution_guide"]["guide_file"] == "conforma-status-and-resolution-guide.md"
+        assert ctx["steps"]["resolution_guide"]["executive_summary_file"] == "executive-summary.md"
+
+    def test_source_metadata_from_context(self, tmp_path, monkeypatch, sample_catalog):
+        run_dir = self._setup_run_with_artifacts(tmp_path, monkeypatch, sample_catalog)
+        monkeypatch.setattr("sys.argv", [
+            "generate_resolution_guide.py",
+            "--catalog", str(sample_catalog),
+        ])
+        mod.main()
+        content = (run_dir / "conforma-status-and-resolution-guide.md").read_text()
+        assert "2026-06-10" in content
+        assert "abc123" in content
+
+    def test_no_context_requires_explicit_args(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setattr("sys.argv", ["generate_resolution_guide.py"])
+        rc = mod.main()
+        assert rc == 1
 
 

@@ -7,13 +7,13 @@ on the release branch via the GitHub Contents API (direct commit).
 Usage:
     # Submit stage guide:
     python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \\
-      --guide-file .work/20260610-143449/conforma-status-and-resolution-guide.md \\
+      --guide-file ~/.conforma/20260610-143449/conforma-status-and-resolution-guide.md \\
       --release rhoai-3.5-ea.2 \\
       --environment stage
 
     # Dry run (no commit):
     python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \\
-      --guide-file .work/20260610-143449/conforma-status-and-resolution-guide.md \\
+      --guide-file ~/.conforma/20260610-143449/conforma-status-and-resolution-guide.md \\
       --release rhoai-3.5-ea.2 \\
       --environment prod \\
       --dry-run
@@ -31,8 +31,9 @@ from pathlib import Path
 
 import requests
 
-import _setup_env  # noqa: F401 -- loads .work/.env and adds scripts/ to sys.path
+import _setup_env  # noqa: F401 -- loads ~/.conforma/.env and adds scripts/ to sys.path
 
+import conforma_context_ops  # noqa: E402
 from conforma_constants import CONFORMA_REPORTER_REPO, GITHUB_API  # noqa: E402
 
 DEFAULT_FILENAME = "conforma-status-and-resolution-guide.md"
@@ -247,9 +248,14 @@ def submit_resolution_guide(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Submit a Conforma Resolution Guide to GitHub")
-    parser.add_argument("--guide-file", required=True, help="Path to the generated resolution guide markdown")
-    parser.add_argument("--release", required=True, help="Branch name (e.g. rhoai-3.5-ea.2)")
-    parser.add_argument("--environment", required=True, choices=["prod", "stage"],
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    parser.add_argument("--guide-file", default=None, help="Path to the generated resolution guide markdown")
+    parser.add_argument("--release", default=None, help="Branch name (e.g. rhoai-3.5-ea.2)")
+    parser.add_argument("--environment", default=None, choices=["prod", "stage"],
                         help="Target environment — determines the directory in the repo")
     parser.add_argument(
         "--metadata-file",
@@ -261,14 +267,37 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Print what would be done without committing")
     args = parser.parse_args()
 
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
+    release = conforma_context_ops.resolve_arg(args, "release", context, "application.release")
+
+    guide_file = args.guide_file
+    if guide_file is None and context:
+        ctx_guide = conforma_context_ops.get(run_dir, "steps.resolution_guide.guide_file", None)
+        if ctx_guide:
+            guide_file = str(Path(run_dir) / ctx_guide)
+    if guide_file is None:
+        print("Error: --guide-file is required when no run context is available", file=sys.stderr)
+        return 1
+
+    metadata_file = args.metadata_file
+
     result = submit_resolution_guide(
-        guide_file=args.guide_file,
-        release=args.release,
-        environment=args.environment,
+        guide_file=guide_file,
+        release=release,
+        environment=environment,
         repo=args.repo,
         message=args.message,
         dry_run=args.dry_run,
-        metadata_file=args.metadata_file,
+        metadata_file=metadata_file,
     )
 
     print(json.dumps(result, indent=2))
@@ -282,6 +311,9 @@ def main() -> int:
     else:
         action = "Updated" if result.get("overwritten") else "Created"
         print(f"{action}: {result['url']}", file=sys.stderr)
+
+    if run_dir and not args.dry_run:
+        conforma_context_ops.update_step(run_dir, "submit", "completed")
 
     return 0
 

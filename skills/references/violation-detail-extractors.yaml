@@ -34,11 +34,11 @@ rules:
       group: 1
 
   sbom_spdx.disallowed_package_attributes:
-    detail_label: "disallowed attribute"
+    detail_label: "disallowed package attribute"
     extraction:
       field: "message"
-      pattern: "has the attribute \"([^\"]+)\" set to \"([^\"]+)\""
-      format: "{1}={2}"
+      pattern: "Package (pkg:[^@\\s]+)\\S* has the attribute \"([^\"]+)\" set to \"([^\"]+)\""
+      format: "{1}:{2}={3}"
 
   rpm_packages.unique_version:
     detail_label: "package name"
@@ -62,6 +62,15 @@ rules:
       group: 1
 
   hermetic_task.hermetic:
+    detail_label: null
+
+  builtin.attestation.signature_check:
+    detail_label: null
+
+  builtin.attestation.syntax_check:
+    detail_label: null
+
+  builtin.image.signature_check:
     detail_label: null
 
   test.no_failed_tests:

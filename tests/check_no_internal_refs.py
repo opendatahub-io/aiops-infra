@@ -6,7 +6,7 @@ internal GitLab hostnames, Konflux cluster identifiers, OpenShift internal
 domains, and similar infrastructure details.
 
 Legitimate references to these services must use environment variables
-(e.g. $GITLAB_HOST) or the .work/.env mechanism — never hardcoded values.
+(e.g. $GITLAB_HOST) or the ~/.conforma/.env mechanism — never hardcoded values.
 
 Usage (as pre-commit hook — see .pre-commit-config.yaml):
     python tests/check_no_internal_refs.py
@@ -154,7 +154,7 @@ def main() -> int:
     print(
         "Hardcoded internal hostnames, cluster IDs, and infrastructure URLs must not\n"
         "be committed to this public repository. Use environment variables or\n"
-        ".work/.env instead.\n",
+        "~/.conforma/.env instead.\n",
         file=sys.stderr,
     )
 

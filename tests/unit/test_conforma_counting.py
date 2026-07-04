@@ -32,15 +32,23 @@ class TestCountFromRecords:
         assert counts.violations == 2
         assert counts.image_occurrences == 2
 
-    def test_same_semantic_detail_different_full_codes_collapses(self):
+    def test_same_package_different_digests_collapses(self):
         records = [
-            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"},
-            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/bar@2.0"},
-            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/baz@3.0"},
+            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/foo:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"},
+            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/foo:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"},
         ]
         counts = conforma_counting.count_from_records(records)
         assert counts.violations == 1
-        assert counts.full_violation_code_count == 3
+        assert counts.image_occurrences == 2
+
+    def test_different_packages_same_attribute_are_different_violations(self):
+        records = [
+            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/foo:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"},
+            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/bar:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/bar@2.0"},
+            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/baz:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/baz@3.0"},
+        ]
+        counts = conforma_counting.count_from_records(records)
+        assert counts.violations == 3
         assert counts.image_occurrences == 3
 
     def test_by_component_rule_sums_to_violations(self):

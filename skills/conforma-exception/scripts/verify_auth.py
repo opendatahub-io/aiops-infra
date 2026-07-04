@@ -42,7 +42,7 @@ def _jira_auth_fix() -> str:
     return (
         "Generate a Jira API token at:\n"
         "  https://id.atlassian.com/manage-profile/security/api-tokens\n"
-        "Then add to .work/.env:\n"
+        "Then add to ~/.conforma/.env:\n"
         "  JIRA_API_TOKEN=your-token\n"
         "  JIRA_EMAIL=your-email@redhat.com"
     )
@@ -54,7 +54,7 @@ def _gitlab_auth_fix() -> str:
     return (
         f"Generate a GitLab access token (api scope) at:\n"
         f"  {token_url}\n"
-        f"Then add to .work/.env:\n"
+        f"Then add to ~/.conforma/.env:\n"
         f"  GITLAB_TOKEN=your-access-token"
     )
 
@@ -166,7 +166,7 @@ def check_glab_push_access() -> dict:
 
 
 def _persist_token_if_needed(env_var: str, check_name: str, checks: list[dict]) -> None:
-    """No-op: tokens are managed via .work/.env and konflux_environment.load()."""
+    """No-op: tokens are managed via ~/.conforma/.env and konflux_environment.load()."""
     pass
 
 
@@ -180,7 +180,7 @@ def _setup_jira_rest_api(checks: list[dict]) -> None:
             "passed": has_token and has_email,
             "detail": "JIRA_API_TOKEN and JIRA_EMAIL available"
             if (has_token and has_email)
-            else "JIRA_API_TOKEN or JIRA_EMAIL not set in .work/.env",
+            else "JIRA_API_TOKEN or JIRA_EMAIL not set in ~/.conforma/.env",
             "fix": _jira_auth_fix() if not (has_token and has_email) else None,
         }
     )

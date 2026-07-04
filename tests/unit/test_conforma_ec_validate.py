@@ -65,10 +65,66 @@ def policy_file_no_k8s(tmp_path):
     return str(policy)
 
 
+class TestBuildSnapshotFromEntries:
+    def test_writes_spec_json(self, tmp_path):
+        entries = [
+            {"name": "comp1", "containerImage": "quay.io/x@sha256:aaa"},
+            {"name": "comp2", "containerImage": "quay.io/y@sha256:bbb"},
+        ]
+        output = str(tmp_path / "spec.json")
+        path = conforma_ec_validate.build_snapshot_from_entries(entries, output)
+        spec = json.loads(path.read_text())
+        assert len(spec["components"]) == 2
+        assert spec["components"][0]["name"] == "comp1"
+
+    def test_creates_parent_dirs(self, tmp_path):
+        entries = [{"name": "c", "containerImage": "img"}]
+        output = str(tmp_path / "nested" / "dir" / "spec.json")
+        path = conforma_ec_validate.build_snapshot_from_entries(entries, output)
+        assert path.exists()
+
+    def test_empty_entries_raises(self, tmp_path):
+        with pytest.raises(conforma_ec_validate.EcValidateError, match="No entries"):
+            conforma_ec_validate.build_snapshot_from_entries(
+                [], str(tmp_path / "spec.json")
+            )
+
+
+class TestGroupEntriesByBaseImage:
+    def test_groups_by_base_url(self):
+        entries = [
+            {"name": "comp1", "containerImage": "quay.io/rhoai/img@sha256:aaa"},
+            {"name": "comp1", "containerImage": "quay.io/rhoai/img@sha256:bbb"},
+            {"name": "comp2", "containerImage": "quay.io/rhoai/other@sha256:ccc"},
+        ]
+        groups = conforma_ec_validate.group_entries_by_base_image(entries)
+        assert len(groups) == 2
+        assert len(groups["quay.io/rhoai/img"]) == 2
+        assert len(groups["quay.io/rhoai/other"]) == 1
+
+    def test_handles_no_digest(self):
+        entries = [{"name": "c", "containerImage": "quay.io/img:latest"}]
+        groups = conforma_ec_validate.group_entries_by_base_image(entries)
+        assert "quay.io/img:latest" in groups
+
+    def test_empty_entries(self):
+        assert conforma_ec_validate.group_entries_by_base_image([]) == {}
+
+    def test_preserves_insertion_order(self):
+        entries = [
+            {"name": "c1", "containerImage": "quay.io/b@sha256:111"},
+            {"name": "c2", "containerImage": "quay.io/a@sha256:222"},
+            {"name": "c1", "containerImage": "quay.io/b@sha256:333"},
+        ]
+        groups = conforma_ec_validate.group_entries_by_base_image(entries)
+        keys = list(groups.keys())
+        assert keys == ["quay.io/b", "quay.io/a"]
+
+
 class TestBuildSnapshotFromCsv:
     def test_deduplicates_by_digest(self, csv_file, tmp_path):
         output = str(tmp_path / "spec.json")
-        conforma_ec_validate.build_snapshot_from_csv(csv_file, output)
+        path, entries = conforma_ec_validate.build_snapshot_from_csv(csv_file, output)
 
         spec = json.loads(Path(output).read_text())
         names = [c["name"] for c in spec["components"]]
@@ -77,12 +133,18 @@ class TestBuildSnapshotFromCsv:
         assert "model-registry-v3-5" in names
         assert len(spec["components"]) == 3
 
+    def test_returns_entries_list(self, csv_file, tmp_path):
+        output = str(tmp_path / "spec.json")
+        path, entries = conforma_ec_validate.build_snapshot_from_csv(csv_file, output)
+        assert len(entries) == 3
+        assert all("name" in e and "containerImage" in e for e in entries)
+        assert path.exists()
+
     def test_component_images_have_digests(self, csv_file, tmp_path):
         output = str(tmp_path / "spec.json")
-        conforma_ec_validate.build_snapshot_from_csv(csv_file, output)
-        spec = json.loads(Path(output).read_text())
-        for comp in spec["components"]:
-            assert "@sha256:" in comp["containerImage"]
+        _path, entries = conforma_ec_validate.build_snapshot_from_csv(csv_file, output)
+        for entry in entries:
+            assert "@sha256:" in entry["containerImage"]
 
     def test_empty_csv_raises(self, tmp_path):
         empty = tmp_path / "empty.csv"
@@ -94,8 +156,8 @@ class TestBuildSnapshotFromCsv:
 
     def test_creates_parent_dirs(self, csv_file, tmp_path):
         output = str(tmp_path / "nested" / "dir" / "spec.json")
-        conforma_ec_validate.build_snapshot_from_csv(csv_file, output)
-        assert Path(output).exists()
+        path, _entries = conforma_ec_validate.build_snapshot_from_csv(csv_file, output)
+        assert path.exists()
 
     def test_spec_json_structure(self, csv_file, tmp_path):
         output = str(tmp_path / "spec.json")
@@ -490,22 +552,22 @@ class TestEnsureEcBinary:
     @patch("conforma_ec_validate._find_ec_candidates")
     @patch("conforma_ec_validate._verify_ec_binary")
     def test_returns_first_working_candidate(self, mock_verify, mock_find):
-        mock_find.return_value = [Path("/usr/bin/ec"), Path(".work/bin/ec")]
+        mock_find.return_value = [Path("/usr/bin/ec"), Path("~/.conforma/bin/ec")]
         mock_verify.side_effect = [False, True]
 
         result = conforma_ec_validate.ensure_ec_binary()
-        assert result == Path(".work/bin/ec")
+        assert result == Path("~/.conforma/bin/ec")
 
     @patch("conforma_ec_validate._find_ec_candidates")
     @patch("conforma_ec_validate._verify_ec_binary")
     @patch("conforma_ec_validate._download_ec_binary")
     def test_downloads_when_no_candidates(self, mock_dl, mock_verify, mock_find):
         mock_find.return_value = []
-        mock_dl.return_value = Path(".work/bin/ec")
+        mock_dl.return_value = Path("~/.conforma/bin/ec")
 
         result = conforma_ec_validate.ensure_ec_binary()
         mock_dl.assert_called_once()
-        assert result == Path(".work/bin/ec")
+        assert result == Path("~/.conforma/bin/ec")
 
     @patch("conforma_ec_validate._find_ec_candidates")
     @patch("conforma_ec_validate._verify_ec_binary")
@@ -513,7 +575,7 @@ class TestEnsureEcBinary:
     def test_downloads_when_no_working_candidates(self, mock_dl, mock_verify, mock_find):
         mock_find.return_value = [Path("/usr/bin/ec")]
         mock_verify.return_value = False
-        mock_dl.return_value = Path(".work/bin/ec")
+        mock_dl.return_value = Path("~/.conforma/bin/ec")
 
         result = conforma_ec_validate.ensure_ec_binary()
         mock_dl.assert_called_once()

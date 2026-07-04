@@ -7,13 +7,15 @@ Auth tokens are applied automatically for GitHub and GitLab URLs.
 Usage:
     # Validate a specific guide file:
     python3 skills/conforma-analyze/scripts/validate_guide_links.py \
-      --guide-file .work/20260610-143449/conforma-status-and-resolution-guide.md
+      --guide-file ~/.conforma/20260610-143449/conforma-status-and-resolution-guide.md
 
-    # Auto-find the most recent guide in .work/:
+    # Auto-find the most recent guide in ~/.conforma/:
     python3 skills/conforma-analyze/scripts/validate_guide_links.py --latest
 """
 
 from __future__ import annotations
+
+import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
 import argparse
 import glob
@@ -27,6 +29,7 @@ from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import urlparse
 
+import conforma_context_ops  # noqa: E402
 import requests
 
 LINK_CHECK_TIMEOUT = 15
@@ -227,19 +230,48 @@ def find_latest_guide(work_dir: str = ".work") -> str | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate links in a Conforma Resolution Guide")
-    group = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument("--guide-file", help="Path to the resolution guide markdown")
-    group.add_argument("--latest", action="store_true", help="Auto-find the most recent guide in .work/")
-    parser.add_argument("--work-dir", default=".work", help="Work directory to search (with --latest)")
+    group.add_argument("--latest", action="store_true", help="Auto-find the most recent guide")
+    parser.add_argument("--work-dir", default=None, help="Work directory to search (with --latest)")
     args = parser.parse_args()
 
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
     if args.latest:
-        guide_file = find_latest_guide(args.work_dir)
+        work_dir = args.work_dir
+        if work_dir is None and context:
+            work_dir = str(conforma_context_ops.discover_work_dir())
+        elif work_dir is None:
+            work_dir = ".work"
+        guide_file = find_latest_guide(work_dir)
         if not guide_file:
-            print(json.dumps({"error": "No resolution guide found in .work/", "all_ok": True}))
+            print(json.dumps({"error": f"No resolution guide found in {work_dir}/", "all_ok": True}))
             return 0
-    else:
+    elif args.guide_file:
         guide_file = args.guide_file
+    elif context:
+        ctx_guide = conforma_context_ops.get(run_dir, "steps.resolution_guide.guide_file", None)
+        if ctx_guide:
+            guide_file = str(Path(run_dir) / ctx_guide)
+        else:
+            print(json.dumps({"error": "No guide_file in context (steps.resolution_guide.guide_file)", "all_ok": False}))
+            return 1
+    else:
+        print(json.dumps({"error": "--guide-file or --latest is required when no run context is available", "all_ok": False}))
+        return 1
 
     path = Path(guide_file)
     if not path.exists():

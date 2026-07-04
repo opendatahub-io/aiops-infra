@@ -54,7 +54,7 @@ from pathlib import Path
 
 import requests
 
-import _setup_env  # noqa: F401 -- loads .work/.env and adds scripts/ to sys.path
+import _setup_env  # noqa: F401 -- loads ~/.conforma/.env and adds scripts/ to sys.path
 
 from conforma_constants import (
     CONFORMA_REPORTER_REPO,

@@ -28,6 +28,7 @@ from __future__ import annotations
 import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
 import argparse
+import conforma_context_ops
 import csv
 import re
 import sys
@@ -729,13 +730,18 @@ def _enrich_with_catalog(index: dict) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Parse conforma violation and warnings CSVs into structured YAML")
     parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    parser.add_argument(
         "--reports-dir",
-        required=True,
+        default=None,
         help="Directory containing per-release CSV files ({release}.csv and {release}-warnings.csv)",
     )
     parser.add_argument(
         "--output",
-        required=True,
+        default=None,
         help="Output YAML file path",
     )
     parser.add_argument(
@@ -776,11 +782,42 @@ def main() -> int:
     )
     parser.add_argument(
         "--environment",
-        required=True,
+        default=None,
         choices=["prod", "stage"],
         help="Target environment (prod or stage) — determines which CSV report URLs are generated",
     )
     args = parser.parse_args()
+
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
+
+    target_release = args.release
+    if target_release is None and context:
+        target_release = conforma_context_ops.get(run_dir, "application.release", None)
+
+    if args.reports_dir:
+        reports_dir_path = Path(args.reports_dir)
+    elif run_dir:
+        reports_dir_path = Path(run_dir)
+    else:
+        print("Error: --reports-dir is required when no run context is available", file=sys.stderr)
+        return 1
+
+    if args.output:
+        output_path = Path(args.output)
+    elif run_dir:
+        output_path = Path(run_dir) / "violations.yaml"
+    else:
+        print("Error: --output is required when no run context is available", file=sys.stderr)
+        return 1
 
     if not args.no_catalog:
         import component_catalog_ops
@@ -796,25 +833,24 @@ def main() -> int:
             return 1
         print(f"  Catalog ready at {cat_result['path']}", file=sys.stderr)
 
-    reports_dir = Path(args.reports_dir)
-    if not reports_dir.is_dir():
-        print(f"Error: reports directory not found: {reports_dir}", file=sys.stderr)
+    if not reports_dir_path.is_dir():
+        print(f"Error: reports directory not found: {reports_dir_path}", file=sys.stderr)
         return 1
 
-    if args.release:
-        target_csv = reports_dir / f"{args.release}.csv"
+    if target_release:
+        target_csv = reports_dir_path / f"{target_release}.csv"
         if not target_csv.exists():
             print(
-                f"Error: no CSV found for release '{args.release}' "
+                f"Error: no CSV found for release '{target_release}' "
                 f"(expected {target_csv})",
                 file=sys.stderr,
             )
             return 1
         violation_csv_files = [target_csv]
     else:
-        violation_csv_files = sorted(f for f in reports_dir.glob("*.csv") if not f.name.endswith("-warnings.csv"))
+        violation_csv_files = sorted(f for f in reports_dir_path.glob("*.csv") if not f.name.endswith("-warnings.csv"))
     if not violation_csv_files:
-        print(f"Error: no violation CSV files found in {reports_dir}", file=sys.stderr)
+        print(f"Error: no violation CSV files found in {reports_dir_path}", file=sys.stderr)
         return 1
 
     all_records: list[dict] = []
@@ -830,11 +866,11 @@ def main() -> int:
 
     upcoming_records: list[dict] = []
     if not args.no_warnings:
-        if args.release:
-            target_warn = reports_dir / f"{args.release}-warnings.csv"
+        if target_release:
+            target_warn = reports_dir_path / f"{target_release}-warnings.csv"
             warning_csv_files = [target_warn] if target_warn.exists() else []
         else:
-            warning_csv_files = sorted(reports_dir.glob("*-warnings.csv"))
+            warning_csv_files = sorted(reports_dir_path.glob("*-warnings.csv"))
         for csv_path in warning_csv_files:
             release = csv_path.stem.removesuffix("-warnings")
             print(f"Parsing warnings {csv_path.name}...", file=sys.stderr)
@@ -858,7 +894,7 @@ def main() -> int:
     index = build_violations_index(
         all_records,
         releases,
-        args.environment,
+        environment,
         failed_releases,
         report_dates,
         upcoming_records=upcoming_records or None,
@@ -882,9 +918,14 @@ def main() -> int:
         )
     comment_header = "\n".join(comment_parts)
 
-    output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(_safe_yaml_dump(index, comment_header), encoding="utf-8")
+
+    if run_dir:
+        conforma_context_ops.update_step(
+            run_dir, "parse", "completed",
+            violations_yaml=output_path.name,
+        )
 
     total_counts = conforma_counting.count_from_records(
         all_records,

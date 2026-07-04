@@ -9,14 +9,16 @@ Only analyzes prod policy files by default.  Use ``--environment stage``
 to analyze stage files instead.
 
 Usage:
-  python3 scripts/list_exceptions.py --clone-dir .work/konflux-release-data
-  python3 scripts/list_exceptions.py --clone-dir .work/konflux-release-data --environment stage
-  python3 scripts/list_exceptions.py --clone-dir .work/konflux-release-data --soon-days 30
+  python3 scripts/list_exceptions.py --clone-dir ~/.conforma/konflux-release-data
+  python3 scripts/list_exceptions.py --clone-dir ~/.conforma/konflux-release-data --environment stage
+  python3 scripts/list_exceptions.py --clone-dir ~/.conforma/konflux-release-data --soon-days 30
 """
 
 from __future__ import annotations
 
 import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
+
+import conforma_context_ops  # noqa: E402
 
 import argparse
 import os
@@ -310,10 +312,15 @@ def _render_report(
 def main() -> int:
     parser = argparse.ArgumentParser(description=("List current RHOAI Conforma exceptions as formatted Markdown"))
     parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    parser.add_argument(
         "--environment",
-        default="prod",
+        default=None,
         choices=["prod", "stage"],
-        help="Target environment (default: prod)",
+        help="Target environment (auto-discovered from run context if omitted)",
     )
     parser.add_argument(
         "--clone-dir",
@@ -327,6 +334,20 @@ def main() -> int:
         help=(f"Days threshold for the 'expiring soon' section (default: {_DEFAULT_SOON_DAYS})"),
     )
     args = parser.parse_args()
+
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    args.environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
+
+    if args.clone_dir is None and context:
+        args.clone_dir = str(conforma_context_ops.discover_work_dir() / "konflux-release-data")
 
     clone_dir_arg = Path(args.clone_dir) if args.clone_dir else None
 

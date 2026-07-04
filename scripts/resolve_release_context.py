@@ -22,6 +22,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import conforma_context_ops
 import gitlab_ops
 import konflux_environment
 import release_dates
@@ -175,6 +176,7 @@ def _build_links(
     tenant: str = "",
     konflux_app: str = "",
     environment: str = "",
+    self_service_files: list[str] | None = None,
 ) -> dict:
     """Build clickable URLs for cluster, policy dir, and policy files."""
     links: dict[str, str | list[dict[str, str]]] = {}
@@ -199,6 +201,14 @@ def _build_links(
                 }
                 for f in sorted(relevant)
             ]
+    if self_service_files and gitlab_host:
+        links["self_service_exception_files"] = [
+            {
+                "name": f,
+                "url": f"https://{gitlab_host}/{gitlab_project}/-/blob/main/exceptions/{f}",
+            }
+            for f in sorted(self_service_files)
+        ]
     return links
 
 
@@ -211,7 +221,11 @@ def _format_resolved(
     environment: str,
     links: dict | None = None,
     end_of_support: str | None = None,
+    code_freeze_date: str | None = None,
+    code_freeze_source: str = "",
     upcoming_release_date: str | None = None,
+    upcoming_release_source: str = "",
+    eos_source: str = "",
 ) -> str:
     release = version_to_release(version_dir)
     app = version_to_konflux_app(version_dir)
@@ -229,6 +243,11 @@ def _format_resolved(
     policy_file_links = []
     if links and links.get("policy_files"):
         policy_file_links = [f"[{f['name']}]({f['url']})" for f in links["policy_files"]]
+    if links and links.get("self_service_exception_files"):
+        policy_file_links.extend(
+            f"[exceptions/{f['name']}]({f['url']})"
+            for f in links["self_service_exception_files"]
+        )
 
     import release_dates
     from conforma_constants import build_report_url
@@ -252,9 +271,14 @@ def _format_resolved(
         f"| **Conforma policy dir** | {policy_dir_text} |",
         f"| **Environment** | {environment} |",
     ]
+    if code_freeze_date:
+        cf_source_text = f" based on {code_freeze_source}," if code_freeze_source else ""
+        lines.append(f"| **Code freeze ({version_label})** | {code_freeze_date} —{cf_source_text} verify on [Product Pages]({product_pages_url}) |")
     if upcoming_release_date:
-        lines.append(f"| **Upcoming release date ({version_label})** | {upcoming_release_date} — verify on [Product Pages]({product_pages_url}) |")
-    lines.append(f"| **End of Support ({version_label})** | {eos_text} — verify on [Product Pages]({product_pages_url}) |")
+        upcoming_source_text = f" based on {upcoming_release_source}," if upcoming_release_source else ""
+        lines.append(f"| **Upcoming release date ({version_label})** | {upcoming_release_date} —{upcoming_source_text} verify on [Product Pages]({product_pages_url}) |")
+    eos_source_text = f" based on {eos_source}," if eos_source else ""
+    lines.append(f"| **End of Support ({version_label})** | {eos_text} —{eos_source_text} verify on [Product Pages]({product_pages_url}) |")
     if policy_file_links:
         files_cell = " · ".join(policy_file_links)
         lines.append(f"| **Policy files** | {files_cell} |")
@@ -370,7 +394,7 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
         display = _format_error([
             f"GitLab tree query failed: {exc}",
             "",
-            "Check GITLAB_HOST, GITLAB_TOKEN, and GITLAB_PROJECT in .work/.env",
+            "Check GITLAB_HOST, GITLAB_TOKEN, and GITLAB_PROJECT in ~/.conforma/.env",
         ])
         return {"status": "error", "confirmation_display": display}
 
@@ -382,21 +406,36 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
         gitlab_project = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
         policy_files_raw = os.environ.get("KONFLUX_CONFORMA_POLICY_FILES", "")
         policy_files = [f.strip() for f in policy_files_raw.split(",") if f.strip()]
+        self_service_raw = os.environ.get("KONFLUX_SELF_SERVICE_FILES", "")
+        all_self_service = [f.strip() for f in self_service_raw.split(",") if f.strip()]
         app_slug = "rhoai"
+        self_service_files = [
+            f for f in all_self_service
+            if app_slug in f and f"-{environment}." in f
+        ]
+        relevant_policy = [f for f in policy_files if app_slug in f]
+        if environment:
+            relevant_policy = [f for f in relevant_policy if f"-{environment}." in f]
         release_branch = version_to_release(v)
         konflux_app = version_to_konflux_app(v)
-        eos_date = release_dates.get_eos_date(release_branch)
-        upcoming_release_date = release_dates.get_upcoming_release_date(release_branch)
+        eos_date, eos_source = release_dates.get_eos_date_with_source(release_branch)
+        upcoming_release_date, upcoming_release_source = release_dates.get_upcoming_release_date_with_source(release_branch)
+        code_freeze_date, code_freeze_source = release_dates.get_code_freeze_date_with_source(release_branch)
         links = _build_links(
             cluster_domain, policy_dir, gitlab_host, gitlab_project, policy_files, app_slug,
             tenant=tenant, konflux_app=konflux_app, environment=environment,
+            self_service_files=self_service_files,
         )
         display = _format_resolved(
             query, v, cluster_domain, tenant, policy_dir,
             environment=environment,
             links=links,
             end_of_support=eos_date,
+            code_freeze_date=code_freeze_date,
+            code_freeze_source=code_freeze_source,
             upcoming_release_date=upcoming_release_date,
+            upcoming_release_source=upcoming_release_source,
+            eos_source=eos_source,
         )
         return {
             "status": "resolved",
@@ -407,9 +446,12 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
             "cluster_id": cluster_id,
             "tenant": tenant,
             "conforma_policy_dir": policy_dir,
+            "policy_files": relevant_policy,
             "environment": environment,
             "end_of_support": eos_date,
             "upcoming_release_date": upcoming_release_date,
+            "code_freeze_date": code_freeze_date,
+            "self_service_files": self_service_files,
             "available_versions": available,
             "links": links,
             "confirmation_display": display,
@@ -537,18 +579,52 @@ def main() -> int:
     else:
         result = resolve(args.query, environment_override=args.environment)
 
-    if args.output_dir and result.get("status") == "resolved":
-        existing_context = Path(args.output_dir) / "resolve-context.json"
+    if result.get("status") == "resolved":
+        if args.output_dir:
+            base_dir = Path(args.output_dir)
+        else:
+            base_dir = conforma_context_ops.discover_work_dir()
+
+        existing_context = base_dir / "resolve-context.json"
         if existing_context.is_file():
-            rundir = str(Path(args.output_dir))
+            rundir = str(base_dir)
             print(f"Reusing existing run directory: {rundir}", file=sys.stderr)
         else:
-            rundir = create_rundir(args.output_dir)
+            rundir = create_rundir(str(base_dir))
             print(f"Run directory created: {rundir}", file=sys.stderr)
+
+        rundir_path = Path(rundir)
+
+        context_initial = {
+            "application": {
+                "name": "rhoai",
+                "version": result["version_dir"].lstrip("v"),
+                "release": result["release"],
+                "konflux_app": result["konflux_app"],
+            },
+            "environment": result["environment"],
+            "resolve": {
+                "version_dir": result["version_dir"],
+                "cluster_domain": result["cluster_domain"],
+                "cluster_id": result["cluster_id"],
+                "tenant": result["tenant"],
+                "conforma_policy_dir": result.get("conforma_policy_dir", ""),
+                "policy_files": result.get("policy_files", []),
+                "self_service_files": result.get("self_service_files", []),
+                "end_of_support": result.get("end_of_support"),
+                "upcoming_release_date": result.get("upcoming_release_date"),
+                "code_freeze_date": result.get("code_freeze_date"),
+                "links": result.get("links", {}),
+            },
+        }
+
+        conforma_context_ops.create(rundir_path, context_initial)
+        conforma_context_ops.set_active(rundir_path)
+
         result["rundir"] = rundir
-        context_path = Path(rundir) / "resolve-context.json"
-        context_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        print(f"Context saved to: {context_path}", file=sys.stderr)
+        context_json_path = rundir_path / "resolve-context.json"
+        context_json_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        print(f"Context saved to: {context_json_path}", file=sys.stderr)
 
     json.dump(result, sys.stdout, indent=2)
     print()

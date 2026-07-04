@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import pytest
+import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-_spec = importlib.util.spec_from_file_location(
-    "check_readiness",
-    _REPO_ROOT / "skills/conforma-release-readiness/scripts/check_readiness.py",
-)
-check_readiness = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(check_readiness)
+import check_readiness
+import conforma_context_ops
 
 
 @pytest.fixture
@@ -113,3 +108,87 @@ class TestCheckReadiness:
         ]
         result = check_readiness.check_readiness("rhoai-3.4", violations_data, exceptions)
         assert result["verdict"] == "NO-SHIP"
+
+
+class TestContextIntegration:
+    """Tests for context-based parameter discovery in main()."""
+
+    def _setup_run_with_violations(self, tmp_path):
+        """Create a run directory with context.yaml and a violations YAML file."""
+        run_dir = tmp_path / "20260703-120000"
+        run_dir.mkdir()
+
+        violations = {
+            "violation_data": {
+                "violations_by_rule": {
+                    "hermetic_task.hermetic": {
+                        "title": "Hermetic build required",
+                        "base_code": "hermetic_task.hermetic",
+                        "releases": {"rhoai-3.5-ea.2": ["comp-a"]},
+                    },
+                },
+            },
+        }
+        viol_path = run_dir / "violations.yaml"
+        viol_path.write_text(yaml.dump(violations), encoding="utf-8")
+
+        context = {
+            "application": {"release": "rhoai-3.5-ea.2"},
+            "environment": "prod",
+            "run": {"run_dir": conforma_context_ops.contract_home(run_dir)},
+            "steps": {
+                "parse": {
+                    "status": "completed",
+                    "violations_yaml": "violations.yaml",
+                },
+            },
+        }
+        context_path = run_dir / "context.yaml"
+        context_path.write_text(yaml.dump(context), encoding="utf-8")
+
+        work_dir = tmp_path / ".conforma"
+        work_dir.mkdir(exist_ok=True)
+        active_link = work_dir / ".conforma-active"
+        active_link.symlink_to(run_dir)
+
+        return run_dir, work_dir
+
+    def test_reads_params_from_context(self, tmp_path, monkeypatch):
+        """Zero-arg invocation resolves release, violations, environment from context."""
+        run_dir, work_dir = self._setup_run_with_violations(tmp_path)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["check_readiness.py"])
+
+        rc = check_readiness.main()
+        assert rc in (0, 1)
+
+    def test_cli_overrides_context(self, tmp_path, monkeypatch):
+        """Explicit CLI args override context values."""
+        run_dir, work_dir = self._setup_run_with_violations(tmp_path)
+        viol_path = run_dir / "violations.yaml"
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", [
+            "check_readiness.py",
+            "--release", "rhoai-3.4",
+            "--violations-input", str(viol_path),
+            "--environment", "stage",
+        ])
+
+        rc = check_readiness.main()
+        assert rc in (0, 1)
+
+    def test_explicit_run_dir(self, tmp_path, monkeypatch):
+        """--run-dir works without symlink."""
+        run_dir, _ = self._setup_run_with_violations(tmp_path)
+        monkeypatch.setattr("sys.argv", ["check_readiness.py", "--run-dir", str(run_dir)])
+
+        rc = check_readiness.main()
+        assert rc in (0, 1)
+
+    def test_no_context_requires_explicit_args(self, tmp_path, monkeypatch):
+        """Without context and without required args, main() exits with error."""
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty"))
+        monkeypatch.setattr("sys.argv", ["check_readiness.py"])
+
+        with pytest.raises(SystemExit):
+            check_readiness.main()

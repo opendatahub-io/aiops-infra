@@ -41,7 +41,7 @@ When the user asks "can X ship?", "is X ready?", "release readiness for X":
 ```bash
 python3 skills/conforma-release-readiness/scripts/check_readiness.py \
   --release rhoai-3.5 \
-  --violations-input .work/conforma-analyze.yaml
+  --violations-input ~/.conforma/conforma-analyze.yaml
 ```
 
 4. **Present the verdict** to the user.
@@ -64,11 +64,11 @@ The readiness check produces:
 **"Can rhoai-3.5 ship?"**
 
 ```bash
-python3 skills/conforma-release-readiness/scripts/check_readiness.py --release rhoai-3.5 --violations-input .work/violations.yaml
+python3 skills/conforma-release-readiness/scripts/check_readiness.py --release rhoai-3.5 --violations-input ~/.conforma/violations.yaml
 ```
 
 **"Release readiness for 3.4"**
 
 ```bash
-python3 skills/conforma-release-readiness/scripts/check_readiness.py --release rhoai-3.4 --violations-input .work/violations.yaml
+python3 skills/conforma-release-readiness/scripts/check_readiness.py --release rhoai-3.4 --violations-input ~/.conforma/violations.yaml
 ```

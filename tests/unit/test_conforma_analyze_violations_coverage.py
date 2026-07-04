@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
+import yaml
 
+import conforma_context_ops
 import conforma_mr_ops
 import conforma_policy_ops
 import violations_coverage as mod
@@ -54,12 +57,12 @@ class TestRenderViolationsMarkdownTable:
         row.update(overrides)
         return row
 
-    def test_table_has_five_columns(self):
+    def test_table_has_six_columns(self):
         results = [self._make_row()]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         md = mod._render_violations_markdown_table(results, summary)
         header_line = [l for l in md.splitlines() if l.startswith("| #")][0]
-        assert header_line.count("|") == 6  # 5 columns = 6 pipe chars
+        assert header_line.count("|") == 7  # 6 columns = 7 pipe chars
 
     def test_column_headers(self):
         results = [self._make_row()]
@@ -68,10 +71,10 @@ class TestRenderViolationsMarkdownTable:
         assert "| Violation |" in md
         assert "| Count |" in md
         assert "| Status |" in md
+        assert "| Jira |" in md
         assert "| Next Steps |" in md
         assert "Components" not in md
         assert "Open Merge Requests" not in md
-        assert "Open Jira" not in md
         assert "Slack" not in md
 
     def test_next_steps_short_used_in_table(self):
@@ -102,6 +105,12 @@ class TestRenderViolationsMarkdownTable:
         md = mod._render_violations_markdown_table(results, summary)
         assert "| Status |" in md
         assert "No coverage" in md
+
+    def test_jira_label_in_row(self):
+        results = [self._make_row(open_jira_label="[RHOAIENG-123](https://jira/123)")]
+        summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
+        md = mod._render_violations_markdown_table(results, summary)
+        assert "[RHOAIENG-123](https://jira/123)" in md
 
     def test_report_header_with_metadata(self):
         results = [self._make_row()]
@@ -841,5 +850,256 @@ class TestComponentPolicyMapping:
             "odh-dashboard-v3-5-ea-2", [], mapping_rules,
         )
         assert result is None
+
+
+class TestSelfServiceCoverageMerge:
+    """Tests for self-service exception coverage merge in check_violations_coverage."""
+
+    def _mock_dependencies(self, monkeypatch, ec_viols, ec_succ):
+        """Stub heavy dependencies so check_violations_coverage runs without network."""
+        import conforma_mr_ops
+
+        monkeypatch.setattr(
+            mod, "_run_ec_coverage",
+            lambda *_a, **_kw: {"violations": ec_viols, "successes": ec_succ, "validation": {}},
+        )
+        monkeypatch.setattr(conforma_policy_ops, "refresh_clone", lambda *_a, **_kw: None)
+        monkeypatch.setattr(conforma_policy_ops, "check_existing_exception_gate", lambda **_kw: {
+            "checked": False, "status": "error", "open_merge_requests": [],
+            "permanent_exclusions": [], "existing_exceptions": [],
+        })
+        monkeypatch.setattr(conforma_mr_ops, "prefetch_open_mrs", lambda *_a, **_kw: {})
+
+    def _write_violations_yaml(self, tmp_path):
+        import yaml
+
+        viols_data = {
+            "violation_data": {
+                "releases": ["rhoai-3.5-ea.2"],
+                "violations_by_rule": {
+                    "hermetic_task.hermetic": {
+                        "base_code": "hermetic_task.hermetic",
+                        "releases": {"rhoai-3.5-ea.2": ["comp-a"]},
+                        "components": ["comp-a"],
+                    },
+                },
+                "violations_by_component": {"comp-a": {"jira_component": None}},
+            },
+        }
+        viols_path = tmp_path / "violations.yaml"
+        viols_path.write_text(yaml.dump(viols_data))
+        return viols_path
+
+    def test_ec_uncovered_rescued_by_self_service(self, tmp_path, monkeypatch):
+        """EC says uncovered, self-service file covers it → reclassified as covered."""
+        import yaml
+
+        exc_dir = tmp_path / "exceptions"
+        exc_dir.mkdir()
+        (exc_dir / "registry-rhoai-stage.yaml").write_text(yaml.dump([
+            {"value": "hermetic_task.hermetic"},
+        ]))
+
+        viols_path = self._write_violations_yaml(tmp_path)
+        self._mock_dependencies(
+            monkeypatch,
+            ec_viols={"comp-a": {"hermetic_task.hermetic"}},
+            ec_succ={"comp-a": set()},
+        )
+
+        result = mod.check_violations_coverage(
+            violations_yaml_path=str(viols_path),
+            policy_files=["registry-rhoai-stage.yaml"],
+            environment="stage",
+            clone_dir=str(tmp_path),
+            csv_path=str(tmp_path / "dummy.csv"),
+            self_service_files=["registry-rhoai-stage.yaml"],
+            require_jira=False,
+            require_slack=False,
+        )
+        v = result["violations"][0]
+        assert v["coverage"] == "fully_covered"
+        assert "self-service" in v["coverage_label"]
+
+    def test_ec_covered_stays_covered(self, tmp_path, monkeypatch):
+        """EC already says covered → stays covered, self-service not even checked."""
+        viols_path = self._write_violations_yaml(tmp_path)
+        self._mock_dependencies(
+            monkeypatch,
+            ec_viols={"comp-a": set()},
+            ec_succ={"comp-a": {"hermetic_task.hermetic"}},
+        )
+
+        result = mod.check_violations_coverage(
+            violations_yaml_path=str(viols_path),
+            policy_files=["registry-rhoai-stage.yaml"],
+            environment="stage",
+            clone_dir=str(tmp_path),
+            csv_path=str(tmp_path / "dummy.csv"),
+            self_service_files=["registry-rhoai-stage.yaml"],
+            require_jira=False,
+            require_slack=False,
+        )
+        v = result["violations"][0]
+        assert v["coverage"] == "fully_covered"
+        assert "Conforma engine" in v["coverage_label"]
+
+    def test_empty_self_service_files_no_change(self, tmp_path, monkeypatch):
+        """No self-service files → EC result stands unchanged."""
+        viols_path = self._write_violations_yaml(tmp_path)
+        self._mock_dependencies(
+            monkeypatch,
+            ec_viols={"comp-a": {"hermetic_task.hermetic"}},
+            ec_succ={"comp-a": set()},
+        )
+
+        result = mod.check_violations_coverage(
+            violations_yaml_path=str(viols_path),
+            policy_files=["registry-rhoai-stage.yaml"],
+            environment="stage",
+            clone_dir=str(tmp_path),
+            csv_path=str(tmp_path / "dummy.csv"),
+            self_service_files=[],
+            require_jira=False,
+            require_slack=False,
+        )
+        v = result["violations"][0]
+        assert v["coverage"] == "not_covered"
+
+    def test_resolve_context_extracts_self_service_files(self, tmp_path, monkeypatch):
+        """Self-service files from resolve context are passed to check_violations_coverage."""
+        captured_kwargs = {}
+
+        def mock_check(**kwargs):
+            captured_kwargs.update(kwargs)
+            return {"summary": {"total": 0}, "violations": []}
+
+        monkeypatch.setattr(mod, "check_violations_coverage", mock_check)
+
+        resolve_ctx = {
+            "links": {
+                "policy_files": [
+                    {"name": "registry-rhoai-stage.yaml", "url": "https://example.com/a.yaml"},
+                ],
+                "self_service_exception_files": [
+                    {"name": "registry-rhoai-stage.yaml", "url": "https://example.com/ss1.yaml"},
+                    {"name": "fbc-rhoai-stage.yaml", "url": "https://example.com/ss2.yaml"},
+                ],
+            },
+        }
+        rc_file = tmp_path / "resolve-context.json"
+        rc_file.write_text(json.dumps(resolve_ctx))
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "violations_coverage.py",
+                "--violations-yaml", "dummy.yaml",
+                "--csv", "dummy.csv",
+                "--environment", "stage",
+                "--clone-dir", str(tmp_path),
+                "--resolve-context-json", str(rc_file),
+            ],
+        )
+        mod.main()
+        assert captured_kwargs["self_service_files"] == [
+            "registry-rhoai-stage.yaml",
+            "fbc-rhoai-stage.yaml",
+        ]
+
+
+class TestContextIntegration:
+    """Tests for context.yaml auto-discovery and parameter resolution."""
+
+    def _mock_check(self, monkeypatch):
+        captured = {}
+
+        def mock(**kwargs):
+            captured.update(kwargs)
+            return {"summary": {"total": 0}, "violations": []}
+
+        monkeypatch.setattr(mod, "check_violations_coverage", mock)
+        return captured
+
+    def test_reads_params_from_context(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
+            "environment": "prod",
+            "resolve": {
+                "policy_files": ["registry-rhoai-prod.yaml"],
+                "self_service_files": ["registry-rhoai-prod.yaml"],
+            },
+        })
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.1.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
+        conforma_context_ops.set_active(run_dir)
+        (run_dir / "rhoai-3.5-ea.1.csv").write_text("header\n")
+        (run_dir / "violations.yaml").write_text("violation_data: {}\n")
+
+        captured = self._mock_check(monkeypatch)
+        monkeypatch.setattr("sys.argv", ["violations_coverage.py"])
+        mod.main()
+
+        assert captured["environment"] == "prod"
+        assert captured["violations_yaml_path"].endswith("violations.yaml")
+        assert captured["csv_path"].endswith("rhoai-3.5-ea.1.csv")
+        assert captured["release"] == "rhoai-3.5-ea.1"
+        assert captured["policy_files"] == ["registry-rhoai-prod.yaml"]
+        assert captured["self_service_files"] == ["registry-rhoai-prod.yaml"]
+
+    def test_updates_context_after_coverage(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
+            "environment": "prod",
+            "resolve": {"policy_files": ["registry-rhoai-prod.yaml"]},
+        })
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.1.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
+        conforma_context_ops.set_active(run_dir)
+        (run_dir / "rhoai-3.5-ea.1.csv").write_text("header\n")
+        (run_dir / "violations.yaml").write_text("violation_data: {}\n")
+
+        self._mock_check(monkeypatch)
+        monkeypatch.setattr("sys.argv", ["violations_coverage.py", "--clone-dir", str(tmp_path)])
+        mod.main()
+
+        ctx = conforma_context_ops.load(run_dir)
+        assert ctx["steps"]["coverage"]["status"] == "completed"
+        assert ctx["steps"]["coverage"]["coverage_json"] == "coverage.json"
+
+    def test_cli_overrides_context(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
+            "environment": "prod",
+            "resolve": {"policy_files": ["context-policy.yaml"]},
+        })
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.1.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
+        conforma_context_ops.set_active(run_dir)
+        (run_dir / "rhoai-3.5-ea.1.csv").write_text("header\n")
+        (run_dir / "violations.yaml").write_text("violation_data: {}\n")
+
+        captured = self._mock_check(monkeypatch)
+        monkeypatch.setattr("sys.argv", [
+            "violations_coverage.py",
+            "--policy-files", "cli-policy.yaml",
+            "--environment", "stage",
+        ])
+        mod.main()
+
+        assert captured["environment"] == "stage"
+        assert captured["policy_files"] == ["cli-policy.yaml"]
+
+    def test_no_context_requires_explicit_args(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setattr("sys.argv", ["violations_coverage.py"])
+        with pytest.raises(SystemExit):
+            mod.main()
 
 

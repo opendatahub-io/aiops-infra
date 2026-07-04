@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
+import conforma_context_ops  # noqa: E402
+
 import json
 import subprocess
 import sys
@@ -225,6 +227,11 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="Conforma exception create orchestrator")
     parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    parser.add_argument(
         "--list-exception-types",
         action="store_true",
         help="List known exception types as JSON and exit. Shows only the 7 most "
@@ -240,7 +247,7 @@ def main() -> int:
     parser.add_argument("--rule", default=None)
     parser.add_argument("--components", default=None)
     parser.add_argument("--effective-until-date", default=None)
-    parser.add_argument("--environment", required=True, choices=["prod", "stage"])
+    parser.add_argument("--environment", default=None, choices=["prod", "stage"])
     parser.add_argument("--rhoaieng-url", default=None, help="Deprecated alias for --violation-jira-url")
     parser.add_argument("--violation-jira-url", default=None, help="Existing RHOAIENG violation report URL")
     parser.add_argument("--remediation-jira-url", default=None, help="Existing RHOAIENG remediation URL")
@@ -315,6 +322,22 @@ def main() -> int:
         output = list_exception_types(show_all=args.show_all)
         print(json.dumps(output, indent=2))
         return 0
+
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    args.environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
+
+    if args.rhoai_version is None and context:
+        args.rhoai_version = conforma_context_ops.get(run_dir, "application.version", None)
+        if args.rhoai_version:
+            args.rhoai_version = f"rhoai-{args.rhoai_version}"
 
     for required in ("rhoai_version", "rule", "components"):
         if not getattr(args, required):

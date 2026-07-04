@@ -12,17 +12,17 @@ saved as ``{release}-warnings.csv`` alongside violation CSVs (``{release}.csv``)
 Use ``--no-warnings`` to skip fetching warnings.
 
 When --output-dir is omitted, automatically creates a timestamped directory
-under .work/ (relative to this script's skill directory) and updates the
-.work/latest symlink to point to it.
+under ~/.conforma/ (relative to this script's skill directory) and updates the
+~/.conforma/latest symlink to point to it.
 
 Part of the conforma-report-fetch skill. Consumed by conforma-analyze
-(which passes --output-dir to keep .work/ writes local to its own skill).
+(which passes --output-dir to keep ~/.conforma/ writes local to its own skill).
 
 Usage:
-    # Auto-detect releases, auto-create .work/<timestamp>/:
+    # Auto-detect releases, auto-create ~/.conforma/<timestamp>/:
     python3 scripts/fetch_csv_reports.py
 
-    # Explicit releases, auto-create .work/<timestamp>/:
+    # Explicit releases, auto-create ~/.conforma/<timestamp>/:
     python3 scripts/fetch_csv_reports.py --releases rhoai-3.5-ea.1
 
     # Explicit output directory:
@@ -52,6 +52,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _setup_env  # noqa: F401, E402
 
+import conforma_context_ops  # noqa: E402
 import requests  # noqa: E402
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
@@ -107,7 +108,7 @@ def _download_file_raw(csv_path: str, ref: str, output_file: Path) -> dict | Non
     """
     token = _get_github_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in ~/.conforma/.env)"}
 
     url = f"{RAW_DOWNLOAD_BASE}/{CONFORMA_REPORTER_REPO}/{ref}/{csv_path}"
     try:
@@ -413,7 +414,7 @@ def fetch_supported_releases() -> list[str]:
 
 
 def _create_timestamped_output_dir() -> Path:
-    """Create a timestamped run directory under .work/ and update the latest symlink."""
+    """Create a timestamped run directory under ~/.conforma/ and update the latest symlink."""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = WORK_DIR / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -435,6 +436,11 @@ def _create_timestamped_output_dir() -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch conforma violation and warnings reports per release")
     parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Path to run directory with context.yaml. Auto-discovered via .conforma-active if omitted.",
+    )
+    parser.add_argument(
         "--releases",
         default=None,
         help="Comma-separated release branches to fetch (required unless --all is used)",
@@ -451,7 +457,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Directory to write CSV files to (default: auto-create .work/<timestamp>/)",
+        help="Directory to write CSV files to (default: auto-create ~/.conforma/<timestamp>/)",
     )
     parser.add_argument(
         "--local-dir",
@@ -466,9 +472,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--environment",
-        required=True,
         choices=["prod", "stage"],
-        help="Target environment (prod or stage) — determines which CSV paths to fetch from",
+        default=None,
+        help="Target environment (prod or stage). Auto-discovered from context if not specified.",
     )
     parser.add_argument(
         "--metadata-file",
@@ -477,6 +483,16 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
     include_warnings = not args.no_warnings
 
     if args.releases:
@@ -499,6 +515,9 @@ def main() -> int:
             f"  Found {len(releases)} supported releases: {', '.join(releases)}",
             file=sys.stderr,
         )
+    elif context and context.get("application", {}).get("release"):
+        releases = [context["application"]["release"]]
+        print(f"Using release from context: {releases[0]}", file=sys.stderr)
     else:
         print(
             "Error: specify --releases <release1,release2,...> or --all.\n"
@@ -520,6 +539,9 @@ def main() -> int:
     if args.output_dir:
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+    elif run_dir:
+        output_dir = run_dir
+        print(f"Writing to run directory: {output_dir}", file=sys.stderr)
     else:
         output_dir = _create_timestamped_output_dir()
         print(f"Run directory: {output_dir}", file=sys.stderr)
@@ -533,7 +555,7 @@ def main() -> int:
         warning_results = []
         for release in releases:
             print(f"Fetching {release} violations...", file=sys.stderr)
-            result = fetch_csv_for_release(release, output_dir, environment=args.environment)
+            result = fetch_csv_for_release(release, output_dir, environment=environment)
             results.append(result)
             if result["status"] == "fetched":
                 source = result.get("source_path", "")
@@ -546,7 +568,7 @@ def main() -> int:
 
             if include_warnings:
                 print(f"Fetching {release} warnings...", file=sys.stderr)
-                warn_result = fetch_warnings_csv_for_release(release, output_dir, environment=args.environment)
+                warn_result = fetch_warnings_csv_for_release(release, output_dir, environment=environment)
                 warning_results.append(warn_result)
                 if warn_result["status"] == "fetched":
                     source = warn_result.get("source_path", "")
@@ -592,6 +614,18 @@ def main() -> int:
             "total_failed": len(warnings_failed),
             "failures": [{"release": r["release"], "error": r["error"]} for r in warnings_failed],
         }
+
+    if run_dir:
+        step_outputs: dict = {}
+        if succeeded:
+            step_outputs["csv_files"] = [Path(r["path"]).name for r in succeeded]
+            step_outputs["source_sha"] = succeeded[0].get("source_sha", "")
+            step_outputs["source_path"] = succeeded[0].get("source_path", "")
+            step_outputs["source_created_at"] = succeeded[0].get("created_at", "")
+        if warnings_succeeded:
+            step_outputs["warnings_csv_files"] = [Path(r["path"]).name for r in warnings_succeeded]
+        step_status = "completed" if not failed else "failed"
+        conforma_context_ops.update_step(run_dir, "fetch", step_status, **step_outputs)
 
     json_output = json.dumps(output, indent=2)
     if args.metadata_file:

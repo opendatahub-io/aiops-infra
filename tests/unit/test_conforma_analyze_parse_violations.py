@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
+import pytest
+import yaml
+
+import conforma_context_ops
 import parse_violations
 
 
@@ -497,12 +502,32 @@ class TestExtractSemanticDetail:
         )
         assert result == "ubi-9-baseos-rpms"
 
-    def test_disallowed_attributes_extracts_attribute(self):
+    def test_disallowed_attributes_extracts_package_and_attribute(self):
         msg = 'Package pkg:pypi/foo@1.0 has the attribute "hermeto:pip:package:binary" set to "true"'
         result = parse_violations.extract_semantic_detail(
             "sbom_spdx.disallowed_package_attributes", msg, "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"
         )
-        assert result == "hermeto:pip:package:binary=true"
+        assert result == "pkg:pypi/foo:hermeto:pip:package:binary=true"
+
+    def test_disallowed_attributes_strips_version_from_purl(self):
+        msg = 'Package pkg:pypi/aiohttp@3.14.1 has the attribute "hermeto:pip:package:binary" set to "true"'
+        result = parse_violations.extract_semantic_detail(
+            "sbom_spdx.disallowed_package_attributes", msg, "sbom_spdx.disallowed_package_attributes:pkg:pypi/aiohttp@3.14.1"
+        )
+        assert result == "pkg:pypi/aiohttp:hermeto:pip:package:binary=true"
+
+    def test_disallowed_attributes_different_packages_produce_different_details(self):
+        msg_a = 'Package pkg:pypi/foo@1.0 has the attribute "hermeto:pip:package:binary" set to "true"'
+        msg_b = 'Package pkg:pypi/bar@2.0 has the attribute "hermeto:pip:package:binary" set to "true"'
+        detail_a = parse_violations.extract_semantic_detail(
+            "sbom_spdx.disallowed_package_attributes", msg_a, "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"
+        )
+        detail_b = parse_violations.extract_semantic_detail(
+            "sbom_spdx.disallowed_package_attributes", msg_b, "sbom_spdx.disallowed_package_attributes:pkg:pypi/bar@2.0"
+        )
+        assert detail_a != detail_b
+        assert detail_a == "pkg:pypi/foo:hermeto:pip:package:binary=true"
+        assert detail_b == "pkg:pypi/bar:hermeto:pip:package:binary=true"
 
     def test_unique_version_extracts_package_name(self):
         result = parse_violations.extract_semantic_detail(
@@ -513,6 +538,32 @@ class TestExtractSemanticDetail:
     def test_hermetic_returns_empty(self):
         result = parse_violations.extract_semantic_detail(
             "hermetic_task.hermetic", "Task is not hermetic", "hermetic_task.hermetic"
+        )
+        assert result == ""
+
+    def test_builtin_attestation_signature_check_returns_empty(self):
+        result = parse_violations.extract_semantic_detail(
+            "builtin.attestation.signature_check",
+            "No image attestations found matching the given public key. "
+            "Verify the correct public key was provided, and one or more "
+            "attestations were created. Error: no matching attestations",
+            "builtin.attestation.signature_check",
+        )
+        assert result == ""
+
+    def test_builtin_attestation_syntax_check_returns_empty(self):
+        result = parse_violations.extract_semantic_detail(
+            "builtin.attestation.syntax_check",
+            "Attestation syntax check failed",
+            "builtin.attestation.syntax_check",
+        )
+        assert result == ""
+
+    def test_builtin_image_signature_check_returns_empty(self):
+        result = parse_violations.extract_semantic_detail(
+            "builtin.image.signature_check",
+            "No image signatures found matching the given public key",
+            "builtin.image.signature_check",
         )
         assert result == ""
 
@@ -638,3 +689,69 @@ class TestBuildSemanticDetailLookup:
         detail_lookup, detail_labels = parse_violations.build_semantic_detail_lookup(yaml_data)
         assert detail_lookup[("some_rule.check", "comp-a")] == ["x"]
         assert detail_labels["some_rule.check"] == "item"
+
+
+class TestContextIntegration:
+    """Tests for context.yaml auto-discovery and update."""
+
+    CSV_HEADER = "type,component_name,image,message,effective_on,code,title,description,solution\n"
+    CSV_ROW = 'violation,comp-a,img,"Task not hermetic",,hermetic_task.hermetic,title,"To exclude this rule add ""hermetic_task.hermetic"" to the `exclude` section.",sol\n'
+
+    def _create_run_with_csv(self, tmp_path, monkeypatch, release="rhoai-3.5-ea.1", environment="prod"):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": release, "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
+            "environment": environment,
+        })
+        conforma_context_ops.set_active(run_dir)
+        (run_dir / f"{release}.csv").write_text(self.CSV_HEADER + self.CSV_ROW)
+        return run_dir
+
+    def test_reads_env_and_release_from_context(self, tmp_path, monkeypatch):
+        run_dir = self._create_run_with_csv(tmp_path, monkeypatch)
+        monkeypatch.setattr("sys.argv", ["parse_violations.py", "--no-catalog"])
+        rc = parse_violations.main()
+        assert rc == 0
+        assert (run_dir / "violations.yaml").is_file()
+
+    def test_updates_context_after_parse(self, tmp_path, monkeypatch):
+        run_dir = self._create_run_with_csv(tmp_path, monkeypatch)
+        monkeypatch.setattr("sys.argv", ["parse_violations.py", "--no-catalog"])
+        parse_violations.main()
+        ctx = conforma_context_ops.load(run_dir)
+        assert ctx["steps"]["parse"]["status"] == "completed"
+        assert ctx["steps"]["parse"]["violations_yaml"] == "violations.yaml"
+
+    def test_cli_overrides_context(self, tmp_path, monkeypatch):
+        run_dir = self._create_run_with_csv(tmp_path, monkeypatch)
+        custom_output = tmp_path / "custom.yaml"
+        monkeypatch.setattr("sys.argv", [
+            "parse_violations.py", "--no-catalog",
+            "--output", str(custom_output),
+        ])
+        rc = parse_violations.main()
+        assert rc == 0
+        assert custom_output.is_file()
+        assert not (run_dir / "violations.yaml").exists()
+
+    def test_explicit_run_dir(self, tmp_path, monkeypatch):
+        run_dir = tmp_path / "my-run"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.4", "version": "3.4", "konflux_app": "rhoai-v3-4"},
+            "environment": "prod",
+        })
+        (run_dir / "rhoai-3.4.csv").write_text(self.CSV_HEADER + self.CSV_ROW)
+        monkeypatch.setattr("sys.argv", [
+            "parse_violations.py", "--no-catalog",
+            "--run-dir", str(run_dir),
+        ])
+        rc = parse_violations.main()
+        assert rc == 0
+        assert (run_dir / "violations.yaml").is_file()
+
+    def test_no_context_requires_explicit_args(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setattr("sys.argv", ["parse_violations.py", "--no-catalog"])
+        with pytest.raises(SystemExit):
+            parse_violations.main()

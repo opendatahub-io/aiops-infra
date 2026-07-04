@@ -226,7 +226,7 @@ def _check_jira_rest_api() -> dict:
             "available": False,
             "detail": (
                 "JIRA_API_TOKEN or JIRA_EMAIL is not configured. "
-                "Add them to .work/.env. Generate a token at: "
+                "Add them to ~/.conforma/.env. Generate a token at: "
                 "https://id.atlassian.com/manage-profile/security/api-tokens"
             ),
         }

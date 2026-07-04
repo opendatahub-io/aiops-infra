@@ -61,7 +61,7 @@ def verify_auth() -> dict:
         return {
             "ok": False,
             "user": None,
-            "error": "No GitHub token found. Set GITHUB_TOKEN in .work/.env.",
+            "error": "No GitHub token found. Set GITHUB_TOKEN in ~/.conforma/.env.",
         }
     try:
         resp = requests.get(
@@ -96,7 +96,7 @@ def create_pr(
     """
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in ~/.conforma/.env)"}
 
     try:
         resp = requests.post(
@@ -135,7 +135,7 @@ def get_file(repo: str, path: str, ref: str = "main") -> dict:
     """Get file content via GitHub API."""
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in ~/.conforma/.env)"}
 
     url = f"{GITHUB_API}/repos/{repo}/contents/{path.lstrip('/')}"
     try:
@@ -179,7 +179,7 @@ def get_repo(repo: str) -> dict:
     """Get repository metadata via GitHub API."""
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in ~/.conforma/.env)"}
 
     try:
         resp = requests.get(
@@ -215,7 +215,7 @@ def check_issues_enabled(repo: str) -> dict:
     """
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in ~/.conforma/.env)"}
 
     try:
         resp = requests.get(
@@ -248,7 +248,7 @@ def create_issue(
     """
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in ~/.conforma/.env)"}
 
     payload: dict = {"title": title, "body": body}
     if labels:
@@ -291,7 +291,7 @@ def search_issues(
     """
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in ~/.conforma/.env)"}
 
     qualifiers = [f"repo:{repo}", "is:issue", f"state:{state}"]
     if labels:
@@ -335,7 +335,7 @@ def check_workflow_run(repo: str, run_id: int | str) -> dict:
     """Check GitHub Actions workflow run status."""
     token = get_token()
     if not token:
-        return {"error": "No GitHub token found (set GITHUB_TOKEN in .work/.env)"}
+        return {"error": "No GitHub token found (set GITHUB_TOKEN in ~/.conforma/.env)"}
 
     try:
         resp = requests.get(

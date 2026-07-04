@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import platform
 import stat
 import subprocess
@@ -19,7 +20,7 @@ from pathlib import Path
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-WORK_DIR = _REPO_ROOT / ".work"
+WORK_DIR = Path(os.environ.get("CONFORMA_WORKDIR", "")) if os.environ.get("CONFORMA_WORKDIR") else Path.home() / ".conforma"
 EC_BINARY_DIR = WORK_DIR / "bin"
 EC_BINARY_PATH = EC_BINARY_DIR / "ec"
 
@@ -41,7 +42,7 @@ class EcValidateError(Exception):
 def ensure_ec_binary() -> Path:
     """Locate or download the ec CLI binary.
 
-    Checks PATH first, then .work/bin/ec.  Downloads from GitHub releases
+    Checks PATH first, then ~/.conforma/bin/ec.  Downloads from GitHub releases
     if not found.  Hard-fails if download fails.
 
     Returns the path to a working ec binary.
@@ -79,7 +80,7 @@ def _verify_ec_binary(path: Path) -> bool:
 
 
 def _download_ec_binary() -> Path:
-    """Download ec CLI binary from GitHub releases into .work/bin/.
+    """Download ec CLI binary from GitHub releases into ~/.conforma/bin/.
 
     Hard-fails with EcValidateError if download fails.
     """
@@ -120,13 +121,35 @@ def _download_ec_binary() -> Path:
     return EC_BINARY_PATH
 
 
-def build_snapshot_from_csv(csv_path: str, output_path: str) -> Path:
+def build_snapshot_from_entries(
+    entries: list[dict], output_path: str,
+) -> Path:
+    """Write an ApplicationSnapshot spec.json from pre-built entries.
+
+    Each entry must have ``name`` and ``containerImage`` keys.
+    No deduplication is performed — the caller is responsible.
+
+    Returns the path to the written spec.json.
+    """
+    if not entries:
+        raise EcValidateError("No entries provided for snapshot")
+    spec = {"components": entries}
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
+    return out
+
+
+def build_snapshot_from_csv(
+    csv_path: str, output_path: str,
+) -> tuple[Path, list[dict]]:
     """Construct an ApplicationSnapshot spec.json from a CSV report.
 
     Reads component_name and image columns, deduplicates by image digest,
-    and writes a JSON file suitable for `ec validate image --images`.
+    and writes a JSON file suitable for ``ec validate image --images``.
 
-    Returns the path to the written spec.json.
+    Returns ``(path_to_spec, entries)`` where *entries* is the deduplicated
+    list of ``{"name": ..., "containerImage": ...}`` dicts.
     """
     seen_digests: set[str] = set()
     components: list[dict] = []
@@ -152,11 +175,23 @@ def build_snapshot_from_csv(csv_path: str, output_path: str) -> Path:
             f"CSV must have 'component_name' and 'image' columns."
         )
 
-    spec = {"components": components}
-    out = Path(output_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
-    return out
+    out = build_snapshot_from_entries(components, output_path)
+    return out, components
+
+
+def group_entries_by_base_image(
+    entries: list[dict],
+) -> dict[str, list[dict]]:
+    """Group snapshot entries by base image URL (everything before ``@``).
+
+    Returns ``{base_image_url: [entries]}`` preserving insertion order.
+    """
+    groups: dict[str, list[dict]] = {}
+    for entry in entries:
+        image = entry.get("containerImage", "")
+        base = image.split("@")[0] if "@" in image else image
+        groups.setdefault(base, []).append(entry)
+    return groups
 
 
 def prepare_policy_for_local_use(policy_path: str, output_path: str) -> Path:
@@ -443,7 +478,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "build-snapshot":
-        path = build_snapshot_from_csv(args.csv, args.output)
+        path, _entries = build_snapshot_from_csv(args.csv, args.output)
         print(json.dumps({"snapshot_path": str(path)}))
         return 0
 
@@ -451,7 +486,7 @@ def main() -> int:
         ec_bin = ensure_ec_binary()
         out_dir = Path(args.output_dir)
 
-        spec_path = build_snapshot_from_csv(args.csv, str(out_dir / "spec.json"))
+        spec_path, _entries = build_snapshot_from_csv(args.csv, str(out_dir / "spec.json"))
         policy_path = prepare_policy_for_local_use(
             args.policy, str(out_dir / "policy-local.yaml")
         )

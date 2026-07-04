@@ -27,7 +27,7 @@ class TestClassifyError:
     def test_known_pattern_component_maturity(self):
         result = submit_feedback.classify_error(
             exception_type="FileNotFoundError",
-            error_message="query.py not found at .work/component-maturity/scripts/query.py",
+            error_message="query.py not found at ~/.conforma/component-maturity/scripts/query.py",
             script_path="scripts/component_catalog_ops.py",
         )
         assert result["classified"] is True

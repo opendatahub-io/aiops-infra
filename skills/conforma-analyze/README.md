@@ -8,8 +8,8 @@ This skill is part of the conforma suite. Follow the install instructions in [co
 
 ```bash
 # 1. One-time setup (if not done already):
-cp .work/.env.example .work/.env   # fill in tokens
-.work/bin/slackdump login          # opens browser for Red Hat SSO (auto-installed on first use)
+mkdir -p ~/.conforma && touch ~/.conforma/.env   # fill in tokens
+~/.conforma/bin/slackdump login          # opens browser for Red Hat SSO (auto-installed on first use)
 
 # 2. Verify all prerequisites pass:
 python3 scripts/verify_conforma_prerequisites.py --fix

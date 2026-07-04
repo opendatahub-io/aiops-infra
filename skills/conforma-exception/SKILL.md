@@ -396,19 +396,19 @@ When the user asks what a Conforma exception is (e.g. "what is a conforma except
 
 ## Run Directory Convention
 
-Every session that creates intermediate files (downloaded CSVs, parsed violations, coverage checks, assessed exceptions, reports, action plans) MUST use a timestamped run directory inside `.work/`. This prevents runs from clobbering each other's files and keeps the directory navigable.
+Every session that creates intermediate files (downloaded CSVs, parsed violations, coverage checks, assessed exceptions, reports, action plans) MUST use a timestamped run directory inside `~/.conforma/`. This prevents runs from clobbering each other's files and keeps the directory navigable.
 
 At the start of each session, create the run directory:
 
 ```bash
-RUN_DIR=".work/$(date +%Y%m%d-%H%M%S)"
+RUN_DIR="$HOME/.conforma/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RUN_DIR"
 ```
 
 All intermediate files go inside `$RUN_DIR`. Example layout for a single run:
 
 ```
-.work/
+~/.conforma/
 ├── konflux-release-data/          # shared repo clone (persists across runs)
 ├── 20260603-112300/               # this run
 │   ├── conforma-reports/
@@ -420,21 +420,21 @@ All intermediate files go inside `$RUN_DIR`. Example layout for a single run:
 │   └── action-plan.json
 ```
 
-**Shared repo clone**: The `konflux-release-data` GitLab repo is large and slow to clone (~40s). To avoid re-cloning on every script invocation, maintain a shared clone at `.work/konflux-release-data` and pass `--clone-dir .work/konflux-release-data` to all commands that accept it (`preflight_check.py`, `manage_exceptions.py`, `create_gitlab_mr.py`). **Always fetch before use and abort if the fetch fails** — never use stale data:
+**Shared repo clone**: The `konflux-release-data` GitLab repo is large and slow to clone (~40s). To avoid re-cloning on every script invocation, maintain a shared clone at `~/.conforma/konflux-release-data` and pass `--clone-dir ~/.conforma/konflux-release-data` to all commands that accept it (`preflight_check.py`, `manage_exceptions.py`, `create_gitlab_mr.py`). **Always fetch before use and abort if the fetch fails** — never use stale data:
 
 ```bash
-if [ -d .work/konflux-release-data/.git ]; then
-  git -C .work/konflux-release-data fetch origin main || { echo "ERROR: git fetch failed — remote unreachable (VPN down?). Aborting." >&2; exit 1; }
-  git -C .work/konflux-release-data reset --hard origin/main
+if [ -d ~/.conforma/konflux-release-data/.git ]; then
+  git -C ~/.conforma/konflux-release-data fetch origin main || { echo "ERROR: git fetch failed — remote unreachable (VPN down?). Aborting." >&2; exit 1; }
+  git -C ~/.conforma/konflux-release-data reset --hard origin/main
 else
   GITLAB_TOKEN=$(glab config get token --host "$GITLAB_HOST")
-  git -c "http.extraheader=Authorization: Bearer ${GITLAB_TOKEN}" clone --depth 1 "https://${GITLAB_HOST}/releng/konflux-release-data.git" .work/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
+  git -c "http.extraheader=Authorization: Bearer ${GITLAB_TOKEN}" clone --depth 1 "https://${GITLAB_HOST}/releng/konflux-release-data.git" ~/.conforma/konflux-release-data || { echo "ERROR: git clone failed. Aborting." >&2; exit 1; }
 fi
 ```
 
 **Note**: The Python scripts (`violations_coverage.py`, `conforma_policy_ops.py`, `manage_exceptions.py`) now enforce this policy internally — they will refresh any `--clone-dir` via `git fetch` and abort if the remote is unreachable.
 
-Script-internal temp directories (`conforma-exception-mr-*`, `conforma-exception-manage-*`, etc.) are created by Python scripts via `tempfile.mkdtemp()` and land directly in `.work/`. These are transient and self-cleaning — do not move them into run directories.
+Script-internal temp directories (`conforma-exception-mr-*`, `conforma-exception-manage-*`, etc.) are created by Python scripts via `tempfile.mkdtemp()` and land directly in `~/.conforma/`. These are transient and self-cleaning — do not move them into run directories.
 
 ## Starting Without Details
 

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
+import yaml
 
 import analyze_csv_report
+import conforma_context_ops
 
 
 @pytest.fixture
@@ -434,3 +437,79 @@ class TestFormatJson:
         assert "component_owners" in data
         assert data["component_owners"]["comp-a"] == "Training"
         assert "comp-c" not in data["component_owners"]
+
+
+class TestContextIntegration:
+    """Tests for context-based parameter discovery in main()."""
+
+    def _setup_run_with_csv(self, tmp_path):
+        """Create a run directory with context.yaml and a CSV file."""
+        run_dir = tmp_path / "20260703-120000"
+        run_dir.mkdir()
+
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a,quay.io/img:sha,"Task is not hermetic",2026-01-01,'
+            "hermetic_task.hermetic,Hermetic build required,desc,Enable hermetic builds\n"
+        )
+        csv_file = run_dir / "rhoai-3.5-ea.2.csv"
+        csv_file.write_text(csv_content)
+
+        context = {
+            "application": {"release": "rhoai-3.5-ea.2"},
+            "environment": "prod",
+            "run": {"run_dir": conforma_context_ops.contract_home(run_dir)},
+            "steps": {
+                "fetch": {
+                    "status": "completed",
+                    "csv_files": ["rhoai-3.5-ea.2.csv"],
+                },
+                "parse": {
+                    "status": "completed",
+                    "violations_yaml": "violations.yaml",
+                },
+            },
+        }
+        context_path = run_dir / "context.yaml"
+        context_path.write_text(yaml.dump(context), encoding="utf-8")
+
+        work_dir = tmp_path / ".conforma"
+        work_dir.mkdir(exist_ok=True)
+        active_link = work_dir / ".conforma-active"
+        active_link.symlink_to(run_dir)
+
+        return run_dir, work_dir
+
+    def test_reads_reports_dir_from_context(self, tmp_path, monkeypatch):
+        """Zero-arg invocation loads CSV from run directory."""
+        run_dir, work_dir = self._setup_run_with_csv(tmp_path)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["analyze_csv_report.py"])
+
+        rc = analyze_csv_report.main()
+        assert rc == 0
+
+    def test_cli_overrides_context(self, tmp_path, monkeypatch, tmp_csv):
+        """Explicit --csv overrides context-based discovery."""
+        run_dir, work_dir = self._setup_run_with_csv(tmp_path)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["analyze_csv_report.py", "--csv", str(tmp_csv)])
+
+        rc = analyze_csv_report.main()
+        assert rc == 0
+
+    def test_explicit_run_dir(self, tmp_path, monkeypatch):
+        """--run-dir works without symlink."""
+        run_dir, _ = self._setup_run_with_csv(tmp_path)
+        monkeypatch.setattr("sys.argv", ["analyze_csv_report.py", "--run-dir", str(run_dir)])
+
+        rc = analyze_csv_report.main()
+        assert rc == 0
+
+    def test_no_context_requires_explicit_args(self, tmp_path, monkeypatch):
+        """Without context and without --csv/--reports-dir, main() exits with error."""
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty"))
+        monkeypatch.setattr("sys.argv", ["analyze_csv_report.py"])
+
+        rc = analyze_csv_report.main()
+        assert rc == 1

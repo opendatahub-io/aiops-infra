@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests as requests_lib
+import yaml
 
+import conforma_context_ops
 import validate_guide_links as mod
 
 
@@ -271,3 +274,76 @@ class TestFindLatestGuide:
 
     def test_returns_none_for_missing_dir(self):
         assert mod.find_latest_guide("/nonexistent/path") is None
+
+
+class TestContextIntegration:
+    """Tests for context-based parameter discovery in main()."""
+
+    def _setup_run_with_guide(self, tmp_path):
+        """Create a run directory with context.yaml and a guide file."""
+        run_dir = tmp_path / "20260703-120000"
+        run_dir.mkdir()
+
+        guide = run_dir / "conforma-status-and-resolution-guide.md"
+        guide.write_text("# Guide\n\nNo links here.", encoding="utf-8")
+
+        context = {
+            "application": {"release": "rhoai-3.5-ea.2"},
+            "environment": "prod",
+            "run": {"run_dir": conforma_context_ops.contract_home(run_dir)},
+            "steps": {
+                "resolution_guide": {
+                    "status": "completed",
+                    "guide_file": "conforma-status-and-resolution-guide.md",
+                },
+            },
+        }
+        context_path = run_dir / "context.yaml"
+        context_path.write_text(yaml.dump(context), encoding="utf-8")
+
+        work_dir = tmp_path / ".conforma"
+        work_dir.mkdir(exist_ok=True)
+        active_link = work_dir / ".conforma-active"
+        active_link.symlink_to(run_dir)
+
+        return run_dir, work_dir
+
+    def test_reads_guide_from_context(self, tmp_path, monkeypatch):
+        """Zero-arg invocation discovers guide file from context."""
+        run_dir, work_dir = self._setup_run_with_guide(tmp_path)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["validate_guide_links.py"])
+
+        with patch.object(mod.requests, "head", return_value=MagicMock(status_code=200)):
+            rc = mod.main()
+        assert rc == 0
+
+    def test_cli_overrides_context(self, tmp_path, monkeypatch):
+        """Explicit --guide-file overrides context."""
+        run_dir, work_dir = self._setup_run_with_guide(tmp_path)
+        guide = tmp_path / "other-guide.md"
+        guide.write_text("# Other\n\nPlain text.", encoding="utf-8")
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["validate_guide_links.py", "--guide-file", str(guide)])
+
+        rc = mod.main()
+        assert rc == 0
+
+    def test_explicit_run_dir(self, tmp_path, monkeypatch):
+        """--run-dir works without symlink."""
+        run_dir, _ = self._setup_run_with_guide(tmp_path)
+        monkeypatch.setattr("sys.argv", ["validate_guide_links.py", "--run-dir", str(run_dir)])
+
+        with patch.object(mod.requests, "head", return_value=MagicMock(status_code=200)):
+            rc = mod.main()
+        assert rc == 0
+
+    def test_no_context_requires_explicit_args(self, tmp_path, monkeypatch, capsys):
+        """Without context and without --guide-file/--latest, main() exits with error."""
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty"))
+        monkeypatch.setattr("sys.argv", ["validate_guide_links.py"])
+
+        rc = mod.main()
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "required" in captured.out.lower()

@@ -29,12 +29,12 @@ def get_client(url: str | None = None, email: str | None = None, token: str | No
     resolved_token = token or os.environ.get("JIRA_API_TOKEN")
 
     if not resolved_email:
-        raise ValueError("JIRA_EMAIL is not set. Add to .work/.env: JIRA_EMAIL=you@redhat.com")
+        raise ValueError("JIRA_EMAIL is not set. Add to ~/.conforma/.env: JIRA_EMAIL=you@redhat.com")
     if not resolved_token:
         raise ValueError(
             "JIRA_API_TOKEN is not set. "
             "Create a token at: https://id.atlassian.com/manage-profile/security/api-tokens — "
-            "then add to .work/.env: JIRA_API_TOKEN=ATATT3x..."
+            "then add to ~/.conforma/.env: JIRA_API_TOKEN=ATATT3x..."
         )
 
     return JIRA(server=resolved_url, basic_auth=(resolved_email, resolved_token))

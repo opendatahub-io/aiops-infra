@@ -67,11 +67,11 @@ Lists exceptions from policy files. No violations data needed.
 ```bash
 python3 skills/conforma-exception/scripts/manage_exceptions.py --find-expired \
   --environment prod \
-  --clone-dir .work/konflux-release-data
+  --clone-dir ~/.conforma/konflux-release-data
 
 python3 skills/conforma-exception/scripts/manage_exceptions.py --find-all \
   --environment prod \
-  --clone-dir .work/konflux-release-data
+  --clone-dir ~/.conforma/konflux-release-data
 ```
 
 `--find-expired` returns only exceptions where `effectiveUntil < now`. `--find-all` returns both expired and active exceptions with expiry metadata.
@@ -94,13 +94,13 @@ Cross-references exceptions against violations data to classify each.
 python3 skills/conforma-exception/scripts/manage_exceptions.py --assess-expired \
   --violations-input "$RUN_DIR/conforma-violations.yaml" \
   --environment prod \
-  --clone-dir .work/konflux-release-data \
+  --clone-dir ~/.conforma/konflux-release-data \
   --output "$RUN_DIR/assessed-exceptions.yaml"
 
 python3 skills/conforma-exception/scripts/manage_exceptions.py --assess-all \
   --violations-input "$RUN_DIR/conforma-violations.yaml" \
   --environment prod \
-  --clone-dir .work/konflux-release-data \
+  --clone-dir ~/.conforma/konflux-release-data \
   --output "$RUN_DIR/assessed-exceptions.yaml"
 ```
 

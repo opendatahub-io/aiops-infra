@@ -4,13 +4,13 @@ Shared reference for skills that need infrastructure config (GitLab host, Konflu
 
 ## When to Use
 
-Run the prerequisites check (`python3 scripts/verify_conforma_prerequisites.py --fix`) at the start of any skill that needs infrastructure config. If all required variables are already set (from `.work/.env` or discovery cache), this flow is skipped entirely.
+Run the prerequisites check (`python3 scripts/verify_conforma_prerequisites.py --fix`) at the start of any skill that needs infrastructure config. If all required variables are already set (from `~/.conforma/.env` or discovery cache), this flow is skipped entirely.
 
-## Setup: Add to .work/.env
+## Setup: Add to ~/.conforma/.env
 
 The setup requires only two values. Everything else is auto-discovered from the `konflux-release-data` repository via the GitLab Tree API.
 
-1. **Add to `.work/.env`**:
+1. **Add to `~/.conforma/.env`**:
 
    ```
    GITLAB_HOST=your-gitlab-host
@@ -23,7 +23,7 @@ The setup requires only two values. Everything else is auto-discovered from the 
    python3 scripts/konflux_tenant_env_discovery.py --tenant YOUR_TENANT_NAME --human
    ```
 
-3. **If tenant is on multiple clusters**, add `PREFERRED_KONFLUX_CLUSTER` to `.work/.env`:
+3. **If tenant is on multiple clusters**, add `PREFERRED_KONFLUX_CLUSTER` to `~/.conforma/.env`:
 
    ```
    PREFERRED_KONFLUX_CLUSTER=cluster-id
@@ -37,7 +37,7 @@ After this, auto-discovery will populate:
 
 ## If Discovery Fails
 
-If auto-discovery cannot work in your environment (no VPN, tenant not registered, custom setup), add the required variables directly to `.work/.env`:
+If auto-discovery cannot work in your environment (no VPN, tenant not registered, custom setup), add the required variables directly to `~/.conforma/.env`:
 
 ```
 KONFLUX_CLUSTER_DOMAIN=your-cluster-domain
@@ -57,10 +57,10 @@ python3 scripts/konflux_tenant_env_discovery.py --tenant $TENANT --human
 
 2. **If infrastructure check fails**: The script output already contains actionable fix instructions. Present it verbatim. Do NOT compose your own explanation.
 
-3. **If user asks for help**: Instruct them to add `GITLAB_HOST` and `TENANT` to `.work/.env`. If discovery still fails after that, instruct them to add `KONFLUX_CLUSTER_DOMAIN` to `.work/.env` manually.
+3. **If user asks for help**: Instruct them to add `GITLAB_HOST` and `TENANT` to `~/.conforma/.env`. If discovery still fails after that, instruct them to add `KONFLUX_CLUSTER_DOMAIN` to `~/.conforma/.env` manually.
 
 ## Notes
 
-- All user-provided values go in `.work/.env` (gitignored, loaded automatically)
+- All user-provided values go in `~/.conforma/.env` (gitignored, loaded automatically)
 - Discovery cache TTL is 72 hours. Run `konflux_tenant_env_discovery.py --refresh` to force fresh discovery.
 - VPN is required for discovery (GitLab access)

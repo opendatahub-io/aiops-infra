@@ -1,11 +1,11 @@
 """Konflux environment loader for aiops-infra (dual-mode: CLI + importable).
 
-Populates environment variables from ``.work/.env``, derives secondary vars
+Populates environment variables from ``~/.conforma/.env``, derives secondary vars
 from KONFLUX_CLUSTER_DOMAIN, and integrates with tenant auto-discovery.
 
 Sources (first value wins, existing env vars are never overwritten):
   1. Environment variables already set
-  2. .work/.env file (secrets, infrastructure config)
+  2. ~/.conforma/.env file (secrets, infrastructure config)
   3. Auto-discovery via konflux_tenant_env_discovery (when KONFLUX_TENANT is set)
 
 Usage as library:
@@ -31,7 +31,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-DOTENV_PATH = _REPO_ROOT / ".work" / ".env"
+DOTENV_PATH = Path.home() / ".conforma" / ".env"
+_LEGACY_DOTENV_PATH = _REPO_ROOT / ".work" / ".env"
 
 REQUIRED_VARS: list[str] = ["GITLAB_HOST", "KONFLUX_CLUSTER_DOMAIN"]
 
@@ -102,16 +103,33 @@ class ConnectivityResult:
 _loaded = False
 
 
+def _resolve_dotenv_path() -> Path:
+    """Resolve the .env file path, respecting CONFORMA_WORKDIR with legacy fallback."""
+    conforma_workdir = os.environ.get("CONFORMA_WORKDIR")
+    dotenv_path = Path(conforma_workdir) / ".env" if conforma_workdir else DOTENV_PATH
+
+    if not dotenv_path.is_file() and _LEGACY_DOTENV_PATH.is_file():
+        print(
+            f"NOTE: Loading secrets from legacy {_LEGACY_DOTENV_PATH}\n"
+            f"  Consider copying to {dotenv_path}",
+            file=sys.stderr,
+        )
+        dotenv_path = _LEGACY_DOTENV_PATH
+
+    return dotenv_path
+
+
 def _load_dotenv(populated: dict[str, str]) -> None:
-    """Load .work/.env file into os.environ. Does not overwrite existing vars.
+    """Load ~/.conforma/.env file into os.environ. Does not overwrite existing vars.
 
     Format: KEY=VALUE (one per line). Lines starting with # are comments.
     Supports optional quoting: KEY="VALUE" or KEY='VALUE'.
     """
-    if not DOTENV_PATH.is_file():
+    dotenv_path = _resolve_dotenv_path()
+    if not dotenv_path.is_file():
         return
     try:
-        for line in DOTENV_PATH.read_text(encoding="utf-8").splitlines():
+        for line in dotenv_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
@@ -138,7 +156,7 @@ def _resolve_jira_email(populated: dict[str, str]) -> None:
     Strategy:
       1. Try $USER@redhat.com (Jira accepts any @redhat.com prefix with a
          valid token and returns the real email from the account)
-      2. On success: save the confirmed email to os.environ AND .work/.env
+      2. On success: save the confirmed email to os.environ AND ~/.conforma/.env
       3. On failure: print clear instructions for the user
     """
     if os.environ.get("JIRA_EMAIL"):
@@ -159,7 +177,7 @@ def _resolve_jira_email(populated: dict[str, str]) -> None:
     else:
         print(
             f"WARNING: Could not authenticate to Jira with '{candidate}'.\n"
-            f"  Add your Jira email manually to .work/.env:\n"
+            f"  Add your Jira email manually to ~/.conforma/.env:\n"
             f"    JIRA_EMAIL=your.actual.email@redhat.com\n"
             f"  (The email associated with your Atlassian account at redhat.atlassian.net)",
             file=sys.stderr,
@@ -194,16 +212,17 @@ def _verify_jira_email(email: str, token: str) -> str | None:
 
 
 def _append_to_dotenv(key: str, value: str) -> None:
-    """Save a key=value to .work/.env.
+    """Save a key=value to ~/.conforma/.env.
 
     If the key already exists with a non-empty value, do nothing.
     If the key exists with an empty value, update it in place.
     Otherwise append.
     """
-    if not DOTENV_PATH.is_file():
+    dotenv_path = _resolve_dotenv_path()
+    if not dotenv_path.is_file():
         return
     try:
-        lines = DOTENV_PATH.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines = dotenv_path.read_text(encoding="utf-8").splitlines(keepends=True)
         found_idx = None
         for i, line in enumerate(lines):
             stripped = line.strip()
@@ -223,7 +242,7 @@ def _append_to_dotenv(key: str, value: str) -> None:
         else:
             lines.append(f"{key}={value}\n")
 
-        DOTENV_PATH.write_text("".join(lines), encoding="utf-8")
+        dotenv_path.write_text("".join(lines), encoding="utf-8")
     except OSError:
         pass
 
@@ -277,7 +296,7 @@ def _populate_from_discovery(ctx, populated: dict[str, str]) -> None:
 def load() -> dict[str, str]:
     """Load environment and populate variables.
 
-    Loads from .work/.env, derives secondary vars from KONFLUX_CLUSTER_DOMAIN,
+    Loads from ~/.conforma/.env, derives secondary vars from KONFLUX_CLUSTER_DOMAIN,
     and triggers tenant auto-discovery when KONFLUX_TENANT is set but cluster is unknown.
 
     Returns a dict of {env_var: value} for all variables that were set.
@@ -352,10 +371,10 @@ def print_validation_failure(result: ValidationResult, file=sys.stderr) -> None:
     if result.placeholders:
         print("Environment contains placeholder values (not real infrastructure).", file=file)
     print(
-        "\nFix by adding real values to .work/.env:\n"
+        "\nFix by adding real values to ~/.conforma/.env:\n"
         "  GITLAB_HOST=your-gitlab-host\n"
         "  KONFLUX_CLUSTER_DOMAIN=your-cluster-domain\n"
-        "\nOr set KONFLUX_TENANT in .work/.env for auto-discovery.",
+        "\nOr set KONFLUX_TENANT in ~/.conforma/.env for auto-discovery.",
         file=file,
     )
 
@@ -383,7 +402,7 @@ def require(service: str) -> None:
         for var_name, value, _p in relevant_placeholders:
             print(f"  PLACEHOLDER: {var_name}={value}", file=sys.stderr)
         print(
-            f"\nFix by adding the required values to .work/.env:\n"
+            f"\nFix by adding the required values to ~/.conforma/.env:\n"
             f"  {chr(10).join(f'{v}=...' for v in vars_to_check)}",
             file=sys.stderr,
         )
@@ -602,12 +621,12 @@ def main() -> int:
         gitlab_host = os.environ.get("GITLAB_HOST", "")
         if not gitlab_host:
             print("ERROR: GITLAB_HOST is not set. Cannot check connectivity.", file=sys.stderr)
-            print("  Fix: add GITLAB_HOST=your-host to .work/.env", file=sys.stderr)
+            print("  Fix: add GITLAB_HOST=your-host to ~/.conforma/.env", file=sys.stderr)
             return 1
         for pattern in _PLACEHOLDER_PATTERNS:
             if re.search(pattern, gitlab_host):
                 print(f"ERROR: GITLAB_HOST='{gitlab_host}' looks like a placeholder.", file=sys.stderr)
-                print("  Fix: set a real GITLAB_HOST value in .work/.env", file=sys.stderr)
+                print("  Fix: set a real GITLAB_HOST value in ~/.conforma/.env", file=sys.stderr)
                 return 2
         conn = check_connectivity()
         if conn.gitlab_dns and conn.gitlab_https and conn.gitlab_auth and conn.gitlab_project:

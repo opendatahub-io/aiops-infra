@@ -20,13 +20,13 @@ Output: A unified markdown file with:
 
 Usage:
     python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \\
-      --violations-yaml .work/20260610-143449/violations.yaml \\
-      --coverage-json .work/20260610-143449/coverage.json \\
-      --reports-dir .work/20260610-143449 \\
+      --violations-yaml ~/.conforma/20260610-143449/violations.yaml \\
+      --coverage-json ~/.conforma/20260610-143449/coverage.json \\
+      --reports-dir ~/.conforma/20260610-143449 \\
       --release rhoai-3.5-ea.2 \\
       --source-path "prod/future/build_type_latest/conforma-violations-report.csv" \\
       --source-created-at "2026-06-10T05:19:05Z" \\
-      --output .work/20260610-143449/conforma-status-and-resolution-guide.md
+      --output ~/.conforma/20260610-143449/conforma-status-and-resolution-guide.md
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _setup_env  # noqa: F401, E402
 
+import conforma_context_ops  # noqa: E402
 import conforma_counting  # noqa: E402
 import release_dates  # noqa: E402
 import yaml  # noqa: E402
@@ -128,7 +129,9 @@ def _render_metadata_header(
     end_of_support: str = "",
     resolve_context: dict | None = None,
     title_prefix: str = "Conforma Status and Resolution Guide",
+    code_freeze_date: str = "",
     upcoming_release_date: str = "",
+    total_violations: int | None = None,
 ) -> str:
     """Render the document metadata header."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -149,15 +152,30 @@ def _render_metadata_header(
         lines.append(f"| **Release branch** | {release} |")
         if end_of_support:
             version_label = release_dates.format_version_label(release)
+            _, eos_source = release_dates.get_eos_date_with_source(release)
+            eos_source_text = f" based on {eos_source}," if eos_source else ""
             lines.append(
                 f"| **End of support for {version_label}** | {end_of_support}"
-                f" (see [Product Pages]({release_dates.PRODUCT_PAGES_URL})) |"
+                f" —{eos_source_text}"
+                f" verify on [Product Pages]({release_dates.PRODUCT_PAGES_URL}) |"
+            )
+        if code_freeze_date:
+            version_label = release_dates.format_version_label(release)
+            _, cf_source = release_dates.get_code_freeze_date_with_source(release)
+            cf_source_text = f" based on {cf_source}," if cf_source else ""
+            lines.append(
+                f"| **Code freeze ({version_label})** | {code_freeze_date}"
+                f" —{cf_source_text}"
+                f" verify on [Product Pages]({release_dates.PRODUCT_PAGES_URL}) |"
             )
         if upcoming_release_date:
             version_label = release_dates.format_version_label(release)
+            _, upcoming_source = release_dates.get_upcoming_release_date_with_source(release)
+            upcoming_source_text = f" based on {upcoming_source}," if upcoming_source else ""
             lines.append(
                 f"| **Upcoming release date ({version_label})** | {upcoming_release_date}"
-                f" (see [Product Pages]({release_dates.PRODUCT_PAGES_URL})) |"
+                f" —{upcoming_source_text}"
+                f" verify on [Product Pages]({release_dates.PRODUCT_PAGES_URL}) |"
             )
         if policy_files:
             file_links = ", ".join(f"[{f['name']}]({f['url']})" for f in policy_files)
@@ -169,6 +187,8 @@ def _render_metadata_header(
     lines.append(f"| **Source CSV** | [{source_path}]({source_url}) |")
     if source_created_at:
         lines.append(f"| **Source CSV generated** | {source_created_at} |")
+    if total_violations is not None:
+        lines.append(f"| **Total violations** | {total_violations} |")
 
     import getpass
     import socket
@@ -194,6 +214,7 @@ def _render_key_takeaways(
     tooling_health_data: dict | None = None,
     violations_yaml_data: dict | None = None,
     upcoming_release_date: str = "",
+    policy_files: list[dict[str, str]] | None = None,
 ) -> str:
     """Render the executive summary — exact violation counts, no approximation.
 
@@ -242,14 +263,16 @@ def _render_key_takeaways(
     def _format_violation_cell(rule: str, comp: str) -> str:
         base_rule = rule.split(":")[0]
         details = detail_lookup.get((base_rule, comp), [])
+        anchor = _violation_anchor(rule)
+        rule_link = f"[`{rule}`](#{anchor})"
         if len(details) == 0:
-            return f"`{rule}`"
+            return rule_link
         if len(details) == 1:
-            return f"`{rule}` ({details[0]})"
+            return f"{rule_link} ({details[0]})"
         if len(details) <= 20:
-            return f"`{rule}` ({', '.join(details)})"
+            return f"{rule_link} ({', '.join(details)})"
         label = detail_labels.get(base_rule, "items")
-        return f"`{rule}` ({', '.join(details[:10])} ... +{len(details) - 10} more {label}s)"
+        return f"{rule_link} ({', '.join(details[:10])} ... +{len(details) - 10} more {label}s)"
 
     def _find_covering_mr(mrs: list[dict], component: str) -> dict | None:
         for mr in mrs:
@@ -452,9 +475,11 @@ def _render_key_takeaways(
     lines.append("&nbsp;")
 
     # 5) Violations covered by exceptions
-    lines.append(
-        f"- **{covered_violations:,} of {total_violations:,} violations ({coverage_pct:.1f}%) covered** by exceptions"
-    )
+    coverage_line = f"- **{covered_violations:,} of {total_violations:,} violations ({coverage_pct:.1f}%) covered** by exceptions"
+    if policy_files:
+        file_links = " · ".join(f"[{f['name']}]({f['url']})" for f in policy_files)
+        coverage_line += f" in {file_links}"
+    lines.append(coverage_line)
 
     expiry_threshold_days = 14
     now = datetime.now(timezone.utc)
@@ -1044,7 +1069,17 @@ def _render_statistical_breakdown(
 
 
 def _render_tooling_health(tooling_health_data: dict) -> str:
-    """Render the Tooling Health section from tooling-health.json data."""
+    """Render the Tooling Health section from tooling-health.json data.
+
+    Prefers the pre-rendered ``display`` field produced by
+    ``check_tooling_health._render_display()`` so the table format is
+    consistent across interactive prompts and the resolution guide.
+    Falls back to inline rendering for older JSON files that lack the field.
+    """
+    display = tooling_health_data.get("display", "")
+    if display:
+        return f"## Tooling Health\n\n{display}"
+
     tools = tooling_health_data.get("tools", [])
     if not tools:
         return ""
@@ -1179,6 +1214,7 @@ def generate_resolution_guide(
     analysis_output_file: str | None = None,
     end_of_support: str = "",
     resolve_context: dict | None = None,
+    code_freeze_date: str = "",
     upcoming_release_date: str = "",
 ) -> str:
     """Generate the full resolution guide markdown content.
@@ -1245,9 +1281,9 @@ def generate_resolution_guide(
 
     counts = conforma_counting.count_from_records(records, code_field="code")
 
-    metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, resolve_context=resolve_context, upcoming_release_date=upcoming_release_date)
+    metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, resolve_context=resolve_context, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations)
     tooling_health = _render_tooling_health(tooling_health_data) if tooling_health_data else ""
-    key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date)
+    key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files)
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
 
     sections = [
@@ -1282,6 +1318,7 @@ def generate_resolution_guide(
                 policy_dir_url, policy_files, end_of_support=end_of_support,
                 resolve_context=resolve_context, title_prefix="Conforma Analysis",
                 upcoming_release_date=upcoming_release_date,
+                code_freeze_date=code_freeze_date,
             )
             existing_content = analysis_path.read_text(encoding="utf-8")
             existing_lines = existing_content.split("\n")
@@ -1314,15 +1351,20 @@ def _find_default_catalog() -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate a unified Conforma Resolution Guide")
-    parser.add_argument("--violations-yaml", required=True, help="Path to parsed violations YAML")
-    parser.add_argument("--coverage-json", required=True, help="Path to coverage check JSON output")
-    parser.add_argument("--reports-dir", required=True, help="Directory containing CSV reports")
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    parser.add_argument("--violations-yaml", default=None, help="Path to parsed violations YAML")
+    parser.add_argument("--coverage-json", default=None, help="Path to coverage check JSON output")
+    parser.add_argument("--reports-dir", default=None, help="Directory containing CSV reports")
     parser.add_argument(
         "--catalog",
         default=None,
         help="Path to violation-catalog.yaml (default: auto-detect)",
     )
-    parser.add_argument("--release", required=True, help="Release name (e.g. rhoai-3.5-ea.2)")
+    parser.add_argument("--release", default=None, help="Release name (e.g. rhoai-3.5-ea.2)")
     parser.add_argument(
         "--metadata-file",
         default=None,
@@ -1366,11 +1408,16 @@ def main() -> int:
         help="Upcoming release date (YYYY-MM-DD). Auto-extracted from --resolve-context-json when omitted.",
     )
     parser.add_argument(
+        "--code-freeze-date",
+        default="",
+        help="Code freeze date (YYYY-MM-DD). Auto-extracted from --resolve-context-json when omitted.",
+    )
+    parser.add_argument(
         "--tooling-health-json",
         default=None,
         help="Path to tooling-health.json from check_tooling_health.py (optional)",
     )
-    parser.add_argument("--output", required=True, help="Output file path")
+    parser.add_argument("--output", default=None, help="Output file path")
     parser.add_argument(
         "--executive-summary-file",
         default=None,
@@ -1391,6 +1438,68 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    release = args.release
+    if release is None and context:
+        release = conforma_context_ops.get(run_dir, "application.release", None)
+    if not release:
+        print("Error: --release is required when no run context is available", file=sys.stderr)
+        return 1
+
+    violations_yaml = args.violations_yaml
+    if violations_yaml is None and context and run_dir:
+        parse_output = conforma_context_ops.get(run_dir, "steps.parse.violations_yaml", None)
+        if parse_output:
+            violations_yaml = str(Path(run_dir) / parse_output)
+    if not violations_yaml:
+        print("Error: --violations-yaml is required when no run context is available", file=sys.stderr)
+        return 1
+
+    coverage_json = args.coverage_json
+    if coverage_json is None and context and run_dir:
+        cov_output = conforma_context_ops.get(run_dir, "steps.coverage.coverage_json", None)
+        if cov_output:
+            coverage_json = str(Path(run_dir) / cov_output)
+    if not coverage_json:
+        print("Error: --coverage-json is required when no run context is available", file=sys.stderr)
+        return 1
+
+    reports_dir = args.reports_dir
+    if reports_dir is None and run_dir:
+        reports_dir = str(run_dir)
+    if not reports_dir:
+        print("Error: --reports-dir is required when no run context is available", file=sys.stderr)
+        return 1
+
+    output_file = args.output
+    if output_file is None and run_dir:
+        output_file = str(Path(run_dir) / "conforma-status-and-resolution-guide.md")
+    if not output_file:
+        print("Error: --output is required when no run context is available", file=sys.stderr)
+        return 1
+
+    executive_summary_file = args.executive_summary_file
+    if executive_summary_file is None and run_dir:
+        executive_summary_file = str(Path(run_dir) / "executive-summary.md")
+
+    analysis_output_file = args.analysis_output_file
+
+    tooling_health_json = args.tooling_health_json
+    if tooling_health_json is None and context and run_dir:
+        th_output = conforma_context_ops.get(run_dir, "steps.tooling_health.health_json", None)
+        if th_output:
+            candidate = Path(run_dir) / th_output
+            if candidate.exists():
+                tooling_health_json = str(candidate)
+
     catalog_path = args.catalog or str(_find_default_catalog())
 
     resolve_context = None
@@ -1406,11 +1515,12 @@ def main() -> int:
     policy_dir_url = args.policy_dir_url
     end_of_support = args.end_of_support
     upcoming_release_date = args.upcoming_release_date
+    code_freeze_date = args.code_freeze_date
 
     if args.metadata_file:
         try:
             metadata = json.loads(Path(args.metadata_file).read_text(encoding="utf-8"))
-            release_meta = metadata.get("releases", {}).get(args.release, {})
+            release_meta = metadata.get("releases", {}).get(release, {})
             if not source_path:
                 source_path = release_meta.get("source_path", "")
             if not source_created_at:
@@ -1419,6 +1529,13 @@ def main() -> int:
                 source_sha = release_meta.get("source_sha", "")
         except (OSError, json.JSONDecodeError) as exc:
             print(f"WARNING: Could not read metadata file: {exc}", file=sys.stderr)
+    elif context and run_dir:
+        if not source_path:
+            source_path = conforma_context_ops.get(run_dir, "steps.fetch.source_path", "")
+        if not source_created_at:
+            source_created_at = conforma_context_ops.get(run_dir, "steps.fetch.source_created_at", "")
+        if not source_sha:
+            source_sha = conforma_context_ops.get(run_dir, "steps.fetch.source_sha", "")
 
     if resolve_context:
         links = resolve_context.get("links", {})
@@ -1428,6 +1545,17 @@ def main() -> int:
             end_of_support = resolve_context.get("end_of_support", "")
         if not upcoming_release_date:
             upcoming_release_date = resolve_context.get("upcoming_release_date", "")
+        if not code_freeze_date:
+            code_freeze_date = resolve_context.get("code_freeze_date", "")
+    elif context:
+        if not policy_dir_url:
+            policy_dir_url = conforma_context_ops.get(run_dir, "resolve.links.policy_dir", "")
+        if not end_of_support:
+            end_of_support = conforma_context_ops.get(run_dir, "resolve.end_of_support", "")
+        if not upcoming_release_date:
+            upcoming_release_date = conforma_context_ops.get(run_dir, "resolve.upcoming_release_date", "")
+        if not code_freeze_date:
+            code_freeze_date = conforma_context_ops.get(run_dir, "resolve.code_freeze_date", "")
 
     policy_files = None
     if args.policy_files_json:
@@ -1437,45 +1565,57 @@ def main() -> int:
             print("WARNING: --policy-files-json is not valid JSON, ignoring", file=sys.stderr)
     elif resolve_context:
         policy_files = resolve_context.get("links", {}).get("policy_files")
+    elif context:
+        ctx_pf = conforma_context_ops.get(run_dir, "resolve.policy_files", None)
+        if ctx_pf:
+            policy_files = [{"name": f, "url": ""} for f in ctx_pf]
+
+    if resolve_context:
+        ss_files = resolve_context.get("links", {}).get("self_service_exception_files", [])
+        if ss_files:
+            policy_files = list(policy_files or []) + [
+                {"name": f"exceptions/{f['name']}", "url": f["url"]} for f in ss_files
+            ]
 
     if not source_path or not source_created_at:
         print(
             "ERROR: --source-path and --source-created-at are required "
-            "(provide them directly or via --metadata-file)",
+            "(provide them directly, via --metadata-file, or via context.yaml)",
             file=sys.stderr,
         )
         return 1
 
     try:
         content = generate_resolution_guide(
-            violations_yaml_path=args.violations_yaml,
-            coverage_json_path=args.coverage_json,
-            reports_dir=args.reports_dir,
+            violations_yaml_path=violations_yaml,
+            coverage_json_path=coverage_json,
+            reports_dir=reports_dir,
             catalog_path=catalog_path,
-            release=args.release,
+            release=release,
             source_path=source_path,
             source_created_at=source_created_at,
             source_sha=source_sha,
             policy_dir_url=policy_dir_url,
             policy_files=policy_files,
-            tooling_health_path=args.tooling_health_json,
-            executive_summary_file=args.executive_summary_file,
-            analysis_output_file=args.analysis_output_file,
+            tooling_health_path=tooling_health_json,
+            executive_summary_file=executive_summary_file,
+            analysis_output_file=analysis_output_file,
             end_of_support=end_of_support,
             resolve_context=resolve_context,
             upcoming_release_date=upcoming_release_date,
+            code_freeze_date=code_freeze_date,
         )
     except FileNotFoundError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
-    output_path = Path(args.output)
+    output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(content, encoding="utf-8")
     print(f"Resolution guide written to {output_path}", file=sys.stderr)
 
-    if args.executive_summary_file:
-        es_path = Path(args.executive_summary_file)
+    if executive_summary_file:
+        es_path = Path(executive_summary_file)
         if es_path.exists():
             es_content = es_path.read_text(encoding="utf-8")
             guide_link = f"- **Resolution Guide**: `{output_path}`"
@@ -1487,7 +1627,17 @@ def main() -> int:
                 )
                 es_path.write_text(es_content, encoding="utf-8")
 
-    print(json.dumps({"output": str(output_path), "release": args.release}))
+    if run_dir:
+        step_outputs: dict = {
+            "guide_file": output_path.name,
+        }
+        if executive_summary_file:
+            step_outputs["executive_summary_file"] = Path(executive_summary_file).name
+        if analysis_output_file:
+            step_outputs["analysis_file"] = Path(analysis_output_file).name
+        conforma_context_ops.update_step(run_dir, "resolution_guide", "completed", **step_outputs)
+
+    print(json.dumps({"output": str(output_path), "release": release}))
     return 0
 
 

@@ -27,7 +27,7 @@ If not authenticated, follow the **gitlab-auth** skill.
 python3 scripts/component_catalog_ops.py ensure-repo
 ```
 
-This clones `data-hub/component-maturity` to `.work/component-maturity/`. On subsequent runs it does `git pull --ff-only` to refresh data.
+This clones `data-hub/component-maturity` to `~/.conforma/component-maturity/`. On subsequent runs it does `git pull --ff-only` to refresh data.
 
 ## Common Queries
 
@@ -59,20 +59,20 @@ For advanced queries, run `query.py` from the cloned catalog repo:
 
 ```bash
 # All RHOAI midstream artifacts with Jira component mappings
-python3 .work/component-maturity/.claude/skills/software-catalog-query/scripts/query.py \
+python3 ~/.conforma/component-maturity/.claude/skills/software-catalog-query/scripts/query.py \
   --rh_product "Red Hat OpenShift AI" \
   --find artifacts \
   --tier midstream \
   --all-versions
 
 # Find repos by Jira component
-python3 .work/component-maturity/.claude/skills/software-catalog-query/scripts/query.py \
+python3 ~/.conforma/component-maturity/.claude/skills/software-catalog-query/scripts/query.py \
   --rh_product "Red Hat OpenShift AI" \
   --find repos \
   --jira_component "Serving"
 
 # Find all Jira components
-python3 .work/component-maturity/.claude/skills/software-catalog-query/scripts/query.py \
+python3 ~/.conforma/component-maturity/.claude/skills/software-catalog-query/scripts/query.py \
   --rh_product "Red Hat OpenShift AI" \
   --find jira_components
 ```
@@ -84,7 +84,7 @@ See the catalog repo's own documentation for the full `query.py` API.
 The JSON reference files in the catalog repo are updated by upstream CI. To get fresh data:
 
 ```bash
-cd .work/component-maturity && git pull
+cd ~/.conforma/component-maturity && git pull
 ```
 
 Or re-run `python3 scripts/component_catalog_ops.py ensure-repo`, which does `git pull` automatically if the repo is already cloned.

@@ -152,3 +152,23 @@ class TestRunChecks:
             result = verify_auth.run_checks()
 
         assert result["passed"] is False
+
+
+class TestContextIntegration:
+    """Tests for ~/.conforma/.env path references in fix messages."""
+
+    def test_jira_fix_message_references_conforma_env(self):
+        """Jira auth fix message points to ~/.conforma/.env."""
+        with patch.object(verify_auth.jira_ops, "verify_auth", return_value={"ok": False, "error": "401"}):
+            result = verify_auth.check_acli_auth()
+
+        assert "~/.conforma/.env" in result["fix"]
+        assert ".work/.env" not in result["fix"]
+
+    def test_gitlab_fix_message_references_conforma_env(self):
+        """GitLab auth fix message points to ~/.conforma/.env."""
+        with patch.object(verify_auth.gitlab_ops, "discover_token", return_value=None):
+            result = verify_auth.check_glab_auth()
+
+        assert "~/.conforma/.env" in result["fix"]
+        assert ".work/.env" not in result["fix"]

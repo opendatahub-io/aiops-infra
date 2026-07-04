@@ -17,13 +17,13 @@ with enforcement dates within 21 days (3 weeks) are surfaced.
 
 Usage:
     # Analyze all CSVs from the latest fetch run:
-    python3 scripts/analyze_csv_report.py --reports-dir .work/latest
+    python3 scripts/analyze_csv_report.py --reports-dir ~/.conforma/latest
 
     # Analyze a single CSV:
-    python3 scripts/analyze_csv_report.py --csv .work/latest/rhoai-3.5-ea.1.csv
+    python3 scripts/analyze_csv_report.py --csv ~/.conforma/latest/rhoai-3.5-ea.1.csv
 
     # Output as markdown:
-    python3 scripts/analyze_csv_report.py --reports-dir .work/latest --format markdown
+    python3 scripts/analyze_csv_report.py --reports-dir ~/.conforma/latest --format markdown
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import conforma_context_ops  # noqa: E402
 import conforma_counting
 
 
@@ -725,14 +726,19 @@ def _build_report_header(metadata_file: str, release: str, fmt: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Analyze conforma violation and warnings reports")
-    input_group = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Conforma run directory (auto-discovered from ~/.conforma/.conforma-active if omitted)",
+    )
+    input_group = parser.add_mutually_exclusive_group(required=False)
     input_group.add_argument(
         "--csv",
         help="Path to a single violations CSV file",
     )
     input_group.add_argument(
         "--reports-dir",
-        help="Directory containing per-release CSV files (e.g. .work/latest)",
+        help="Directory containing per-release CSV files",
     )
     parser.add_argument(
         "--format",
@@ -774,12 +780,33 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    context = None
+    run_dir = None
+    try:
+        run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
+        context = conforma_context_ops.load(run_dir)
+    except FileNotFoundError:
+        if args.run_dir:
+            raise
+
+    violations_yaml_path = args.violations_yaml
+    if violations_yaml_path is None and context:
+        ctx_vy = conforma_context_ops.get(run_dir, "steps.parse.violations_yaml", None)
+        if ctx_vy:
+            violations_yaml_path = str(Path(run_dir) / ctx_vy)
+
+    release = args.release
+    if release is None and context:
+        release = conforma_context_ops.get(run_dir, "application.release", None)
+
+    metadata_file = args.metadata_file
+
     component_owners: dict[str, str | None] = {}
-    if args.violations_yaml:
-        component_owners = _load_component_owners(args.violations_yaml)
+    if violations_yaml_path:
+        component_owners = _load_component_owners(violations_yaml_path)
         if component_owners:
             print(
-                f"Loaded ownership for {len(component_owners)} components from {args.violations_yaml}", file=sys.stderr
+                f"Loaded ownership for {len(component_owners)} components from {violations_yaml_path}", file=sys.stderr
             )
 
     upcoming: list[UpcomingViolation] = []
@@ -797,7 +824,7 @@ def main() -> int:
                 warnings_path = csv_path.parent / f"{stem}-warnings.csv"
             if warnings_path.is_file():
                 upcoming = load_warnings_csv(warnings_path, threshold_days=args.upcoming_threshold_days)
-    else:
+    elif args.reports_dir:
         reports_dir = Path(args.reports_dir)
         if not reports_dir.is_dir():
             print(f"Error: directory not found: {reports_dir}", file=sys.stderr)
@@ -805,6 +832,14 @@ def main() -> int:
         records = load_reports_dir(reports_dir)
         if not args.no_warnings:
             upcoming = load_warnings_dir(reports_dir, threshold_days=args.upcoming_threshold_days)
+    elif run_dir:
+        reports_dir = Path(run_dir)
+        records = load_reports_dir(reports_dir)
+        if not args.no_warnings:
+            upcoming = load_warnings_dir(reports_dir, threshold_days=args.upcoming_threshold_days)
+    else:
+        print("Error: --csv or --reports-dir is required when no run context is available", file=sys.stderr)
+        return 1
 
     if not records:
         print("Error: no violation records found", file=sys.stderr)
@@ -825,9 +860,9 @@ def main() -> int:
     output = formatters[args.format](result, **formatter_kwargs)
 
     header = ""
-    if args.metadata_file and args.release:
-        header = _build_report_header(args.metadata_file, args.release, args.format)
-    elif args.metadata_file and not args.release:
+    if metadata_file and release:
+        header = _build_report_header(metadata_file, release, args.format)
+    elif metadata_file and not release:
         print("WARNING: --metadata-file requires --release to look up metadata", file=sys.stderr)
 
     if header:
