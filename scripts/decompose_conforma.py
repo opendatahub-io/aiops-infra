@@ -1486,6 +1486,7 @@ class Step12_DedupSharedUtils(Step):
             # Update internal references
             chunk = chunk.replace("_quote_strings_recursively(", "quote_strings_recursively(")
             chunk = chunk.replace("_needs_quoting(", "needs_quoting(")
+            chunk = chunk.replace("_QuotedStr(", "QuotedStr(")
             yaml_ops_content += chunk + "\n\n"
 
         Path("scripts/conforma_yaml_ops.py").write_text(yaml_ops_content)
