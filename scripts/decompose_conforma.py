@@ -393,9 +393,12 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
         target_names.add(name)
         target_names.add(f"_{name}")
 
-    nodes_to_extract: list[ast.FunctionDef] = []
+    nodes_to_extract: list[ast.FunctionDef | ast.ClassDef] = []
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            if node.name in target_names:
+                nodes_to_extract.append(node)
+        elif isinstance(node, ast.ClassDef):
             if node.name in target_names:
                 nodes_to_extract.append(node)
 
@@ -560,16 +563,22 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
 
     remaining_lines = [line for i, line in enumerate(lines) if i not in lines_to_remove]
 
-    # Generate re-export imports
+    # Generate re-export imports (only for explicitly extracted nodes)
     target_module_name = config.target_path.stem
     re_exports = []
     for node in nodes_to_extract:
         public_name = node.name.lstrip("_")
         original_name = node.name
-        re_exports.append(
-            f"from {target_module_name} import {public_name} as {original_name}  "
-            f"# noqa: F401 — backward compat re-export"
-        )
+        if public_name == original_name:
+            re_exports.append(
+                f"from {target_module_name} import {public_name}  "
+                f"# noqa: F401 — backward compat re-export"
+            )
+        else:
+            re_exports.append(
+                f"from {target_module_name} import {public_name} as {original_name}  "
+                f"# noqa: F401 — backward compat re-export"
+            )
 
     # Find insertion point: after the last import statement (using AST for accuracy)
     remaining_source_tmp = "".join(remaining_lines)
@@ -1197,7 +1206,7 @@ class Step7_ExtractPolicyFileOps(Step):
                 "detect_component_type", "get_target_file",
                 "generate_exception_yaml", "find_existing_exceptions",
                 "remove_exception_from_policy_file", "apply_exception_to_policy_file",
-                "append_to_policy_file",
+                "append_to_policy_file", "AmbiguousPolicyFileError",
             ],
             target_docstring="Exception policy file operations — resolution, YAML generation, and manipulation.",
         )
