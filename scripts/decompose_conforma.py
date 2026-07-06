@@ -439,16 +439,18 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
                 elif isinstance(dep_node, ast.Assign | ast.ClassDef):
                     dependencies.add(name)
 
-    # Recursively collect dependencies of dependencies (one level deep)
-    extra_deps: set[str] = set()
-    for dep_name in dependencies:
-        dep_node = module_level_names[dep_name]
-        if isinstance(dep_node, ast.FunctionDef | ast.AsyncFunctionDef):
+    # Recursively collect dependencies of dependencies (two levels for safety)
+    for _ in range(2):
+        extra_deps: set[str] = set()
+        for dep_name in dependencies:
+            dep_node = module_level_names[dep_name]
             used = collect_names_used(dep_node)
             for name in used:
                 if name in module_level_names and name not in extracted_names and name not in dependencies:
                     extra_deps.add(name)
-    dependencies.update(extra_deps)
+        if not extra_deps:
+            break
+        dependencies.update(extra_deps)
 
     # Collect all nodes to put in the new module (targets + dependencies)
     all_extract_names = extracted_names | dependencies
@@ -490,11 +492,13 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
     # Add extracted code (sorted by original position)
     all_extract_nodes.sort(key=lambda x: x[0])
     extracted_chunks = []
+    # Only rename explicitly requested functions (not auto-detected dependencies)
+    explicitly_extracted = {n.name for n in nodes_to_extract}
     rename_map: dict[str, str] = {}
     for start, end, _node in all_extract_nodes:
         chunk = "".join(lines[start:end])
         original_name = _node.name if hasattr(_node, "name") else None
-        if original_name and original_name.startswith("_"):
+        if original_name and original_name.startswith("_") and original_name in explicitly_extracted:
             public_name = original_name.lstrip("_")
             rename_map[original_name] = public_name
         extracted_chunks.append(chunk)
@@ -523,14 +527,29 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
         print(f"    ERROR: Generated module has syntax error: {e}")
         return False
 
-    # Build updated source: remove extracted nodes, add re-exports
+    # Build updated source: remove only explicitly extracted functions (not dependencies)
     lines_to_remove: set[int] = set()
     for start, end, _node in all_extract_nodes:
-        for i in range(start, end):
-            lines_to_remove.add(i)
+        node_name = _node.name if hasattr(_node, "name") else None
+        if not node_name:
+            # For Assign nodes, get name from targets
+            if isinstance(_node, ast.Assign):
+                for t in _node.targets:
+                    if isinstance(t, ast.Name):
+                        node_name = t.id
+                        break
+        # Only remove explicitly extracted nodes, keep dependencies in source
+        if node_name and node_name in explicitly_extracted:
+            for i in range(start, end):
+                lines_to_remove.add(i)
 
     # Also remove blank lines immediately after removed blocks
-    sorted_ranges = sorted(all_extract_nodes, key=lambda x: x[0])
+    sorted_ranges = sorted(
+        (s, e, n) for s, e, n in all_extract_nodes
+        if (n.name if hasattr(n, "name") else
+            next((t.id for t in n.targets if isinstance(t, ast.Name)), None)
+            if isinstance(n, ast.Assign) else None) in explicitly_extracted
+    )
     for _, end, _ in sorted_ranges:
         i = end
         while i < len(lines) and lines[i].strip() == "":
