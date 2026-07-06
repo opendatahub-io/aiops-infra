@@ -1229,7 +1229,7 @@ class Step8_ExtractJiraBuilders(Step):
                 "build_rhoaieng_description", "build_rhoaieng_remediation_description",
                 "build_rhoaieng_violation_report_description",
                 "build_psx_description", "build_psx_filled_adf",
-                "build_summary", "fill_psx_template", "load_templates",
+                "build_summary", "fill_psx_template",
                 "build_exception_label", "build_provenance_footer",
             ],
             target_docstring="Jira ticket description builders — ADF and text generation for all ticket types.",
