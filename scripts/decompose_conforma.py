@@ -1575,10 +1575,22 @@ class Step12_DedupSharedUtils(Step):
             remaining = [l for i, l in enumerate(file_lines) if i not in lines_to_remove]
 
             import_line = "from github_ops import get_token as _get_github_token  # noqa: F401\n"
-            insert_pos = 0
-            for i, line in enumerate(remaining):
-                if line.startswith("import ") or line.startswith("from "):
-                    insert_pos = i + 1
+            remaining_text = "".join(remaining)
+            try:
+                remaining_tree = ast.parse(remaining_text)
+                insert_pos = 0
+                for rnode in ast.iter_child_nodes(remaining_tree):
+                    if isinstance(rnode, ast.Import | ast.ImportFrom):
+                        end = rnode.end_lineno or rnode.lineno
+                        if end > insert_pos:
+                            insert_pos = end
+            except SyntaxError:
+                insert_pos = 0
+                for i, line in enumerate(remaining):
+                    stripped = line.strip()
+                    if stripped.startswith("import ") or stripped.startswith("from "):
+                        if "(" not in stripped or ")" in stripped:
+                            insert_pos = i + 1
             remaining.insert(insert_pos, import_line)
             filepath.write_text("".join(remaining))
 
