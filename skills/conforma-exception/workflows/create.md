@@ -1,3 +1,10 @@
+## References (load these before executing)
+
+- `skills/conforma-exception/references/exception-process.md` (~164 lines)
+- `skills/conforma-exception/references/interactive-workflow.md` (~266 lines)
+
+---
+
 # Create Workflow
 
 ## Prerequisites

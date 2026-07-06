@@ -1,3 +1,9 @@
+## References (load these before executing)
+
+- `skills/conforma-exception/references/managing-exceptions-workflow.md` (~307 lines)
+
+---
+
 # Lifecycle Workflow
 
 ## Prerequisites

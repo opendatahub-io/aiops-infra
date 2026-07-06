@@ -1,3 +1,9 @@
+## References (load these before executing)
+
+- `skills/references/violation-aliases.yaml` (~50 lines)
+
+---
+
 # Violation History Workflow
 
 ## Violation History

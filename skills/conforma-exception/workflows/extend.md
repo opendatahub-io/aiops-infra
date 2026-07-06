@@ -1,3 +1,9 @@
+## References (load these before executing)
+
+- `skills/conforma-exception/references/exception-process.md` (~164 lines)
+
+---
+
 # Extend Workflow
 
 ## Prerequisites

@@ -1,3 +1,9 @@
+## References (load these before executing)
+
+No additional references needed.
+
+---
+
 # Tekton JSON Reports Workflow
 
 ## 2. Tekton JSON Reports (Konflux) — Preferred

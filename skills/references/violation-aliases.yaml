@@ -1,0 +1,106 @@
+# Violation code aliases for natural-language resolution.
+# Extracted from violation-catalog.yaml — keep in sync.
+#
+# Used by: conforma-analyze violation-history workflow
+# To regenerate: python3 scripts/decompose_conforma.py --start-from 5
+
+aliases:
+- id: hermetic_task.hermetic
+  phrases:
+  - hermetic
+  - hermetic build
+  - non-hermetic
+- id: trusted_task.trusted.unpinned_reference
+  phrases:
+  - unpinned reference
+  - unpinned task
+- id: trusted_task.trusted.not_built_by_trusted
+  phrases:
+  - untrusted task
+  - trusted task
+  - not built by a trusted task
+- id: trusted_task.trusted.missing_buildah
+  phrases:
+  - missing buildah
+  - buildah task missing
+- id: trusted_task.trusted.untrusted_version
+  phrases:
+  - untrusted version
+  - upgrade the task version
+- id: no_conforma_report_in_slack
+  phrases:
+  - no slack report
+  - missing conforma notification
+  - no conforma report
+- id: fbc_fips_check_missing
+  phrases:
+  - fips check missing
+  - fbc-fips-check missing
+- id: rpm_signature.allowed
+  phrases:
+  - rpm signature
+  - signing key
+  - rpm signing
+  - allowed key
+  - not one of the allowed keys
+- id: rpm_packages.unique_version
+  phrases:
+  - unique version
+  - rpm version
+  - version mismatch
+  - multi-arch version
+  - mismatched versions
+- id: rpm_repo_id_check
+  phrases:
+  - repo id check
+  - repository_id
+  - disallowed repository
+  - unknown repository
+- id: tasks.required_untrusted_task_found
+  phrases:
+  - required untrusted task
+  - unsupported task
+  - deprecated task
+  - upgrade to a newer version
+- id: test.no_failed_tests.fbc_fips_check_erred
+  phrases:
+  - fips check erred
+  - fbc-fips-check erred
+  - fips test erred
+- id: version_label_mismatch
+  phrases:
+  - version label mismatch
+  - version label does not match
+- id: test.no_failed_tests.fbc_target_index_pruning
+  phrases:
+  - fbc-target-index-pruning-check
+  - pruning check failed
+  - target index pruning
+- id: builtin.attestation.signature_check
+  phrases:
+  - attestation signature check
+  - no matching attestations
+  - attestation signature
+  - missing attestation
+  - no image attestations
+- id: builtin.attestation.syntax_check
+  phrases:
+  - attestation syntax
+  - attestation format
+  - malformed attestation
+- id: builtin.image.signature_check
+  phrases:
+  - image signature check
+  - image signature
+  - missing signature
+  - signature check failed
+- id: prefetch_dependencies.mode_not_permissive
+  phrases:
+  - permissive prefetch
+  - permissive prefetch mode
+  - mode not permissive
+- id: prefetch_dependencies.package_registry_proxy_enabled
+  phrases:
+  - package registry
+  - registry proxy
+  - package registry proxy

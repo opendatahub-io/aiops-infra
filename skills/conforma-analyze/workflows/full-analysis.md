@@ -1,3 +1,9 @@
+## References (load these before executing)
+
+No additional references needed.
+
+---
+
 # Full Analysis Workflow
 
 ## Workflow
