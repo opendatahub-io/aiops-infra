@@ -56,6 +56,40 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 
 6. **No custom analysis — HARD FAILURE.** When a conforma report/violation analysis is requested, the agent MUST follow the full deterministic workflow in `conforma-analyze`. The agent MUST NEVER produce ad-hoc summaries, run scripts with shortcuts (e.g. `--csv` directly, `| head`), skip workflow steps, or manually interpret CSV data. If only existence is asked, answer that and ask whether to run the full analysis. Partial or improvised analysis output is a hard failure.
 
+
+## Conforma Conventions
+
+These rules apply to ALL conforma skill execution and output.
+
+### Terminology
+- Never use "EC" — always "Conforma" (all contexts: variable names, docs, conversation)
+- Conforma is RHOAI-only — never imply ODH coverage
+- "violation code" not bare "code" or "rule"
+- Violations = atomic instances: 1 unique (violation code + component + semantic detail) triple. Multiple CSV rows with different image digests sharing the same root cause are the SAME violation.
+- Express coverage as "X of Y violations covered"
+- "No exception coverage" not "No coverage"
+- "Exception granted, violation should disappear on next Conforma run" not "Exception active"
+- "Rerun Conforma report in Konflux/GitHub and verify the violation is gone from the report" not vague phrases
+- "Executive Summary" not "Key Takeaways"
+- "manual search" / "search manually" for actionable search links
+- Merge Request titles for exceptions: prefix with [stage] or [prod]
+
+### Report Formatting
+- One component per table row
+- List policy files as bullets, not comma-delimited
+- Exception links in resolution guide section, not summary table
+- Components column always populated, even for fully-covered violations
+- Reports must have Executive Summary above main table
+- Source CSV: link to exact git commit hash, not branch name
+- Report header: identify which specific report version was analyzed
+- Next-steps: brief (one line); detailed steps in resolution guide below
+- Covered violations: say "rerun Conforma" not full remediation steps
+
+### Runtime
+- `~/.conforma/` for runtime data, clones, secrets (`.env`)
+- `context.yaml` for inter-skill data handover
+- Never silently skip data sources (Slack, Jira) — report explicitly if unreachable
+
 ## Example Queries
 
 - "Show me the current violations for rhoai-3.5" → **conforma-analyze**
