@@ -1,11 +1,28 @@
 #!/usr/bin/env python3
-"""Create a GitLab MR in releng/konflux-release-data with the exception YAML.
+"""create_gitlab_mr — Create a GitLab MR in releng/konflux-release-data with the exception YAML.
 
-Workflow:
-1. Shallow clone the repo (or use existing clone)
-2. Determine target file based on component type + environment
-3. Generate and append the exception YAML block
-4. Create branch, commit, push, and create MR via glab
+PUBLIC API:
+    detect_component_type(components) -> str  [line 537]
+    get_target_file(component_type, environment, is_self_service) -> str  [line 545]
+    generate_exception_yaml(rule, components, effective_until, reference_url, rhoaieng_url, rhoai_version, is_self_service, is_weekday_restriction, image_ref, reference_title, spreadsheet_url) -> str  [line 558]
+    remove_exception_from_policy_file(file_path, rule, effective_until, components) -> dict  [line 690]
+    apply_exception_to_policy_file(file_path, yaml_block, is_self_service, rule, components, effective_until) -> dict  [line 766]
+    append_to_policy_file(file_path, yaml_block, is_self_service) -> None  [line 833]
+    create_mr(rule, components, effective_until, reference_url, rhoaieng_url, rhoai_version, environment, is_self_service, is_weekday_restriction, image_ref, reference_title, spreadsheet_url, vendor_tag, exception_risk, exception_remediation, policy_file, dry_run) -> dict  [line 847]
+    update_mr(branch_name, rule, components, effective_until, reference_url, rhoaieng_url, rhoai_version, environment, is_self_service, is_weekday_restriction, image_ref, reference_title, spreadsheet_url, vendor_tag, exception_risk, exception_remediation, policy_file, dry_run) -> dict  [line 1070]
+    update_consolidated_mr(branch_name, rule, version_specs, reference_url, rhoaieng_url, environment, is_self_service, reference_title, spreadsheet_url, vendor_tag, exception_risk, exception_remediation, policy_file, dry_run) -> dict  [line 1274]
+    create_consolidated_mr(rule, version_specs, reference_url, rhoaieng_url, environment, is_self_service, reference_title, spreadsheet_url, vendor_tag, exception_risk, exception_remediation, policy_file, dry_run) -> dict  [line 1464]
+    remove_expired_mr(rule, effective_until, rhoai_version, environment, components, reference_url, clone_dir, policy_file, dry_run) -> dict  [line 1775]
+    modernize_exception_mr(rule, old_effective_until, version_specs, environment, reference_url, rhoaieng_url, old_components, policy_file, spreadsheet_url, vendor_tag, exception_risk, exception_remediation, dry_run) -> dict  [line 1963]
+    parse_args() -> argparse.Namespace  [line 2242]
+    main() -> int  [line 2304]
+
+INTERNAL SECTIONS:
+    Main: _build_commit_message, _build_commit_message_extend, _build_commit_message_remove, _build_mr_body, _build_mr_title, ... (+6 more)
+    AmbiguousPolicyFileError: _get_application_slug, _resolve_policy_file, _resolve_self_service_file, _get_conforma_policy_dir, _get_discovered_ec_files, ... (+10 more)
+
+DEPENDENCIES: argparse, getpass, gitlab_ops, json, konflux_environment, os, pathlib, platform, posixpath, re
+
 """
 
 from __future__ import annotations

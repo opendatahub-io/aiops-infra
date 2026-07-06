@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Validate all links in a Conforma Resolution Guide.
+"""validate_guide_links — Validate all links in a Conforma Resolution Guide.
 
-Checks both internal anchor references and external HTTP(S) URLs.
-Auth tokens are applied automatically for GitHub and GitLab URLs.
+PUBLIC API:
+    extract_markdown_links(content) -> list[tuple[str, str]]  [line 79]
+    validate_guide_links(content, max_workers) -> dict  [line 170]
+    find_latest_guide(work_dir) -> str | None  [line 222]
+    main() -> int  [line 231]
 
-Usage:
-    # Validate a specific guide file:
-    python3 skills/conforma-analyze/scripts/validate_guide_links.py \
-      --guide-file ~/.conforma/20260610-143449/conforma-status-and-resolution-guide.md
+INTERNAL SECTIONS:
+    LinkCheckResult: _get_github_token, _get_gitlab_token, _collect_document_anchors, _auth_headers_for_url, _check_single_link
 
-    # Auto-find the most recent guide in ~/.conforma/:
-    python3 skills/conforma-analyze/scripts/validate_guide_links.py --latest
+DEPENDENCIES: argparse, concurrent, conforma_context_ops, glob, json, os, pathlib, re, requests, subprocess
+
 """
 
 from __future__ import annotations

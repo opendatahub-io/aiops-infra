@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-"""List current RHOAI Conforma exceptions as formatted Markdown.
+"""list_exceptions — List current RHOAI Conforma exceptions as formatted Markdown.
 
-Scans policy files from a konflux-release-data clone and renders a
-deterministic Markdown report grouped by expiry status.  The output is
-designed to be printed verbatim by the AI agent — no reformatting needed.
+PUBLIC API:
+    main() -> int  [line 312]
 
-Only analyzes prod policy files by default.  Use ``--environment stage``
-to analyze stage files instead.
+INTERNAL SECTIONS:
+    Main: _strip_quotes, _format_rule, _extract_package_from_rule, _format_component, _extract_rhoai_version, ... (+5 more)
 
-Usage:
-  python3 scripts/list_exceptions.py --clone-dir ~/.conforma/konflux-release-data
-  python3 scripts/list_exceptions.py --clone-dir ~/.conforma/konflux-release-data --environment stage
-  python3 scripts/list_exceptions.py --clone-dir ~/.conforma/konflux-release-data --soon-days 30
+DEPENDENCIES: argparse, collections, conforma_context_ops, datetime, manage_exceptions, os, pathlib, re, shutil, sys
+
 """
 
 from __future__ import annotations

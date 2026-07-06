@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
-"""Submit a Conforma Resolution Guide to the conforma-reporter repo.
+"""submit_resolution_guide — Submit a Conforma Resolution Guide to the conforma-reporter repo.
 
-Pushes the generated resolution guide to the environment-specific directory
-on the release branch via the GitHub Contents API (direct commit).
+PUBLIC API:
+    submit_resolution_guide(guide_file, release, environment, repo, message, dry_run, metadata_file) -> dict  [line 128]
+    main() -> int  [line 249]
 
-Usage:
-    # Submit stage guide:
-    python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \\
-      --guide-file ~/.conforma/20260610-143449/conforma-status-and-resolution-guide.md \\
-      --release rhoai-3.5-ea.2 \\
-      --environment stage
+INTERNAL SECTIONS:
+    Main: _get_github_token, _gh_headers, _get_existing_file_sha, _check_branch_exists, _resolve_old_path, ... (+1 more)
 
-    # Dry run (no commit):
-    python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \\
-      --guide-file ~/.conforma/20260610-143449/conforma-status-and-resolution-guide.md \\
-      --release rhoai-3.5-ea.2 \\
-      --environment prod \\
-      --dry-run
+DEPENDENCIES: argparse, base64, conforma_constants, conforma_context_ops, json, os, pathlib, requests, subprocess, sys
+
 """
 
 from __future__ import annotations

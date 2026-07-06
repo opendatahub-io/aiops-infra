@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Batch violations coverage check with cross-referencing.
+"""violations_coverage — Batch violations coverage check with cross-referencing.
 
-Reads a violations YAML (from parse_violations.py) and cross-references each
-violation against existing policy exceptions, open GitLab Merge Requests, open
-Jira tickets, and Slack threads.  Produces a per-violation summary with a
-pre-rendered markdown table.
+PUBLIC API:
+    check_violations_coverage(violations_yaml_path, policy_files, environment, clone_dir, require_jira, require_slack, metadata_file, release, csv_path, self_service_files) -> dict  [line 657]
+    parse_args() -> argparse.Namespace  [line 1111]
+    main() -> int  [line 1147]
 
-Usage:
-    python3 skills/conforma-analyze/scripts/violations_coverage.py \\
-      --violations-yaml ~/.conforma/20260610-103554/violations.yaml \\
-      --clone-dir ~/.conforma/konflux-release-data \\
-      --environment prod
+INTERNAL SECTIONS:
+    Main: _map_gate_status, _extract_exception_expiry, _build_component_exception_details, _log, _build_search_urls, ... (+9 more)
+
+DEPENDENCIES: argparse, component_alias_ops, concurrent, conforma_constants, conforma_context_ops, conforma_ec_validate, conforma_jira_ops, conforma_mr_ops, conforma_policy_ops, conforma_slack_ops
+
 """
 
 from __future__ import annotations

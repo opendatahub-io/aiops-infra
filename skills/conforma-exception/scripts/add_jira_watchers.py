@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
-"""Add watchers to Jira tickets across different projects.
+"""add_jira_watchers — Add watchers to Jira tickets across different projects.
 
-Automatically selects the right mechanism per project:
+PUBLIC API:
+    discover_team() -> dict  [line 327]
+    resolve_watchers(display_names) -> dict  [line 463]
+    add_watchers_to_ticket(ticket_key, watcher_accounts) -> dict  [line 480]
+    add_watchers_to_tickets(ticket_keys, display_names) -> dict  [line 493]
+    parse_args() -> argparse.Namespace  [line 576]
+    main() -> int  [line 610]
 
-  PSX / OCPEXCEPT  →  'Additional watchers' custom field (customfield_10705)
-                      because the standard watcher API requires PSX view
-                      permissions that most users lack.
+INTERNAL SECTIONS:
+    Main: _ensure_jira_env, _jira_auth, _jira_get, _jira_put, _jira_post, ... (+5 more)
 
-  Everything else  →  Standard Jira watchers API (POST /issue/{key}/watchers).
-      (RHOAIENG, …)
+DEPENDENCIES: argparse, jira_ops, json, os, sys
 
-Editing the PSX custom field requires the caller to be the reporter or
-assignee on the ticket (PSX project permission scheme).
-
-Usage:
-  python3 add_jira_watchers.py --tickets PSX-1038,PSX-1039 --watchers 'Akshay Ghodake'
-  python3 add_jira_watchers.py --tickets RHOAIENG-38414 --watchers 'Akshay Ghodake,Jane Doe'
-  python3 add_jira_watchers.py --tickets PSX-1040,RHOAIENG-38414 --watchers 'Akshay Ghodake' --dry-run
 """
 
 from __future__ import annotations

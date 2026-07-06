@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
-"""Parse conforma violation and warnings report CSVs into a structured YAML index.
+"""parse_violations — Parse conforma violation and warnings report CSVs into a structured YAML index.
 
-Reads CSV files (one per release) from a directory, extracts full rule codes
-deterministically from the message column, filters violations and warnings,
-and outputs a structured YAML file.
+PUBLIC API:
+    extract_full_rule_code(code, message, description) -> str  [line 70]
+    extract_full_violation_code(description, code, message) -> str  [line 105]
+    get_semantic_catalog() -> dict  [line 147]
+    extract_semantic_detail(code, message, full_violation_code, catalog) -> str  [line 155]
+    parse_csv_file(csv_path, release) -> list[dict]  [line 292]
+    parse_warnings_csv_file(csv_path, release, threshold_days, reference_date) -> list[dict]  [line 358]
+    build_semantic_detail_lookup(violations_yaml_data) -> tuple[dict[tuple[str, str], list[str]], dict[str, str]]  [line 547]
+    build_violations_index(all_records, releases, environment, failed_releases, report_dates, upcoming_records, upcoming_threshold_days) -> dict  [line 576]
+    main() -> int  [line 730]
 
-Warnings represent policies not yet enforced.  Once a warning's
-``effective_on`` date passes, it becomes an enforced violation.  Warnings
-with enforcement dates within a configurable threshold (default: 21 days /
-3 weeks) are surfaced as **warnings becoming violations** in the output,
-giving teams time to act before enforcement begins.
+INTERNAL SECTIONS:
+    Main: _load_semantic_catalog
+    _QuotedStr: _quoted_str_representer, _safe_yaml_dump, _needs_quoting, _quote_strings_recursively, _parse_date, ... (+3 more)
 
-Violation CSVs are named ``{release}.csv``, warnings CSVs are named
-``{release}-warnings.csv``.  Both are expected in the same ``--reports-dir``.
+DEPENDENCIES: argparse, collections, conforma_constants, conforma_context_ops, conforma_counting, csv, datetime, pathlib, re, sys
 
-The output is wrapped in a ``violation_data`` top-level key for future
-handover document embedding.
-
-Usage:
-    python3 scripts/parse_violations.py \\
-      --reports-dir /tmp/conforma-reports \\
-      --output /tmp/conforma-violations.yaml
 """
 
 from __future__ import annotations

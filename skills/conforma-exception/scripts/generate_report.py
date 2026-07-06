@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
-"""Generate a markdown report from assessed exceptions.
+"""generate_report — Generate a markdown report from assessed exceptions.
 
-Reads assessed-exceptions.yaml (output of manage_exceptions.py --assess-expired
-or --assess-all) and produces a .md file with summary stats, an exception/release
-matrix table, and per-exception detail sections.
+PUBLIC API:
+    generate_markdown(data, environment) -> str  [line 280]
+    build_action_plan(data) -> dict  [line 448]
+    main() -> int  [line 503]
 
-Supports both expired-only and mixed (expired + active) input. The report format
-adapts automatically based on the input scope.
+INTERNAL SECTIONS:
+    Main: _load_assessment, _build_policy_file_url, _exception_label, _reference_label, _policy_label, ... (+7 more)
 
-Usage:
-    python3 scripts/generate_report.py \\
-      --assessed-input ~/.conforma/20260703-120000/assessed-exceptions.yaml \\
-      --output ~/.conforma/20260703-120000/exceptions-report.md
+DEPENDENCIES: argparse, conforma_constants, conforma_context_ops, json, os, pathlib, sys, yaml
 
-    # Also write a machine-readable action plan for the agent:
-    python3 scripts/generate_report.py \\
-      --assessed-input ~/.conforma/20260703-120000/assessed-exceptions.yaml \\
-      --output ~/.conforma/20260703-120000/exceptions-report.md \\
-      --action-plan-output ~/.conforma/20260703-120000/action-plan.json
 """
 
 from __future__ import annotations

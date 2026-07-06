@@ -1,29 +1,27 @@
 #!/usr/bin/env python3
-"""Analyze conforma violation and warnings reports and produce a structured summary.
+"""analyze_csv_report — Analyze conforma violation and warnings reports and produce a structured summary.
 
-Reads violation CSVs (and optionally warnings CSVs) from a directory and
-outputs a human-readable analysis covering:
-  - Totals and breakdown by violation code
-  - Root cause extraction (untrusted task names, signing keys, etc.)
-  - Per-component violation patterns
-  - Effective date enforcement deadlines
-  - Upcoming violations from warnings nearing enforcement
-  - Prioritized remediation recommendations
+PUBLIC API:
+    load_csv(csv_path, release) -> list[ViolationRecord]  [line 94]
+    load_reports_dir(reports_dir) -> list[ViolationRecord]  [line 119]
+    load_warnings_csv(csv_path, release, threshold_days, reference_date) -> list[UpcomingViolation]  [line 142]
+    load_warnings_dir(reports_dir, threshold_days, reference_date) -> list[UpcomingViolation]  [line 181]
+    extract_untrusted_tasks(records) -> dict[str, int]  [line 200]
+    extract_rpm_signature_details(records) -> list[dict]  [line 211]
+    compute_component_patterns(records) -> list[dict]  [line 229]
+    compute_effective_dates(records) -> dict[str, int]  [line 254]
+    generate_priority_recommendations(records, code_counts, untrusted_tasks) -> list[dict]  [line 263]
+    analyze(records, upcoming) -> AnalysisResult  [line 351]
+    format_text(result, component_owners) -> str  [line 453]
+    format_markdown(result, component_owners) -> str  [line 543]
+    format_json(result, component_owners) -> str  [line 637]
+    main() -> int  [line 727]
 
-Warnings CSVs named ``{release}-warnings.csv`` in the same directory are
-parsed by default.  Warnings are policies not yet enforced — once their
-``effective_on`` date passes they become enforced violations.  Warnings
-with enforcement dates within 21 days (3 weeks) are surfaced.
+INTERNAL SECTIONS:
+    AnalysisResult: _parse_date, _load_component_owners, _annotate_comp, _build_report_header
 
-Usage:
-    # Analyze all CSVs from the latest fetch run:
-    python3 scripts/analyze_csv_report.py --reports-dir ~/.conforma/latest
+DEPENDENCIES: argparse, collections, conforma_constants, conforma_context_ops, conforma_counting, csv, dataclasses, datetime, json, pathlib
 
-    # Analyze a single CSV:
-    python3 scripts/analyze_csv_report.py --csv ~/.conforma/latest/rhoai-3.5-ea.1.csv
-
-    # Output as markdown:
-    python3 scripts/analyze_csv_report.py --reports-dir ~/.conforma/latest --format markdown
 """
 
 from __future__ import annotations

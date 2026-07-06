@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""Comment MR URL on Jira tickets and add provenance label.
+"""link_artifacts — Comment MR URL on Jira tickets and add provenance label.
 
-For each Jira ticket (RHOAIENG, PSX, OCPEXCEPT):
-  1. Adds a remote/web link to the GitLab MR (if JIRA_API_TOKEN is set)
-  2. Adds a comment with the GitLab MR URL and provenance footer
-  3. Adds the conforma-exception-ai-skill label
+PUBLIC API:
+    build_provenance_footer() -> str  [line 129]
+    add_remote_link(ticket_key, url, title, dry_run) -> dict  [line 160]
+    add_label(ticket_key, dry_run) -> dict  [line 229]
+    comment_on_ticket(ticket_key, mr_url, dry_run) -> dict  [line 300]
+    ensure_link(from_key, to_key, link_type, dry_run) -> dict  [line 336]
+    delete_link(ticket_key, target_key, link_type, dry_run) -> dict  [line 384]
+    link_all(mr_url, rhoaieng_url, psx_url, link_to, related_psx, mr_title, violation_jira_url, remediation_jira_url, approval_jira_url, dry_run) -> dict  [line 435]
+    parse_args() -> argparse.Namespace  [line 538]
+    main() -> int  [line 562]
 
-This ensures even pre-existing tickets (passed via URL) get marked.
-Requires JIRA_API_TOKEN and JIRA_EMAIL env vars for remote links.
+INTERNAL SECTIONS:
+    Main: _ensure_jira_env, _jira_auth, _jira_rest_get, _jira_rest_put, _verify_link_exists, ... (+4 more)
+
+DEPENDENCIES: argparse, getpass, jira_ops, json, os, pathlib, platform, re, sys, urllib
+
 """
 
 from __future__ import annotations

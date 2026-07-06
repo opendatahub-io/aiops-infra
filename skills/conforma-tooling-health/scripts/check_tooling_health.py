@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Check the health of conforma infrastructure tools.
+"""check_tooling_health — Check the health of conforma infrastructure tools.
 
-Queries the GitHub Actions API for workflow run status of conforma tooling
-(starting with conforma-reporter), classifies health, and matches failure
-logs against known failure modes from the tooling-health-catalog.yaml.
+PUBLIC API:
+    load_catalog(catalog_path) -> dict  [line 45]
+    classify_failure(log_text, tool_config) -> dict | None  [line 239]
+    check_tool_health(tool_id, repo, workflow_file, release, max_runs, token, catalog, environment) -> dict  [line 266]
+    check_all_tools(release, environment, max_runs, catalog_path) -> dict  [line 375]
+    main() -> int  [line 476]
 
-Usage:
-    python3 check_tooling_health.py --release rhoai-3.5-ea.1 --output health.json
-    python3 check_tooling_health.py --release rhoai-3.5-ea.1  # stdout
+INTERNAL SECTIONS:
+    Main: _get_tool_config, _fetch_workflow_runs, _parse_run, _classify_health, _count_consecutive_failures, ... (+3 more)
 
-Exit code is always 0 -- all states are encoded in the JSON output.
+DEPENDENCIES: argparse, conforma_context_ops, datetime, github_ops, json, pathlib, requests, sys, yaml
+
 """
 
 from __future__ import annotations

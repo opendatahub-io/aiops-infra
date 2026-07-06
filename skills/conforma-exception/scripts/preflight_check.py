@@ -1,27 +1,25 @@
 #!/usr/bin/env python3
-"""Deterministic pre-flight check for conforma-exception.
+"""preflight_check — Deterministic pre-flight check for conforma-exception.
 
-Resolves ALL parameters from authoritative sources (Jira, GitLab, RPA files).
-The agent MUST run this script FIRST and present its output to the user for
-confirmation. The agent MUST NOT make decisions about any of these values.
+PUBLIC API:
+    fetch_rhoaieng_ticket(url) -> dict  [line 68]
+    search_related_psx(rule) -> list[dict]  [line 124]
+    check_rhoaieng_approval_status(url) -> dict  [line 140]
+    check_duplicate_psx_tickets(rule, rhoai_versions) -> list[dict]  [line 258]
+    lookup_components_from_rpa(image_bases, rhoai_versions, rpa_dir) -> dict[str, list[str]]  [line 271]
+    resolve_effective_until_dates(rhoai_versions) -> dict[str, dict]  [line 287]
+    validate_effective_until_date(version, provided_date) -> dict  [line 296]
+    evaluate_decision(existing_exceptions, components_per_version, environment) -> dict  [line 301]
+    discover_user_groups() -> dict  [line 425]
+    run_preflight(rhoaieng_url, policy_files, environment, rule_override, versions_override, image_bases, rpa_dir, clone_dir) -> dict  [line 597]
+    parse_args() -> argparse.Namespace  [line 752]
+    main() -> int  [line 801]
 
-Outputs a JSON with:
-  - resolved values (rule, components, versions, dates, links)
-  - existing state (duplicate tickets, existing exceptions, related PSX)
-  - hard-rule defaults (link types, MR-per-version strategy)
-  - items requiring user confirmation
+INTERNAL SECTIONS:
+    Main: _extract_ticket_key, _extract_rule_from_summary, _search_approval_comments, _fetch_group_members
 
-Usage:
-  # Existing exception gate check (no Jira required — run FIRST)
-  python3 scripts/preflight_check.py --check-existing-exception \
-    --rule hermetic_task.hermetic \
-    --components odh-model-registry-v3-4
+DEPENDENCIES: argparse, conforma_policy_ops, jira_ops, json, os, pathlib, re, release_dates, sys
 
-  # Full pre-flight check (requires Jira URL)
-  python3 scripts/preflight_check.py --rhoaieng-url https://redhat.atlassian.net/browse/RHOAIENG-38389
-
-Batch violations coverage has moved to:
-  skills/conforma-analyze/scripts/violations_coverage.py
 """
 
 from __future__ import annotations

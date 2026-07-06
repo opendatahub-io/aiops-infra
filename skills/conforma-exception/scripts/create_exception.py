@@ -1,29 +1,16 @@
 #!/usr/bin/env python3
-"""Main orchestrator for the conforma-exception skill.
+"""create_exception — Main orchestrator for the conforma-exception skill.
 
-Orchestrates the full exception lifecycle by reading workflow steps from
-exception_templates.yaml and executing them in order:
-  validate -> auth -> workflow steps (Jira tickets + MR) -> link
+PUBLIC API:
+    list_exception_types(show_all) -> dict  [line 149]
+    run_script(script_name, args) -> dict  [line 205]
+    main() -> int  [line 225]
 
-The workflow is determined by the --rule matching a template category.
-Each category defines its own sequence of steps (Jira projects, ticket
-types, assignees, MR target).
+INTERNAL SECTIONS:
+    Main: _get_reference_title, _summarise_workflow, _extract_example_links
 
-Usage:
-  # List known exception types (7 most common)
-  python3 scripts/create_exception.py --list-exception-types
+DEPENDENCIES: conforma_context_ops, json, pathlib, subprocess, sys
 
-  # List all exception types including non-common and catch-all
-  python3 scripts/create_exception.py --list-exception-types --all
-
-  # Create an exception
-  python3 scripts/create_exception.py \\
-    --rhoai-version rhoai-3.3 \\
-    --rule hermetic_task.hermetic \\
-    --components odh-mlflow-v3-3 \\
-    --effective-until-date 2026-10-03 \\
-    --environment prod \\
-    --dry-run
 """
 
 from __future__ import annotations

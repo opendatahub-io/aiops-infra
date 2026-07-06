@@ -1,32 +1,15 @@
 #!/usr/bin/env python3
-"""Generate a unified Conforma Resolution Guide.
+"""generate_resolution_guide — Generate a unified Conforma Resolution Guide.
 
-Combines outputs from the conforma-analyze workflow into a single markdown
-document suitable for submission to the conforma-reporter repository.
+PUBLIC API:
+    generate_resolution_guide(violations_yaml_path, coverage_json_path, reports_dir, catalog_path, release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, tooling_health_path, executive_summary_file, analysis_output_file, end_of_support, confirmation_display, code_freeze_date, upcoming_release_date) -> str  [line 1213]
+    main() -> int  [line 1364]
 
-Inputs:
-  - violations.yaml (from parse_violations.py)
-  - coverage.json (from violations_coverage.py)
-  - CSV reports directory (for statistical analysis)
-  - violation-catalog.yaml (for resolution guidance + fallback references)
+INTERNAL SECTIONS:
+    Main: _load_catalog, _match_catalog_entry, _match_fallback_reference, _match_known_false_alert, _render_metadata_header, ... (+20 more)
 
-Output: A unified markdown file with:
-  1. Metadata header (generation date, source CSV link, etc.)
-  2. Summary metrics
-  3. Coverage table (verbatim from violations_coverage.py)
-  4. Per-violation resolution guide (from catalog + fallbacks)
-  5. Warnings becoming violations (if any)
-  6. Statistical breakdown (from analyze_csv_report.py)
+DEPENDENCIES: analyze_csv_report, argparse, conforma_constants, conforma_context_ops, conforma_counting, datetime, json, parse_violations, pathlib, re
 
-Usage:
-    python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \\
-      --violations-yaml ~/.conforma/20260610-143449/violations.yaml \\
-      --coverage-json ~/.conforma/20260610-143449/coverage.json \\
-      --reports-dir ~/.conforma/20260610-143449 \\
-      --release rhoai-3.5-ea.2 \\
-      --source-path "prod/future/build_type_latest/conforma-violations-report.csv" \\
-      --source-created-at "2026-06-10T05:19:05Z" \\
-      --output ~/.conforma/20260610-143449/conforma-status-and-resolution-guide.md
 """
 
 from __future__ import annotations

@@ -1,12 +1,29 @@
 #!/usr/bin/env python3
-"""Validate inputs for the conforma-exception skill.
+"""validate_inputs — Validate inputs for the conforma-exception skill.
 
-Handles:
-- RHOAI version parsing and comparison
-- Component name vs version reconciliation
-- effectiveUntil date calculation (+7 day buffer only for end-of-support dates)
-- FBC detection
-- Workflow determination from exception_templates.yaml
+PUBLIC API:
+    parse_rhoai_version(version_str) -> RhoaiVersion  [line 71]
+    version_gte_threshold(version) -> bool  [line 86]
+    check_image_name_vs_component_name(component) -> str | None  [line 108]
+    reconcile_component_version(component, version) -> str | None  [line 126]
+    compute_effective_until(base_date_str) -> str  [line 145]
+    detect_fbc(components) -> bool  [line 165]
+    determine_workflow(rule) -> tuple[str | None, list[dict]]  [line 170]
+    workflow_has_step(workflow, step_id) -> bool  [line 188]
+    workflow_get_step(workflow, step_id) -> dict | None  [line 193]
+    workflow_is_self_service(workflow) -> bool  [line 201]
+    lookup_component_names(image_base, rhoai_versions, rpa_dir) -> dict[str, list[str]]  [line 209]
+    check_rhoaieng_ticket_type(rhoaieng_url) -> dict | None  [line 329]
+    build_confirmation_summary(rule, components, version, effective_until, workflow_steps, rhoaieng_info) -> list[str]  [line 373]
+    validate_all(args) -> dict  [line 402]
+    parse_args() -> argparse.Namespace  [line 560]
+    main() -> int  [line 606]
+
+INTERNAL SECTIONS:
+    RhoaiVersion: _search_rpa_file, _search_pds_template
+
+DEPENDENCIES: argparse, conforma_context_ops, datetime, json, os, pathlib, re, sys, typing
+
 """
 
 from __future__ import annotations

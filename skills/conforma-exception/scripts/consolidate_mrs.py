@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Consolidate multiple per-version GitLab Merge Requests into a single Merge Request.
+"""consolidate_mrs — Consolidate multiple per-version GitLab Merge Requests into a single Merge Request.
 
-When exception Merge Requests were created one-per-version (violating the
-``one_mr_per_rule_all_versions`` hard rule), this script:
+PUBLIC API:
+    find_open_mrs(psx_key, token) -> list[dict]  [line 91]
+    extract_version_specs_from_mr(mr_iid, token) -> dict | None  [line 108]
+    close_mr_with_comment(mr_iid, consolidated_mr_iid, token) -> dict  [line 159]
+    update_jira_links(ticket_key, old_mr_urls, consolidated_mr_url, consolidated_mr_title, version_specs, dry_run) -> dict  [line 247]
+    consolidate(psx_url, rule, environment, rhoaieng_url, vendor_tag, spreadsheet_url, template, consolidated_mr_url, dry_run) -> dict  [line 344]
+    parse_args() -> argparse.Namespace  [line 559]
+    main() -> int  [line 585]
 
-  1. Discovers all open Merge Requests for a given PSX/OCPEXCEPT ticket
-  2. Extracts version-specs (version, components, effectiveUntil) from each MR diff
-  3. Creates a single consolidated Merge Request covering all versions
-  4. Closes the old per-version Merge Requests with a comment pointing to the new one
-  5. Updates the Jira ticket: replaces old remote links with the consolidated MR,
-     adds a summary comment
+INTERNAL SECTIONS:
+    Main: _fetch_jira_title, _get_gitlab_token, _gitlab_api_get, _gitlab_api_post, _gitlab_api_put, ... (+2 more)
 
-All operations are idempotent and deterministic from the provided parameters.
+DEPENDENCIES: argparse, gitlab_ops, jira_ops, json, os, pathlib, re, sys, urllib
+
 """
 
 from __future__ import annotations

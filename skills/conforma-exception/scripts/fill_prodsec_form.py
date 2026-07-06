@@ -1,36 +1,19 @@
 #!/usr/bin/env python3
-"""Generate Google Form pre-fill URLs for ProdSec exception requests.
+"""fill_prodsec_form — Generate Google Form pre-fill URLs for ProdSec exception requests.
 
-Modes:
-  --discover <saved_form.html>   Parse saved form HTML to auto-generate
-                                 prodsec_form_config.yaml with entry IDs.
+PUBLIC API:
+    discover(html_path) -> dict  [line 144]
+    write_config(config, output_path) -> None  [line 176]
+    validate_config(config_path) -> list[ConfigHealthWarning]  [line 205]
+    generate_prefill_url(config_path) -> str  [line 302]
+    main(argv) -> int  [line 438]
 
-  --generate                     Read config YAML + exception data flags,
-                                 produce a pre-fill URL for user review.
+INTERNAL SECTIONS:
+    Main: _extract_fb_data, _parse_form_fields
+    ConfigHealthWarning: _load_config, _match_option, _build_parser
 
-  --validate-config              Check config YAML health (staleness, missing
-                                 required mappings) and exit.
+DEPENDENCIES: argparse, datetime, json, pathlib, re, sys, urllib
 
-  --dry-run                      (with --generate) Print URL without opening.
-
-Dependencies: Python standard library only (json, re, urllib.parse, yaml).
-YAML is the only non-stdlib dep and is already required by the project.
-
-Usage:
-  # Discover form fields from saved HTML page source
-  python3 fill_prodsec_form.py --discover /path/to/saved_form.html
-
-  # Generate a pre-fill URL
-  python3 fill_prodsec_form.py --generate \\
-    --rule hermetic_task.hermetic \\
-    --components "odh-mlflow-v3-3" \\
-    --rhoai-version rhoai-3.3 \\
-    --effective-until 2026-10-03 \\
-    --exception-scope "Non-hermetic build for odh-mlflow" \\
-    --exception-risk "Low risk: dev-preview component" \\
-    --exception-remediation "Will be fixed in next release" \\
-    --exception-impact "Blocks release gate for rhoai-3.3" \\
-    --rhoaieng-url https://redhat.atlassian.net/browse/RHOAIENG-12345
 """
 
 from __future__ import annotations

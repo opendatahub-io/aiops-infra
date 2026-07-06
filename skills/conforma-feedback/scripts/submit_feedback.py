@@ -1,28 +1,21 @@
-"""submit_feedback.py -- Conforma feedback issue submission workflow.
+"""submit_feedback — submit_feedback.py -- Conforma feedback issue submission workflow.
 
-Subcommands:
-    detect          Detect hosting platform from git remote
-    check-issues    Verify the target repo has issues enabled
-    gather-context  Build issue title, body, and labels from user input
-    classify-error  Match an error against known infrastructure patterns
-    from-error      Build an infrastructure issue from error context
-    search-existing Search for duplicate open issues
-    submit          Create the issue on the detected platform
+PUBLIC API:
+    classify_error() -> dict  [line 65]
+    from_error() -> dict  [line 104]
+    search_existing(repo_path, plat, labels, title_keywords, host) -> dict  [line 178]
+    detect(cwd, remote) -> dict  [line 202]
+    check_issues(repo_path, plat, host) -> dict  [line 210]
+    gather_context() -> dict  [line 222]
+    submit(repo_path, plat, title, body, labels, host) -> dict  [line 286]
+    parse_args(argv) -> argparse.Namespace  [line 307]
+    main(argv) -> None  [line 367]
 
-Usage:
-    python3 submit_feedback.py detect [--remote origin] [--cwd .]
-    python3 submit_feedback.py check-issues --repo-path ORG/REPO --platform github|gitlab [--host HOST]
-    python3 submit_feedback.py gather-context --skill-name NAME --type bug|enhancement \\
-        --summary TEXT --expected TEXT --actual TEXT [--error-output TEXT] \\
-        [--severity critical|major|minor|cosmetic] [--additional-context TEXT] [--cwd .]
-    python3 submit_feedback.py classify-error --exception-type TYPE --error-message MSG --script-path PATH
-    python3 submit_feedback.py from-error --skill-name NAME --workflow-step STEP --script-path PATH \\
-        --error-type TYPE --error-message MSG [--traceback TEXT] [--reproduction-command CMD] \\
-        [--severity critical|major|minor|cosmetic] [--root-cause TEXT] [--title-hint TEXT] [--cwd .]
-    python3 submit_feedback.py search-existing --repo-path ORG/REPO --platform github \\
-        [--label LABEL ...] [--title-keywords TEXT]
-    python3 submit_feedback.py submit --repo-path ORG/REPO --platform github|gitlab \\
-        --title TEXT --body TEXT [--label LABEL ...] [--host HOST]
+INTERNAL SECTIONS:
+    Main: _load_template, _load_known_patterns
+
+DEPENDENCIES: argparse, git_ops, github_ops, gitlab_ops, json, pathlib, platform, sys, yaml
+
 """
 
 from __future__ import annotations

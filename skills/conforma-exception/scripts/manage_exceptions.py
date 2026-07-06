@@ -1,36 +1,26 @@
 #!/usr/bin/env python3
-"""Manage conforma exceptions: find, assess, and search exceptions.
+"""manage_exceptions — Manage conforma exceptions: find, assess, and search exceptions.
 
-Five modes:
-  --find-expired           List expired exceptions from policy files (stdout)
-  --find-all               List all exceptions (expired + active) from policy files
-  --assess-expired         Cross-reference expired exceptions against violations
-  --assess-all             Cross-reference all exceptions against violations
-  --search-by-component    Search for exceptions covering given component(s)
+PUBLIC API:
+    scan_all_exceptions(clone_dir, environment) -> list[dict]  [line 253]
+    scan_permanent_exclusions(clone_dir, environment) -> list[dict]  [line 295]
+    scan_self_service_exceptions(clone_dir, environment) -> list[dict]  [line 369]
+    search_exceptions_for_components(search_terms, environment, clone_dir, refresh) -> dict  [line 438]
+    filter_expired(exceptions) -> list[dict]  [line 594]
+    annotate_expiry(exceptions) -> list[dict]  [line 614]
+    assess_exception(exc, violations_by_rule, releases_checked, report_urls) -> dict  [line 731]
+    cmd_find_expired(args) -> int  [line 823]
+    cmd_assess_expired(args) -> int  [line 954]
+    cmd_find_all(args) -> int  [line 959]
+    cmd_assess_all(args) -> int  [line 1001]
+    cmd_search_by_component(args) -> int  [line 1006]
+    main() -> int  [line 1036]
 
-Usage:
-  # List expired exceptions (stdout)
-  python3 scripts/manage_exceptions.py --find-expired --environment prod
+INTERNAL SECTIONS:
+    _QuotedStr: _quoted_str_representer, _safe_yaml_dump, _needs_quoting, _quote_strings_recursively, _strip_version_suffix, ... (+17 more)
 
-  # List all exceptions (expired + active)
-  python3 scripts/manage_exceptions.py --find-all --environment prod
+DEPENDENCIES: argparse, conforma_context_ops, create_gitlab_mr, datetime, os, pathlib, re, shutil, subprocess, sys
 
-  # Assess expired exceptions against violations data
-  python3 scripts/manage_exceptions.py --assess-expired \\
-    --violations-input ~/.conforma/20260703-120000/violations.yaml \\
-    --environment prod \\
-    --output ~/.conforma/20260703-120000/assessed-exceptions.yaml
-
-  # Assess all exceptions (expired + active)
-  python3 scripts/manage_exceptions.py --assess-all \\
-    --violations-input ~/.conforma/20260703-120000/violations.yaml \\
-    --environment prod \\
-    --output ~/.conforma/20260703-120000/assessed-exceptions.yaml
-
-  # Search exceptions by component name (fuzzy matching)
-  python3 scripts/manage_exceptions.py --search-by-component \\
-    --components nemo-guardrails mlflow \\
-    --environment prod
 """
 
 from __future__ import annotations

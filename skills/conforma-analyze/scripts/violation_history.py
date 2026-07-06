@@ -1,42 +1,16 @@
 #!/usr/bin/env python3
-"""Trace when a violation type last appeared (or disappeared) in the
-conforma-reporter CSV git history for a given release branch.
+"""violation_history — Trace when a violation type last appeared (or disappeared) in the
 
-Uses the GitHub API to walk commits that touched the CSV file and
-downloads each version via raw.githubusercontent.com to check for the
-presence of a specific violation code.
+PUBLIC API:
+    trace_history(release, code, environment, component, max_commits, csv_path_override, until_found) -> dict  [line 200]
+    format_text(data) -> str  [line 369]
+    main() -> int  [line 435]
 
-Output is JSON to stdout, progress to stderr.
+INTERNAL SECTIONS:
+    Main: _get_github_token, _gh_headers, _find_csv_path, _fetch_commits, _fetch_csv_content, ... (+1 more)
 
-Usage:
-    # By exact violation code:
-    python3 scripts/violation_history.py \
-      --release rhoai-3.5-ea.1 \
-      --code prefetch_dependencies.mode_not_permissive
+DEPENDENCIES: argparse, conforma_constants, csv, io, json, os, pathlib, posixpath, requests, subprocess
 
-    # Optionally filter by component:
-    python3 scripts/violation_history.py \
-      --release rhoai-3.5-ea.1 \
-      --code rpm_signature.allowed \
-      --component odh-vllm-cpu-v3-5-ea-1
-
-    # Stop early once the violation is found (fastest for "when last seen"):
-    python3 scripts/violation_history.py \
-      --release rhoai-3.5-ea.1 \
-      --code prefetch_dependencies.mode_not_permissive \
-      --until-found
-
-    # Override the CSV path within the repo:
-    python3 scripts/violation_history.py \
-      --release rhoai-3.5-ea.1 \
-      --code hermetic_task.hermetic \
-      --csv-path prod/future/build_type_latest/conforma-violations-report.csv
-
-    # Limit history depth:
-    python3 scripts/violation_history.py \
-      --release rhoai-3.5-ea.1 \
-      --code rpm_signature.allowed \
-      --max-commits 50
 """
 
 from __future__ import annotations

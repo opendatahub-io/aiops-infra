@@ -1,36 +1,25 @@
 #!/usr/bin/env python3
-"""Create a Jira ticket for a Conforma exception request.
+"""create_jira_ticket — Create a Jira ticket for a Conforma exception request.
 
-Supports three projects via --project flag:
-  RHOAIENG  - Blocker Bug/Task depending on purpose
-  PSX       - PSRD Exception for security-related exceptions
-  OCPEXCEPT - Task for FIPS-related exceptions
+PUBLIC API:
+    list_template_categories() -> list[dict]  [line 82]
+    list_justifications() -> list[dict]  [line 98]
+    match_template_category(rule) -> str | None  [line 112]
+    lookup_rule_in_catalog(rule) -> dict | None  [line 133]
+    resolve_template(category_id, variables, justification_id) -> dict[str, str]  [line 157]
+    build_provenance_footer() -> str  [line 434]
+    fetch_template_description() -> str  [line 443]
+    build_exception_label(rule, components) -> str  [line 457]
+    create_ticket(project, rule, components, rhoai_version, effective_until, rhoaieng_url, psx_url, link_to, summary_context, vendor_tag, exception_scope, exception_risk, exception_remediation, exception_impact, authorized_party, watcher_names, purpose, assignee, jira_components, fix_target_version, violation_jira_url, remediation_jira_url, dry_run) -> dict  [line 890]
+    reconcile_ticket(ticket_key, project, rule, components, rhoai_version, effective_until, rhoaieng_url, psx_url, link_to, summary_context, vendor_tag, exception_scope, exception_risk, exception_remediation, exception_impact, authorized_party, jira_components) -> dict  [line 1506]
+    parse_args() -> argparse.Namespace  [line 1703]
+    main() -> int  [line 1814]
 
-The --purpose flag differentiates RHOAIENG ticket types:
-  violation_report - Blocker Bug describing the Conforma violation
-  remediation      - Blocker Bug assigned to component team to fix the violation
-  approval         - Blocker Task for Senior Management exception approval
+INTERNAL SECTIONS:
+    Main: _load_templates, _ensure_jira_env, _jira_auth, _jira_rest_get, _jira_rest_put, ... (+21 more)
 
-All tickets receive:
-  - A provenance label: conforma-exception-ai-skill
-  - A provenance footer in the description
+DEPENDENCIES: add_jira_watchers, argparse, getpass, jira_ops, json, os, pathlib, platform, re, sys
 
-Usage:
-  python3 create_jira_ticket.py --project RHOAIENG --purpose violation_report \
-    --rule hermetic_task.hermetic --components odh-mlflow-v3-3 \
-    --rhoai-version rhoai-3.3 --effective-until 2026-10-10T00:00:00Z \
-    --fix-target-version rhoai-3.4 --template hermetic_build
-
-  python3 create_jira_ticket.py --project RHOAIENG --purpose remediation \
-    --rule hermetic_task.hermetic --components odh-mlflow-v3-3 \
-    --rhoai-version rhoai-3.3 --effective-until 2026-10-10T00:00:00Z \
-    --template hermetic_build --violation-jira-url https://...
-
-  python3 create_jira_ticket.py --project RHOAIENG --purpose approval \
-    --rule hermetic_task.hermetic --components odh-mlflow-v3-3 \
-    --rhoai-version rhoai-3.3 --effective-until 2026-10-10T00:00:00Z \
-    --template hermetic_build --violation-jira-url https://... \
-    --remediation-jira-url https://...
 """
 
 from __future__ import annotations

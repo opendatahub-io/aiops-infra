@@ -1,41 +1,18 @@
 #!/usr/bin/env python3
-"""Fetch conforma violation and warnings report CSVs from conforma-reporter per release.
+"""fetch_csv_reports — Fetch conforma violation and warnings report CSVs from conforma-reporter per release.
 
-Downloads violation and warnings CSVs from each release branch of the private
-red-hat-data-services/conforma-reporter repository via raw download
-(raw.githubusercontent.com), avoiding the GitHub Contents API entirely.
-This handles multi-megabyte report files reliably without JSON/base64
-overhead or API size limits.
+PUBLIC API:
+    fetch_csv_for_release(release, output_dir, environment) -> dict  [line 228]
+    fetch_warnings_csv_for_release(release, output_dir, environment) -> dict  [line 262]
+    copy_local_csvs(local_dir, releases, output_dir) -> tuple[list[dict], list[dict]]  [line 294]
+    fetch_supported_releases() -> list[str]  [line 371]
+    main() -> int  [line 436]
 
-Both violations and warnings are fetched by default. Warnings CSVs are
-saved as ``{release}-warnings.csv`` alongside violation CSVs (``{release}.csv``).
-Use ``--no-warnings`` to skip fetching warnings.
+INTERNAL SECTIONS:
+    Main: _get_github_token, _download_file_raw, _fetch_last_commit_info, _fetch_last_commit_info_gh, _create_timestamped_output_dir
 
-When --output-dir is omitted, automatically creates a timestamped directory
-under ~/.conforma/ (relative to this script's skill directory) and updates the
-~/.conforma/latest symlink to point to it.
+DEPENDENCIES: argparse, conforma_constants, conforma_context_ops, datetime, json, os, pathlib, requests, shutil, subprocess
 
-Part of the conforma-report-fetch skill. Consumed by conforma-analyze
-(which passes --output-dir to keep ~/.conforma/ writes local to its own skill).
-
-Usage:
-    # Auto-detect releases, auto-create ~/.conforma/<timestamp>/:
-    python3 scripts/fetch_csv_reports.py
-
-    # Explicit releases, auto-create ~/.conforma/<timestamp>/:
-    python3 scripts/fetch_csv_reports.py --releases rhoai-3.5-ea.1
-
-    # Explicit output directory:
-    python3 scripts/fetch_csv_reports.py \\
-      --releases rhoai-2.25,rhoai-3.4 \\
-      --output-dir /tmp/conforma-reports
-
-    # Skip warnings:
-    python3 scripts/fetch_csv_reports.py --no-warnings
-
-    # Use pre-downloaded CSVs instead of fetching:
-    python3 scripts/fetch_csv_reports.py \\
-      --local-dir /path/to/csvs
 """
 
 from __future__ import annotations
