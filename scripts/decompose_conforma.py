@@ -1574,7 +1574,7 @@ class Step12_DedupSharedUtils(Step):
 
             remaining = [l for i, l in enumerate(file_lines) if i not in lines_to_remove]
 
-            import_line = "from github_ops import get_github_token as _get_github_token  # noqa: F401\n"
+            import_line = "from github_ops import get_token as _get_github_token  # noqa: F401\n"
             insert_pos = 0
             for i, line in enumerate(remaining):
                 if line.startswith("import ") or line.startswith("from "):
