@@ -1713,7 +1713,7 @@ class Step13_UpdateTests(Step):
                         public_name = func_name.lstrip("_")
                         new_import = f"from {new_module} import {public_name}"
 
-                        if new_import not in content:
+                        if (new_import + "\n") not in content:
                             lines = content.splitlines(keepends=True)
                             insert_pos = 0
                             for i, line in enumerate(lines):
