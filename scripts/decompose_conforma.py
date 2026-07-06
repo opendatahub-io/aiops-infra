@@ -1439,7 +1439,7 @@ class Step12_DedupSharedUtils(Step):
             Path("skills/conforma-exception/scripts/manage_exceptions.py"),
         ]
 
-        yaml_funcs = ["_QuotedStr", "_safe_yaml_dump", "_needs_quoting"]
+        yaml_funcs = ["_QuotedStr", "_safe_yaml_dump", "_needs_quoting", "_quote_strings_recursively"]
         found_source = None
         found_nodes: list[tuple[int, int]] = []
 
@@ -1482,6 +1482,10 @@ class Step12_DedupSharedUtils(Step):
             chunk = chunk.replace("class _QuotedStr", "class QuotedStr", 1)
             chunk = chunk.replace("def _safe_yaml_dump", "def safe_yaml_dump", 1)
             chunk = chunk.replace("def _needs_quoting", "def needs_quoting", 1)
+            chunk = chunk.replace("def _quote_strings_recursively", "def quote_strings_recursively", 1)
+            # Update internal references
+            chunk = chunk.replace("_quote_strings_recursively(", "quote_strings_recursively(")
+            chunk = chunk.replace("_needs_quoting(", "needs_quoting(")
             yaml_ops_content += chunk + "\n\n"
 
         Path("scripts/conforma_yaml_ops.py").write_text(yaml_ops_content)
@@ -1518,6 +1522,7 @@ class Step12_DedupSharedUtils(Step):
                 "from conforma_yaml_ops import QuotedStr as _QuotedStr  # noqa: F401\n"
                 "from conforma_yaml_ops import safe_yaml_dump as _safe_yaml_dump  # noqa: F401\n"
                 "from conforma_yaml_ops import needs_quoting as _needs_quoting  # noqa: F401\n"
+                "from conforma_yaml_ops import quote_strings_recursively as _quote_strings_recursively  # noqa: F401\n"
             )
             remaining_text = "".join(remaining)
             try:
