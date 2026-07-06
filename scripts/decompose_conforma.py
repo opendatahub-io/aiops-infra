@@ -524,7 +524,7 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
         public_name = node.name.lstrip("_")
         original_name = node.name
         re_exports.append(
-            f"from .{target_module_name} import {public_name} as {original_name}  "
+            f"from {target_module_name} import {public_name} as {original_name}  "
             f"# noqa: F401 — backward compat re-export"
         )
 
