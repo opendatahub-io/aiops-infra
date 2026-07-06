@@ -210,6 +210,12 @@ def run_tests(*, no_test: bool = False) -> bool:
         ["python3", "-m", "pytest", "tests/unit/", "-x", "--tb=short", "-q"],
         check=False,
     )
+    if result.returncode != 0:
+        print("  TEST OUTPUT:")
+        if result.stdout:
+            print(result.stdout[-3000:])
+        if result.stderr:
+            print(result.stderr[-2000:])
     return result.returncode == 0
 
 
