@@ -44,11 +44,11 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 
 ## Routing Rules
 
-1. **Always route — never execute directly.** This skill does not run any scripts itself. It exists solely to identify which atomic skill should handle the user's request. After identifying the target skill, **read its SKILL.md** at `skills/<skill-name>/SKILL.md` (e.g. `skills/conforma-analyze/SKILL.md`) and follow the workflow defined there step by step.
+1. **Always route — never execute directly.** This skill does not run any scripts itself. It exists solely to identify which atomic skill should handle the user's request. After identifying the target skill, **read its SKILL.md** (from the repository root) at `skills/<skill-name>/SKILL.md` (e.g. `skills/conforma-analyze/SKILL.md`) and follow the workflow defined there step by step.
 
 2. **Prefer the most specific skill.** If the user asks about violations AND wants to create an exception, first route to `conforma-analyze` to get the violation data, then route to `conforma-exception` to create the exception.
 
-3. **Violations-first philosophy.** When a user mentions a violation, always start with `conforma-analyze` to understand the current state before suggesting exception creation. If the violation is fixable at the code level (consult [`skills/references/violation-catalog.yaml`](references/violation-catalog.yaml) for classification), route to `conforma-remedy` first. Exceptions are a last resort.
+3. **Violations-first philosophy.** When a user mentions a violation, always start with `conforma-analyze` to understand the current state before suggesting exception creation. If the violation is fixable at the code level (consult [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) for classification), route to `conforma-remedy` first. Exceptions are a last resort.
 
 4. **Auth issues take priority.** If the user reports an auth error or a skill fails with an auth-related error, route to the appropriate auth skill first.
 

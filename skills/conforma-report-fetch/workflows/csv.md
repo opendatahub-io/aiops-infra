@@ -14,7 +14,7 @@ Downloads CSV violation reports from each release branch of the private `red-hat
 
 ### Prerequisites
 
-See [README.md](README.md) for installation and shared prerequisites.
+See [README.md](../README.md) for installation and shared prerequisites.
 
 **Auth check:**
 

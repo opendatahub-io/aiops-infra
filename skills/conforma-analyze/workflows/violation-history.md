@@ -16,7 +16,7 @@ Trace when a specific violation type last appeared (or disappeared) in the CSV g
 
 ### Violation Code Alias Table
 
-Users refer to violations by natural-language phrases. **Always resolve the phrase to an exact `code` value before invoking the script.** Read [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) and match the user's phrase against the `aliases` field of each violation entry.
+Users refer to violations by natural-language phrases. **Always resolve the phrase to an exact `code` value before invoking the script.** Read [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) and match the user's phrase against the `aliases` field of each violation entry.
 
 If the user's phrase does not match any alias in the catalog, first run `analyze_csv_report.py` (see Workflow step 5) to list all violation codes in the current report, then pick the matching code.
 
@@ -30,7 +30,7 @@ If the user's phrase does not match any alias in the catalog, first run `analyze
 
 1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py --format markdown`. If exit code is non-zero, render the markdown output directly and stop. Do not interpret or reformat.
 
-2. **Resolve the violation code**: Map the user's phrase to an exact `--code` value using the `aliases` field in [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml).
+2. **Resolve the violation code**: Map the user's phrase to an exact `--code` value using the `aliases` field in [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml).
 
 3. **Run the history script**:
 

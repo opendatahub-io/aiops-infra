@@ -8,7 +8,7 @@
 
 ## Prerequisites
 
-**Setup:** See [README.md](README.md) for installation and one-time authentication setup.
+**Setup:** See [README.md](../README.md) for installation and one-time authentication setup.
 
 **Always run preflight first** before creating any tickets or Merge Requests:
 
@@ -126,7 +126,7 @@ The preflight output includes a `decision` field evaluated deterministically by 
 
 The agent has NO discretion to override a `proceed: false` decision. Only the user can re-run with `--rule` override or manually modify the policy file.
 
-**Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md).
+**Output presentation**: See [script-output-presentation.md](../../references/script-output-presentation.md).
 
 
 ## Workflow Routing

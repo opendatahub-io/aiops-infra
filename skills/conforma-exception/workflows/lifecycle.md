@@ -8,7 +8,7 @@
 
 ## Prerequisites
 
-**Setup:** See [README.md](README.md) for installation and one-time authentication setup.
+**Setup:** See [README.md](../README.md) for installation and one-time authentication setup.
 
 **Always run preflight first** before creating any tickets or Merge Requests:
 

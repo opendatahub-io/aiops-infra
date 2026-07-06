@@ -9,7 +9,7 @@
 
 ## Prerequisites
 
-**Setup:** See [README.md](README.md) for installation and one-time authentication setup.
+**Setup:** See [README.md](../README.md) for installation and one-time authentication setup.
 
 **Always run preflight first** before creating any tickets or Merge Requests:
 
@@ -127,7 +127,7 @@ The preflight output includes a `decision` field evaluated deterministically by 
 
 The agent has NO discretion to override a `proceed: false` decision. Only the user can re-run with `--rule` override or manually modify the policy file.
 
-**Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md).
+**Output presentation**: See [script-output-presentation.md](../../references/script-output-presentation.md).
 
 
 ## Workflow Routing
@@ -330,7 +330,7 @@ When the user asks to create a Conforma exception but does not provide specific 
         --output "$RUN_DIR/conforma-violations.yaml"
       ```
       If the user provides URLs for multiple releases, save each as `<release>.csv` in the same directory — the parser processes all `*.csv` files in one pass.
-      iii. Runs the batch coverage check and presents results. Read and follow [`references/coverage-check.md`](references/coverage-check.md) for the full workflow (clone setup, command, output handling). Pass the violations YAML from step (ii) as input.
+      iii. Runs the batch coverage check and presents results. Read and follow [`references/coverage-check.md`](../references/coverage-check.md) for the full workflow (clone setup, command, output handling). Pass the violations YAML from step (ii) as input.
       iv. Lets the user select which violation(s) to create exceptions for (using AskQuestion with multi-select)
       v. Proceeds with the normal preflight/questionnaire flow for each selected violation, pre-filling the violation code and component details from the parsed report. The per-violation Existing Exception Gate has already been checked in step (iii) — no need to re-run it.
 

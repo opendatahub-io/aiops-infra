@@ -14,7 +14,7 @@ The output is a handover state document that records fetch status and the path t
 
 ### Prerequisites
 
-See [README.md](README.md) for shared prerequisites. Tekton mode requires these additional tools:
+See [README.md](../README.md) for shared prerequisites. Tekton mode requires these additional tools:
 
 - **VPN**: Connected to the corporate VPN (required for internal Tekton Results API domain routing)
 - **`oc` CLI**: Installed and authenticated to the Konflux cluster:

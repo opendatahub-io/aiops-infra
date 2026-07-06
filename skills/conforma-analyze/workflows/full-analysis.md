@@ -205,7 +205,7 @@ python3 skills/conforma-analyze/scripts/violations_coverage.py \
 
 8. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **executive summary** is presented in the chat — the full guide is linked as a detailed document. See step 9 for the generation command and presentation rules.
 
-9. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide for $RELEASE"`. Run the resolution guide generator on the intermediate outputs from steps 3-7. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis. **Pass `--executive-summary-file`** to also generate a compact summary for chat display, and **`--analysis-output-file`** to link the analysis output from step 6:
+9. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide for $RELEASE"`. Run the resolution guide generator on the intermediate outputs from steps 3-7. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis. **Pass `--executive-summary-file`** to also generate a compact summary for chat display, and **`--analysis-output-file`** to link the analysis output from step 6:
 
 ```bash
 python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
