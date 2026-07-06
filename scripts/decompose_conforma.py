@@ -1728,9 +1728,7 @@ class Step13_UpdateTests(Step):
             for file_pattern, fixups in patch_fixups.items():
                 if file_pattern in test_file.stem:
                     for old_target, new_module in fixups:
-                        # Replace: patch.object(mod, "_dep_func", ...) → patch("new_module._dep_func", ...)
-                        # Also need to add import for the new module
-                        if f"import {new_module}" not in content:
+                        if f"import {new_module}\n" not in content:
                             lines = content.splitlines(keepends=True)
                             insert_pos = 0
                             for i, line in enumerate(lines):
@@ -1738,10 +1736,12 @@ class Step13_UpdateTests(Step):
                                     insert_pos = i + 1
                             lines.insert(insert_pos, f"import {new_module}\n")
                             content = "".join(lines)
-                        # Replace patch.object(mod, "func") with patch.object(exception_scanner, "func")
-                        content = content.replace(
-                            f"patch.object({old_target}, \"_get_conforma_policy_dir\"",
-                            f"patch.object({new_module}, \"_get_conforma_policy_dir\""
+                        # Replace ALL patch.object(mod, "_xxx" ...) with
+                        # patch.object(exception_scanner, "_xxx" ...)
+                        content = re.sub(
+                            rf'patch\.object\({re.escape(old_target)},\s*"(_[^"]+)"',
+                            rf'patch.object({new_module}, "\1"',
+                            content,
                         )
 
             if content != original_content:
