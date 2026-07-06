@@ -214,71 +214,14 @@ def extract_semantic_detail(
 # ---------------------------------------------------------------------------
 
 
-class _QuotedStr(str):
-    """String subclass that forces YAML double-quoting."""
 
 
-def _quoted_str_representer(dumper: yaml.Dumper, data: _QuotedStr) -> yaml.ScalarNode:
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
 
 
-def _safe_yaml_dump(data: dict, comment_header: str = "") -> str:
-    """Dump data to YAML with defensive quoting for timestamps, rule codes, URLs.
-
-    All string values that could be misinterpreted by YAML (timestamps,
-    strings containing colons, URLs) are explicitly double-quoted.
-    """
-    safe_data = _quote_strings_recursively(data)
-
-    dumper = yaml.Dumper
-    dumper.add_representer(_QuotedStr, _quoted_str_representer)
-
-    body = yaml.dump(
-        safe_data,
-        Dumper=dumper,
-        default_flow_style=False,
-        allow_unicode=True,
-        sort_keys=False,
-        width=200,
-    )
-
-    if comment_header:
-        return comment_header.rstrip("\n") + "\n\n" + body
-    return body
 
 
-def _needs_quoting(value: str) -> bool:
-    """Determine if a string needs explicit quoting in YAML."""
-    if not value:
-        return False
-    if re.match(r"^\d{4}-\d{2}-\d{2}", value):
-        return True
-    if ":" in value:
-        return True
-    if value.startswith("http://") or value.startswith("https://"):
-        return True
-    if value.startswith("#"):
-        return True
-    if value.lower() in ("true", "false", "yes", "no", "null", "on", "off"):
-        return True
-    return False
 
 
-def _quote_strings_recursively(obj):
-    """Walk a data structure and wrap strings that need quoting."""
-    if isinstance(obj, str):
-        if _needs_quoting(obj):
-            return _QuotedStr(obj)
-        return obj
-    if isinstance(obj, dict):
-        result = {}
-        for k, v in obj.items():
-            safe_key = _QuotedStr(k) if isinstance(k, str) and _needs_quoting(k) else k
-            result[safe_key] = _quote_strings_recursively(v)
-        return result
-    if isinstance(obj, list):
-        return [_quote_strings_recursively(item) for item in obj]
-    return obj
 
 
 # ---------------------------------------------------------------------------
@@ -334,22 +277,6 @@ def parse_csv_file(csv_path: Path, release: str) -> list[dict]:
 DEFAULT_UPCOMING_THRESHOLD_DAYS = 21
 
 
-def _parse_date(date_str: str) -> datetime | None:
-    """Parse a date string from CSV into a timezone-aware datetime.
-
-    Handles ISO-8601 dates (``2026-01-15``, ``2026-01-15T00:00:00Z``)
-    and returns None for empty or unparseable values.
-    """
-    if not date_str:
-        return None
-    clean = date_str.strip()
-    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-        try:
-            dt = datetime.strptime(clean, fmt)
-            return dt.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-    return None
 
 
 def parse_warnings_csv_file(
@@ -419,6 +346,12 @@ from conforma_constants import (
     build_report_url as _build_report_url,
     build_warnings_report_url as _build_warnings_report_url,
 )
+from date_ops import parse_date as _parse_date  # noqa: F401
+from conforma_yaml_ops import QuotedStr as _QuotedStr  # noqa: F401
+from conforma_yaml_ops import quoted_str_representer as _quoted_str_representer  # noqa: F401
+from conforma_yaml_ops import safe_yaml_dump as _safe_yaml_dump  # noqa: F401
+from conforma_yaml_ops import needs_quoting as _needs_quoting  # noqa: F401
+from conforma_yaml_ops import quote_strings_recursively as _quote_strings_recursively  # noqa: F401
 
 
 def _build_upcoming_violations_section(

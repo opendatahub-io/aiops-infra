@@ -32,6 +32,7 @@ from urllib.parse import urlparse
 
 import conforma_context_ops  # noqa: E402
 import requests
+from github_ops import get_token as _get_github_token  # noqa: F401
 
 LINK_CHECK_TIMEOUT = 15
 LINK_CHECK_MAX_WORKERS = 10
@@ -49,20 +50,6 @@ class LinkCheckResult(NamedTuple):
     reason: str
 
 
-def _get_github_token() -> str:
-    for var in ("GITHUB_TOKEN", "GH_TOKEN"):
-        val = os.environ.get(var, "").strip()
-        if val:
-            return val
-    try:
-        result = subprocess.run(
-            ["gh", "auth", "token"], capture_output=True, text=True, timeout=10
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return ""
 
 
 def _get_gitlab_token() -> str:

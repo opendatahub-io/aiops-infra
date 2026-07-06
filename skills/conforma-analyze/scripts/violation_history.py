@@ -36,32 +36,11 @@ from conforma_constants import (
     RAW_DOWNLOAD_BASE,
     csv_paths_for_environment,
 )
+from github_ops import get_token as _get_github_token  # noqa: F401
 
 _github_token_cache: str | None = None
 
 
-def _get_github_token() -> str:
-    global _github_token_cache
-    if _github_token_cache is not None:
-        return _github_token_cache
-
-    for var in ("GITHUB_TOKEN", "GH_TOKEN"):
-        val = os.environ.get(var, "").strip()
-        if val:
-            _github_token_cache = val
-            return _github_token_cache
-
-    try:
-        result = subprocess.run(
-            ["gh", "auth", "token"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        _github_token_cache = result.stdout.strip() if result.returncode == 0 else ""
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        _github_token_cache = ""
-    return _github_token_cache
 
 
 def _gh_headers() -> dict[str, str]:

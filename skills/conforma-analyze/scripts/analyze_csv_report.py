@@ -124,17 +124,6 @@ def load_reports_dir(reports_dir: Path) -> list[ViolationRecord]:
     return all_records
 
 
-def _parse_date(date_str: str) -> datetime | None:
-    """Parse a date string into a timezone-aware datetime."""
-    if not date_str:
-        return None
-    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-        try:
-            dt = datetime.strptime(date_str.strip(), fmt)
-            return dt.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-    return None
 
 
 def load_warnings_csv(
@@ -660,6 +649,7 @@ def format_json(result: AnalysisResult, component_owners: dict[str, str | None] 
 
 
 from conforma_constants import CONFORMA_REPORTER_ACTIONS_URL, CONFORMA_REPORTER_URL
+from date_ops import parse_date as _parse_date  # noqa: F401
 STALENESS_THRESHOLD_DAYS = 3
 
 

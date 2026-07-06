@@ -60,6 +60,11 @@ from exception_scanner import scan_self_service_exceptions  # noqa: F401 — bac
 from exception_scanner import search_exceptions_for_components  # noqa: F401 — backward compat re-export
 from exception_scanner import filter_expired  # noqa: F401 — backward compat re-export
 from exception_scanner import annotate_expiry  # noqa: F401 — backward compat re-export
+from conforma_yaml_ops import QuotedStr as _QuotedStr  # noqa: F401
+from conforma_yaml_ops import quoted_str_representer as _quoted_str_representer  # noqa: F401
+from conforma_yaml_ops import safe_yaml_dump as _safe_yaml_dump  # noqa: F401
+from conforma_yaml_ops import needs_quoting as _needs_quoting  # noqa: F401
+from conforma_yaml_ops import quote_strings_recursively as _quote_strings_recursively  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -67,65 +72,14 @@ from exception_scanner import annotate_expiry  # noqa: F401 — backward compat 
 # ---------------------------------------------------------------------------
 
 
-class _QuotedStr(str):
-    """String subclass that forces YAML double-quoting."""
 
 
-def _quoted_str_representer(dumper: yaml.Dumper, data: _QuotedStr) -> yaml.ScalarNode:
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
 
 
-def _safe_yaml_dump(data: dict, comment_header: str = "") -> str:
-    """Dump data to YAML with defensive quoting."""
-    safe_data = _quote_strings_recursively(data)
-
-    dumper = yaml.Dumper
-    dumper.add_representer(_QuotedStr, _quoted_str_representer)
-
-    body = yaml.dump(
-        safe_data,
-        Dumper=dumper,
-        default_flow_style=False,
-        allow_unicode=True,
-        sort_keys=False,
-        width=200,
-    )
-
-    if comment_header:
-        return comment_header.rstrip("\n") + "\n\n" + body
-    return body
 
 
-def _needs_quoting(value: str) -> bool:
-    if not value:
-        return False
-    if re.match(r"^\d{4}-\d{2}-\d{2}", value):
-        return True
-    if ":" in value:
-        return True
-    if value.startswith("http://") or value.startswith("https://"):
-        return True
-    if value.startswith("#"):
-        return True
-    if value.lower() in ("true", "false", "yes", "no", "null", "on", "off"):
-        return True
-    return False
 
 
-def _quote_strings_recursively(obj):
-    if isinstance(obj, str):
-        if _needs_quoting(obj):
-            return _QuotedStr(obj)
-        return obj
-    if isinstance(obj, dict):
-        result = {}
-        for k, v in obj.items():
-            safe_key = _QuotedStr(k) if isinstance(k, str) and _needs_quoting(k) else k
-            result[safe_key] = _quote_strings_recursively(v)
-        return result
-    if isinstance(obj, list):
-        return [_quote_strings_recursively(item) for item in obj]
-    return obj
 
 
 # ---------------------------------------------------------------------------

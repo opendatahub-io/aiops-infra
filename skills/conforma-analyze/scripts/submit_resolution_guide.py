@@ -28,25 +28,11 @@ import _setup_env  # noqa: F401 -- loads ~/.conforma/.env and adds scripts/ to s
 
 import conforma_context_ops  # noqa: E402
 from conforma_constants import CONFORMA_REPORTER_REPO, GITHUB_API  # noqa: E402
+from github_ops import get_token as _get_github_token  # noqa: F401
 
 DEFAULT_FILENAME = "conforma-status-and-resolution-guide.md"
 
 
-def _get_github_token() -> str:
-    """Get GitHub token from env vars or gh CLI."""
-    for var in ("GITHUB_TOKEN", "GH_TOKEN"):
-        val = os.environ.get(var, "").strip()
-        if val:
-            return val
-    try:
-        result = subprocess.run(
-            ["gh", "auth", "token"], capture_output=True, text=True, timeout=10
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return ""
 
 
 def _gh_headers() -> dict[str, str]:
