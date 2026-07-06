@@ -1704,7 +1704,8 @@ class Step13_UpdateTests(Step):
                     continue
 
                 for new_module, func_names in extractions.items():
-                    for func_name in func_names:
+                    # Sort by length descending to prevent substring collisions
+                    for func_name in sorted(func_names, key=len, reverse=True):
                         old_pattern = f"mod.{func_name}"
                         if old_pattern not in content:
                             continue
