@@ -442,7 +442,7 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
                 dep_node = module_level_names[name]
                 if isinstance(dep_node, ast.FunctionDef | ast.AsyncFunctionDef):
                     dependencies.add(name)
-                elif isinstance(dep_node, ast.Assign | ast.ClassDef):
+                elif isinstance(dep_node, ast.Assign | ast.AnnAssign | ast.ClassDef):
                     dependencies.add(name)
 
     # Recursively collect dependencies of dependencies (two levels for safety)
