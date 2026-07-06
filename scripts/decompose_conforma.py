@@ -415,6 +415,9 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     module_level_names[target.id] = node
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name):
+                module_level_names[node.target.id] = node
         elif isinstance(node, ast.ClassDef):
             module_level_names[node.name] = node
 
@@ -469,6 +472,9 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
                 if isinstance(t, ast.Name) and t.id in all_extract_names:
                     name = t.id
                     break
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id in all_extract_names:
+                name = node.target.id
 
         if name and name in all_extract_names:
             start = node.lineno - 1
@@ -535,23 +541,33 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
     for start, end, _node in all_extract_nodes:
         node_name = _node.name if hasattr(_node, "name") else None
         if not node_name:
-            # For Assign nodes, get name from targets
             if isinstance(_node, ast.Assign):
                 for t in _node.targets:
                     if isinstance(t, ast.Name):
                         node_name = t.id
                         break
+            elif isinstance(_node, ast.AnnAssign) and isinstance(_node.target, ast.Name):
+                node_name = _node.target.id
         # Only remove explicitly extracted nodes, keep dependencies in source
         if node_name and node_name in explicitly_extracted:
             for i in range(start, end):
                 lines_to_remove.add(i)
 
     # Also remove blank lines immediately after removed blocks
+    def _get_node_name(n: ast.AST) -> str | None:
+        if hasattr(n, "name"):
+            return n.name
+        if isinstance(n, ast.Assign):
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    return t.id
+        if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
+            return n.target.id
+        return None
+
     sorted_ranges = sorted(
         (s, e, n) for s, e, n in all_extract_nodes
-        if (n.name if hasattr(n, "name") else
-            next((t.id for t in n.targets if isinstance(t, ast.Name)), None)
-            if isinstance(n, ast.Assign) else None) in explicitly_extracted
+        if _get_node_name(n) in explicitly_extracted
     )
     for _, end, _ in sorted_ranges:
         i = end
