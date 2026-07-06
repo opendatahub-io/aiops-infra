@@ -10,6 +10,12 @@ import yaml
 
 import conforma_context_ops
 import generate_resolution_guide as mod
+from guide_renderers import render_divergence_warning
+from guide_renderers import render_resolution_guide
+from guide_renderers import render_components_table
+from guide_renderers import render_metadata_header
+from guide_renderers import render_coverage_table
+from guide_renderers import render_work_scope
 
 
 @pytest.fixture
@@ -709,7 +715,7 @@ class TestPartiallyCoveredViolation:
 
 class TestMetadataHeader:
     def test_includes_release_and_source(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.5-ea.2",
             source_path="prod/future/build_type_latest/conforma-violations-report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -722,7 +728,7 @@ class TestMetadataHeader:
 
 class TestMetadataTotalViolations:
     def test_includes_total_violations_row(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.5",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -731,7 +737,7 @@ class TestMetadataTotalViolations:
         assert "| **Total violations** | 162 |" in header
 
     def test_omits_total_violations_when_none(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.5",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -741,7 +747,7 @@ class TestMetadataTotalViolations:
 
 class TestMetadataCodeFreezeDate:
     def test_includes_code_freeze_when_present(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.5",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -752,7 +758,7 @@ class TestMetadataCodeFreezeDate:
         assert "Product Pages" in header
 
     def test_omits_code_freeze_when_empty(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.5",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -761,7 +767,7 @@ class TestMetadataCodeFreezeDate:
         assert "Code freeze" not in header
 
     def test_omits_code_freeze_when_not_provided(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.5",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -769,7 +775,7 @@ class TestMetadataCodeFreezeDate:
         assert "Code freeze" not in header
 
     def test_code_freeze_after_upcoming_release_shows_already_passed(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.3",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -780,7 +786,7 @@ class TestMetadataCodeFreezeDate:
         assert "next code freeze 2026-07-31 is for a future release" in header
 
     def test_code_freeze_empty_with_upcoming_release_shows_already_passed(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.3",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -791,7 +797,7 @@ class TestMetadataCodeFreezeDate:
         assert "not found in rhai-release-data.yaml" in header
 
     def test_code_freeze_before_upcoming_release_shows_date(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.5",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -816,12 +822,12 @@ class TestRenderWorkScope:
                 "sample_message": "Task is not hermetic",
             }
         }
-        mod._render_work_scope(lines, "hermetic_task.hermetic", work_scope_by_rule, "https://csv-url")
+        render_work_scope(lines, "hermetic_task.hermetic", work_scope_by_rule, "https://csv-url")
         assert lines == []
 
     def test_skipped_when_rule_not_in_scope_data(self):
         lines = []
-        mod._render_work_scope(lines, "unknown.rule", {}, "https://csv-url")
+        render_work_scope(lines, "unknown.rule", {}, "https://csv-url")
         assert lines == []
 
     def test_high_cardinality_shows_csv_link(self):
@@ -836,7 +842,7 @@ class TestRenderWorkScope:
                 "sample_message": "Package pkg:pypi/foo@1.0 has the attribute...",
             }
         }
-        mod._render_work_scope(
+        render_work_scope(
             lines, "sbom_spdx.disallowed_package_attributes", work_scope_by_rule, "https://csv-url"
         )
         assert len(lines) == 2
@@ -857,7 +863,7 @@ class TestRenderWorkScope:
                 "sample_message": "RPM repo id check failed",
             }
         }
-        mod._render_work_scope(lines, "rpm_repos.ids_known", work_scope_by_rule, "https://csv-url")
+        render_work_scope(lines, "rpm_repos.ids_known", work_scope_by_rule, "https://csv-url")
         assert len(lines) == 2
         assert "4 unique work items" in lines[0]
         assert "source CSV" not in lines[0]
@@ -874,7 +880,7 @@ class TestRenderWorkScope:
                 "sample_message": "msg",
             }
         }
-        mod._render_work_scope(lines, "rule.x", work_scope_by_rule, "https://csv-url")
+        render_work_scope(lines, "rule.x", work_scope_by_rule, "https://csv-url")
         assert len(lines) == 2
         assert "source CSV" not in lines[0]
 
@@ -890,7 +896,7 @@ class TestRenderWorkScope:
                 "sample_message": "msg",
             }
         }
-        mod._render_work_scope(lines, "rule.x", work_scope_by_rule, "https://csv-url")
+        render_work_scope(lines, "rule.x", work_scope_by_rule, "https://csv-url")
         assert len(lines) == 2
         assert "[source CSV](https://csv-url)" in lines[0]
 
@@ -971,7 +977,7 @@ class TestCoverageTableLinks:
             ["hermetic_task.hermetic"],
             "| 1 | `hermetic_task.hermetic` | 105 | Covered |",
         )
-        out = mod._render_coverage_table(cov)
+        out = render_coverage_table(cov)
         anchor = mod._violation_anchor("hermetic_task.hermetic")
         assert f"[`hermetic_task.hermetic`](#{anchor})" in out
 
@@ -981,7 +987,7 @@ class TestCoverageTableLinks:
             [rule],
             f"| 1 | `{rule}` | 3 | Not covered |",
         )
-        out = mod._render_coverage_table(cov)
+        out = render_coverage_table(cov)
         anchor = mod._violation_anchor(rule)
         assert f"[`{rule}`](#{anchor})" in out
         assert ":#" not in out  # colon must not leak into the fragment
@@ -990,7 +996,7 @@ class TestCoverageTableLinks:
         rules = ["hermetic_task.hermetic", "sbom_spdx.disallowed_package_attributes"]
         table = "\n".join(f"| {i+1} | `{r}` | 1 | - |" for i, r in enumerate(rules))
         cov = self._make_coverage(rules, table)
-        out = mod._render_coverage_table(cov)
+        out = render_coverage_table(cov)
         for rule in rules:
             anchor = mod._violation_anchor(rule)
             assert f"[`{rule}`](#{anchor})" in out
@@ -1001,7 +1007,7 @@ class TestCoverageTableLinks:
             ["hermetic_task.hermetic"],
             "| 1 | `hermetic_task.hermetic` | 105 | Use `conforma` skill |",
         )
-        out = mod._render_coverage_table(cov)
+        out = render_coverage_table(cov)
         assert "[`conforma`]" not in out
 
     def test_section_header_contains_matching_anchor(self, tmp_path, sample_violations_yaml, sample_catalog):
@@ -1060,12 +1066,12 @@ class TestRenderDivergenceWarning:
 
     def test_no_divergences_renders_nothing(self):
         lines: list[str] = []
-        mod._render_divergence_warning(lines, {"rule": "rule.x", "ec_divergences": []})
+        render_divergence_warning(lines, {"rule": "rule.x", "ec_divergences": []})
         assert lines == []
 
     def test_no_ec_divergences_key_renders_nothing(self):
         lines: list[str] = []
-        mod._render_divergence_warning(lines, {"rule": "rule.x"})
+        render_divergence_warning(lines, {"rule": "rule.x"})
         assert lines == []
 
     def test_single_divergence_renders_warning(self):
@@ -1076,7 +1082,7 @@ class TestRenderDivergenceWarning:
                 {"component": "comp-a", "violation_code": "hermetic_task.hermetic", "reason": "..."},
             ],
         }
-        mod._render_divergence_warning(lines, violation)
+        render_divergence_warning(lines, violation)
         text = "\n".join(lines)
         assert "Policy divergence" in text
         assert "`hermetic_task.hermetic`" in text
@@ -1094,7 +1100,7 @@ class TestRenderDivergenceWarning:
                 {"component": "comp-b", "violation_code": "rule.x", "reason": "..."},
             ],
         }
-        mod._render_divergence_warning(lines, violation)
+        render_divergence_warning(lines, violation)
         text = "\n".join(lines)
         assert "`comp-a`" in text
         assert "`comp-b`" in text
@@ -1121,7 +1127,7 @@ class TestRenderComponentsTable:
             exception_details_by_component=[{"component": "comp-a-v3-5", "file": None, "line": None, "effective_until": None, "url": None}],
         )
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         header = "\n".join(lines)
         assert "| Component | Team | Exception | Merge Requests | JIRAs |" in header
 
@@ -1141,7 +1147,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         row = next(l for l in lines if "odh-vllm-cpu-v3-5-ea-2" in l)
         assert "[!777](https://gl/777)" in row
 
@@ -1161,7 +1167,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         row = next(l for l in lines if "odh-vllm-cpu-v3-5-ea-2" in l)
         assert "[!99]" not in row
         assert "| — |" in row
@@ -1178,7 +1184,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         rows = [l for l in lines if l.startswith("| `")]
         assert len(rows) == 2
         assert all("[PSX-1](https://jira/PSX-1) (possibly related)" in r for r in rows)
@@ -1196,7 +1202,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         feature_row = next(l for l in lines if "odh-feature-server-v3-5" in l)
         other_row = next(l for l in lines if "odh-other-tool-v3-5" in l)
         assert "[RHOAIENG-1]" in feature_row
@@ -1215,7 +1221,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         feature_row = next(l for l in lines if "odh-feature-server-v3-5" in l)
         other_row = next(l for l in lines if "odh-other-tool-v3-5" in l)
         assert "[RHOAIENG-1]" in feature_row
@@ -1238,14 +1244,14 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         row = next(l for l in lines if "odh-comp-v3-5" in l)
         assert row.count("[!42]") == 1
 
     def test_empty_components_renders_nothing(self):
         v = self._base_violation()
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         assert lines == []
 
     def test_component_rows_sorted_alphabetically(self):
@@ -1257,7 +1263,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         rows = [l for l in lines if l.startswith("| `")]
         assert "odh-aaa" in rows[0]
         assert "odh-zzz" in rows[1]
@@ -1274,7 +1280,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {}, policy_files=policy_files)
+        render_components_table(lines, v, {}, policy_files=policy_files)
         row = next(l for l in lines if "comp-a-v3-5" in l)
         assert "[fbc-rhoai-prod.yaml](https://gl/fbc)" in row
         assert "[registry-rhoai-prod.yaml](https://gl/reg)" in row
@@ -1288,7 +1294,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {}, policy_files=None)
+        render_components_table(lines, v, {}, policy_files=None)
         row = next(l for l in lines if "comp-a-v3-5" in l)
         assert "not in policy files" in row
 
@@ -1303,7 +1309,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {}, slack_threads=slack_threads, slack_search_url="https://slack/search")
+        render_components_table(lines, v, {}, slack_threads=slack_threads, slack_search_url="https://slack/search")
         header = next(l for l in lines if l.startswith("| Component"))
         assert "| Slack |" in header
         row = next(l for l in lines if "comp-a-v3-5" in l)
@@ -1318,7 +1324,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {}, slack_threads=[], slack_search_url="https://slack/search")
+        render_components_table(lines, v, {}, slack_threads=[], slack_search_url="https://slack/search")
         row = next(l for l in lines if "comp-a-v3-5" in l)
         assert "[search Slack](https://slack/search)" in row
 
@@ -1330,7 +1336,7 @@ class TestRenderComponentsTable:
             ],
         )
         lines = []
-        mod._render_components_table(lines, v, {})
+        render_components_table(lines, v, {})
         header = next(l for l in lines if l.startswith("| Component"))
         assert "Slack" not in header
 
@@ -1351,7 +1357,7 @@ class TestRenderComponentsTable:
             "component_owners": {},
         }
         catalog = {"violations": [], "fallback_references": []}
-        out = mod._render_resolution_guide(coverage_data, catalog)
+        out = render_resolution_guide(coverage_data, catalog)
         assert "(3/5 have exceptions)" in out
 
     def test_search_urls_rendered_inline(self):
@@ -1373,7 +1379,7 @@ class TestRenderComponentsTable:
             "component_owners": {},
         }
         catalog = {"violations": [], "fallback_references": []}
-        out = mod._render_resolution_guide(coverage_data, catalog)
+        out = render_resolution_guide(coverage_data, catalog)
         assert "[search GitLab](https://gitlab.example.com/search)" in out
         assert "[search Jira](https://jira.example.com/search)" in out
 
@@ -1929,7 +1935,7 @@ class TestUpcomingReleaseDate:
         assert "**0 violations covered by currently active exceptions that expire before the upcoming release date (2026-08-15) and not addressed by any open Merge Request**" in content
 
     def test_metadata_header_includes_upcoming_release_date_in_fallback(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.5",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
@@ -1941,7 +1947,7 @@ class TestUpcomingReleaseDate:
         assert "Product Pages" in header
 
     def test_metadata_header_omits_upcoming_when_empty(self):
-        header = mod._render_metadata_header(
+        header = render_metadata_header(
             release="rhoai-3.5",
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",

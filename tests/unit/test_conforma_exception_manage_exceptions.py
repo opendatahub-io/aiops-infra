@@ -10,6 +10,15 @@ import yaml
 
 import conforma_context_ops
 import manage_exceptions as mod
+from exception_scanner import search_exceptions_for_components
+from exception_scanner import scan_self_service_exceptions
+from exception_scanner import scan_permanent_exclusions
+from exception_scanner import fuzzy_component_match
+from exception_scanner import strip_version_suffix
+from exception_scanner import extract_image_base
+from exception_scanner import fuzzy_image_match
+from exception_scanner import normalize_name
+import exception_scanner
 
 
 # ---------------------------------------------------------------------------
@@ -19,19 +28,19 @@ import manage_exceptions as mod
 
 class TestNormalizeName:
     def test_strips_hyphens(self):
-        assert mod._normalize_name("nemo-guardrails") == "nemoguardrails"
+        assert normalize_name("nemo-guardrails") == "nemoguardrails"
 
     def test_strips_underscores(self):
-        assert mod._normalize_name("nemo_guardrails") == "nemoguardrails"
+        assert normalize_name("nemo_guardrails") == "nemoguardrails"
 
     def test_mixed_separators(self):
-        assert mod._normalize_name("odh-nemo_guard-rails") == "odhnemoguardrails"
+        assert normalize_name("odh-nemo_guard-rails") == "odhnemoguardrails"
 
     def test_already_clean(self):
-        assert mod._normalize_name("mlflow") == "mlflow"
+        assert normalize_name("mlflow") == "mlflow"
 
     def test_uppercased(self):
-        assert mod._normalize_name("ODH-Dashboard") == "odhdashboard"
+        assert normalize_name("ODH-Dashboard") == "odhdashboard"
 
 
 # ---------------------------------------------------------------------------
@@ -41,16 +50,16 @@ class TestNormalizeName:
 
 class TestStripVersionSuffix:
     def test_simple_version(self):
-        assert mod._strip_version_suffix("odh-dashboard-v3-4") == "odh-dashboard"
+        assert strip_version_suffix("odh-dashboard-v3-4") == "odh-dashboard"
 
     def test_ea_version(self):
-        assert mod._strip_version_suffix("odh-vllm-v3-5-ea-1") == "odh-vllm"
+        assert strip_version_suffix("odh-vllm-v3-5-ea-1") == "odh-vllm"
 
     def test_no_version(self):
-        assert mod._strip_version_suffix("odh-dashboard") == "odh-dashboard"
+        assert strip_version_suffix("odh-dashboard") == "odh-dashboard"
 
     def test_bare_name(self):
-        assert mod._strip_version_suffix("mlflow") == "mlflow"
+        assert strip_version_suffix("mlflow") == "mlflow"
 
 
 # ---------------------------------------------------------------------------
@@ -60,16 +69,16 @@ class TestStripVersionSuffix:
 
 class TestExtractImageBase:
     def test_strips_rhel_suffix(self):
-        assert mod._extract_image_base("quay.io/rhoai/odh-dashboard-rhel9") == "odh-dashboard"
+        assert extract_image_base("quay.io/rhoai/odh-dashboard-rhel9") == "odh-dashboard"
 
     def test_strips_ubi_suffix(self):
-        assert mod._extract_image_base("quay.io/rhoai/odh-vllm-ubi8") == "odh-vllm"
+        assert extract_image_base("quay.io/rhoai/odh-vllm-ubi8") == "odh-vllm"
 
     def test_no_suffix(self):
-        assert mod._extract_image_base("quay.io/rhoai/odh-mlflow") == "odh-mlflow"
+        assert extract_image_base("quay.io/rhoai/odh-mlflow") == "odh-mlflow"
 
     def test_bare_name(self):
-        assert mod._extract_image_base("odh-dashboard-rhel9") == "odh-dashboard"
+        assert extract_image_base("odh-dashboard-rhel9") == "odh-dashboard"
 
 
 # ---------------------------------------------------------------------------
@@ -79,31 +88,31 @@ class TestExtractImageBase:
 
 class TestFuzzyComponentMatch:
     def test_exact_match(self):
-        assert mod._fuzzy_component_match("odh-mlflow", "odh-mlflow")
+        assert fuzzy_component_match("odh-mlflow", "odh-mlflow")
 
     def test_hyphen_vs_underscore(self):
-        assert mod._fuzzy_component_match("nemo-guardrails", "odh-nemo_guardrails-v3-5-ea-1")
+        assert fuzzy_component_match("nemo-guardrails", "odh-nemo_guardrails-v3-5-ea-1")
 
     def test_no_separator(self):
-        assert mod._fuzzy_component_match("nemoguardrails", "odh-nemo-guardrails-v3-4")
+        assert fuzzy_component_match("nemoguardrails", "odh-nemo-guardrails-v3-4")
 
     def test_with_version_suffix(self):
-        assert mod._fuzzy_component_match("mlflow", "odh-mlflow-v3-3")
+        assert fuzzy_component_match("mlflow", "odh-mlflow-v3-3")
 
     def test_with_odh_prefix(self):
-        assert mod._fuzzy_component_match("mlflow", "odh-mlflow-v3-3")
+        assert fuzzy_component_match("mlflow", "odh-mlflow-v3-3")
 
     def test_with_rhoai_prefix(self):
-        assert mod._fuzzy_component_match("dashboard", "rhoai-dashboard-v3-4")
+        assert fuzzy_component_match("dashboard", "rhoai-dashboard-v3-4")
 
     def test_non_match(self):
-        assert not mod._fuzzy_component_match("vllm", "odh-mlflow-v3-3")
+        assert not fuzzy_component_match("vllm", "odh-mlflow-v3-3")
 
     def test_partial_substring(self):
-        assert mod._fuzzy_component_match("mlmd", "odh-mlmd-grpc-server-v2-25")
+        assert fuzzy_component_match("mlmd", "odh-mlmd-grpc-server-v2-25")
 
     def test_search_term_with_version(self):
-        assert mod._fuzzy_component_match("odh-mlflow-v3-3", "odh-mlflow-v3-3")
+        assert fuzzy_component_match("odh-mlflow-v3-3", "odh-mlflow-v3-3")
 
 
 # ---------------------------------------------------------------------------
@@ -113,13 +122,13 @@ class TestFuzzyComponentMatch:
 
 class TestFuzzyImageMatch:
     def test_matches_image_url(self):
-        assert mod._fuzzy_image_match("mlflow", "quay.io/rhoai/odh-mlflow-rhel9")
+        assert fuzzy_image_match("mlflow", "quay.io/rhoai/odh-mlflow-rhel9")
 
     def test_no_match(self):
-        assert not mod._fuzzy_image_match("vllm", "quay.io/rhoai/odh-mlflow-rhel9")
+        assert not fuzzy_image_match("vllm", "quay.io/rhoai/odh-mlflow-rhel9")
 
     def test_underscore_in_search(self):
-        assert mod._fuzzy_image_match("nemo_guardrails", "quay.io/rhoai/odh-nemo-guardrails-rhel9")
+        assert fuzzy_image_match("nemo_guardrails", "quay.io/rhoai/odh-nemo-guardrails-rhel9")
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +168,8 @@ class TestScanPermanentExclusions:
         policy_dir.mkdir(parents=True)
         (policy_dir / "registry-rhoai-prod.yaml").write_text(_POLICY_YAML)
 
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            results = mod.scan_permanent_exclusions(tmp_path, "prod")
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            results = scan_permanent_exclusions(tmp_path, "prod")
 
         assert len(results) == 2
         assert results[0]["rule"] == "cve.cve_blockers"
@@ -175,15 +184,15 @@ class TestScanPermanentExclusions:
         policy_dir.mkdir(parents=True)
         (policy_dir / "registry-rhoai-prod.yaml").write_text(_POLICY_YAML)
 
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            results = mod.scan_permanent_exclusions(tmp_path, "prod")
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            results = scan_permanent_exclusions(tmp_path, "prod")
 
         rules = [r["rule"] for r in results]
         assert "hermetic_task.hermetic" not in rules
 
     def test_empty_when_no_policy_files(self, tmp_path):
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            results = mod.scan_permanent_exclusions(tmp_path, "prod")
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            results = scan_permanent_exclusions(tmp_path, "prod")
         assert results == []
 
     def test_filters_by_environment(self, tmp_path):
@@ -191,8 +200,8 @@ class TestScanPermanentExclusions:
         policy_dir.mkdir(parents=True)
         (policy_dir / "registry-rhoai-stage.yaml").write_text(_POLICY_YAML)
 
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            results = mod.scan_permanent_exclusions(tmp_path, "prod")
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            results = scan_permanent_exclusions(tmp_path, "prod")
         assert results == []
 
 
@@ -215,7 +224,7 @@ class TestScanSelfServiceExceptions:
         ]
         (exceptions_dir / "registry-rhoai-prod.yaml").write_text(yaml.dump(data))
 
-        results = mod.scan_self_service_exceptions(tmp_path, "prod")
+        results = scan_self_service_exceptions(tmp_path, "prod")
         assert len(results) == 1
         assert results[0]["rule"] == "hermetic_task.hermetic"
         assert results[0]["scope"] == "component"
@@ -228,7 +237,7 @@ class TestScanSelfServiceExceptions:
         data = [{"value": "schedule.weekday_restriction", "imageRef": "sha256:abcdef1234567890"}]
         (exceptions_dir / "fbc-rhoai-prod.yaml").write_text(yaml.dump(data))
 
-        results = mod.scan_self_service_exceptions(tmp_path, "prod")
+        results = scan_self_service_exceptions(tmp_path, "prod")
         assert len(results) == 1
         assert results[0]["scope"] == "unscoped"
 
@@ -244,7 +253,7 @@ class TestScanSelfServiceExceptions:
         ]
         (exceptions_dir / "registry-rhoai-prod.yaml").write_text(yaml.dump(data))
 
-        results = mod.scan_self_service_exceptions(tmp_path, "prod")
+        results = scan_self_service_exceptions(tmp_path, "prod")
         assert len(results) == 1
         assert results[0]["scope"] == "image"
         assert results[0]["image_url"] == "quay.io/rhoai/odh-mlflow-rhel9"
@@ -255,11 +264,11 @@ class TestScanSelfServiceExceptions:
         data = [{"value": "some.rule", "effectiveUntil": "2026-12-01T00:00:00Z"}]
         (exceptions_dir / "registry-rhoai-stage.yaml").write_text(yaml.dump(data))
 
-        results = mod.scan_self_service_exceptions(tmp_path, "prod")
+        results = scan_self_service_exceptions(tmp_path, "prod")
         assert results == []
 
     def test_skips_missing_dir(self, tmp_path):
-        results = mod.scan_self_service_exceptions(tmp_path, "prod")
+        results = scan_self_service_exceptions(tmp_path, "prod")
         assert results == []
 
     def test_skips_invalid_yaml(self, tmp_path):
@@ -267,7 +276,7 @@ class TestScanSelfServiceExceptions:
         exceptions_dir.mkdir()
         (exceptions_dir / "registry-rhoai-prod.yaml").write_text("{{invalid yaml")
 
-        results = mod.scan_self_service_exceptions(tmp_path, "prod")
+        results = scan_self_service_exceptions(tmp_path, "prod")
         assert results == []
 
 
@@ -298,8 +307,8 @@ class TestSearchExceptionsForComponents:
         return tmp_path
 
     def test_finds_volatile_by_component(self, repo_tree):
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            result = mod.search_exceptions_for_components(
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            result = search_exceptions_for_components(
                 ["mlflow"],
                 environment="prod",
                 clone_dir=repo_tree,
@@ -310,8 +319,8 @@ class TestSearchExceptionsForComponents:
         assert any("mlflow" in m.get("matched_search_terms", []) for m in component_matches)
 
     def test_finds_permanent_always(self, repo_tree):
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            result = mod.search_exceptions_for_components(
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            result = search_exceptions_for_components(
                 ["mlflow"],
                 environment="prod",
                 clone_dir=repo_tree,
@@ -322,8 +331,8 @@ class TestSearchExceptionsForComponents:
         assert len(permanent_matches) == 2
 
     def test_finds_self_service_by_component(self, repo_tree):
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            result = mod.search_exceptions_for_components(
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            result = search_exceptions_for_components(
                 ["nemo-guardrails"],
                 environment="prod",
                 clone_dir=repo_tree,
@@ -334,8 +343,8 @@ class TestSearchExceptionsForComponents:
         assert any("nemo-guardrails" in m.get("matched_search_terms", []) for m in ss_matches)
 
     def test_fuzzy_matches_underscore_hyphen(self, repo_tree):
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            result = mod.search_exceptions_for_components(
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            result = search_exceptions_for_components(
                 ["nemo_guardrails"],
                 environment="prod",
                 clone_dir=repo_tree,
@@ -346,8 +355,8 @@ class TestSearchExceptionsForComponents:
         assert len(ss_matches) == 1
 
     def test_no_match_returns_only_unscoped_and_permanent(self, repo_tree):
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            result = mod.search_exceptions_for_components(
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            result = search_exceptions_for_components(
                 ["nonexistent-component"],
                 environment="prod",
                 clone_dir=repo_tree,
@@ -358,8 +367,8 @@ class TestSearchExceptionsForComponents:
             assert m["scope"] in ("unscoped", "permanent")
 
     def test_summary_counts(self, repo_tree):
-        with patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
-            result = mod.search_exceptions_for_components(
+        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+            result = search_exceptions_for_components(
                 ["mlflow"],
                 environment="prod",
                 clone_dir=repo_tree,
@@ -371,10 +380,10 @@ class TestSearchExceptionsForComponents:
 
     def test_refresh_calls_git(self, repo_tree):
         with (
-            patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"),
-            patch.object(mod, "_refresh_clone") as mock_refresh,
+            patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"),
+            patch.object(exception_scanner, "_refresh_clone") as mock_refresh,
         ):
-            mod.search_exceptions_for_components(
+            search_exceptions_for_components(
                 ["mlflow"],
                 environment="prod",
                 clone_dir=repo_tree,
@@ -384,10 +393,10 @@ class TestSearchExceptionsForComponents:
 
     def test_no_refresh_skips_git(self, repo_tree):
         with (
-            patch.object(mod, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"),
-            patch.object(mod, "_refresh_clone") as mock_refresh,
+            patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"),
+            patch.object(exception_scanner, "_refresh_clone") as mock_refresh,
         ):
-            mod.search_exceptions_for_components(
+            search_exceptions_for_components(
                 ["mlflow"],
                 environment="prod",
                 clone_dir=repo_tree,
@@ -426,7 +435,7 @@ class TestContextIntegration:
         monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
         monkeypatch.setattr("sys.argv", ["manage_exceptions.py", "--find-expired"])
 
-        with patch.object(mod, "_clone_repo", side_effect=Exception("should not clone")):
+        with patch.object(exception_scanner, "_clone_repo", side_effect=Exception("should not clone")):
             with patch.object(mod, "cmd_find_expired", return_value=0) as mock_cmd:
                 rc = mod.main()
 

@@ -12,13 +12,18 @@ import conforma_context_ops
 import conforma_mr_ops
 import conforma_policy_ops
 import violations_coverage as mod
+from coverage_status_ops import determine_status_and_next_steps
+from coverage_status_ops import extract_exception_expiry
+from coverage_status_ops import load_report_metadata
+from coverage_status_ops import build_search_urls
+from coverage_status_ops import map_gate_status
 
 
 class TestBuildSearchUrls:
     def test_builds_all_urls(self, monkeypatch):
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.example.com")
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
-        urls = mod._build_search_urls("hermetic_task.hermetic", "https://test.slack.com")
+        urls = build_search_urls("hermetic_task.hermetic", "https://test.slack.com")
         assert "gitlab.example.com" in urls["mr"]
         assert "hermetic_task.hermetic" in urls["jira"]
         assert "test.slack.com" in urls["slack"]
@@ -26,14 +31,14 @@ class TestBuildSearchUrls:
     def test_no_slack_url_without_team(self, monkeypatch):
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.example.com")
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "test/project")
-        urls = mod._build_search_urls("test.rule", "")
+        urls = build_search_urls("test.rule", "")
         assert urls["slack"] == ""
         assert urls["mr"] != ""
 
     def test_no_mr_url_without_gitlab(self, monkeypatch):
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "")
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "")
-        urls = mod._build_search_urls("test.rule", "https://test.slack.com")
+        urls = build_search_urls("test.rule", "https://test.slack.com")
         assert urls["mr"] == ""
         assert urls["jira"] != ""
 
@@ -131,7 +136,7 @@ class TestDetermineStatusAndNextSteps:
     """Tests for _determine_status_and_next_steps."""
 
     def test_fully_covered(self):
-        status, next_steps, short = mod._determine_status_and_next_steps("fully_covered", [], [], 0)
+        status, next_steps, short = determine_status_and_next_steps("fully_covered", [], [], 0)
         assert status == "Exception granted, violation should disappear on next Conforma run"
         assert "conforma-reporter" in next_steps
         assert "conforma-violations-scan" in next_steps
@@ -139,28 +144,28 @@ class TestDetermineStatusAndNextSteps:
         assert next_steps == short
 
     def test_not_covered_no_mr_no_jira(self):
-        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", [], [], 3)
+        status, next_steps, short = determine_status_and_next_steps("not_covered", [], [], 3)
         assert status == "No exception coverage"
         assert "Fix in code or request exception" in next_steps
         assert "see guide below" in short.lower()
 
     def test_not_covered_with_jira(self):
         tickets = [{"key": "RHOAIENG-1", "status": "Open"}]
-        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", [], tickets, 3)
+        status, next_steps, short = determine_status_and_next_steps("not_covered", [], tickets, 3)
         assert "Jira" in status
         assert "Fix in code or request exception" in next_steps
         assert "see guide below" in short.lower()
 
     def test_not_covered_with_exception_mr(self):
         mrs = [{"suggestion": "fully_covered", "mr_type": "exception", "iid": 1}]
-        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
+        status, next_steps, short = determine_status_and_next_steps("not_covered", mrs, [], 3)
         assert "Exception Merge Request pending" in status
         assert "ProdSec" in next_steps
         assert short == "Get Merge Request merged"
 
     def test_not_covered_with_remedy_mr(self):
         mrs = [{"suggestion": "no_overlap", "mr_type": "remedy", "iid": 2}]
-        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
+        status, next_steps, short = determine_status_and_next_steps("not_covered", mrs, [], 3)
         assert "Remedy Merge Request pending" in status
         assert "rebuild" in next_steps.lower()
         assert short == "Merge fix and rebuild"
@@ -170,31 +175,31 @@ class TestDetermineStatusAndNextSteps:
             {"suggestion": "fully_covered", "mr_type": "exception", "iid": 1},
             {"suggestion": "no_overlap", "mr_type": "remedy", "iid": 2},
         ]
-        status, next_steps, short = mod._determine_status_and_next_steps("not_covered", mrs, [], 3)
+        status, next_steps, short = determine_status_and_next_steps("not_covered", mrs, [], 3)
         assert "Exception + remedy" in status
         assert "ProdSec" in next_steps
         assert short == "Get Merge Requests merged"
 
     def test_partially_covered_with_exception_mr(self):
         mrs = [{"suggestion": "extend_mr", "mr_type": "exception", "iid": 1}]
-        status, next_steps, short = mod._determine_status_and_next_steps("partially_covered", mrs, [], 5)
+        status, next_steps, short = determine_status_and_next_steps("partially_covered", mrs, [], 5)
         assert "Partially covered" in status
         assert "exception Merge Request" in status
         assert "5 component(s) without coverage" in next_steps
         assert "5 without coverage" in short
 
     def test_partially_covered_no_mr(self):
-        status, next_steps, short = mod._determine_status_and_next_steps("partially_covered", [], [], 2)
+        status, next_steps, short = determine_status_and_next_steps("partially_covered", [], [], 2)
         assert "2 without coverage" in status
         assert "Fix in code or request exception" in next_steps
         assert "see guide below" in short.lower()
 
     def test_fully_covered_does_not_mention_resolution_guide(self):
-        _, next_steps, _ = mod._determine_status_and_next_steps("fully_covered", [], [], 0)
+        _, next_steps, _ = determine_status_and_next_steps("fully_covered", [], [], 0)
         assert "resolution guide" not in next_steps.lower()
 
     def test_not_covered_mentions_resolution_guide(self):
-        _, next_steps, _ = mod._determine_status_and_next_steps("not_covered", [], [], 1)
+        _, next_steps, _ = determine_status_and_next_steps("not_covered", [], [], 1)
         assert "resolution guide" in next_steps.lower()
 
 
@@ -231,16 +236,16 @@ class TestGateStatusMapping:
 
     def test_unknown_gate_status_raises(self):
         with pytest.raises(ValueError, match="Unknown gate status"):
-            mod._map_gate_status({"status": "totally_new_status"}, "test.rule", [], [])
+            map_gate_status({"status": "totally_new_status"}, "test.rule", [], [])
 
     def test_permanent_maps_to_fully_covered(self):
-        cov, label = mod._map_gate_status(
+        cov, label = map_gate_status(
             {"status": "permanent"}, "test.rule", [], []
         )
         assert cov == "fully_covered"
 
     def test_passed_maps_to_not_covered(self):
-        cov, label = mod._map_gate_status(
+        cov, label = map_gate_status(
             {"status": "passed"}, "test.rule", [], []
         )
         assert cov == "not_covered"
@@ -250,7 +255,7 @@ class TestReleaseOverride:
     """Layer 3 defense: --release overrides auto-detected release in the report header."""
 
     def test_report_header_uses_explicit_release(self):
-        meta = mod._load_report_metadata("rhoai-3.5-ea.1", None)
+        meta = load_report_metadata("rhoai-3.5-ea.1", None)
         assert meta["release"] == "rhoai-3.5-ea.1"
 
     def test_report_header_with_metadata_file(self, tmp_path):
@@ -268,7 +273,7 @@ class TestReleaseOverride:
         }
         meta_file.write_text(json.dumps(meta_data))
 
-        result = mod._load_report_metadata("rhoai-3.5-ea.1", str(meta_file))
+        result = load_report_metadata("rhoai-3.5-ea.1", str(meta_file))
         assert result["release"] == "rhoai-3.5-ea.1"
         assert "source_url" in result
         assert "rhoai-3.5-ea.1" not in result["source_url"]
@@ -301,7 +306,7 @@ class TestExtractExceptionExpiry:
 
     def test_permanent_exclusion(self):
         gate = {"status": "permanent", "permanent_exclusions": [{"file": "f.yaml", "line": 1}], "active_exceptions": []}
-        result = mod._extract_exception_expiry(gate)
+        result = extract_exception_expiry(gate)
         assert result["is_permanent"] is True
         assert result["display_expiry"] == "permanent (no expiry)"
         assert result["earliest_expiry"] is None
@@ -314,7 +319,7 @@ class TestExtractExceptionExpiry:
                 {"effectiveUntil": "2026-09-30T00:00:00Z", "covers_components": ["comp-a"]},
             ],
         }
-        result = mod._extract_exception_expiry(gate)
+        result = extract_exception_expiry(gate)
         assert result["is_permanent"] is False
         assert result["earliest_expiry"] == "2026-09-30"
         assert result["display_expiry"] == "expires 2026-09-30"
@@ -328,14 +333,14 @@ class TestExtractExceptionExpiry:
                 {"effectiveUntil": "2027-01-15T00:00:00Z", "covers_components": ["comp-b"]},
             ],
         }
-        result = mod._extract_exception_expiry(gate)
+        result = extract_exception_expiry(gate)
         assert result["earliest_expiry"] == "2026-09-30"
         assert result["latest_expiry"] == "2027-01-15"
         assert result["display_expiry"] == "expires 2026-09-30 — 2027-01-15"
 
     def test_no_active_exceptions(self):
         gate = {"status": "passed", "permanent_exclusions": [], "active_exceptions": []}
-        result = mod._extract_exception_expiry(gate)
+        result = extract_exception_expiry(gate)
         assert result["is_permanent"] is False
         assert result["display_expiry"] == ""
         assert result["earliest_expiry"] is None
@@ -348,7 +353,7 @@ class TestExtractExceptionExpiry:
                 {"effectiveUntil": "not-a-date", "covers_components": ["comp-a"]},
             ],
         }
-        result = mod._extract_exception_expiry(gate)
+        result = extract_exception_expiry(gate)
         assert result["display_expiry"] == ""
 
     def test_coverage_ratio_renders_in_status(self):

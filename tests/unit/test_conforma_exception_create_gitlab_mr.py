@@ -7,6 +7,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import create_gitlab_mr as mod
+from exception_mr_text import build_mr_title_consolidated
+from exception_mr_text import build_mr_body_consolidated
+from exception_mr_text import build_mr_title
+from exception_mr_text import build_mr_body
+from exception_policy_file_ops import find_existing_exceptions
+from exception_policy_file_ops import AmbiguousPolicyFileError
 
 TEST_CONFORMA_POLICY_DIR = "config/test-cluster.example.p1/product/EnterpriseContractPolicy"
 
@@ -121,7 +127,7 @@ class TestApplicationSlugFiltering:
     def test_ambiguous_raises_without_app_slug(self, monkeypatch):
         monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES", ",".join(MULTI_PRODUCT_CONFORMA_FILES))
         monkeypatch.delenv("KONFLUX_APPLICATION_SLUG", raising=False)
-        with pytest.raises(mod.AmbiguousPolicyFileError) as exc_info:
+        with pytest.raises(AmbiguousPolicyFileError) as exc_info:
             mod.get_target_file("registry", "prod", is_self_service=False)
         assert "registry-ai-containers-preview-prod.yaml" in exc_info.value.candidates
         assert "registry-rhoai-prod.yaml" in exc_info.value.candidates
@@ -192,7 +198,7 @@ class TestGenerateExceptionYaml:
 
 class TestFindExistingExceptions:
     def test_finds_component_scoped_block(self):
-        blocks = mod._find_existing_exceptions(SAMPLE_POLICY_CONTENT, "hermetic_task.hermetic")
+        blocks = find_existing_exceptions(SAMPLE_POLICY_CONTENT, "hermetic_task.hermetic")
         assert len(blocks) == 1
         block = blocks[0]
         assert block["has_component_names"] is True
@@ -200,7 +206,7 @@ class TestFindExistingExceptions:
         assert block["effective_until_value"] == "2026-12-01T00:00:00Z"
 
     def test_finds_old_style_unscoped_block(self):
-        blocks = mod._find_existing_exceptions(SAMPLE_POLICY_CONTENT, "rpm_signature.allowed:abc123")
+        blocks = find_existing_exceptions(SAMPLE_POLICY_CONTENT, "rpm_signature.allowed:abc123")
         assert len(blocks) == 1
         block = blocks[0]
         assert block["has_component_names"] is False
@@ -208,7 +214,7 @@ class TestFindExistingExceptions:
         assert block["effective_until_value"] == "2025-06-01T00:00:00Z"
 
     def test_returns_empty_for_unknown_rule(self):
-        assert mod._find_existing_exceptions(SAMPLE_POLICY_CONTENT, "unknown.rule") == []
+        assert find_existing_exceptions(SAMPLE_POLICY_CONTENT, "unknown.rule") == []
 
 
 class TestApplyExceptionToPolicyFile:
@@ -375,25 +381,25 @@ class TestMrTitleEnvPrefix:
     """Tests for [prod]/[stage] prefix in MR titles."""
 
     def test_prod_prefix(self):
-        title = mod._build_mr_title("hermetic_task.hermetic", "rhoai-3.3", environment="prod")
+        title = build_mr_title("hermetic_task.hermetic", "rhoai-3.3", environment="prod")
         assert title.startswith("[prod] [RHOAI]")
 
     def test_stage_prefix(self):
-        title = mod._build_mr_title("hermetic_task.hermetic", "rhoai-3.3", environment="stage")
+        title = build_mr_title("hermetic_task.hermetic", "rhoai-3.3", environment="stage")
         assert title.startswith("[stage] [RHOAI]")
 
     def test_vendor_tag_with_env_prefix(self):
-        title = mod._build_mr_title("rpm_signature.allowed:abc", "rhoai-3.4", vendor_tag="AMD", environment="prod")
+        title = build_mr_title("rpm_signature.allowed:abc", "rhoai-3.4", vendor_tag="AMD", environment="prod")
         assert title.startswith("[AMD] [prod]")
 
     def test_consolidated_prod_prefix(self):
         specs = [{"version": "rhoai-3.3"}, {"version": "rhoai-3.4"}]
-        title = mod._build_mr_title_consolidated("hermetic_task.hermetic", specs, environment="prod")
+        title = build_mr_title_consolidated("hermetic_task.hermetic", specs, environment="prod")
         assert title.startswith("[prod] [RHOAI]")
 
     def test_consolidated_stage_prefix(self):
         specs = [{"version": "rhoai-3.3"}]
-        title = mod._build_mr_title_consolidated("hermetic_task.hermetic", specs, environment="stage")
+        title = build_mr_title_consolidated("hermetic_task.hermetic", specs, environment="stage")
         assert title.startswith("[stage] [RHOAI]")
 
 
@@ -453,7 +459,7 @@ class TestMrBodyContent:
             {"version": "rhoai-3.4", "components": ["comp-v3-4"], "effective_until": "2026-08-01T00:00:00Z"},
             {"version": "rhoai-3.5-ea.1", "components": ["comp-v3-5-ea-1"], "effective_until": "2026-10-05T00:00:00Z"},
         ]
-        body = mod._build_mr_body_consolidated(
+        body = build_mr_body_consolidated(
             rule="rpm_signature.allowed:abc",
             version_specs=specs,
             target_file="config/test/registry-rhoai-prod.yaml",
@@ -467,7 +473,7 @@ class TestMrBodyContent:
         assert "2026-10-05T00:00:00Z" in body
 
     def test_single_body_includes_components(self):
-        body = mod._build_mr_body(
+        body = build_mr_body(
             rule="hermetic_task.hermetic",
             components=["dash-v3-4", "model-v3-4"],
             rhoai_version="rhoai-3.4",
