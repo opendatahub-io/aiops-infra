@@ -489,9 +489,27 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
 
     # Add extracted code (sorted by original position)
     all_extract_nodes.sort(key=lambda x: x[0])
+    extracted_chunks = []
+    rename_map: dict[str, str] = {}
     for start, end, _node in all_extract_nodes:
         chunk = "".join(lines[start:end])
-        # Remove leading underscore for public API
+        original_name = _node.name if hasattr(_node, "name") else None
+        if original_name and original_name.startswith("_"):
+            public_name = original_name.lstrip("_")
+            rename_map[original_name] = public_name
+        extracted_chunks.append(chunk)
+
+    # Apply all renames across all chunks (function defs + internal calls)
+    for i, chunk in enumerate(extracted_chunks):
+        for old_name, new_name in rename_map.items():
+            chunk = chunk.replace(f"def {old_name}(", f"def {new_name}(", 1)
+            chunk = chunk.replace(f"class {old_name}(", f"class {new_name}(", 1)
+            chunk = chunk.replace(f"class {old_name}:", f"class {new_name}:", 1)
+            # Rename call sites using word boundary regex
+            chunk = re.sub(rf'\b{re.escape(old_name)}\b', new_name, chunk)
+        extracted_chunks[i] = chunk
+
+    for chunk in extracted_chunks:
         new_module_lines.append(chunk.rstrip())
         new_module_lines.append("")
         new_module_lines.append("")
@@ -1349,11 +1367,23 @@ class Step12_DedupSharedUtils(Step):
 
             remaining = [l for i, l in enumerate(lines) if i not in lines_to_remove]
 
-            # Insert import after existing imports
-            insert_pos = 0
-            for i, line in enumerate(remaining):
-                if line.startswith("import ") or line.startswith("from "):
-                    insert_pos = i + 1
+            # Insert import after existing imports (AST-based for accuracy)
+            remaining_text = "".join(remaining)
+            try:
+                remaining_tree = ast.parse(remaining_text)
+                insert_pos = 0
+                for rnode in ast.iter_child_nodes(remaining_tree):
+                    if isinstance(rnode, ast.Import | ast.ImportFrom):
+                        end = rnode.end_lineno or rnode.lineno
+                        if end > insert_pos:
+                            insert_pos = end
+            except SyntaxError:
+                insert_pos = 0
+                for i, line in enumerate(remaining):
+                    stripped = line.strip()
+                    if stripped.startswith("import ") or stripped.startswith("from "):
+                        if "(" not in stripped or ")" in stripped:
+                            insert_pos = i + 1
 
             remaining.insert(insert_pos, import_line)
             src.write_text("".join(remaining))
@@ -1439,16 +1469,28 @@ class Step12_DedupSharedUtils(Step):
             file_lines = content.splitlines(keepends=True)
             remaining = [l for i, l in enumerate(file_lines) if i not in lines_to_remove]
 
-            # Add re-export imports
+            # Add re-export imports (AST-based insertion)
             imports = (
                 "from conforma_yaml_ops import QuotedStr as _QuotedStr  # noqa: F401\n"
                 "from conforma_yaml_ops import safe_yaml_dump as _safe_yaml_dump  # noqa: F401\n"
                 "from conforma_yaml_ops import needs_quoting as _needs_quoting  # noqa: F401\n"
             )
-            insert_pos = 0
-            for i, line in enumerate(remaining):
-                if line.startswith("import ") or line.startswith("from "):
-                    insert_pos = i + 1
+            remaining_text = "".join(remaining)
+            try:
+                remaining_tree = ast.parse(remaining_text)
+                insert_pos = 0
+                for rnode in ast.iter_child_nodes(remaining_tree):
+                    if isinstance(rnode, ast.Import | ast.ImportFrom):
+                        end = rnode.end_lineno or rnode.lineno
+                        if end > insert_pos:
+                            insert_pos = end
+            except SyntaxError:
+                insert_pos = 0
+                for i, line in enumerate(remaining):
+                    stripped = line.strip()
+                    if stripped.startswith("import ") or stripped.startswith("from "):
+                        if "(" not in stripped or ")" in stripped:
+                            insert_pos = i + 1
             remaining.insert(insert_pos, imports)
             src.write_text("".join(remaining))
 
