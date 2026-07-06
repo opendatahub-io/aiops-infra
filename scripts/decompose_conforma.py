@@ -1304,7 +1304,7 @@ class Step10_ExtractCoverageStatus(Step):
 class Step11_ExtractExceptionScanner(Step):
     number = 11
     description = "Extracting exception_scanner.py from manage_exceptions.py"
-    needs_tests = True
+    needs_tests = False  # Tests patch original module; Step 13 fixes them
 
     def is_complete(self) -> bool:
         return Path("skills/conforma-exception/scripts/exception_scanner.py").exists()
@@ -1616,7 +1616,7 @@ class Step13_UpdateTests(Step):
                     "_detect_component_type", "_get_target_file",
                     "_generate_exception_yaml", "_find_existing_exceptions",
                     "_remove_exception_from_policy_file", "_apply_exception_to_policy_file",
-                    "_append_to_policy_file",
+                    "_append_to_policy_file", "AmbiguousPolicyFileError",
                 ],
             },
             "create_jira_ticket": {
@@ -1624,7 +1624,7 @@ class Step13_UpdateTests(Step):
                     "_build_rhoaieng_description", "_build_rhoaieng_remediation_description",
                     "_build_rhoaieng_violation_report_description",
                     "_build_psx_description", "_build_psx_filled_adf",
-                    "_build_summary", "_fill_psx_template", "_load_templates",
+                    "_build_summary", "_fill_psx_template",
                     "_build_exception_label", "_build_provenance_footer",
                 ],
             },
@@ -1657,6 +1657,15 @@ class Step13_UpdateTests(Step):
             },
         }
 
+        # Dependency functions that got copied to extracted modules and need
+        # patch.object targets updated in tests
+        patch_fixups: dict[str, list[tuple[str, str]]] = {
+            # test file pattern: [(old patch target module, new patch target module)]
+            "test_conforma_exception_manage_exceptions": [
+                ("mod", "exception_scanner"),
+            ],
+        }
+
         test_dir = Path("tests/unit")
         if not test_dir.exists():
             return True
@@ -1673,18 +1682,14 @@ class Step13_UpdateTests(Step):
 
                 for new_module, func_names in extractions.items():
                     for func_name in func_names:
-                        # Pattern: mod._func_name or mod.func_name
                         old_pattern = f"mod.{func_name}"
                         if old_pattern not in content:
                             continue
 
-                        # Replace with direct import from new module
                         public_name = func_name.lstrip("_")
                         new_import = f"from {new_module} import {public_name}"
 
-                        # Add import if not already present
                         if new_import not in content:
-                            # Find insertion point (after existing imports)
                             lines = content.splitlines(keepends=True)
                             insert_pos = 0
                             for i, line in enumerate(lines):
@@ -1693,8 +1698,27 @@ class Step13_UpdateTests(Step):
                             lines.insert(insert_pos, new_import + "\n")
                             content = "".join(lines)
 
-                        # Replace mod.func_name with public_name
                         content = content.replace(old_pattern, public_name)
+
+            # Fix patch.object targets for dependency functions
+            for file_pattern, fixups in patch_fixups.items():
+                if file_pattern in test_file.stem:
+                    for old_target, new_module in fixups:
+                        # Replace: patch.object(mod, "_dep_func", ...) → patch("new_module._dep_func", ...)
+                        # Also need to add import for the new module
+                        if f"import {new_module}" not in content:
+                            lines = content.splitlines(keepends=True)
+                            insert_pos = 0
+                            for i, line in enumerate(lines):
+                                if line.startswith("import ") or line.startswith("from "):
+                                    insert_pos = i + 1
+                            lines.insert(insert_pos, f"import {new_module}\n")
+                            content = "".join(lines)
+                        # Replace patch.object(mod, "func") with patch.object(exception_scanner, "func")
+                        content = content.replace(
+                            f"patch.object({old_target}, \"_get_conforma_policy_dir\"",
+                            f"patch.object({new_module}, \"_get_conforma_policy_dir\""
+                        )
 
             if content != original_content:
                 if not dry_run:
