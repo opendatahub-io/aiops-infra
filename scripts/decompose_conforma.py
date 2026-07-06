@@ -1474,7 +1474,7 @@ class Step12_DedupSharedUtils(Step):
         yaml_ops_content = (
             '"""YAML quoting utilities shared across conforma scripts."""\n\n'
             "from __future__ import annotations\n\n"
-            "import yaml\n\n\n"
+            "import re\n\nimport yaml\n\n\n"
         )
         for start, end in sorted(found_nodes):
             chunk = "".join(source_lines[start:end])
