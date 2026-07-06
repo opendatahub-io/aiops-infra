@@ -25,8 +25,8 @@ def _tree_entry(name: str, entry_type: str = "tree") -> dict:
     return {"name": name, "type": entry_type, "path": name}
 
 
-def _setup_single_cluster_tenant(mock_project, tenant="rhoai-tenant", cluster_id="stone-prod-p02",
-                                  domain="stone-prod-p02.hjvn.p1"):
+def _setup_single_cluster_tenant(mock_project, tenant="rhoai-tenant", cluster_id="stone-stg-p01",
+                                  domain="stone-stg-p01.hjvn.p1"):
     """Set up mock responses for a single cluster with one tenant."""
 
     def tree_side_effect(path="", per_page=100, page=1, ref="main"):
@@ -58,13 +58,13 @@ def _setup_multi_cluster_tenant(mock_project, tenant="rhoai-tenant"):
 
     def tree_side_effect(path="", per_page=100, page=1, ref="main"):
         if path == "tenants-config/cluster" and page == 1:
-            return [_tree_entry("stone-prod-p02"), _tree_entry("stone-stg-p01")]
-        if path == "tenants-config/cluster/stone-prod-p02/tenants" and page == 1:
-            return [_tree_entry(tenant)]
+            return [_tree_entry("stone-stg-p01"), _tree_entry("stone-stg-q02")]
         if path == "tenants-config/cluster/stone-stg-p01/tenants" and page == 1:
             return [_tree_entry(tenant)]
+        if path == "tenants-config/cluster/stone-stg-q02/tenants" and page == 1:
+            return [_tree_entry(tenant)]
         if path == "config" and page == 1:
-            return [_tree_entry("stone-prod-p02.hjvn.p1"), _tree_entry("stone-stg-p01.abc.p1")]
+            return [_tree_entry("stone-stg-p01.hjvn.p1"), _tree_entry("stone-stg-q02.abc.p1")]
         if "EnterpriseContractPolicy" in path and page == 1:
             return [_tree_entry("registry-rhoai-prod.yaml", "blob")]
         if "ReleasePlanAdmission" in path and page == 1:
@@ -89,9 +89,9 @@ class TestDiscoverSingleCluster:
             ctx = konflux_tenant_env_discovery.discover("rhoai-tenant")
 
         assert ctx.tenant == "rhoai-tenant"
-        assert ctx.cluster.cluster_id == "stone-prod-p02"
-        assert ctx.cluster.cluster_domain == "stone-prod-p02.hjvn.p1"
-        assert ctx.conforma_policy_dir == "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
+        assert ctx.cluster.cluster_id == "stone-stg-p01"
+        assert ctx.cluster.cluster_domain == "stone-stg-p01.hjvn.p1"
+        assert ctx.conforma_policy_dir == "config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy"
         assert "registry-rhoai-prod.yaml" in ctx.conforma_policy_files
         assert "fbc-rhoai-prod.yaml" in ctx.conforma_policy_files
         assert "rhoai" in ctx.rpa_subdirs
@@ -108,7 +108,7 @@ class TestDiscoverSingleCluster:
         assert cache_file.exists()
         data = json.loads(cache_file.read_text())
         assert data["tenant"] == "rhoai-tenant"
-        assert data["cluster"]["cluster_id"] == "stone-prod-p02"
+        assert data["cluster"]["cluster_id"] == "stone-stg-p01"
 
 
 class TestDiscoverMultipleClusters:
@@ -118,7 +118,7 @@ class TestDiscoverMultipleClusters:
             ctx = konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-stg-p01")
 
         assert ctx.cluster.cluster_id == "stone-stg-p01"
-        assert ctx.cluster.cluster_domain == "stone-stg-p01.abc.p1"
+        assert ctx.cluster.cluster_domain == "stone-stg-p01.hjvn.p1"
         assert len(ctx.all_clusters) == 2
 
     def test_no_preferred_cluster_errors(self, mock_project, cache_dir):
@@ -142,8 +142,8 @@ class TestDiscoverTenantNotFound:
     def test_exit_8_when_not_found(self, mock_project, cache_dir):
         def tree_side_effect(path="", per_page=100, page=1, ref="main"):
             if path == "tenants-config/cluster" and page == 1:
-                return [_tree_entry("stone-prod-p02")]
-            if path == "tenants-config/cluster/stone-prod-p02/tenants" and page == 1:
+                return [_tree_entry("stone-stg-p01")]
+            if path == "tenants-config/cluster/stone-stg-p01/tenants" and page == 1:
                 return [_tree_entry("other-tenant")]
             return []
 
@@ -208,11 +208,11 @@ class TestClusterDomainMatching:
 
         def tree_side_effect(path="", per_page=100, page=1, ref="main"):
             if path == "tenants-config/cluster" and page == 1:
-                return [_tree_entry("stone-prod-p02")]
-            if path == "tenants-config/cluster/stone-prod-p02/tenants" and page == 1:
+                return [_tree_entry("stone-stg-p01")]
+            if path == "tenants-config/cluster/stone-stg-p01/tenants" and page == 1:
                 return [_tree_entry("rhoai-tenant")]
             if path == "config" and page == 1:
-                return [_tree_entry("stone-prod-p02.hjvn.p1.extra.segment")]
+                return [_tree_entry("stone-stg-p01.hjvn.p1.extra.segment")]
             if "EnterpriseContractPolicy" in path:
                 return [_tree_entry("test.yaml", "blob")]
             if "ReleasePlanAdmission" in path:
@@ -225,8 +225,8 @@ class TestClusterDomainMatching:
         with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
             ctx = konflux_tenant_env_discovery.discover("rhoai-tenant")
 
-        assert ctx.cluster.cluster_domain == "stone-prod-p02.hjvn.p1.extra.segment"
-        assert ctx.cluster.cluster_id == "stone-prod-p02"
+        assert ctx.cluster.cluster_domain == "stone-stg-p01.hjvn.p1.extra.segment"
+        assert ctx.cluster.cluster_id == "stone-stg-p01"
 
     def test_single_segment_domain_no_match(self, mock_project, cache_dir):
         """If config/ has a directory that is just the cluster_id (no dots), it still matches."""
@@ -332,12 +332,12 @@ class TestCache:
     def test_preferred_cluster_change_invalidates_cache(self, mock_project, cache_dir):
         _setup_multi_cluster_tenant(mock_project)
         with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
-            konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-prod-p02")
+            konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-stg-p01")
 
         mock_project.repository_tree.reset_mock()
         _setup_multi_cluster_tenant(mock_project)
         with patch.object(konflux_tenant_env_discovery, "_get_gitlab_project", return_value=mock_project):
-            ctx = konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-stg-p01")
+            ctx = konflux_tenant_env_discovery.discover("rhoai-tenant", preferred_cluster="stone-stg-q02")
 
         assert mock_project.repository_tree.called
-        assert ctx.cluster.cluster_id == "stone-stg-p01"
+        assert ctx.cluster.cluster_id == "stone-stg-q02"

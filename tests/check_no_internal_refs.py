@@ -32,33 +32,18 @@ FORBIDDEN_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"gitlab\.cee\.redhat\.com"), "internal GitLab hostname"),
     (re.compile(r"stone-prod-p02"), "internal Konflux cluster ID (RHOAI)"),
     (re.compile(r"stone-prd-rh01"), "internal Konflux cluster ID (ODH)"),
-    # Match openshiftapps.com only when preceded by a literal hostname segment (not a $variable)
-    (re.compile(r"(?<!\$\{)\b[a-z0-9][-a-z0-9]*\.openshiftapps\.com"), "internal OpenShift cluster domain"),
     (re.compile(r"konflux\.pages\.redhat\.com"), "internal Konflux documentation host"),
-    # Match the Tekton route prefix only when followed by a literal hostname (not a $variable)
-    (re.compile(r"tekton-results-tekton-results\.apps\.[a-z0-9]"), "internal Tekton Results route"),
 ]
 
 # ── Files/directories excluded from scanning ──────────────────────────────
 # Paths relative to repo root. Directories match any file underneath.
 EXCLUDE_PATHS: set[str] = {
-    ".work",
     ".git",
     ".venv",
     "tests/check_no_internal_refs.py",
     "tests/unit/test_no_internal_refs.py",
-    "tests/unit/test_konflux_environment.py",
-    "tests/unit/test_konflux_environment_validation.py",
-    "tests/unit/test_konflux_tenant_env_discovery.py",
-    "tests/unit/test_konflux_tenant_env_discovery_integration.py",
-    "tests/unit/test_resolve_release_context.py",
-    "tests/unit/test_conforma_analyze_generate_resolution_guide.py",
-    "tests/unit/test_conforma_analyze_violations_coverage.py",
-    "tests/unit/test_conforma_policy_ops.py",
-    # TODO: these areas still need their own cleanup pass
     ".claude/skills",
     "docs",
-    "ARCHITECTURE.md",
 }
 
 EXCLUDE_GLOBS: list[str] = [

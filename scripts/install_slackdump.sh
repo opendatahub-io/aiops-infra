@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Install slackdump binary from GitHub releases into .work/bin/ (project-local).
+# Install slackdump binary from GitHub releases into ~/.conforma/bin/ (project-local).
 #
 # Usage:
-#   ./scripts/install_slackdump.sh                      # install latest to .work/bin/
+#   ./scripts/install_slackdump.sh                      # install latest to ~/.conforma/bin/
 #   ./scripts/install_slackdump.sh --version 4.4.0      # install specific version
 #   ./scripts/install_slackdump.sh --install-dir /path  # custom directory
 #
 # After install, authenticate with:
-#   .work/bin/slackdump login
+#   ~/.conforma/bin/slackdump login
 
 set -euo pipefail
 
@@ -15,7 +15,7 @@ REPO="rusq/slackdump"
 VERSION=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-INSTALL_DIR="${REPO_ROOT}/.work/bin"
+INSTALL_DIR="${HOME}/.conforma/bin"
 USE_SUDO="false"
 
 while [[ $# -gt 0 ]]; do
@@ -32,10 +32,10 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [--install-dir DIR] [--version VERSION]"
             echo ""
             echo "Options:"
-            echo "  --install-dir  Install directory (default: .work/bin/)"
+            echo "  --install-dir  Install directory (default: ~/.conforma/bin/)"
             echo "  --version      Install a specific version (default: latest)"
             echo ""
-            echo "After install, authenticate with: .work/bin/slackdump login"
+            echo "After install, authenticate with: ~/.conforma/bin/slackdump login"
             exit 0
             ;;
         *)
@@ -118,10 +118,10 @@ echo "    1. Open https://redhat-internal.slack.com in your browser"
 echo "    2. Extract token (DevTools Console):"
 echo "       JSON.parse(localStorage.localConfig_v2).teams[document.location.pathname.match(/^\\/client\\/([A-Z0-9]+)/)[1]].token"
 echo "    3. Extract cookie: DevTools → Application → Cookies → 'd' cookie value"
-echo "    4. Write to .work/.slack-secrets:"
+echo "    4. Write to ~/.conforma/.slack-secrets:"
 echo "       SLACK_TOKEN=xoxc-..."
 echo "       SLACK_COOKIE=xoxd-..."
-echo "    5. Run: slackdump workspace import .work/.slack-secrets && rm -f .work/.slack-secrets"
+echo "    5. Run: slackdump workspace import ~/.conforma/.slack-secrets && rm -f ~/.conforma/.slack-secrets"
 echo ""
 echo "  Method B (requires local Chromium browser):"
 echo "    Run: slackdump workspace new https://redhat-internal.slack.com"

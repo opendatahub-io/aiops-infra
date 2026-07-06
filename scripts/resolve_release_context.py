@@ -271,9 +271,13 @@ def _format_resolved(
         f"| **Conforma policy dir** | {policy_dir_text} |",
         f"| **Environment** | {environment} |",
     ]
-    if code_freeze_date:
+    if code_freeze_date and upcoming_release_date and code_freeze_date > upcoming_release_date:
+        lines.append(f"| **Code freeze ({version_label})** | Already passed (next code freeze {code_freeze_date} is for a future release) |")
+    elif code_freeze_date:
         cf_source_text = f" based on {code_freeze_source}," if code_freeze_source else ""
         lines.append(f"| **Code freeze ({version_label})** | {code_freeze_date} —{cf_source_text} verify on [Product Pages]({product_pages_url}) |")
+    elif not code_freeze_date and upcoming_release_date:
+        lines.append(f"| **Code freeze ({version_label})** | Already passed (not found in rhai-release-data.yaml) |")
     if upcoming_release_date:
         upcoming_source_text = f" based on {upcoming_release_source}," if upcoming_release_source else ""
         lines.append(f"| **Upcoming release date ({version_label})** | {upcoming_release_date} —{upcoming_source_text} verify on [Product Pages]({product_pages_url}) |")
@@ -451,6 +455,10 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
             "end_of_support": eos_date,
             "upcoming_release_date": upcoming_release_date,
             "code_freeze_date": code_freeze_date,
+            "code_freeze_already_passed": (
+                (code_freeze_date is not None and upcoming_release_date is not None and code_freeze_date > upcoming_release_date)
+                or (code_freeze_date is None and upcoming_release_date is not None)
+            ),
             "self_service_files": self_service_files,
             "available_versions": available,
             "links": links,
@@ -569,7 +577,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--output-dir",
-        help="Create a timestamped run directory under this path and save resolve-context.json into it. "
+        help="Create a timestamped run directory under this path and save context.yaml into it. "
              "Only takes effect when status is 'resolved'.",
     )
     args = parser.parse_args()
@@ -585,7 +593,7 @@ def main() -> int:
         else:
             base_dir = conforma_context_ops.discover_work_dir()
 
-        existing_context = base_dir / "resolve-context.json"
+        existing_context = base_dir / "context.yaml"
         if existing_context.is_file():
             rundir = str(base_dir)
             print(f"Reusing existing run directory: {rundir}", file=sys.stderr)
@@ -615,6 +623,7 @@ def main() -> int:
                 "upcoming_release_date": result.get("upcoming_release_date"),
                 "code_freeze_date": result.get("code_freeze_date"),
                 "links": result.get("links", {}),
+                "confirmation_display": result.get("confirmation_display", ""),
             },
         }
 
@@ -622,9 +631,6 @@ def main() -> int:
         conforma_context_ops.set_active(rundir_path)
 
         result["rundir"] = rundir
-        context_json_path = rundir_path / "resolve-context.json"
-        context_json_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        print(f"Context saved to: {context_json_path}", file=sys.stderr)
 
     json.dump(result, sys.stdout, indent=2)
     print()

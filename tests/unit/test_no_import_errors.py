@@ -16,11 +16,11 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 
-_SKILL_SCRIPT_DIRS = [
-    REPO_ROOT / "skills" / "conforma-analyze" / "scripts",
-    REPO_ROOT / "skills" / "conforma-exception" / "scripts",
-    REPO_ROOT / "skills" / "conforma-report-fetch" / "scripts",
-]
+_SKILL_SCRIPT_DIRS = sorted(
+    d / "scripts"
+    for d in (REPO_ROOT / "skills").iterdir()
+    if d.is_dir() and (d / "scripts").is_dir()
+)
 
 
 def _discover_modules() -> list[str]:
@@ -44,14 +44,20 @@ _LEGACY_IGNORE_LIST = {
 }
 
 
+_AUTH_GATED_MODULES = {"create_gitlab_mr", "list_exceptions", "manage_exceptions"}
+
+
 @pytest.mark.parametrize("module", _discover_modules())
-def test_module_imports_cleanly(module):
+def test_module_imports_cleanly(module, monkeypatch):
     """Each module must be importable without errors.
 
     Legacy scripts on .test-ignore-list that fail due to missing third-party
     packages are skipped -- they have their own dependency management (uv script
     headers) and are exempt from the test requirement.
     """
+    if module in _AUTH_GATED_MODULES:
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.test-corp.fake")
+        monkeypatch.setenv("GITLAB_TOKEN", "glpat-test-only")
     if module in sys.modules:
         del sys.modules[module]
     try:

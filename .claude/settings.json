@@ -14,5 +14,10 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/unit/test_conforma_analyze_generate_resolution_guide.py::TestExecutiveSummaryFile::test_full_guide_unchanged_with_executive_summary_flag -v --tb=short)"
+    ]
   }
 }

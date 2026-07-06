@@ -49,8 +49,8 @@ class TestPlaceholderPatterns:
         "value",
         [
             "gitlab.corp.redhat.com",
-            "gitlab.cee.redhat.com",
-            "stone-prod-p02.hjvn.p1",
+            "gitlab.test-corp.fake",
+            "stone-stg-p01.hjvn.p1",
             "my-cluster.abc.p1",  # has hyphen, not "my." prefix
             "real-gitlab.internal.company.io",
             "10.0.0.1",
@@ -115,10 +115,9 @@ class TestRequire:
         clean = {k: v for k, v in os.environ.items() if k != "GITLAB_HOST"}
         with patch.dict(os.environ, clean, clear=True):
             with patch.object(konflux_environment, "DOTENV_PATH", tmp_path / "nonexistent"):
-                with patch.object(konflux_environment, "_LEGACY_DOTENV_PATH", tmp_path / "also-nonexistent"):
-                    with pytest.raises(SystemExit) as exc_info:
-                        konflux_environment.require("gitlab")
-                    assert exc_info.value.code == 1
+                with pytest.raises(SystemExit) as exc_info:
+                    konflux_environment.require("gitlab")
+                assert exc_info.value.code == 1
 
     def test_exits_when_gitlab_host_is_placeholder(self):
         with patch.dict(os.environ, {"GITLAB_HOST": "test.example.com", "KONFLUX_CLUSTER_DOMAIN": "real.abc.p1"}):

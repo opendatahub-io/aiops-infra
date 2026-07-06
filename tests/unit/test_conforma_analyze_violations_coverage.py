@@ -397,7 +397,7 @@ class TestBuildComponentExceptionDetails:
 
     def test_per_component_exceptions(self, monkeypatch):
         """Multiple per-component exceptions produce one entry per component."""
-        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.test-corp.fake")
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
         gate = {
             "status": "blocked",
@@ -423,7 +423,7 @@ class TestBuildComponentExceptionDetails:
 
     def test_unscoped_exception_covers_all(self, monkeypatch):
         """Unscoped exception (covers all) maps to every component."""
-        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.test-corp.fake")
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
         gate = {
             "status": "blocked",
@@ -443,7 +443,7 @@ class TestBuildComponentExceptionDetails:
 
     def test_foreign_file_excluded_by_policy_files(self, monkeypatch):
         """Exceptions in files not in policy_files produce null fields."""
-        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.test-corp.fake")
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
         gate = {
             "status": "blocked",
@@ -462,7 +462,7 @@ class TestBuildComponentExceptionDetails:
 
     def test_no_exceptions_returns_null_entries(self, monkeypatch):
         """No exceptions means all components get null fields."""
-        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.test-corp.fake")
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
         gate = {"status": "passed", "permanent_exclusions": [], "active_exceptions": []}
         result = mod._build_component_exception_details(gate, ["comp-a", "comp-b"])
@@ -471,7 +471,7 @@ class TestBuildComponentExceptionDetails:
 
     def test_permanent_exclusion(self, monkeypatch):
         """Permanent exclusion covers all components with no expiry."""
-        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.cee.redhat.com")
+        monkeypatch.setattr(conforma_mr_ops, "GITLAB_HOST", "gitlab.test-corp.fake")
         monkeypatch.setattr(conforma_mr_ops, "GITLAB_PROJECT", "releng/konflux-release-data")
         gate = {
             "status": "permanent",
@@ -601,6 +601,7 @@ class TestOutputFlag:
         assert "summary" in data
 
     def test_no_output_flag_prints_to_stdout(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty-workdir"))
         monkeypatch.setattr(
             mod, "check_violations_coverage",
             lambda **_kw: {"summary": {"total": 0}},
@@ -622,7 +623,7 @@ class TestOutputFlag:
         data = json.loads(captured.out)
         assert "summary" in data
 
-    def test_resolve_context_json_extracts_policy_files(self, tmp_path, monkeypatch):
+    def test_context_yaml_extracts_policy_files(self, tmp_path, monkeypatch):
         captured_kwargs = {}
 
         def mock_check(**kwargs):
@@ -630,27 +631,30 @@ class TestOutputFlag:
             return {"summary": {"total": 0}, "violations": []}
 
         monkeypatch.setattr(mod, "check_violations_coverage", mock_check)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
 
-        resolve_ctx = {
-            "links": {
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.2", "version": "3.5-ea.2", "konflux_app": "rhoai-v3-5-ea-2"},
+            "environment": "prod",
+            "resolve": {
                 "policy_files": [
-                    {"name": "rhoai-v3-5-ea-2-prod.yaml", "url": "https://example.com/a.yaml"},
-                    {"name": "rhoai-v3-5-ea-2-prod-hermetic.yaml", "url": "https://example.com/b.yaml"},
+                    "rhoai-v3-5-ea-2-prod.yaml",
+                    "rhoai-v3-5-ea-2-prod-hermetic.yaml",
                 ],
-            }
-        }
-        rc_file = tmp_path / "resolve-context.json"
-        rc_file.write_text(json.dumps(resolve_ctx))
+            },
+        })
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
+        conforma_context_ops.set_active(run_dir)
+        (run_dir / "dummy.csv").write_text("header\n")
+        (run_dir / "dummy.yaml").write_text("violation_data: {}\n")
 
         monkeypatch.setattr(
             "sys.argv",
             [
                 "violations_coverage.py",
-                "--violations-yaml", "dummy.yaml",
-                "--csv", "dummy.csv",
-                "--environment", "prod",
                 "--clone-dir", str(tmp_path),
-                "--resolve-context-json", str(rc_file),
             ],
         )
         mod.main()
@@ -659,7 +663,7 @@ class TestOutputFlag:
             "rhoai-v3-5-ea-2-prod-hermetic.yaml",
         ]
 
-    def test_policy_files_cli_overrides_resolve_context(self, tmp_path, monkeypatch):
+    def test_policy_files_cli_overrides_context_yaml(self, tmp_path, monkeypatch):
         captured_kwargs = {}
 
         def mock_check(**kwargs):
@@ -667,33 +671,34 @@ class TestOutputFlag:
             return {"summary": {"total": 0}, "violations": []}
 
         monkeypatch.setattr(mod, "check_violations_coverage", mock_check)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
 
-        resolve_ctx = {
-            "links": {
-                "policy_files": [
-                    {"name": "from-resolve.yaml", "url": "https://example.com/resolve.yaml"},
-                ],
-            }
-        }
-        rc_file = tmp_path / "resolve-context.json"
-        rc_file.write_text(json.dumps(resolve_ctx))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.2", "version": "3.5-ea.2", "konflux_app": "rhoai-v3-5-ea-2"},
+            "environment": "prod",
+            "resolve": {
+                "policy_files": ["from-context.yaml"],
+            },
+        })
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
+        conforma_context_ops.set_active(run_dir)
+        (run_dir / "dummy.csv").write_text("header\n")
+        (run_dir / "dummy.yaml").write_text("violation_data: {}\n")
 
         monkeypatch.setattr(
             "sys.argv",
             [
                 "violations_coverage.py",
-                "--violations-yaml", "dummy.yaml",
-                "--csv", "dummy.csv",
-                "--environment", "prod",
-                "--clone-dir", str(tmp_path),
                 "--policy-files", "explicit.yaml",
-                "--resolve-context-json", str(rc_file),
             ],
         )
         mod.main()
         assert captured_kwargs["policy_files"] == ["explicit.yaml"]
 
-    def test_fails_without_policy_files_or_resolve_context(self, tmp_path, monkeypatch):
+    def test_fails_without_policy_files_or_context_yaml(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty-workdir"))
         monkeypatch.setattr(
             mod, "check_violations_coverage",
             lambda **_kw: {"summary": {"total": 0}},
@@ -966,8 +971,8 @@ class TestSelfServiceCoverageMerge:
         v = result["violations"][0]
         assert v["coverage"] == "not_covered"
 
-    def test_resolve_context_extracts_self_service_files(self, tmp_path, monkeypatch):
-        """Self-service files from resolve context are passed to check_violations_coverage."""
+    def test_context_yaml_extracts_self_service_files(self, tmp_path, monkeypatch):
+        """Self-service files from context.yaml are passed to check_violations_coverage."""
         captured_kwargs = {}
 
         def mock_check(**kwargs):
@@ -975,30 +980,31 @@ class TestSelfServiceCoverageMerge:
             return {"summary": {"total": 0}, "violations": []}
 
         monkeypatch.setattr(mod, "check_violations_coverage", mock_check)
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
 
-        resolve_ctx = {
-            "links": {
-                "policy_files": [
-                    {"name": "registry-rhoai-stage.yaml", "url": "https://example.com/a.yaml"},
-                ],
-                "self_service_exception_files": [
-                    {"name": "registry-rhoai-stage.yaml", "url": "https://example.com/ss1.yaml"},
-                    {"name": "fbc-rhoai-stage.yaml", "url": "https://example.com/ss2.yaml"},
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
+            "environment": "stage",
+            "resolve": {
+                "policy_files": ["registry-rhoai-stage.yaml"],
+                "self_service_files": [
+                    "registry-rhoai-stage.yaml",
+                    "fbc-rhoai-stage.yaml",
                 ],
             },
-        }
-        rc_file = tmp_path / "resolve-context.json"
-        rc_file.write_text(json.dumps(resolve_ctx))
+        })
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
+        conforma_context_ops.set_active(run_dir)
+        (run_dir / "dummy.csv").write_text("header\n")
+        (run_dir / "dummy.yaml").write_text("violation_data: {}\n")
 
         monkeypatch.setattr(
             "sys.argv",
             [
                 "violations_coverage.py",
-                "--violations-yaml", "dummy.yaml",
-                "--csv", "dummy.csv",
-                "--environment", "stage",
                 "--clone-dir", str(tmp_path),
-                "--resolve-context-json", str(rc_file),
             ],
         )
         mod.main()

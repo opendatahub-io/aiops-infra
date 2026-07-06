@@ -128,7 +128,7 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
 
    **Slack is optional.** If exit code is 0 and the JSON contains a `user_question` key: render the `display` field directly, then use AskQuestion with `user_question.question_text` and `user_question.question_options` verbatim. If the user chooses "No, set up Slack first", follow the `slack-auth` skill. Otherwise continue — pass `--require-slack false` to `violations_coverage.py` in step 6.
 
-2. **Resolve release context**: Run the context resolution script with Bash description: `"Resolve release context for <extracted_release_text>"`. Extract the release identifier from the user's query (e.g., "rhoai-3.5-ea.1", "3.4", "3.5 ea 1") and pass it to the script. If the user mentions an environment ("stage" or "prod"), **always pass it via `--environment`** — do not rely on keyword extraction from the query string. If the user provided a GitHub URL, extract the branch from the `/blob/<branch>/` segment and use that as the query. **Always pass `--output-dir ~/.conforma`** — the script creates a timestamped run directory, saves `resolve-context.json` inside it, and includes the `rundir` path in its JSON output.
+2. **Resolve release context**: Run the context resolution script with Bash description: `"Resolve release context for <extracted_release_text>"`. Extract the release identifier from the user's query (e.g., "rhoai-3.5-ea.1", "3.4", "3.5 ea 1") and pass it to the script. If the user mentions an environment ("stage" or "prod"), **always pass it via `--environment`** — do not rely on keyword extraction from the query string. If the user provided a GitHub URL, extract the branch from the `/blob/<branch>/` segment and use that as the query. **Always pass `--output-dir ~/.conforma`** — the script creates a timestamped run directory, saves `context.yaml` inside it, and includes the `rundir` path in its JSON output.
 
    ```bash
    # Without explicit environment (defaults to prod):
@@ -141,9 +141,13 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
    Parse the JSON output. Present the `confirmation_display` field **verbatim as markdown** (NOT in a code block) so that embedded links are clickable.
 
    Then act on the `status` field:
-   - **`"resolved"`**: Use AskQuestion with `question_text` and `question_options` from the resolved JSON verbatim. On "Yes", set: `RELEASE=<.release>`, `KONFLUX_APP=<.konflux_app>`, `RUNDIR=<.rundir>`, `ENVIRONMENT=<.environment>`. The script has already created the run directory and saved `resolve-context.json` inside it.
+   - **`"resolved"`**: Use AskQuestion with `question_text` and `question_options` from the resolved JSON verbatim. On "Yes", set: `RELEASE=<.release>`, `KONFLUX_APP=<.konflux_app>`, `RUNDIR=<.rundir>`, `ENVIRONMENT=<.environment>`. The script has already created the run directory and saved `context.yaml` inside it.
 
-     **Upcoming release date (HARD REQUIREMENT):** Check the `upcoming_release_date` field in the resolved JSON. If it is `null` or missing, the workflow **MUST NOT proceed**. Ask the user to provide the upcoming release date manually (YYYY-MM-DD format). Once provided, update the `resolve-context.json` file in `$RUNDIR` with the user-supplied value (add/update the `"upcoming_release_date"` field), so downstream steps (especially step 9) can read it. Also pass it explicitly via `--upcoming-release-date` to the resolution guide generator in step 9.
+     **Upcoming release date (HARD REQUIREMENT):** Check the `upcoming_release_date` field in the resolved JSON. If it is `null` or missing, the workflow **MUST NOT proceed**. Ask the user to provide the upcoming release date manually (YYYY-MM-DD format). Once provided, update `context.yaml` by running:
+     ```bash
+     python3 scripts/conforma_context_ops.py put resolve.upcoming_release_date "<YYYY-MM-DD>" --run-dir "$RUNDIR"
+     ```
+     Downstream steps will read it from `context.yaml` automatically.
    - **`"ambiguous"`**: Use AskQuestion with the numbered candidates from `candidates[]`. After the user selects, re-run with `--query "<selected_version_dir>" --output-dir ~/.conforma` to get a "resolved" result.
    - **`"not_found"`** or **`"error"`**: Present the `confirmation_display` verbatim and **stop**. Do NOT attempt to guess or proceed without a resolved context. No run directory is created for non-resolved statuses.
 
@@ -280,7 +284,6 @@ python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --clone-dir ~/.conforma/konflux-release-data \
   --environment "$ENVIRONMENT" \
   --release "$RELEASE" \
-  --resolve-context-json "$RUNDIR/resolve-context.json" \
   --metadata-file "$RUNDIR/fetch-metadata.json" \
   --output "$RUNDIR/coverage.json"
 
@@ -292,7 +295,6 @@ python3 skills/conforma-analyze/scripts/violations_coverage.py \
   --environment "$ENVIRONMENT" \
   --release "$RELEASE" \
   --require-slack false \
-  --resolve-context-json "$RUNDIR/resolve-context.json" \
   --metadata-file "$RUNDIR/fetch-metadata.json" \
   --output "$RUNDIR/coverage.json"
 ```
@@ -312,7 +314,6 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
   --reports-dir "$RUNDIR" \
   --release "$RELEASE" \
   --metadata-file "$RUNDIR/fetch-metadata.json" \
-  --resolve-context-json "$RUNDIR/resolve-context.json" \
   --tooling-health-json "$RUNDIR/tooling-health.json" \
   --output "$RUNDIR/conforma-status-and-resolution-guide.md" \
   --executive-summary-file "$RUNDIR/executive-summary.md" \

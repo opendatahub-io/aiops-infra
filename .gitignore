@@ -2,8 +2,6 @@
 __pycache__/
 *.pyc
 tmp/
-.work/*
-!.work/.env.example
 .venv/
 *.egg-info/
 .env

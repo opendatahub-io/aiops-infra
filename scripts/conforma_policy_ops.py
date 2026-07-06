@@ -60,17 +60,33 @@ def _resolve_repo_dir(clone_dir: str | Path) -> Path | None:
 
 
 def refresh_clone(clone_dir: str | Path) -> Path | None:
-    """Fetch + hard-reset an existing clone once.
+    """Ensure clone exists, fetch + hard-reset once.
+
+    If the clone directory does not exist, performs a shallow clone from
+    GitLab.  If it already exists, fetches latest main and hard-resets.
 
     Call this once before a batch of ``check_existing_exception_gate()``
     calls, then pass ``skip_refresh=True`` to each gate call.
 
     Returns the resolved repo_dir, or None if the clone could not be located.
     """
-    repo_dir = _resolve_repo_dir(clone_dir)
-    if repo_dir is not None:
-        _refresh_workdir_clone(repo_dir)
-    return repo_dir
+    target = Path(clone_dir)
+    if not (target / ".git").is_dir():
+        import gitlab_ops
+
+        krd_project = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
+        clone_url = gitlab_ops.authenticated_clone_url(krd_project)
+        if target.exists():
+            import shutil
+            shutil.rmtree(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        gitlab_ops.run_git(
+            ["git", "clone", "--depth=1", "--branch", "main", clone_url, str(target)],
+            timeout=120,
+        )
+    else:
+        _refresh_workdir_clone(target)
+    return _resolve_repo_dir(clone_dir)
 
 
 def search_existing_exceptions(rule: str, policy_files: list[str], clone_dir: str | None = None) -> dict:

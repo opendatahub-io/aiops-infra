@@ -23,28 +23,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DOTWORK_PATTERN = re.compile(r"(?<!\w)\.work/")
 
 EXCLUDE_PATHS: set[str] = {
-    ".work",
     ".git",
-    ".githooks",
     ".venv",
-    ".cursor",
-    # non-conforma script that legitimately uses .work/
-    "scripts/extract_user_coding_preferences.py",
-    # shell script not yet migrated
-    "scripts/install_slackdump.sh",
-    # legacy shell hook not yet migrated
-    "hooks",
-    # repo-level docs (separate migration)
-    "README.md",
-    "AGENTS.md",
-    "CONTRIBUTING.md",
-    "ARCHITECTURE.md",
-    # the scanner and test themselves reference .work/ in patterns/messages
     "tests/check_no_dotwork_paths.py",
     "tests/unit/test_no_dotwork_paths.py",
-    # pre-commit hook that scans .work/.env.example (repo artifact)
-    "tests/check_no_secrets_in_examples.py",
-    # pre-commit config references the hook name
     ".pre-commit-config.yaml",
 }
 
@@ -55,7 +37,6 @@ EXCLUDE_GLOBS: list[str] = [
 ]
 
 LINE_SKIP_PATTERNS = [
-    re.compile(r"_LEGACY_DOTENV_PATH"),
     re.compile(r'assert\s+"\.work/.*"\s+not\s+in'),
     re.compile(r"assert\s+\"\.work/.*\"\s+not\s+in"),
 ]

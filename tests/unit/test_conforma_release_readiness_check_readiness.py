@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -153,7 +154,8 @@ class TestContextIntegration:
 
         return run_dir, work_dir
 
-    def test_reads_params_from_context(self, tmp_path, monkeypatch):
+    @patch("check_readiness.load_exceptions", return_value=[])
+    def test_reads_params_from_context(self, _mock_exc, tmp_path, monkeypatch):
         """Zero-arg invocation resolves release, violations, environment from context."""
         run_dir, work_dir = self._setup_run_with_violations(tmp_path)
         monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
@@ -162,7 +164,8 @@ class TestContextIntegration:
         rc = check_readiness.main()
         assert rc in (0, 1)
 
-    def test_cli_overrides_context(self, tmp_path, monkeypatch):
+    @patch("check_readiness.load_exceptions", return_value=[])
+    def test_cli_overrides_context(self, _mock_exc, tmp_path, monkeypatch):
         """Explicit CLI args override context values."""
         run_dir, work_dir = self._setup_run_with_violations(tmp_path)
         viol_path = run_dir / "violations.yaml"
@@ -177,7 +180,8 @@ class TestContextIntegration:
         rc = check_readiness.main()
         assert rc in (0, 1)
 
-    def test_explicit_run_dir(self, tmp_path, monkeypatch):
+    @patch("check_readiness.load_exceptions", return_value=[])
+    def test_explicit_run_dir(self, _mock_exc, tmp_path, monkeypatch):
         """--run-dir works without symlink."""
         run_dir, _ = self._setup_run_with_violations(tmp_path)
         monkeypatch.setattr("sys.argv", ["check_readiness.py", "--run-dir", str(run_dir)])

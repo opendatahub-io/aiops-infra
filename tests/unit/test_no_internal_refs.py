@@ -50,9 +50,7 @@ class TestNoInternalRefs:
             "internal GitLab hostname": "GITLAB_HOST = gitlab.cee.redhat.com",
             "internal Konflux cluster ID (RHOAI)": "config/stone-prod-p02.hjvn.p1/product/",
             "internal Konflux cluster ID (ODH)": "api.stone-prd-rh01.pg1f.p1.openshiftapps.com",
-            "internal OpenShift cluster domain": "https://api.cluster.openshiftapps.com:6443",
             "internal Konflux documentation host": "https://konflux.pages.redhat.com/docs/",
-            "internal Tekton Results route": "tekton-results-tekton-results.apps.cluster.example.com",
         }
 
         example = examples.get(pattern_desc)

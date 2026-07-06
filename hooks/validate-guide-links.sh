@@ -31,9 +31,9 @@ if [ ! -t 0 ]; then
     fi
 fi
 
-# --- Find the most recent resolution guide in .work/ ---
+# --- Find the most recent resolution guide in ~/.conforma/ ---
 GUIDE=""
-for dir in $(ls -dt "$REPO_ROOT"/.work/20* 2>/dev/null); do
+for dir in $(ls -dt "$HOME"/.conforma/20* 2>/dev/null); do
     candidate="$dir/conforma-resolution-guide.md"
     if [ -f "$candidate" ]; then
         GUIDE="$candidate"

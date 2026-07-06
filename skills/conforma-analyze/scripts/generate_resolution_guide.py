@@ -127,7 +127,7 @@ def _render_metadata_header(
     policy_dir_url: str = "",
     policy_files: list[dict[str, str]] | None = None,
     end_of_support: str = "",
-    resolve_context: dict | None = None,
+    confirmation_display: str = "",
     title_prefix: str = "Conforma Status and Resolution Guide",
     code_freeze_date: str = "",
     upcoming_release_date: str = "",
@@ -140,8 +140,8 @@ def _render_metadata_header(
 
     lines = [f"# {title_prefix}: {release}", ""]
 
-    if resolve_context and resolve_context.get("confirmation_display"):
-        display = resolve_context["confirmation_display"].rstrip()
+    if confirmation_display:
+        display = confirmation_display.rstrip()
         display_lines = display.split("\n")
         while display_lines and (not display_lines[-1].strip() or display_lines[-1].strip().startswith("*Source:")):
             display_lines.pop()
@@ -159,7 +159,13 @@ def _render_metadata_header(
                 f" —{eos_source_text}"
                 f" verify on [Product Pages]({release_dates.PRODUCT_PAGES_URL}) |"
             )
-        if code_freeze_date:
+        if code_freeze_date and upcoming_release_date and code_freeze_date > upcoming_release_date:
+            version_label = release_dates.format_version_label(release)
+            lines.append(
+                f"| **Code freeze ({version_label})** | Already passed"
+                f" (next code freeze {code_freeze_date} is for a future release) |"
+            )
+        elif code_freeze_date:
             version_label = release_dates.format_version_label(release)
             _, cf_source = release_dates.get_code_freeze_date_with_source(release)
             cf_source_text = f" based on {cf_source}," if cf_source else ""
@@ -167,6 +173,12 @@ def _render_metadata_header(
                 f"| **Code freeze ({version_label})** | {code_freeze_date}"
                 f" —{cf_source_text}"
                 f" verify on [Product Pages]({release_dates.PRODUCT_PAGES_URL}) |"
+            )
+        elif not code_freeze_date and upcoming_release_date:
+            version_label = release_dates.format_version_label(release)
+            lines.append(
+                f"| **Code freeze ({version_label})** | Already passed"
+                f" (not found in rhai-release-data.yaml) |"
             )
         if upcoming_release_date:
             version_label = release_dates.format_version_label(release)
@@ -1213,7 +1225,7 @@ def generate_resolution_guide(
     executive_summary_file: str | None = None,
     analysis_output_file: str | None = None,
     end_of_support: str = "",
-    resolve_context: dict | None = None,
+    confirmation_display: str = "",
     code_freeze_date: str = "",
     upcoming_release_date: str = "",
 ) -> str:
@@ -1281,7 +1293,7 @@ def generate_resolution_guide(
 
     counts = conforma_counting.count_from_records(records, code_field="code")
 
-    metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, resolve_context=resolve_context, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations)
+    metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, confirmation_display=confirmation_display, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations)
     tooling_health = _render_tooling_health(tooling_health_data) if tooling_health_data else ""
     key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files)
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
@@ -1316,7 +1328,7 @@ def generate_resolution_guide(
             analysis_header = _render_metadata_header(
                 release, source_path, source_created_at, source_sha,
                 policy_dir_url, policy_files, end_of_support=end_of_support,
-                resolve_context=resolve_context, title_prefix="Conforma Analysis",
+                confirmation_display=confirmation_display, title_prefix="Conforma Analysis",
                 upcoming_release_date=upcoming_release_date,
                 code_freeze_date=code_freeze_date,
             )
@@ -1390,27 +1402,27 @@ def main() -> int:
     parser.add_argument(
         "--policy-dir-url",
         default="",
-        help="URL to the conforma policy directory. Auto-extracted from --resolve-context-json when omitted.",
+        help="URL to the conforma policy directory. Auto-extracted from context.yaml when omitted.",
     )
     parser.add_argument(
         "--policy-files-json",
         default="",
-        help='JSON array of {name, url} objects for policy config files. Auto-extracted from --resolve-context-json when omitted.',
+        help='JSON array of {name, url} objects for policy config files. Auto-extracted from context.yaml when omitted.',
     )
     parser.add_argument(
         "--end-of-support",
         default="",
-        help="Release end-of-support date (YYYY-MM-DD). Auto-extracted from --resolve-context-json when omitted.",
+        help="Release end-of-support date (YYYY-MM-DD). Auto-extracted from context.yaml when omitted.",
     )
     parser.add_argument(
         "--upcoming-release-date",
         default="",
-        help="Upcoming release date (YYYY-MM-DD). Auto-extracted from --resolve-context-json when omitted.",
+        help="Upcoming release date (YYYY-MM-DD). Auto-extracted from context.yaml when omitted.",
     )
     parser.add_argument(
         "--code-freeze-date",
         default="",
-        help="Code freeze date (YYYY-MM-DD). Auto-extracted from --resolve-context-json when omitted.",
+        help="Code freeze date (YYYY-MM-DD). Auto-extracted from context.yaml when omitted.",
     )
     parser.add_argument(
         "--tooling-health-json",
@@ -1429,12 +1441,6 @@ def main() -> int:
         default=None,
         help="Path to the analysis output markdown file (step 6 output). "
         "Embedded as a link in the executive summary.",
-    )
-    parser.add_argument(
-        "--resolve-context-json",
-        default=None,
-        help="Path to resolve-context.json (step 2 output). "
-        "Adds Konflux cluster info to the metadata header.",
     )
     args = parser.parse_args()
 
@@ -1502,13 +1508,6 @@ def main() -> int:
 
     catalog_path = args.catalog or str(_find_default_catalog())
 
-    resolve_context = None
-    if args.resolve_context_json:
-        try:
-            resolve_context = json.loads(Path(args.resolve_context_json).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            print(f"WARNING: Could not read resolve context JSON: {exc}", file=sys.stderr)
-
     source_path = args.source_path
     source_created_at = args.source_created_at
     source_sha = args.source_sha
@@ -1537,17 +1536,7 @@ def main() -> int:
         if not source_sha:
             source_sha = conforma_context_ops.get(run_dir, "steps.fetch.source_sha", "")
 
-    if resolve_context:
-        links = resolve_context.get("links", {})
-        if not policy_dir_url:
-            policy_dir_url = links.get("policy_dir", "")
-        if not end_of_support:
-            end_of_support = resolve_context.get("end_of_support", "")
-        if not upcoming_release_date:
-            upcoming_release_date = resolve_context.get("upcoming_release_date", "")
-        if not code_freeze_date:
-            code_freeze_date = resolve_context.get("code_freeze_date", "")
-    elif context:
+    if context:
         if not policy_dir_url:
             policy_dir_url = conforma_context_ops.get(run_dir, "resolve.links.policy_dir", "")
         if not end_of_support:
@@ -1563,18 +1552,18 @@ def main() -> int:
             policy_files = json.loads(args.policy_files_json)
         except json.JSONDecodeError:
             print("WARNING: --policy-files-json is not valid JSON, ignoring", file=sys.stderr)
-    elif resolve_context:
-        policy_files = resolve_context.get("links", {}).get("policy_files")
     elif context:
-        ctx_pf = conforma_context_ops.get(run_dir, "resolve.policy_files", None)
-        if ctx_pf:
-            policy_files = [{"name": f, "url": ""} for f in ctx_pf]
-
-    if resolve_context:
-        ss_files = resolve_context.get("links", {}).get("self_service_exception_files", [])
-        if ss_files:
+        ctx_links_pf = conforma_context_ops.get(run_dir, "resolve.links.policy_files", None)
+        if ctx_links_pf:
+            policy_files = ctx_links_pf
+        else:
+            ctx_pf = conforma_context_ops.get(run_dir, "resolve.policy_files", None)
+            if ctx_pf:
+                policy_files = [{"name": f, "url": ""} for f in ctx_pf]
+        ctx_ss = conforma_context_ops.get(run_dir, "resolve.links.self_service_exception_files", None)
+        if ctx_ss:
             policy_files = list(policy_files or []) + [
-                {"name": f"exceptions/{f['name']}", "url": f["url"]} for f in ss_files
+                {"name": f"exceptions/{f['name']}", "url": f["url"]} for f in ctx_ss
             ]
 
     if not source_path or not source_created_at:
@@ -1601,7 +1590,7 @@ def main() -> int:
             executive_summary_file=executive_summary_file,
             analysis_output_file=analysis_output_file,
             end_of_support=end_of_support,
-            resolve_context=resolve_context,
+            confirmation_display=conforma_context_ops.get(run_dir, "resolve.confirmation_display", "") if context else "",
             upcoming_release_date=upcoming_release_date,
             code_freeze_date=code_freeze_date,
         )

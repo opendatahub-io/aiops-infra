@@ -239,7 +239,7 @@ and OpenShift domain names.
 
 **If the hook blocks your commit:**
 - Replace the hardcoded value with an environment variable (e.g. `$GITLAB_HOST`)
-- See `.work/.env.example` for the full list of configurable variables
+- See `env.example` in the repo root for the full list of configurable variables
 - See `tests/check_no_internal_refs.py` for the exact forbidden patterns
 
 The same check runs as a pytest test (`tests/unit/test_no_internal_refs.py`) in CI.
@@ -254,10 +254,10 @@ The same check runs as a pytest test (`tests/unit/test_no_internal_refs.py`) in 
 
 ## Inter-Skill Data
 
-Skills communicate via YAML files in `.work/` (git-ignored). Each file has a top-level key matching the skill name:
+Skills communicate via a central `context.yaml` file in each run directory under `~/.conforma/` (e.g. `~/.conforma/20260604-123000/context.yaml`). Each skill writes its own top-level key:
 
 ```yaml
-# .work/conforma-analyze.yaml
+# ~/.conforma/20260604-123000/context.yaml
 conforma-analyze:
   status: completed
   violations: [...]
@@ -265,17 +265,17 @@ conforma-analyze:
 
 **Rules**:
 - Each skill writes ONLY its own key
-- Downstream skills read upstream files for input
+- Downstream skills read upstream keys from the same `context.yaml`
 - Always include `status: completed | failed | pending`
 
 ## Repository Clone Policy
 
 Scripts that need a local clone of an external repository (e.g. `konflux-release-data`, `component-maturity`) **must** follow these rules:
 
-1. **Never use a pre-existing local clone** outside of `.work/`. Only `.work/` clones are trusted.
-2. **Always fetch before use.** If a `.work/` clone already exists, run `git fetch origin <branch>` and `git reset --hard origin/<branch>` before reading any data.
+1. **Never use a pre-existing local clone** outside of `~/.conforma/`. Only `~/.conforma/` clones are trusted.
+2. **Always fetch before use.** If a `~/.conforma/` clone already exists, run `git fetch origin <branch>` and `git reset --hard origin/<branch>` before reading any data.
 3. **Abort on fetch failure.** If the fetch fails (VPN down, host unreachable, auth expired), the script **must** abort with a clear error. Never silently fall back to stale data.
-4. **Clone fresh if no `.work/` clone exists.** Use `git clone --depth 1` into `.work/`.
+4. **Clone fresh if no `~/.conforma/` clone exists.** Use `git clone --depth 1` into `~/.conforma/`.
 
 The shared functions that enforce this are:
 - `conforma_policy_ops._refresh_workdir_clone()` — fetch + hard-reset, raises on failure
@@ -288,21 +288,21 @@ When adding new scripts that clone repos, use these primitives or follow the sam
 
 **Tokens and secrets MUST NEVER be pasted into an AI chat window.** The agent must never ask the user to paste tokens, API keys, or credentials into the conversation.
 
-All secrets go in `.work/.env` (gitignored). Instruct users to write secrets there directly:
+All secrets go in `~/.conforma/.env`. Instruct users to write secrets there directly:
 
 ```bash
 # Example: instruct user to run in their terminal
-echo 'GITLAB_TOKEN=glpat-XXXXX' >> .work/.env
-echo 'JIRA_API_TOKEN=ATATT3xxx' >> .work/.env
+echo 'GITLAB_TOKEN=glpat-XXXXX' >> ~/.conforma/.env
+echo 'JIRA_API_TOKEN=ATATT3xxx' >> ~/.conforma/.env
 ```
 
-The `.work/` directory:
-- Is gitignored (never committed)
+The `~/.conforma/` directory:
+- Lives under the user's home directory (not inside the repo)
 - Contains `.env` for secrets and API tokens
-- Contains transient skill working data (clones, temp files)
+- Contains transient skill working data (clones, temp files, run directories)
 - Is loaded automatically by `_setup_env.py` and `konflux_environment.load()`
 
-When writing skills or scripts that need auth, always reference `.work/.env` as the token location and point users to the relevant `-auth` skill for setup instructions.
+When writing skills or scripts that need auth, always reference `~/.conforma/.env` as the token location and point users to the relevant `-auth` skill for setup instructions.
 
 ## Terminology
 

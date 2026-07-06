@@ -16,11 +16,11 @@ pre-commit install
 
 This is a **public** repository. Internal infrastructure details (hostnames, cluster
 URLs, API endpoints) are never committed. Instead, skills read them from
-environment variables populated from `.work/.env` and auto-discovery.
+environment variables populated from `~/.conforma/.env` and auto-discovery.
 
 ### Setup (one-time)
 
-Add your GitLab host and Konflux tenant to `.work/.env`:
+Add your GitLab host and Konflux tenant to `~/.conforma/.env`:
 
 ```
 GITLAB_HOST=your-gitlab-host
@@ -38,7 +38,7 @@ python3 scripts/verify_conforma_prerequisites.py --fix
 ### How it works
 
 ```
-.work/.env (git-ignored)              Auto-discovery
+~/.conforma/.env (git-ignored)              Auto-discovery
 ┌───────────────────────────┐         ┌─────────────────────────────────┐
 │ GITLAB_HOST=...           │ ──┐     │ konflux_tenant_env_discovery.py │
 │ TENANT=...                │   ├──→  │   discovers KONFLUX_CLUSTER_DOMAIN  │
@@ -48,10 +48,10 @@ python3 scripts/verify_conforma_prerequisites.py --fix
 └───────────────────────────┘
 ```
 
-- `.work/.env` holds all user-provided values (secrets + infrastructure config)
-- `_setup_env.py` loads `.work/.env` and runs discovery when any skill script starts
+- `~/.conforma/.env` holds all user-provided values (secrets + infrastructure config)
+- `_setup_env.py` loads `~/.conforma/.env` and runs discovery when any skill script starts
 - Environment variables already set take precedence (CI can override via `export`)
-- If auto-discovery fails, add the required variables to `.work/.env` manually
+- If auto-discovery fails, add the required variables to `~/.conforma/.env` manually
 
 ## Repository Structure
 
@@ -66,4 +66,4 @@ python3 scripts/verify_conforma_prerequisites.py --fix
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — design principles, skill inventory, key decisions
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to write scripts, add tests, structure skills
-- [.work/.env.example](.work/.env.example) — all configurable infrastructure variables and secrets
+- [env.example](env.example) — all configurable infrastructure variables and secrets

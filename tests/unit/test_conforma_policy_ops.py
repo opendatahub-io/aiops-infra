@@ -5,23 +5,25 @@ from __future__ import annotations
 import textwrap
 from unittest.mock import patch
 
+import pytest
+
 import conforma_policy_ops as mod
 
 
 class TestResolveRepoDir:
     def test_returns_none_when_policy_dir_missing(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-stg-p01.hjvn.p1")
         assert mod._resolve_repo_dir(tmp_path) is None
 
     def test_returns_candidate_when_policy_dir_exists(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
-        policy_dir = tmp_path / "config" / "stone-prod-p02.hjvn.p1" / "product" / "EnterpriseContractPolicy"
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-stg-p01.hjvn.p1")
+        policy_dir = tmp_path / "config" / "stone-stg-p01.hjvn.p1" / "product" / "EnterpriseContractPolicy"
         policy_dir.mkdir(parents=True)
         assert mod._resolve_repo_dir(tmp_path) == tmp_path
 
     def test_returns_repo_subdir_when_nested(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
-        policy_dir = tmp_path / "repo" / "config" / "stone-prod-p02.hjvn.p1" / "product" / "EnterpriseContractPolicy"
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-stg-p01.hjvn.p1")
+        policy_dir = tmp_path / "repo" / "config" / "stone-stg-p01.hjvn.p1" / "product" / "EnterpriseContractPolicy"
         policy_dir.mkdir(parents=True)
         assert mod._resolve_repo_dir(tmp_path) == tmp_path / "repo"
 
@@ -34,8 +36,9 @@ class TestResolveRepoDir:
 class TestRefreshClone:
     @patch("conforma_policy_ops._refresh_workdir_clone")
     def test_calls_refresh_when_repo_dir_found(self, mock_refresh, tmp_path, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
-        policy_dir = tmp_path / "config" / "stone-prod-p02.hjvn.p1" / "product" / "EnterpriseContractPolicy"
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-stg-p01.hjvn.p1")
+        (tmp_path / ".git").mkdir()
+        policy_dir = tmp_path / "config" / "stone-stg-p01.hjvn.p1" / "product" / "EnterpriseContractPolicy"
         policy_dir.mkdir(parents=True)
         result = mod.refresh_clone(tmp_path)
         assert result == tmp_path
@@ -43,10 +46,11 @@ class TestRefreshClone:
 
     @patch("conforma_policy_ops._refresh_workdir_clone")
     def test_returns_none_when_no_policy_dir(self, mock_refresh, tmp_path, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-stg-p01.hjvn.p1")
+        (tmp_path / ".git").mkdir()
         result = mod.refresh_clone(tmp_path)
         assert result is None
-        mock_refresh.assert_not_called()
+        mock_refresh.assert_called_once_with(tmp_path)
 
 
 class TestCheckPermanentExclusions:
@@ -85,6 +89,11 @@ class TestCheckPermanentExclusions:
 
 
 class TestSearchExistingExceptions:
+    @pytest.fixture(autouse=True)
+    def _gitlab_env(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.test-corp.fake")
+        monkeypatch.setenv("GITLAB_TOKEN", "glpat-test-only")
+
     def test_returns_not_checked_when_no_dir(self, tmp_path):
         result = mod.search_existing_exceptions(
             "hermetic_task.hermetic", ["registry-rhoai-prod.yaml"], str(tmp_path / "nonexistent")

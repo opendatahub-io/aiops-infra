@@ -10,7 +10,7 @@ For practical contributor guidance, see [CONTRIBUTING.md](CONTRIBUTING.md).
 2. **One skill, one domain.** Each `conforma-*` skill handles a single coherent area.
 3. **Shared operations live in `scripts/*_ops.py` (dual-mode).** Each file is both CLI-runnable (`argparse` + `if __name__ == "__main__"`) and importable. Generic primitives (e.g. `gitlab_ops.py`) handle any project; domain-specific shared modules (e.g. `conforma_mr_ops.py`) encapsulate cross-skill conforma logic that multiple skills need.
 4. **`*_ops.py` use Python libraries** (`python-gitlab`, `jira`, `ruamel.yaml`) — matching the approach of existing onboarding scripts. Conforma skills migrate from raw REST+subprocess to library-based calls when they start importing from `*_ops.py`.
-5. **Inter-skill data passes through YAML files in `.work/`.** Each skill writes a file with a distinctive top-level key matching the skill name. Files are individually readable AND composable into a single YAML.
+5. **Inter-skill data passes through a central `context.yaml` in `~/.conforma/`.** Each run creates a timestamped directory (`~/.conforma/YYYYMMDD-HHMMSS/`) containing a single `context.yaml`. Each skill writes a distinctive top-level key matching the skill name into this shared file.
 6. **The `conforma` skill is the single entry point** — routes 20+ intents to atomic skills.
 7. **Every new script (in `scripts/` OR `skills/*/scripts/`) MUST have tests.** Existing scripts are on an ignore list. `*_ops.py` replaces existing onboarding scripts over time.
 
@@ -178,10 +178,10 @@ Zero user action required. First skill run bootstraps everything automatically.
 
 ## Inter-Skill Handover Pattern
 
-Skills communicate via YAML files in `.work/`. Each file has a single top-level key matching the producing skill:
+Skills communicate via a shared `context.yaml` in each timestamped run directory (`~/.conforma/YYYYMMDD-HHMMSS/context.yaml`). Each skill writes a distinctive top-level key matching the producing skill:
 
 ```yaml
-# .work/conforma-analyze.yaml
+# ~/.conforma/20260605-100000/context.yaml
 conforma-analyze:
   status: completed
   completed_at: "2026-06-05T10:00:00Z"
@@ -191,23 +191,20 @@ conforma-analyze:
       msg: "Task is not hermetic"
       severity: failure
   violation_count: 3
-```
 
-```yaml
-# .work/conforma-exception.yaml
 conforma-exception:
   status: completed
   completed_at: "2026-06-05T10:05:00Z"
   jira_url: "https://issues.redhat.com/browse/RHOAIENG-12345"
-  mr_url: "https://gitlab.cee.redhat.com/.../merge_requests/789"
+  mr_url: "https://$GITLAB_HOST/.../merge_requests/789"
   exception_rule: hermetic_task.hermetic
 ```
 
 **Rules**:
-- Each skill writes ONLY its own key
-- Downstream skills read upstream files to get input
-- Files are individually readable AND composable (merge all into one YAML for full pipeline state)
-- `status: completed | failed | pending` in every handover file
+- Each skill writes ONLY its own key into the shared `context.yaml`
+- Downstream skills read upstream keys from the same `context.yaml`
+- All keys are composable into a single YAML representing the full pipeline state
+- `status: completed | failed | pending` in every skill's key
 
 ## Key Decisions
 
@@ -217,7 +214,7 @@ conforma-exception:
 | Dual-mode scripts (`argparse` + importable) | Skills call Python functions directly; agents and humans can use CLI. No shell wrapper needed. |
 | `*_ops.py` naming | Clear convention. `grep -r _ops.py` finds all shared primitives instantly. |
 | Flat `scripts/` directory | Simple path resolution. No nested packages to manage. |
-| `.work/` for inter-skill data | Git-ignored, machine-readable, human-inspectable. No database or service needed. |
+| `~/.conforma/` for inter-skill data | Git-ignored, machine-readable, human-inspectable. No database or service needed. Timestamped run directories keep history. |
 | `.test-ignore-list` for legacy scripts | Pragmatic: existing 54 onboarding scripts work but lack tests. New scripts are gated from day one. |
 | `_setup_env.py` per skill (copied, not symlinked) | Symlinks break when repo is cloned to different paths. Copies are self-contained. |
 | `uv sync` preferred over `pip` | 10-50x faster dependency resolution. Falls back gracefully if `uv` is not installed. |

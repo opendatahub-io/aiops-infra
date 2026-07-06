@@ -240,6 +240,7 @@ class TestMainRequiresReleasesOrAll:
         fetch_csv_reports._github_token_cache = "token123"
 
     def test_no_releases_no_all_exits_with_error(self, monkeypatch, capsys):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(Path("/tmp/empty-workdir")))
         monkeypatch.setattr("sys.argv", [
             "fetch_csv_reports.py", "--output-dir", "/tmp/test",
             "--environment", "prod",

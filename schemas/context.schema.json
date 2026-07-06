@@ -53,6 +53,10 @@
         "links": {
           "type": "object",
           "additionalProperties": true
+        },
+        "confirmation_display": {
+          "type": "string",
+          "description": "Pre-rendered markdown context confirmation table for report metadata headers"
         }
       }
     },

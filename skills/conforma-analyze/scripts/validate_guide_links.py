@@ -219,7 +219,7 @@ def validate_guide_links(
     }
 
 
-def find_latest_guide(work_dir: str = ".work") -> str | None:
+def find_latest_guide(work_dir: str = str(Path.home() / ".conforma")) -> str | None:
     """Find the most recently modified resolution guide in the work directory."""
     pattern = os.path.join(work_dir, "*", "conforma-status-and-resolution-guide.md")
     candidates = glob.glob(pattern)
@@ -255,7 +255,7 @@ def main() -> int:
         if work_dir is None and context:
             work_dir = str(conforma_context_ops.discover_work_dir())
         elif work_dir is None:
-            work_dir = ".work"
+            work_dir = str(Path.home() / ".conforma")
         guide_file = find_latest_guide(work_dir)
         if not guide_file:
             print(json.dumps({"error": f"No resolution guide found in {work_dir}/", "all_ok": True}))

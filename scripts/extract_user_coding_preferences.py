@@ -341,7 +341,7 @@ def _resolve_api_key() -> tuple[str, str]:
         if val:
             return val, provider
 
-    env_file = Path(".work/.env")
+    env_file = Path.home() / ".conforma" / ".env"
     if env_file.exists():
         try:
             for line in env_file.read_text().splitlines():
@@ -718,8 +718,8 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=str,
-        default=".work/proposed-conventions.yaml",
-        help="Output path for review-queue proposals (default: .work/proposed-conventions.yaml)",
+        default=str(Path.home() / ".conforma" / "proposed-conventions.yaml"),
+        help="Output path for review-queue proposals (default: ~/.conforma/proposed-conventions.yaml)",
     )
     parser.add_argument(
         "--agents-md",

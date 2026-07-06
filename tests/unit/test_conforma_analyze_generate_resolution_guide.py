@@ -562,7 +562,7 @@ class TestMergeRequestUrls:
                     "open_merge_requests": [
                         {
                             "iid": 19118,
-                            "url": "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/19118",
+                            "url": "https://gitlab.test-corp.fake/releng/konflux-release-data/-/merge_requests/19118",
                             "mr_type": "exception",
                             "suggestion": "extend_mr",
                             "covered": ["comp-a-v3-5-ea-2"],
@@ -571,7 +571,7 @@ class TestMergeRequestUrls:
                         },
                         {
                             "iid": 555,
-                            "url": "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/555",
+                            "url": "https://gitlab.test-corp.fake/releng/konflux-release-data/-/merge_requests/555",
                             "mr_type": "remedy",
                             "suggestion": "no_overlap",
                             "covered": [],
@@ -618,7 +618,7 @@ class TestMergeRequestUrls:
         )
 
         # Exception MR !19118 appears in the per-component table (has mr_components)
-        assert "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/19118" in content
+        assert "https://gitlab.test-corp.fake/releng/konflux-release-data/-/merge_requests/19118" in content
         assert "!19118" in content
         # Remedy MR !555 has no mr_components (by design) — excluded from per-component column
         # but the search URL containing its context is available
@@ -767,6 +767,40 @@ class TestMetadataCodeFreezeDate:
             source_created_at="2026-06-10T05:19:05Z",
         )
         assert "Code freeze" not in header
+
+    def test_code_freeze_after_upcoming_release_shows_already_passed(self):
+        header = mod._render_metadata_header(
+            release="rhoai-3.3",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            code_freeze_date="2026-07-31",
+            upcoming_release_date="2026-07-09",
+        )
+        assert "Already passed" in header
+        assert "next code freeze 2026-07-31 is for a future release" in header
+
+    def test_code_freeze_empty_with_upcoming_release_shows_already_passed(self):
+        header = mod._render_metadata_header(
+            release="rhoai-3.3",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            code_freeze_date="",
+            upcoming_release_date="2026-07-09",
+        )
+        assert "Already passed" in header
+        assert "not found in rhai-release-data.yaml" in header
+
+    def test_code_freeze_before_upcoming_release_shows_date(self):
+        header = mod._render_metadata_header(
+            release="rhoai-3.5",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            code_freeze_date="2026-07-24",
+            upcoming_release_date="2026-08-20",
+        )
+        assert "Code freeze (RHOAI 3.5)" in header
+        assert "2026-07-24" in header
+        assert "Already passed" not in header
 
 
 class TestRenderWorkScope:
@@ -1490,7 +1524,7 @@ class TestExecutiveSummaryFile:
 
 
 class TestMainAutoExtraction:
-    """Tests for main() auto-extracting fields from --metadata-file and --resolve-context-json."""
+    """Tests for main() auto-extracting fields from --metadata-file and context.yaml."""
 
     def _run_main(self, args, monkeypatch):
         """Run main() with the given args list."""
@@ -1535,7 +1569,7 @@ class TestMainAutoExtraction:
         assert "conforma-violations-report.csv" in content
         assert "abc123def" in content
 
-    def test_auto_extracts_policy_from_resolve_context(
+    def test_auto_extracts_policy_from_context_yaml(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog, monkeypatch
     ):
         csv_content = (
@@ -1543,32 +1577,41 @@ class TestMainAutoExtraction:
             'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
             "Hermetic,desc,Enable hermetic\n"
         )
-        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
 
-        resolve_ctx = {
-            "status": "resolved",
-            "release": "rhoai-3.5-ea.2",
-            "end_of_support": "2027-01-15",
-            "links": {
-                "policy_dir": "https://gitlab.example.com/policy-dir",
-                "policy_files": [
-                    {"name": "policy-prod.yaml", "url": "https://gitlab.example.com/policy-prod.yaml"},
-                ],
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(run_dir, {
+            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.2", "version": "3.5-ea.2", "konflux_app": "rhoai-v3-5-ea-2"},
+            "environment": "prod",
+            "resolve": {
+                "end_of_support": "2027-01-15",
+                "policy_files": ["policy-prod.yaml"],
+                "links": {
+                    "policy_dir": "https://gitlab.example.com/policy-dir",
+                    "policy_files": [
+                        {"name": "policy-prod.yaml", "url": "https://gitlab.example.com/policy-prod.yaml"},
+                    ],
+                },
             },
-        }
-        rc_file = tmp_path / "resolve-context.json"
-        rc_file.write_text(json.dumps(resolve_ctx))
+        })
+        conforma_context_ops.update_step(run_dir, "fetch", "completed",
+            csv_files=["rhoai-3.5-ea.2.csv"],
+            source_path="prod/future/build_type_latest/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            source_sha="abc123",
+        )
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
+        conforma_context_ops.update_step(run_dir, "coverage", "completed", coverage_json="coverage.json")
+        conforma_context_ops.set_active(run_dir)
 
-        output_file = tmp_path / "guide.md"
+        (run_dir / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+        import shutil
+        shutil.copy(str(sample_violations_yaml), str(run_dir / "violations.yaml"))
+        shutil.copy(str(sample_coverage_json), str(run_dir / "coverage.json"))
+
+        output_file = run_dir / "guide.md"
         rc = self._run_main([
-            "--violations-yaml", str(sample_violations_yaml),
-            "--coverage-json", str(sample_coverage_json),
-            "--reports-dir", str(tmp_path),
             "--catalog", str(sample_catalog),
-            "--release", "rhoai-3.5-ea.2",
-            "--source-path", "prod/future/build_type_latest/conforma-violations-report.csv",
-            "--source-created-at", "2026-06-10T05:19:05Z",
-            "--resolve-context-json", str(rc_file),
             "--output", str(output_file),
         ], monkeypatch)
 

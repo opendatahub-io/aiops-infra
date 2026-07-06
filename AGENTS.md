@@ -15,16 +15,16 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for how to write scripts, add tests, str
 - Shared primitives live in `scripts/*_ops.py` (dual-mode: CLI + importable)
 - Domain-specific logic stays in `skills/<name>/scripts/`
 - Every new script MUST have a corresponding test in `tests/unit/`
-- Inter-skill data flows through YAML files in `.work/` (git-ignored)
+- Inter-skill data flows through `context.yaml` files in `~/.conforma/` run directories
 - The `conforma` skill is the single entry point for all conforma-related queries
 
 ## Secrets Policy
 
-**NEVER ask the user to paste tokens, API keys, or credentials into the chat window.** Always instruct them to write secrets to `.work/.env` directly (using their editor or terminal). The `.work/` directory is gitignored and loaded automatically by `_setup_env.py` and `konflux_environment.load()`. See [CONTRIBUTING.md](CONTRIBUTING.md#secrets-and-credentials-policy) for details.
+**NEVER ask the user to paste tokens, API keys, or credentials into the chat window.** Always instruct them to write secrets to `~/.conforma/.env` directly (using their editor or terminal). The `~/.conforma/` directory is loaded automatically by `_setup_env.py` and `konflux_environment.load()`. See [CONTRIBUTING.md](CONTRIBUTING.md#secrets-and-credentials-policy) for details.
 
 ## Repository Clone Policy
 
-Never use a pre-existing local clone of a repo. Always clone fresh into `.work/` or use the existing `.work/` clone with `git fetch` first. If the fetch fails, **abort** — never silently use stale data. See [CONTRIBUTING.md](CONTRIBUTING.md#repository-clone-policy) for details.
+Never use a pre-existing local clone of a repo. Always clone fresh into `~/.conforma/` or use the existing `~/.conforma/` clone with `git fetch` first. If the fetch fails, **abort** — never silently use stale data. See [CONTRIBUTING.md](CONTRIBUTING.md#repository-clone-policy) for details.
 
 ## Script Failure Policy
 
@@ -83,34 +83,18 @@ Follow them in ALL generated content — code, comments, commit messages, docume
 - Use "Executive Summary" not "Key Takeaways" for report summary sections
 - Use "manual search" or "search manually" for actionable search links — not bare "search"
 - Merge Request titles for exceptions must be prefixed with [stage] or [prod]
-- Always use "~/.conforma/konflux-release-data" (never "work/konflux-release-data")
-- Always use "`~/.conforma/.env`" (never "`.work/.env`")
-- Always use "~/.conforma" (never "work")
-- Always use "~/.conforma/20260604-123000" (never "work/20260604-123000")
-- Always use "~/.conforma/20260604-123000/violations.yaml" (never "work/20260604-123000/violations.yaml")
-- Always use "`~/.conforma/latest`" (never "`.work/latest`")
-- Always use "`~/.conforma/konflux-release-data`" (never "`.work/konflux-release-data`")
-- Always use "`~/.conforma/`" (never "`.work/`")
-- Always use "~/.conforma/konflux-release-data`" (never "work/konflux-release-data`")
-- Always use "~/.conforma/konflux-release-data/.git" (never "work/konflux-release-data/.git")
-- Always use "~/.conforma/violations.yaml" (never "work/violations.yaml")
-- Always use "~/.conforma/.env" (never "work/.env")
-- Always use "`~/.conforma/.env`**" (never "`.work/.env`**")
-- Always use "`~/.conforma/.slack-secrets`" (never "`.work/.slack-secrets`")
-- Always use "~/.conforma/.slack-secrets" (never "work/.slack-secrets")
-- Always use "~/.conforma/component-maturity/.claude/skills/software-catalog-query/scripts/query.py" (never "work/component-maturity/.claude/skills/software-catalog-query/scripts/query.py")
 
 ### Behavior and Workflow
 
 - **Maximum determinism**: All logic MUST live in scripts. The AI presents script output verbatim. Leave nothing to LLM interpretation.
-- **Never ask for tokens/secrets in chat**: Always instruct the user to write credentials to `.work/.env` directly.
+- **Never ask for tokens/secrets in chat**: Always instruct the user to write credentials to `~/.conforma/.env` directly.
 - **Never auto-submit**: Always show output to the user first and ask for explicit confirmation before publishing, submitting, or pushing anything.
 - **Missing auth is a hard stop**: If authentication fails or is missing (GitHub, GitLab, Jira, Slack), stop completely. Never skip a data source or produce incomplete reports.
 - **Don't add unrequested files**: Never create files (Makefiles, configs, etc.) the user didn't ask for.
 - **Always write tests**: Every new testable script or function must have a corresponding test.
 - **Fix root causes**: Never apply ad-hoc workarounds. Fix the underlying issue in the script/skill.
 - **Don't depend on external CLI tools** when Python libraries can do the same job (e.g. prefer `requests` over shelling out to `gh` or `glab`).
-- **Scripts handle their own env vars**: The user should never see approval prompts for environment variable access. Scripts load from `.work/.env` internally.
+- **Scripts handle their own env vars**: The user should never see approval prompts for environment variable access. Scripts load from `~/.conforma/.env` internally.
 - **Never answer confidently from dummy/example data**: If data retrieval failed, say so. Never fabricate or infer from placeholder values.
 - **Never silently skip data sources**: If Slack, Jira, or any source is unreachable, report it explicitly — do not silently omit it.
 - **Don't launch heavyweight subagents** when a direct file read suffices. Route queries efficiently.

@@ -2,7 +2,7 @@
 # Discover user coding preference corrections from recent AI sessions.
 # Runs after every commit — non-blocking, append-only.
 # High-confidence terminology rules auto-add to AGENTS.md.
-# Lower-confidence rules queue in .work/proposed-conventions.yaml for review.
+# Lower-confidence rules queue in ~/.conforma/proposed-conventions.yaml for review.
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 SCRIPT="$REPO_ROOT/scripts/extract_user_coding_preferences.py"
@@ -13,7 +13,7 @@ command -v python3 >/dev/null 2>&1 || exit 0
 python3 "$SCRIPT" \
   --since-hours 4 \
   --diff "HEAD~1..HEAD" \
-  --output "$REPO_ROOT/.work/proposed-conventions.yaml" \
+  --output "$HOME/.conforma/proposed-conventions.yaml" \
   --agents-md "$REPO_ROOT/AGENTS.md" \
   --quiet &
 

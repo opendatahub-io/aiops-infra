@@ -21,11 +21,9 @@ def _add_skill_scripts(skill_name: str) -> None:
         sys.path.insert(0, str(skill_scripts))
 
 
-_add_skill_scripts("conforma-analyze")
-_add_skill_scripts("conforma-exception")
-_add_skill_scripts("conforma-release-readiness")
-_add_skill_scripts("conforma-report-fetch")
-_add_skill_scripts("conforma-tooling-health")
+for _skill_dir in sorted((REPO_ROOT / "skills").iterdir()):
+    if _skill_dir.is_dir():
+        _add_skill_scripts(_skill_dir.name)
 
 
 # ── Shared fixtures ──────────────────────────────────────────────────────

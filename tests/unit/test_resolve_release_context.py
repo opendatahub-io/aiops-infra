@@ -206,9 +206,9 @@ class TestMatchVersions:
 
 @pytest.fixture
 def mock_env(monkeypatch):
-    monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+    monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-stg-p01.hjvn.p1")
     monkeypatch.setenv("KONFLUX_TENANT", "rhoai-tenant")
-    monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy")
+    monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy")
     monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")
     monkeypatch.setenv("GITLAB_TOKEN", "fake-token")
 
@@ -231,8 +231,8 @@ class TestResolve:
         assert result["release"] == "rhoai-3.5-ea.1"
         assert result["konflux_app"] == "rhoai-v3-5-ea-1"
         assert result["version_dir"] == "v3.5-ea.1"
-        assert result["cluster_domain"] == "stone-prod-p02.hjvn.p1"
-        assert result["cluster_id"] == "stone-prod-p02"
+        assert result["cluster_domain"] == "stone-stg-p01.hjvn.p1"
+        assert result["cluster_id"] == "stone-stg-p01"
         assert result["tenant"] == "rhoai-tenant"
         assert result["environment"] == "prod"
         assert "Context Confirmation" in result["confirmation_display"]
@@ -309,7 +309,7 @@ class TestResolve:
         assert "KONFLUX_CLUSTER_DOMAIN" in result["confirmation_display"]
 
     def test_tenant_fallback_to_namespace(self, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-stg-p01.hjvn.p1")
         monkeypatch.delenv("KONFLUX_TENANT", raising=False)
         monkeypatch.setenv("KONFLUX_NAMESPACE", "rhoai-tenant")
         monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "config/x/product/EnterpriseContractPolicy")
@@ -320,7 +320,7 @@ class TestResolve:
             result = mod.resolve("3.4")
 
         assert result["status"] == "resolved"
-        mock_list.assert_called_once_with("stone-prod-p02", "rhoai-tenant")
+        mock_list.assert_called_once_with("stone-stg-p01", "rhoai-tenant")
 
     def test_parse_failure(self, mock_env):
         with patch.object(mod.konflux_environment, "load"):
@@ -350,7 +350,7 @@ class TestConfirmationDisplay:
         display = result["confirmation_display"]
         assert "rhoai-3.5-ea.1" in display
         assert "rhoai-v3-5-ea-1" in display
-        assert "stone-prod-p02.hjvn.p1" in display
+        assert "stone-stg-p01.hjvn.p1" in display
         assert "rhoai-tenant" in display
         assert "EnterpriseContractPolicy" in display
         assert "prod" in display
@@ -373,26 +373,26 @@ class TestConfirmationDisplay:
         assert "v3.4" in display
         assert "v3.5" in display
         assert "rhoai-tenant" in display
-        assert "stone-prod-p02" in display
+        assert "stone-stg-p01" in display
 
 
 class TestBuildLinks:
     def test_cluster_console_includes_openshiftapps_domain(self):
         links = mod._build_links(
-            cluster_domain="stone-prod-p02.hjvn.p1",
-            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
-            gitlab_host="gitlab.cee.redhat.com",
+            cluster_domain="stone-stg-p01.hjvn.p1",
+            policy_dir="config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.test-corp.fake",
             gitlab_project="releng/konflux-release-data",
             policy_files=[],
             app_slug="rhoai",
         )
-        assert links["cluster_console"] == "https://konflux-ui.apps.stone-prod-p02.hjvn.p1.openshiftapps.com/"
+        assert links["cluster_console"] == "https://konflux-ui.apps.stone-stg-p01.hjvn.p1.openshiftapps.com/"
 
     def test_cluster_console_uses_ns_path_with_tenant_and_app(self):
         links = mod._build_links(
-            cluster_domain="stone-prod-p02.hjvn.p1",
-            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
-            gitlab_host="gitlab.cee.redhat.com",
+            cluster_domain="stone-stg-p01.hjvn.p1",
+            policy_dir="config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.test-corp.fake",
             gitlab_project="releng/konflux-release-data",
             policy_files=[],
             app_slug="rhoai",
@@ -400,7 +400,7 @@ class TestBuildLinks:
             konflux_app="rhoai-v3-5-ea-2",
         )
         assert links["cluster_console"] == (
-            "https://konflux-ui.apps.stone-prod-p02.hjvn.p1.openshiftapps.com"
+            "https://konflux-ui.apps.stone-stg-p01.hjvn.p1.openshiftapps.com"
             "/ns/rhoai-tenant/applications/rhoai-v3-5-ea-2"
         )
 
@@ -425,9 +425,9 @@ class TestBuildLinks:
             "registry-rhoai-stage.yaml",
         ]
         links = mod._build_links(
-            cluster_domain="stone-prod-p02.hjvn.p1",
-            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
-            gitlab_host="gitlab.cee.redhat.com",
+            cluster_domain="stone-stg-p01.hjvn.p1",
+            policy_dir="config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.test-corp.fake",
             gitlab_project="releng/konflux-release-data",
             policy_files=all_files,
             app_slug="rhoai",
@@ -448,9 +448,9 @@ class TestBuildLinks:
             "registry-rhoai-stage.yaml",
         ]
         links = mod._build_links(
-            cluster_domain="stone-prod-p02.hjvn.p1",
-            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
-            gitlab_host="gitlab.cee.redhat.com",
+            cluster_domain="stone-stg-p01.hjvn.p1",
+            policy_dir="config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.test-corp.fake",
             gitlab_project="releng/konflux-release-data",
             policy_files=all_files,
             app_slug="rhoai",
@@ -461,9 +461,9 @@ class TestBuildLinks:
 
     def test_self_service_files_included_in_links(self):
         links = mod._build_links(
-            cluster_domain="stone-prod-p02.hjvn.p1",
-            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
-            gitlab_host="gitlab.cee.redhat.com",
+            cluster_domain="stone-stg-p01.hjvn.p1",
+            policy_dir="config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.test-corp.fake",
             gitlab_project="releng/konflux-release-data",
             policy_files=["fbc-rhoai-stage.yaml", "registry-rhoai-stage.yaml"],
             app_slug="rhoai",
@@ -478,9 +478,9 @@ class TestBuildLinks:
 
     def test_self_service_files_empty_when_none_provided(self):
         links = mod._build_links(
-            cluster_domain="stone-prod-p02.hjvn.p1",
-            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
-            gitlab_host="gitlab.cee.redhat.com",
+            cluster_domain="stone-stg-p01.hjvn.p1",
+            policy_dir="config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.test-corp.fake",
             gitlab_project="releng/konflux-release-data",
             policy_files=["fbc-rhoai-stage.yaml"],
             app_slug="rhoai",
@@ -496,9 +496,9 @@ class TestBuildLinks:
             "registry-rhoai-stage.yaml",
         ]
         links = mod._build_links(
-            cluster_domain="stone-prod-p02.hjvn.p1",
-            policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
-            gitlab_host="gitlab.cee.redhat.com",
+            cluster_domain="stone-stg-p01.hjvn.p1",
+            policy_dir="config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy",
+            gitlab_host="gitlab.test-corp.fake",
             gitlab_project="releng/konflux-release-data",
             policy_files=all_files,
             app_slug="rhoai",
@@ -544,13 +544,13 @@ class TestOutputDir:
 
         rundir = mod.create_rundir(str(tmp_path))
         result["rundir"] = rundir
-        context_path = __import__("pathlib").Path(rundir) / "resolve-context.json"
-        context_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        conforma_context_ops.create(Path(rundir), {
+            "application": {"name": "rhoai", "release": result["release"], "version": "3.4", "konflux_app": result.get("konflux_app", "rhoai-v3-4")},
+            "environment": result.get("environment", "prod"),
+        })
 
-        saved = json.loads(context_path.read_text(encoding="utf-8"))
-        assert saved["status"] == "resolved"
-        assert saved["release"] == "rhoai-3.4"
-        assert saved["rundir"] == rundir
+        ctx = conforma_context_ops.load(Path(rundir))
+        assert ctx["application"]["release"] == "rhoai-3.4"
 
     def test_rundir_key_in_output(self, mock_env, tmp_path):
         with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
@@ -583,10 +583,9 @@ class TestOutputDir:
 
         rundir = Path(output["rundir"])
         assert rundir.is_dir()
-        assert (rundir / "resolve-context.json").is_file()
         assert (rundir / "context.yaml").is_file()
-        saved = json.loads((rundir / "resolve-context.json").read_text(encoding="utf-8"))
-        assert saved["release"] == "rhoai-3.4"
+        ctx = conforma_context_ops.load(rundir)
+        assert ctx["application"]["release"] == "rhoai-3.4"
 
     def test_main_with_environment_flag(self, mock_env, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "conforma-work"))
@@ -611,14 +610,13 @@ class TestOutputDir:
         assert "rundir" in output
         rundir = Path(output["rundir"])
         assert rundir.is_dir()
-        assert (rundir / "resolve-context.json").is_file()
         assert (rundir / "context.yaml").is_file()
 
     def test_reuses_existing_rundir(self, mock_env, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "conforma-work"))
         rundir = tmp_path / "20260629-143854"
         rundir.mkdir()
-        (rundir / "resolve-context.json").write_text("{}")
+        conforma_context_ops.create(rundir, {})
 
         with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
             with patch("sys.argv", ["prog", "--query", "3.4", "--output-dir", str(rundir)]):
@@ -684,7 +682,7 @@ class TestContextYaml:
         rundir = Path(output["rundir"])
         ctx = yaml.safe_load((rundir / "context.yaml").read_text())
         assert ctx["resolve"]["version_dir"] == "v3.4"
-        assert ctx["resolve"]["cluster_domain"] == "stone-prod-p02.hjvn.p1"
+        assert ctx["resolve"]["cluster_domain"] == "stone-stg-p01.hjvn.p1"
         assert ctx["resolve"]["tenant"] == "rhoai-tenant"
         assert "fbc-rhoai-prod.yaml" in ctx["resolve"]["policy_files"]
 
@@ -780,7 +778,7 @@ class TestPolicyFilesInResult:
 class TestUpcomingReleaseDate:
     @pytest.fixture(autouse=True)
     def mock_env(self, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-stg-p01.hjvn.p1")
         monkeypatch.setenv("KONFLUX_TENANT", "rhoai-tenant")
         monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "config/x/product/EnterpriseContractPolicy")
         monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")
@@ -835,7 +833,7 @@ class TestUpcomingReleaseDate:
 class TestCodeFreezeDate:
     @pytest.fixture(autouse=True)
     def mock_env(self, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-prod-p02.hjvn.p1")
+        monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "stone-stg-p01.hjvn.p1")
         monkeypatch.setenv("KONFLUX_TENANT", "rhoai-tenant")
         monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "config/x/product/EnterpriseContractPolicy")
         monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")
@@ -879,10 +877,63 @@ class TestCodeFreezeDate:
         assert "based on [rhai-release-data.yaml]" in result["confirmation_display"]
         assert "Product Pages" in result["confirmation_display"]
 
-    def test_code_freeze_date_none_omits_row(self):
+    def test_code_freeze_date_none_both_dates_unknown_omits_row(self):
         with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
              patch.object(mod.release_dates, "_fetch_release_data", return_value=None):
             result = mod.resolve("3.5")
 
         assert result["code_freeze_date"] is None
+        assert result["code_freeze_already_passed"] is False
         assert "Code freeze" not in result["confirmation_display"]
+
+    def test_code_freeze_after_upcoming_release_shows_already_passed(self):
+        with patch.object(mod, "list_version_dirs", return_value=["v3.3"]), \
+             patch.object(mod.release_dates, "_fetch_release_data", return_value={
+                 "supported": [{"version": "3.3", "products": {"rhoai": {
+                     "milestones": [
+                         {"type": "ga", "date": "2026-07-09", "version": "3.3.5"},
+                         {"type": "ga_code_freeze", "date": "2026-07-31", "version": "3.3"},
+                     ],
+                 }}}],
+             }):
+            result = mod.resolve("3.3")
+
+        assert result["code_freeze_date"] == "2026-07-31"
+        assert result["code_freeze_already_passed"] is True
+        display = result["confirmation_display"]
+        assert "Already passed" in display
+        assert "next code freeze 2026-07-31 is for a future release" in display
+        assert "Product Pages" not in display or "Code freeze" in display
+
+    def test_code_freeze_none_with_upcoming_release_shows_already_passed(self):
+        with patch.object(mod, "list_version_dirs", return_value=["v3.3"]), \
+             patch.object(mod.release_dates, "_fetch_release_data", return_value={
+                 "supported": [{"version": "3.3", "products": {"rhoai": {
+                     "milestones": [
+                         {"type": "ga", "date": "2026-07-09", "version": "3.3.5"},
+                     ],
+                 }}}],
+             }):
+            result = mod.resolve("3.3")
+
+        assert result["code_freeze_date"] is None
+        assert result["code_freeze_already_passed"] is True
+        display = result["confirmation_display"]
+        assert "Already passed" in display
+        assert "not found in rhai-release-data.yaml" in display
+
+    def test_code_freeze_before_upcoming_release_is_relevant(self):
+        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
+             patch.object(mod.release_dates, "_fetch_release_data", return_value={
+                 "supported": [{"version": "3.5", "products": {"rhoai": {
+                     "milestones": [
+                         {"type": "ga", "date": "2026-08-20", "version": "3.5"},
+                         {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
+                     ],
+                 }}}],
+             }):
+            result = mod.resolve("3.5")
+
+        assert result["code_freeze_date"] == "2026-07-24"
+        assert result["code_freeze_already_passed"] is False
+        assert "Already passed" not in result["confirmation_display"]

@@ -61,13 +61,13 @@ def _clean_env():
 def _mock_discover(tenant, preferred_cluster=None, refresh=False):
     return konflux_tenant_env_discovery.TenantContext(
         tenant=tenant,
-        cluster=konflux_tenant_env_discovery.DiscoveredCluster(cluster_id="stone-prod-p02", cluster_domain="stone-prod-p02.hjvn.p1"),
+        cluster=konflux_tenant_env_discovery.DiscoveredCluster(cluster_id="stone-stg-p01", cluster_domain="stone-stg-p01.hjvn.p1"),
         all_clusters=[
-            konflux_tenant_env_discovery.DiscoveredCluster(cluster_id="stone-prod-p02", cluster_domain="stone-prod-p02.hjvn.p1")
+            konflux_tenant_env_discovery.DiscoveredCluster(cluster_id="stone-stg-p01", cluster_domain="stone-stg-p01.hjvn.p1")
         ],
-        conforma_policy_dir="config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy",
+        conforma_policy_dir="config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy",
         conforma_policy_files=["registry-rhoai-prod.yaml"],
-        rpa_dir="config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission",
+        rpa_dir="config/stone-stg-p01.hjvn.p1/product/ReleasePlanAdmission",
         rpa_subdirs=["rhoai"],
         self_service_dir="exceptions",
         self_service_files=["registry-rhoai-prod.yaml"],
@@ -88,7 +88,7 @@ class TestPopulateFromDiscovery:
             with patch("konflux_tenant_env_discovery.discover", side_effect=_mock_discover):
                 populated = konflux_environment.load()
 
-        assert populated["KONFLUX_CLUSTER_DOMAIN"] == "stone-prod-p02.hjvn.p1"
+        assert populated["KONFLUX_CLUSTER_DOMAIN"] == "stone-stg-p01.hjvn.p1"
 
     def test_sets_conforma_policy_dir(self, tmp_path, connectivity_dir, discovery_cache_dir):
         _write_connectivity_state(connectivity_dir)
@@ -100,7 +100,7 @@ class TestPopulateFromDiscovery:
             with patch("konflux_tenant_env_discovery.discover", side_effect=_mock_discover):
                 populated = konflux_environment.load()
 
-        assert populated.get("KONFLUX_CONFORMA_POLICY_DIR") == "config/stone-prod-p02.hjvn.p1/product/EnterpriseContractPolicy"
+        assert populated.get("KONFLUX_CONFORMA_POLICY_DIR") == "config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy"
 
     def test_sets_rpa_subpath(self, tmp_path, connectivity_dir, discovery_cache_dir):
         _write_connectivity_state(connectivity_dir)
@@ -112,7 +112,7 @@ class TestPopulateFromDiscovery:
             with patch("konflux_tenant_env_discovery.discover", side_effect=_mock_discover):
                 populated = konflux_environment.load()
 
-        assert populated.get("KONFLUX_RPA_SUBPATH") == "config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission"
+        assert populated.get("KONFLUX_RPA_SUBPATH") == "config/stone-stg-p01.hjvn.p1/product/ReleasePlanAdmission"
 
     def test_does_not_overwrite_existing_vars(self, tmp_path, connectivity_dir, discovery_cache_dir):
         _write_connectivity_state(connectivity_dir)
@@ -137,7 +137,7 @@ class TestPopulateFromDiscovery:
             with patch("konflux_tenant_env_discovery.discover", side_effect=_mock_discover):
                 populated = konflux_environment.load()
 
-        assert populated.get("KONFLUX_CLUSTER_ID") == "stone-prod-p02"
+        assert populated.get("KONFLUX_CLUSTER_ID") == "stone-stg-p01"
         assert "KONFLUX_INTERNAL_API" in populated
         assert "TEKTON_RESULTS_API_DOMAIN" in populated
 
@@ -146,7 +146,6 @@ class TestLoadTriggersDiscovery:
     @pytest.fixture(autouse=True)
     def _no_dotenv(self, tmp_path, monkeypatch):
         monkeypatch.setattr(konflux_environment, "DOTENV_PATH", tmp_path / "nonexistent.env")
-        monkeypatch.setattr(konflux_environment, "_LEGACY_DOTENV_PATH", tmp_path / "legacy-nonexistent.env")
 
     def test_calls_discover_when_tenant_set_and_no_cluster_domain(self, tmp_path, connectivity_dir, discovery_cache_dir):
         _write_connectivity_state(connectivity_dir)

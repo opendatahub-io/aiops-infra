@@ -1134,13 +1134,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Comma-separated list of policy file basenames (from resolve_release_context) "
         "to scope exception search and coverage gate. Auto-extracted from "
-        "--resolve-context-json when omitted.",
-    )
-    parser.add_argument(
-        "--resolve-context-json",
-        default=None,
-        help="Path to resolve-context.json (step 2 output). Used to auto-extract "
-        "--policy-files when not provided directly.",
+        "context.yaml when omitted.",
     )
     parser.add_argument(
         "--output",
@@ -1192,18 +1186,6 @@ def main() -> int:
     ssf: list[str] | None = None
     if args.policy_files:
         pf = [f.strip() for f in args.policy_files.split(",")]
-    elif args.resolve_context_json:
-        try:
-            rc = json.loads(Path(args.resolve_context_json).read_text(encoding="utf-8"))
-            policy_file_entries = rc.get("links", {}).get("policy_files", [])
-            pf = [entry["name"] for entry in policy_file_entries if entry.get("name")]
-            ss_entries = rc.get("links", {}).get("self_service_exception_files", [])
-            if ss_entries:
-                ssf = [entry["name"] for entry in ss_entries if entry.get("name")]
-            elif rc.get("self_service_files"):
-                ssf = rc["self_service_files"]
-        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-            print(f"WARNING: Could not extract policy files from resolve context: {exc}", file=sys.stderr)
     elif context:
         ctx_pf = conforma_context_ops.get(run_dir, "resolve.policy_files", None)
         if ctx_pf:
@@ -1214,7 +1196,7 @@ def main() -> int:
 
     if not pf:
         print(
-            "ERROR: --policy-files is required (provide directly, via --resolve-context-json, or via context.yaml)",
+            "ERROR: --policy-files is required (provide directly or via context.yaml)",
             file=sys.stderr,
         )
         return 1

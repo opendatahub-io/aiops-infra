@@ -32,7 +32,6 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 DOTENV_PATH = Path.home() / ".conforma" / ".env"
-_LEGACY_DOTENV_PATH = _REPO_ROOT / ".work" / ".env"
 
 REQUIRED_VARS: list[str] = ["GITLAB_HOST", "KONFLUX_CLUSTER_DOMAIN"]
 
@@ -104,19 +103,9 @@ _loaded = False
 
 
 def _resolve_dotenv_path() -> Path:
-    """Resolve the .env file path, respecting CONFORMA_WORKDIR with legacy fallback."""
+    """Resolve the .env file path, respecting CONFORMA_WORKDIR."""
     conforma_workdir = os.environ.get("CONFORMA_WORKDIR")
-    dotenv_path = Path(conforma_workdir) / ".env" if conforma_workdir else DOTENV_PATH
-
-    if not dotenv_path.is_file() and _LEGACY_DOTENV_PATH.is_file():
-        print(
-            f"NOTE: Loading secrets from legacy {_LEGACY_DOTENV_PATH}\n"
-            f"  Consider copying to {dotenv_path}",
-            file=sys.stderr,
-        )
-        dotenv_path = _LEGACY_DOTENV_PATH
-
-    return dotenv_path
+    return Path(conforma_workdir) / ".env" if conforma_workdir else DOTENV_PATH
 
 
 def _load_dotenv(populated: dict[str, str]) -> None:
