@@ -38,6 +38,16 @@ from pathlib import Path
 import jira_ops
 from add_jira_watchers import add_watchers_to_tickets as _add_jira_watchers
 
+from jira_description_builders import build_provenance_footer  # noqa: F401 — backward compat re-export
+from jira_description_builders import build_exception_label  # noqa: F401 — backward compat re-export
+from jira_description_builders import build_rhoaieng_description as _build_rhoaieng_description  # noqa: F401 — backward compat re-export
+from jira_description_builders import build_rhoaieng_remediation_description as _build_rhoaieng_remediation_description  # noqa: F401 — backward compat re-export
+from jira_description_builders import build_rhoaieng_violation_report_description as _build_rhoaieng_violation_report_description  # noqa: F401 — backward compat re-export
+from jira_description_builders import build_psx_description as _build_psx_description  # noqa: F401 — backward compat re-export
+from jira_description_builders import build_psx_filled_adf as _build_psx_filled_adf  # noqa: F401 — backward compat re-export
+from jira_description_builders import fill_psx_template as _fill_psx_template  # noqa: F401 — backward compat re-export
+from jira_description_builders import build_summary as _build_summary  # noqa: F401 — backward compat re-export
+
 TEMPLATE_TICKET = "RHOAIENG-62569"
 PROVENANCE_REPO = "opendatahub-io/aiops-infra"
 PROVENANCE_LABEL = "conforma-exception-ai-skill"
@@ -420,15 +430,6 @@ def _verify_ticket_state(
     }
 
 
-def build_provenance_footer() -> str:
-    """Standard provenance footer for all tickets and comments."""
-    return (
-        "---\n"
-        f"Created by 'conforma-exception' skill from {PROVENANCE_REPO}\n"
-        f"User: {getpass.getuser()}@{platform.node()}"
-    )
-
-
 def fetch_template_description() -> str:
     """Fetch the description of the RHOAIENG template ticket."""
     issue_data = jira_ops.get_issue(TEMPLATE_TICKET, fields=["description"])
@@ -441,247 +442,6 @@ def fetch_template_description() -> str:
 
     description = issue_data.get("description", "")
     return description if isinstance(description, str) else json.dumps(description) if description else ""
-
-
-def build_exception_label(rule: str, components: list[str]) -> str:
-    """Build the exception label: Exception - <rule>:<first-component>."""
-    component_ref = components[0] if components else "unknown"
-    return f"Exception - {rule}:{component_ref}"
-
-
-def _build_rhoaieng_description(
-    rule: str,
-    components: list[str],
-    rhoai_version: str,
-    effective_until: str,
-    psx_url: str | None,
-    exception_scope: str | None = None,
-    exception_risk: str | None = None,
-    exception_remediation: str | None = None,
-) -> dict:
-    """Build ADF description for RHOAIENG approval ticket."""
-    context_text = (
-        f"Exception Request Details\n\n"
-        f"Rule: {rule}\n"
-        f"Components: {', '.join(components)}\n"
-        f"RHOAI Version: {rhoai_version}\n"
-        f"Effective Until: {effective_until}\n"
-    )
-    if exception_scope:
-        context_text += f"\nScope: {exception_scope}\n"
-    if exception_risk:
-        context_text += f"\nRisk: {exception_risk}\n"
-    if exception_remediation:
-        context_text += f"\nRemediation: {exception_remediation}\n"
-    if psx_url:
-        context_text += f"\nPSX/OCPEXCEPT Ticket: {psx_url}\n"
-
-    context_text += f"\n{build_provenance_footer()}"
-
-    return {
-        "version": 1,
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": context_text}],
-            },
-        ],
-    }
-
-
-def _build_rhoaieng_remediation_description(
-    rule: str,
-    components: list[str],
-    rhoai_version: str,
-    effective_until: str,
-    rhoaieng_approval_url: str | None,
-    exception_scope: str | None = None,
-    exception_remediation: str | None = None,
-) -> dict:
-    """Build ADF description for RHOAIENG remediation ticket."""
-    context_text = (
-        f"Remediation Required\n\n"
-        f"This ticket tracks the fix for the following Conforma violation.\n\n"
-        f"Rule: {rule}\n"
-        f"Components: {', '.join(components)}\n"
-        f"RHOAI Version: {rhoai_version}\n"
-        f"Exception Effective Until: {effective_until}\n"
-    )
-    if exception_scope:
-        context_text += f"\nScope: {exception_scope}\n"
-    if exception_remediation:
-        context_text += f"\nRemediation: {exception_remediation}\n"
-    if rhoaieng_approval_url:
-        context_text += f"\nApproval Ticket: {rhoaieng_approval_url}\n"
-
-    context_text += f"\n{build_provenance_footer()}"
-
-    return {
-        "version": 1,
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": context_text}],
-            },
-        ],
-    }
-
-
-def _build_rhoaieng_violation_report_description(
-    rule: str,
-    components: list[str],
-    rhoai_version: str,
-    effective_until: str,
-    fix_target_version: str | None = None,
-    exception_scope: str | None = None,
-) -> dict:
-    """Build ADF description for RHOAIENG violation report ticket."""
-    context_text = (
-        f"Conforma Violation Report\n\n"
-        f"Rule: {rule}\n"
-        f"Components: {', '.join(components)}\n"
-        f"RHOAI Version: {rhoai_version}\n"
-        f"Effective Until: {effective_until}\n"
-    )
-    if fix_target_version:
-        context_text += f"Fix Target Version: {fix_target_version}\n"
-    if exception_scope:
-        context_text += f"\nScope: {exception_scope}\n"
-
-    context_text += f"\n{build_provenance_footer()}"
-
-    return {
-        "version": 1,
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": context_text}],
-            },
-        ],
-    }
-
-
-def _build_psx_description(
-    rule: str,
-    components: list[str],
-    rhoai_version: str,
-    effective_until: str,
-    rhoaieng_url: str,
-) -> dict:
-    """Build minimal ADF description for PSX/OCPEXCEPT ticket creation.
-
-    This is used at creation time. The server may apply its own template,
-    so _fill_psx_template() is called after creation to fill in the real content.
-    """
-    context_text = (
-        f"Conforma Exception Request\n\n"
-        f"Rule: {rule}\n"
-        f"Components: {', '.join(components)}\n"
-        f"RHOAI Version: {rhoai_version}\n"
-        f"RHOAIENG Ticket: {rhoaieng_url}\n"
-    )
-    return {
-        "version": 1,
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": context_text}],
-            },
-        ],
-    }
-
-
-def _build_psx_filled_adf(
-    rule: str,
-    components: list[str],
-    rhoai_version: str,
-    effective_until: str,
-    rhoaieng_url: str,
-    exception_scope: str | None = None,
-    exception_risk: str | None = None,
-    exception_remediation: str | None = None,
-    exception_impact: str | None = None,
-) -> dict:
-    """Build proper ADF for PSX description matching the server-side template structure.
-
-    The PSX project uses info panels as section headers with answer paragraphs below.
-    This produces the same visual structure as PSX-1042 and other correctly-filled tickets.
-    """
-    components_text = ", ".join(components)
-    scope = exception_scope or f"Affected RHOAI container components: {components_text}"
-    risk = exception_risk or (
-        "The affected RHOAI versions have already been released or are in "
-        "code-freeze, therefore the violation cannot be fixed retroactively."
-    )
-    remediation = exception_remediation or (
-        f"Grant Conforma exception for {rule} for affected "
-        f"components for the duration of {rhoai_version} support lifecycle. "
-        f"For future RHOAI releases, the exception will be requested as "
-        f"part of the release exception MR process if the violation persists."
-    )
-    impact = exception_impact or (
-        f"Without this exception, Conforma will block release pipeline gates "
-        f"for {rhoai_version}. This would prevent z-stream security fixes "
-        f"from shipping."
-    )
-
-    def _panel(text: str) -> dict:
-        return {
-            "type": "panel",
-            "attrs": {"panelType": "info"},
-            "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
-        }
-
-    def _para(text: str) -> dict:
-        return {"type": "paragraph", "content": [{"type": "text", "text": text}]}
-
-    def _spacer() -> dict:
-        return {"type": "paragraph", "content": [{"type": "text", "text": " "}]}
-
-    reason_text = (
-        f"Conforma policy rule: {rule}\n"
-        f"Components: {components_text}\n"
-        f"RHOAI Version(s): {rhoai_version}\n"
-        f"effectiveUntil: {effective_until}\n\n"
-        f"Scope: {scope}\n\n"
-        f"RHOAIENG tracking ticket: {rhoaieng_url}"
-    )
-
-    provenance = build_provenance_footer()
-
-    content = [
-        _panel("Note: Important Dates (Jira fields)"),
-        _para(f"Due Date: {effective_until}"),
-        _spacer(),
-        _panel(
-            "What is the reason for the exception?\n"
-            "Provide a detailed description explaining why the exception is needed."
-        ),
-        _para(reason_text),
-        _spacer(),
-        _panel("Risk if we approve the exception?\nWhat risk is being accepted by approving this exception?"),
-        _para(risk),
-        _spacer(),
-        _panel(
-            "Impact of NOT approving the exception?\n"
-            "Provide details on the impact that not approving this exception will have."
-        ),
-        _para(impact),
-        _spacer(),
-        _panel("Proposed remediation\nProvide a detailed description of the proposed plan to complete this work."),
-        _para(remediation),
-        _spacer(),
-        _panel("SME / Validator Notes (ProdSec Only) (Optional)"),
-        _para(""),
-        _spacer(),
-        _para(provenance),
-    ]
-
-    return {"version": 1, "type": "doc", "content": content}
 
 
 def _set_authorized_party_field(ticket_key: str, authorized_party: str) -> dict:
@@ -761,61 +521,6 @@ def _set_authorized_party_field(ticket_key: str, authorized_party: str) -> dict:
         "user_matched": matched_name,
         "account_id": account_id,
         "error": put_result.get("error", ""),
-    }
-
-
-def _fill_psx_template(
-    ticket_key: str,
-    rule: str,
-    components: list[str],
-    rhoai_version: str,
-    effective_until: str,
-    rhoaieng_url: str,
-    exception_scope: str | None = None,
-    exception_risk: str | None = None,
-    exception_remediation: str | None = None,
-    exception_impact: str | None = None,
-    authorized_party: str | None = None,
-) -> dict:
-    """Fill the PSX ticket description with proper ADF content via REST API.
-
-    The PSX project applies a server-side template for PSRD Exception tickets.
-    This function waits briefly, then overwrites with properly-structured ADF
-    (info panels + answer paragraphs) matching the template's visual format.
-    Also sets the Authorized Party user picker field if provided.
-
-    Returns structured dict with operation results.
-    """
-    import time
-
-    time.sleep(3)
-
-    ap_set = False
-    if authorized_party:
-        ap_result = _set_authorized_party_field(ticket_key, authorized_party)
-        ap_set = ap_result.get("ok", False)
-
-    adf = _build_psx_filled_adf(
-        rule,
-        components,
-        rhoai_version,
-        effective_until,
-        rhoaieng_url,
-        exception_scope=exception_scope,
-        exception_risk=exception_risk,
-        exception_remediation=exception_remediation,
-        exception_impact=exception_impact,
-    )
-
-    desc_result = _jira_rest_put(f"issue/{ticket_key}", {"fields": {"description": adf}})
-
-    return {
-        "action": "fill_psx_template",
-        "ok": desc_result["ok"],
-        "ticket_key": ticket_key,
-        "description_status": desc_result.get("status", 0),
-        "description_error": desc_result.get("error", ""),
-        "authorized_party_set": ap_set,
     }
 
 
@@ -1662,31 +1367,6 @@ def reconcile_ticket(
         "description_filled": description_filled,
         "authorized_party_set": authorized_party_set,
     }
-
-
-def _build_summary(
-    project: str,
-    rule: str,
-    components: list[str],
-    rhoai_version: str,
-    summary_context: str | None,
-    vendor_tag: str | None,
-    purpose: str = "approval",
-) -> str:
-    """Build the expected summary string for a ticket."""
-    tag_prefix = f"[{vendor_tag}] " if vendor_tag else ""
-    purpose_tags = {
-        "violation_report": "[Conforma Violation] ",
-        "remediation": "[Code Fix] ",
-        "approval": "[Exception Approval] ",
-    }
-    purpose_tag = purpose_tags.get(purpose, "[Exception Approval] ")
-    comp_str = ", ".join(components[:3])
-    if len(components) > 3:
-        comp_str += f" (+{len(components) - 3} more)"
-    if summary_context:
-        return f"{tag_prefix}{purpose_tag}{rule} - {comp_str} - {rhoai_version} - {summary_context}"
-    return f"{tag_prefix}{purpose_tag}{rule} - {comp_str} - {rhoai_version}"
 
 
 def parse_args() -> argparse.Namespace:
