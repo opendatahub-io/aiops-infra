@@ -1439,7 +1439,7 @@ class Step12_DedupSharedUtils(Step):
             Path("skills/conforma-exception/scripts/manage_exceptions.py"),
         ]
 
-        yaml_funcs = ["_QuotedStr", "_safe_yaml_dump", "_needs_quoting", "_quote_strings_recursively"]
+        yaml_funcs = ["_QuotedStr", "_quoted_str_representer", "_safe_yaml_dump", "_needs_quoting", "_quote_strings_recursively"]
         found_source = None
         found_nodes: list[tuple[int, int]] = []
 
@@ -1478,16 +1478,20 @@ class Step12_DedupSharedUtils(Step):
         )
         for start, end in sorted(found_nodes):
             chunk = "".join(source_lines[start:end])
-            # Make public
-            chunk = chunk.replace("class _QuotedStr", "class QuotedStr", 1)
-            chunk = chunk.replace("def _safe_yaml_dump", "def safe_yaml_dump", 1)
-            chunk = chunk.replace("def _needs_quoting", "def needs_quoting", 1)
-            chunk = chunk.replace("def _quote_strings_recursively", "def quote_strings_recursively", 1)
-            # Update internal references
-            chunk = chunk.replace("_quote_strings_recursively(", "quote_strings_recursively(")
-            chunk = chunk.replace("_needs_quoting(", "needs_quoting(")
-            chunk = chunk.replace("_QuotedStr(", "QuotedStr(")
             yaml_ops_content += chunk + "\n\n"
+
+        # Rename all private names to public in the combined content
+        yaml_ops_content = yaml_ops_content.replace("class _QuotedStr", "class QuotedStr")
+        yaml_ops_content = yaml_ops_content.replace("def _quoted_str_representer", "def quoted_str_representer")
+        yaml_ops_content = yaml_ops_content.replace("def _safe_yaml_dump", "def safe_yaml_dump")
+        yaml_ops_content = yaml_ops_content.replace("def _needs_quoting", "def needs_quoting")
+        yaml_ops_content = yaml_ops_content.replace("def _quote_strings_recursively", "def quote_strings_recursively")
+        # Replace all internal references using word-boundary approach
+        yaml_ops_content = re.sub(r'\b_QuotedStr\b', 'QuotedStr', yaml_ops_content)
+        yaml_ops_content = re.sub(r'\b_quoted_str_representer\b', 'quoted_str_representer', yaml_ops_content)
+        yaml_ops_content = re.sub(r'\b_safe_yaml_dump\b', 'safe_yaml_dump', yaml_ops_content)
+        yaml_ops_content = re.sub(r'\b_needs_quoting\b', 'needs_quoting', yaml_ops_content)
+        yaml_ops_content = re.sub(r'\b_quote_strings_recursively\b', 'quote_strings_recursively', yaml_ops_content)
 
         Path("scripts/conforma_yaml_ops.py").write_text(yaml_ops_content)
 
@@ -1521,6 +1525,7 @@ class Step12_DedupSharedUtils(Step):
             # Add re-export imports (AST-based insertion)
             imports = (
                 "from conforma_yaml_ops import QuotedStr as _QuotedStr  # noqa: F401\n"
+                "from conforma_yaml_ops import quoted_str_representer as _quoted_str_representer  # noqa: F401\n"
                 "from conforma_yaml_ops import safe_yaml_dump as _safe_yaml_dump  # noqa: F401\n"
                 "from conforma_yaml_ops import needs_quoting as _needs_quoting  # noqa: F401\n"
                 "from conforma_yaml_ops import quote_strings_recursively as _quote_strings_recursively  # noqa: F401\n"
