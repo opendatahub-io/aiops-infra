@@ -1383,7 +1383,7 @@ class Step12_DedupSharedUtils(Step):
         date_ops = (
             '"""Date parsing utilities shared across conforma scripts."""\n\n'
             "from __future__ import annotations\n\n"
-            "from datetime import datetime\n\n\n"
+            "from datetime import datetime, timezone\n\n\n"
         )
         # Make it public (remove underscore)
         date_ops += parse_date_source.replace("def _parse_date", "def parse_date", 1)
