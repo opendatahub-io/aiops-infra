@@ -30,7 +30,7 @@ _KONFLUX_ENV_LOADED = False
 def _find_repo_root() -> Path:
     """Walk up from this file to find the repository root.
 
-    Path from this file: scripts/ -> conforma-exception/ -> skills/ -> <repo>/
+    Path from this file: scripts/ -> conforma-remedy/ -> skills/ -> <repo>/
     """
     here = Path(__file__).resolve().parent
     candidate = here.parent.parent.parent
@@ -102,13 +102,14 @@ def _try_pip_install(repo_root: Path) -> None:
             pass
 
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [sys.executable, "-m", "pip", "install", "-e", ".", "-q"],
             cwd=repo_root,
             capture_output=True,
             timeout=120,
         )
-        mtime_marker.write_text(str(pyproject_mtime))
+        if completed.returncode == 0:
+            mtime_marker.write_text(str(pyproject_mtime))
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
 

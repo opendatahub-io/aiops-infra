@@ -199,7 +199,7 @@ class TestReferenceURLs:
 
 
 class TestRuleCodeShadowing:
-    """When multiple entries share a conforma_rule_code, each must be reachable via unique symptoms or aliases."""
+    """When multiple entries share a conforma_rule_code, each must be reachable via unique id, symptoms, or aliases."""
 
     def test_shared_rule_codes_have_distinguishing_symptoms_or_aliases(self, catalog):
         from collections import defaultdict

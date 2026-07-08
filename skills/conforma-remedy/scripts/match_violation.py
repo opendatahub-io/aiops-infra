@@ -128,7 +128,8 @@ def main() -> int:
         print(f"Effort:   {c.get('estimated_effort', 'unknown')}")
         print(f"Rebuild:  {c.get('requires_rebuild', False)}")
 
-    alerts = matcher.check_false_alerts(result.id)
+    rule_codes = result.conforma_rule_codes or (result.id,)
+    alerts = [a for code in rule_codes for a in matcher.check_false_alerts(code)]
     if alerts:
         print(f"\n⚠ Known false alert: {alerts[0]['title']}")
         print(f"  Condition: {alerts[0].get('condition', 'N/A')}")

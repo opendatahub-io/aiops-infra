@@ -1,12 +1,12 @@
 """remedy_result — Structured result for violation lookups.
 
 Normalizes results from different sources (YAML catalog, JSON fallback)
-into a single immutable type with well-defined fields.
+into a single frozen dataclass with well-defined fields.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
