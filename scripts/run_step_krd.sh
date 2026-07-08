@@ -68,7 +68,7 @@ fi
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   CLUSTER_INSTANCE="internal"
   KONFLUX_NAMESPACE="rhoai-tenant"
-  SPARSE_PATHS="tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai tenants-config/version"
+  SPARSE_PATHS="tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/version"
 else
   CLUSTER_INSTANCE="external"
   KONFLUX_NAMESPACE="open-data-hub-tenant"
@@ -133,13 +133,11 @@ if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
     VERSION_X="${BASH_REMATCH[1]}"; VERSION_Y="${BASH_REMATCH[2]}"; VERSION_N="${BASH_REMATCH[3]}"
     VERSION_NAME="v${VERSION_X}.${VERSION_Y}-ea.${VERSION_N}"
-    RPA_VAR="v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"
     KRD_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"
   else
     [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]
     VERSION_X="${BASH_REMATCH[1]}"; VERSION_Y="${BASH_REMATCH[2]}"; VERSION_N=""
     VERSION_NAME="v${VERSION_X}.${VERSION_Y}"
-    RPA_VAR="v${VERSION_X}-${VERSION_Y}"
     KRD_APPLICATION="rhoai-v${VERSION_X}-${VERSION_Y}"
   fi
   TARGET_YAML="tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/${VERSION_NAME}/ProjectDevelopmentStream-${VERSION_NAME}.yaml"
@@ -241,36 +239,6 @@ YAML_EOF
     }
   fi
 
-  # RPA stage file
-  RPA_STAGE="$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-${RPA_VAR}-components-stage.yaml"
-  [[ ! -f "$RPA_STAGE" ]] && {
-    echo "ERROR: rhoai-onprem-${RPA_VAR}-components-stage.yaml not found. Sprint onboarding pending." >&2; exit 1
-  }
-  if ! grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_STAGE" 2>/dev/null; then
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-rpa-component \
-      "$RPA_STAGE" \
-      --array-key "spec.data.mapping.components" \
-      --name "${COMPONENT_NAME}-${RPA_VAR}" \
-      --url "registry.stage.redhat.io/rhoai/${COMPONENT_NAME}-rhel9" || {
-      echo "ERROR: Could not append to RPA stage file." >&2; exit 1
-    }
-  fi
-
-  # RPA prod file
-  RPA_PROD="$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-${RPA_VAR}-components-prod.yaml"
-  [[ ! -f "$RPA_PROD" ]] && {
-    echo "ERROR: rhoai-onprem-${RPA_VAR}-components-prod.yaml not found. Sprint onboarding pending." >&2; exit 1
-  }
-  if ! grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_PROD" 2>/dev/null; then
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-rpa-component \
-      "$RPA_PROD" \
-      --array-key "spec.data.mapping.components" \
-      --name "${COMPONENT_NAME}-${RPA_VAR}" \
-      --url "registry.redhat.io/rhoai/${COMPONENT_NAME}-rhel9" || {
-      echo "ERROR: Could not append to RPA prod file." >&2; exit 1
-    }
-  fi
-
   # automation/resources.yaml
   AUTOMATION_FILE="$CLONE_DIR/tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/automation/resources.yaml"
   [[ ! -f "$AUTOMATION_FILE" ]] && {
@@ -345,8 +313,8 @@ for attempt in 1 2 3; do
     --src-branch  "$DEST_BRANCH" \
     --dest-url    "$KRD_URL" \
     --dest-branch main \
-    --title       "Add ${KONFLUX_COMPONENT_NAME} Component for ${COMPONENT_NAME}" \
-    --description "Add Konflux Component '${KONFLUX_COMPONENT_NAME}' to ${TARGET_YAML}.
+    --title       "Add ${KONFLUX_COMPONENT_NAME} Component to tenants-config" \
+    --description "Add Konflux Component '${KONFLUX_COMPONENT_NAME}' to tenants-config.
 
 Product: ${PRODUCT_CONTEXT}
 Application: ${KRD_APPLICATION}
@@ -361,7 +329,7 @@ done
 
 uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "krd-mr-raised" \
-  --comment "GitLab MR raised to create Konflux Component '${KONFLUX_COMPONENT_NAME}'.
+  --comment "[step:krd] GitLab MR raised to add Konflux Component '${KONFLUX_COMPONENT_NAME}' to tenants-config.
 
 MR URL: ${MR_URL}
 

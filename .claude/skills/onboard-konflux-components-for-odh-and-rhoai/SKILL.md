@@ -400,7 +400,22 @@ EXIT_CODE=$?
 - Exit 2: `is_operator=false` (skipped) or entry already present. Script updated `pipeline_state.json`. Nothing further needed.
 - Exit 1: hard failure. Print `$OUTPUT` and stop.
 
-### Step 8h: update-rhoai-product-listing (step key: `product_listing`, RHOAI only)
+### Step 8h: add-to-krd-release-plan (step key: `krd_rpa`, RHOAI only)
+
+**Execute if** `krd_rpa` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
+
+> **VPN must be active.**
+
+```bash
+OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_krd_rpa.sh" --jira-url "$JIRA_URL")
+EXIT_CODE=$?
+```
+
+- Exit 0: script updated `pipeline_state.json` (status `mr_raised`, MR URL recorded, label `krd-rpa-mr-raised` added). Set `NEW_PRS_RAISED="true"`.
+- Exit 2: already present or ODH (skipped). Script updated `pipeline_state.json`. Nothing further needed.
+- Exit 1: hard failure. Print `$OUTPUT` and stop.
+
+### Step 8i: update-rhoai-product-listing (step key: `product_listing`, RHOAI only)
 
 **Execute if** `product_listing` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
 
@@ -415,7 +430,7 @@ EXIT_CODE=$?
 - Exit 2: entry already exists. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
 - Exit 1: hard failure. Print `$OUTPUT` and stop.
 
-### Step 8i: setup-auto-merge (step key: `auto_merge`, RHOAI only)
+### Step 8j: setup-auto-merge (step key: `auto_merge`, RHOAI only)
 
 **Execute if** `auto_merge` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
 
@@ -428,7 +443,7 @@ EXIT_CODE=$?
 - Exit 2: entries already exist. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
 - Exit 1: hard failure. Print `$OUTPUT` and stop.
 
-### Step 8j: enable-renovate-on-rhoai-component-repo (step key: `renovate`, RHOAI only)
+### Step 8k: enable-renovate-on-rhoai-component-repo (step key: `renovate`, RHOAI only)
 
 **Execute if** `renovate` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
 
@@ -606,6 +621,7 @@ PRs / MRs:
   pull_pipelines  : <steps.pull_pipelines.status or "N/A (ODH)">
   operator        : <steps.operator.status>
   bundle          : <steps.bundle.status>
+  krd_rpa         : <steps.krd_rpa.status or "N/A (ODH)"> — <steps.krd_rpa.mr_url or "not yet raised">
   delivery_repo   : <steps.delivery_repo.status or "N/A (ODH)">
   product_listing : <steps.product_listing.status or "N/A (ODH)">
   auto_merge      : <steps.auto_merge.status or "N/A (ODH)">

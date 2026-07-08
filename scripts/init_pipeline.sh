@@ -120,6 +120,13 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "label_raised": "krd-mr-raised",
       "label_done": "krd-mr-merged"
     },
+    "krd_rpa": {
+      "status": "${SKIP_RHOAI_ONLY}",
+      "mr_url": "",
+      "depends_on": [],
+      "label_raised": "krd-rpa-mr-raised",
+      "label_done": "krd-rpa-mr-merged"
+    },
     "okc": {
       "status": "pending",
       "pr_url": "",
@@ -215,7 +222,7 @@ else
     if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
       jq '
         .steps |= with_entries(
-          if .key == ("pull_pipelines","delivery_repo","product_listing","auto_merge","renovate","renovate_sync")
+          if .key == ("pull_pipelines","delivery_repo","product_listing","auto_merge","renovate","renovate_sync","krd_rpa")
              and .value.status == "pending"
           then .value.status = "skipped"
           else .

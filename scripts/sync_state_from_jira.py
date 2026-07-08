@@ -28,6 +28,7 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     # raised labels
     "quay-mr-raised":          ("quay",             "mr_raised"),
     "krd-mr-raised":       ("krd",              "mr_raised"),
+    "krd-rpa-mr-raised":   ("krd_rpa",          "mr_raised"),
     "okc-pr-raised":           ("okc",              "pr_raised"),
     "rkc-pr-raised":           ("okc",              "pr_raised"),
     "rkc-pull-pr-raised":      ("pull_pipelines",   "pr_raised"),
@@ -40,6 +41,7 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     # done labels
     "quay-mr-merged":            ("quay",             "done"),
     "krd-mr-merged":         ("krd",              "done"),
+    "krd-rpa-mr-merged":     ("krd_rpa",          "done"),
     "okc-pr-merged":             ("okc",              "done"),
     "rkc-pr-merged":             ("okc",              "done"),
     "rkc-pull-changes-done":     ("pull_pipelines",   "done"),
@@ -83,7 +85,6 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
 # All patterns: (step_key, url_field, url_regex).
 STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
     ("quay",           "mr_url",  re.compile(r"app-interface/-/merge_requests/", re.I)),
-    ("krd",            "mr_url",  re.compile(r"konflux-release-data/-/merge_requests/", re.I)),
     ("operator",       "pr_url",  re.compile(r"(?:opendatahub-operator|rhods-operator)/pull/", re.I)),
     ("bundle",         "pr_url",  re.compile(r"(?:ODH|RHOAI)-Build-Config/pull/", re.I)),
     ("auto_merge",     "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I)),
@@ -100,6 +101,10 @@ STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
 # natural-language fallbacks for older comments posted before the tag was
 # added.
 SHARED_URL_PATTERNS: list[tuple[str, str, re.Pattern, re.Pattern]] = [
+    ("krd",             "mr_url",  re.compile(r"konflux-release-data/-/merge_requests/", re.I),
+                                   re.compile(r"\[step:krd\]|tenants.config|Component.*konflux-release-data", re.I)),
+    ("krd_rpa",         "mr_url",  re.compile(r"konflux-release-data/-/merge_requests/", re.I),
+                                   re.compile(r"\[step:krd_rpa\]|ReleasePlanAdmission", re.I)),
     ("delivery_repo",   "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
                                    re.compile(r"\[step:delivery_repo\]|delivery.repo", re.I)),
     ("product_listing", "mr_url",  re.compile(r"pyxis-repo-configs/-/merge_requests/", re.I),
