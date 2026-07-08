@@ -76,7 +76,7 @@ violations:
       estimated_effort: low
       requires_rebuild: true
     symptoms:
-      - "Task XXXX is used by pipeline task YYYY via an unpinned reference"
+      - "via an unpinned reference"
     fix_steps:
       - action: "Pin the task to a specific commit hash or image SHA in konflux-central"
         reference: "https://github.com/red-hat-data-services/konflux-central"
@@ -156,7 +156,8 @@ violations:
       estimated_effort: low
       requires_rebuild: true
     symptoms:
-      - "The untrusted version of PipelineTask \"XXXX\" was included in the build chain comprised of: ..... Please upgrade the task version to: sha256:..."
+      - "was included in the build chain comprised of"
+      - "Please upgrade the task version to"
     fix_steps:
       - action: "Update the task's container image reference to the SHA suggested in the error message, in konflux-central"
       - action: "Rebuild the component in Konflux"
@@ -183,7 +184,6 @@ violations:
       - "conforma-reporter GitHub Action failing"
     fix_steps:
       - action: "Check the conforma-reporter GitHub Action latest run and history for failures"
-        reference: "https://github.com/red-hat-data-services/conforma-reporter/actions/workflows/conforma-reporter.yaml"
       - action: "Investigate and fix the workflow failure (snapshot creation, parsing results, Slack notification)"
 
   - id: fbc_fips_check_missing
@@ -240,7 +240,7 @@ violations:
       estimated_effort: high
       requires_rebuild: true
     symptoms:
-      - "Signing key \"XXX\" is not one of the allowed keys: [\"199e2f91fd431d51\"]"
+      - "is not one of the allowed keys"
     fix_steps:
       - action: "Contact the component team and explore resolution options"
       - action: "Option 1: Install the RPMs from a Red Hat repository"
@@ -281,7 +281,7 @@ violations:
       estimated_effort: medium
       requires_rebuild: true
     symptoms:
-      - "Mismatched versions of the \"XXX\" RPM were found across different arches"
+      - "RPM were found across different arches"
     fix_steps:
       - action: "First, rebuild the component to confirm the issue is persistent (not just unfortunate timing)"
       - action: "Check if the Dockerfile.konflux has IF/THEN or other conditional logic per architecture"
@@ -343,7 +343,8 @@ violations:
       estimated_effort: low
       requires_rebuild: true
     symptoms:
-      - "Task \"XXX\" is used by pipeline task \"YYY\" is or will be unsupported as of YYYY-MM-DD. Upgrade to a newer version of the Task."
+      - "is or will be unsupported as of"
+      - "Upgrade to a newer version of the Task"
     fix_steps:
       - action: "Check for unmerged Renovate PRs in konflux-central for the affected rhoai version"
         reference: "https://github.com/red-hat-data-services/konflux-central/pulls"
@@ -612,6 +613,724 @@ violations:
         where: "Component .tekton/ directory or konflux-central pipeline"
       - action: "Rebuild the component in Konflux"
 
+  - id: sbom_spdx.disallowed_package_attributes
+    type: conforma_violation
+    title: "Disallowed package attributes"
+    description: >-
+      The SPDX SBOM attached to the image contains packages with attributes
+      that are not permitted by the Conforma policy. A common example is
+      'hermeto:pip:package:binary' set to 'true', which means a Python
+      package was installed from a binary wheel rather than built from source.
+      This fires per-package, so a single image can produce dozens of violations.
+    conforma_rule_codes:
+      - sbom_spdx.disallowed_package_attributes
+    aliases:
+      - "disallowed package attributes"
+      - "disallowed attributes"
+      - "sbom disallowed"
+      - "binary package"
+      - "hermeto binary"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: high
+      requires_rebuild: true
+    symptoms:
+      - "has the attribute \"hermeto:pip:package:binary\" set to \"true\""
+      - "Confirm the SPDX SBOM contains only packages without disallowed attributes"
+    fix_steps:
+      - action: "Identify which packages have disallowed attributes from the violation details (look for 'hermeto:pip:package:binary')"
+      - action: "Update the build to install packages from source instead of binary wheels (e.g., pip install --no-binary=:all:)"
+      - action: "If using Hermeto/Cachi2 for prefetch, ensure it fetches source distributions (sdists) not wheels"
+        reference: "https://konflux-ci.dev/docs/building/prefetching-dependencies/"
+      - action: "Rebuild the component in Konflux and verify the SBOM no longer has disallowed attributes"
+    exception_context:
+      when_to_exception: >-
+        When source distributions are not available for the affected packages
+        and building from source is not feasible. This is often a systemic
+        issue requiring Konflux tooling improvements (Hermeto/Cachi2 config).
+      exception_template_category: sbom_disallowed_attributes
+
+  - id: tasks.required_tasks_found
+    type: conforma_violation
+    title: "All required tasks were included in the pipeline"
+    description: >-
+      The build pipeline attestation does not contain one or more tasks that
+      the Conforma policy requires. The required task list is defined in the
+      policy data sources. For FBC fragment components, this commonly fires
+      because fbc-fips-check takes 2-4 hours and is excluded from on-push
+      builds, running only on nightly/scheduled builds.
+    conforma_rule_codes:
+      - tasks.required_tasks_found
+    aliases:
+      - "required tasks"
+      - "missing task"
+      - "required task missing"
+      - "required tasks found"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "is missing from the build pipeline attestation"
+      - "All required tasks were included in the pipeline"
+    fix_steps:
+      - action: "Check which tasks are missing from the violation 'term' field (e.g., fbc-fips-check, fbc-fips-check-oci-ta)"
+      - action: "If the missing task is fbc-fips-check on a push build, this is expected — FIPS runs only on nightly builds"
+      - action: "Add the missing task to the .tekton/ pipeline YAML, or add a policy exclusion if the task cannot run on push builds"
+        reference: "https://konflux-ci.dev/docs/building/customizing-the-build/"
+      - action: "For policy exclusions, add entries like 'tasks.required_tasks_found:TASK_NAME' to the EC policy exclude list"
+        reference: "https://conforma.dev/docs/cli/configuration.html"
+      - action: "Rebuild the component in Konflux"
+    exception_context:
+      when_to_exception: >-
+        When a required task cannot be added to the pipeline (e.g., FIPS check
+        on push builds due to 2-4h runtime). Use volatile (time-bounded)
+        exceptions in the EC policy file.
+      exception_template_category: required_task_missing
+
+  - id: labels.required_labels
+    type: conforma_violation
+    title: "Required labels missing from the image"
+    description: >-
+      The container image is missing one or more OCI labels required by the
+      Conforma policy. Common required labels include name, version,
+      description, summary, vendor, and url. Labels are set during the
+      build-container task and can be added via LABELS parameter or the
+      generate-labels task.
+    conforma_rule_codes:
+      - labels.required_labels
+    aliases:
+      - "required labels"
+      - "missing labels"
+      - "image labels"
+      - "oci labels"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "is missing from the image"
+      - "label is required but not set"
+    fix_steps:
+      - action: "Check which labels are missing from the violation details"
+      - action: "Add the missing labels via the LABELS parameter of the build-container task in .tekton/ PipelineRun YAML"
+        reference: "https://konflux-ci.dev/docs/building/labels-and-annotations/"
+      - action: "Alternatively, add labels to the Dockerfile using LABEL instructions"
+      - action: "For dynamic labels (build date, commit), use the generate-labels task"
+        reference: "https://konflux-ci.dev/docs/building/labels-and-annotations/"
+      - action: "Rebuild the component in Konflux"
+
+  - id: sbom.found
+    type: conforma_violation
+    title: "SBOM not found for the image"
+    description: >-
+      No Software Bill of Materials (SBOM) was found attached to the container
+      image. Konflux automatically generates SBOMs during the build process
+      via the Mobster tool. If the SBOM is missing, it usually indicates a
+      build pipeline misconfiguration or a failed SBOM generation step.
+    conforma_rule_codes:
+      - sbom.found
+    aliases:
+      - "sbom found"
+      - "missing sbom"
+      - "sbom not found"
+      - "no sbom"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "No SBOM found for the image"
+      - "SBOM not found"
+    fix_steps:
+      - action: "Verify the build pipeline includes the SBOM generation tasks (merge-sboms, source-build)"
+      - action: "Check the build logs for SBOM-related task failures"
+      - action: "Run 'cosign download sbom <IMAGE>' to verify if any SBOM is attached to the image"
+        reference: "https://konflux-ci.dev/docs/metadata/sboms/"
+      - action: "Rebuild the component in Konflux — SBOM generation is automatic when pipeline is properly configured"
+
+  - id: base_image_registries.base_image_info_found
+    type: conforma_violation
+    title: "Base image information not found"
+    description: >-
+      Conforma could not find information about the base image used to build
+      the component. The SBOM or build attestation does not contain the
+      expected base image metadata. This can happen when the Dockerfile uses
+      a base image that is not traceable (e.g., scratch builds, multi-stage
+      builds with intermediate images that are not published).
+    conforma_rule_codes:
+      - base_image_registries.base_image_info_found
+    aliases:
+      - "base image info"
+      - "base image not found"
+      - "base image information"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "Base image information not found"
+      - "Could not find base image info"
+    fix_steps:
+      - action: "Check the Dockerfile for the base image reference — ensure it uses a fully qualified image reference (registry/repo@sha256:...)"
+      - action: "If using multi-stage builds, ensure all intermediate images are from known registries"
+      - action: "Verify the build-container task is emitting base image results correctly"
+      - action: "Rebuild the component in Konflux"
+
+  - id: base_image_registries.base_image_permitted
+    type: conforma_violation
+    title: "Base image is from a disallowed registry"
+    description: >-
+      The base image used in the Dockerfile is pulled from a registry that is
+      not in the allowed list. For Red Hat products, base images must come from
+      registry.redhat.io or brew.registry.redhat.io. Using images from
+      docker.io, quay.io (non-Red Hat), or other registries triggers this
+      violation.
+    conforma_rule_codes:
+      - base_image_registries.base_image_permitted
+    aliases:
+      - "base image permitted"
+      - "disallowed registry"
+      - "base image registry"
+      - "disallowed base image"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "is from a disallowed registry"
+      - "Base image is not from an allowed registry"
+    fix_steps:
+      - action: "Update the Dockerfile FROM instruction to use a base image from an allowed registry (registry.redhat.io or brew.registry.redhat.io)"
+      - action: "If using a UBI base image, use registry.redhat.io/ubi9/ubi-minimal or equivalent"
+      - action: "For images only available on non-allowed registries, set up image mirroring"
+      - action: "Rebuild the component in Konflux"
+    exception_context:
+      when_to_exception: >-
+        When the component genuinely requires a base image from a non-allowed
+        registry (e.g., upstream community images) and no Red Hat equivalent
+        exists. Component team must justify the registry choice.
+      exception_template_category: base_image_registry
+
+  - id: rpm_repos.ids_known
+    type: conforma_violation
+    title: "RPM has unknown repo id"
+    description: >-
+      One or more RPMs in the image were installed from a repository whose ID
+      is not in the known/allowed list. The SBOM records which repo each RPM
+      came from, and Conforma checks that repo ID against a curated allowlist.
+      This commonly happens when the Dockerfile uses a .repo file with
+      non-standard repository IDs.
+    conforma_rule_codes:
+      - rpm_repos.ids_known
+    aliases:
+      - "rpm repo id"
+      - "unknown repo id"
+      - "ids known"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "RPM has unknown repo id"
+      - "Repository ID is not in the known list"
+    fix_steps:
+      - action: "Identify which RPMs have unknown repo IDs from the violation details"
+      - action: "Ensure RPMs come from known Red Hat repositories with architecture-specific IDs (e.g., ubi-9-for-x86_64-baseos-rpms)"
+        reference: "https://konflux-ci.dev/docs/building/prefetching-dependencies/"
+      - action: "Check the allowed repository IDs list and ensure your .repo files match"
+        reference: "https://github.com/release-engineering/rhtap-ec-policy/blob/main/data/known_rpm_repositories.yml"
+      - action: "Rebuild the rpms.lock.yaml file if using RPM lockfiles"
+        reference: "https://konflux-ci.dev/docs/building/prefetching-dependencies/"
+      - action: "Rebuild the component in Konflux"
+
+  - id: cve.cve_results_found
+    type: conforma_violation
+    title: "CVE scan results not found"
+    description: >-
+      No CVE scan results (SARIF) were found attached to the image. Konflux
+      runs security scanners (Clair, Snyk) during build and attaches results
+      as OCI artifacts. If the scan task failed or was not included in the
+      pipeline, this violation fires. Note that for Helm charts and FBC
+      fragments, CVE scanning may not be applicable.
+    conforma_rule_codes:
+      - cve.cve_results_found
+    aliases:
+      - "cve results"
+      - "cve scan"
+      - "missing cve"
+      - "cve results found"
+      - "vulnerability scan"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "CVE scan results not found for the image"
+      - "No vulnerability scan results"
+    fix_steps:
+      - action: "Verify the build pipeline includes the clair-scan or clamav-scan tasks"
+      - action: "Check the build logs for scan task failures or timeouts"
+      - action: "Run 'cosign download attestation <IMAGE>' to check if scan results are attached"
+        reference: "https://konflux-ci.dev/docs/metadata/scan-results/"
+      - action: "For Helm charts or FBC fragments, CVE scanning may require a different pipeline configuration"
+      - action: "Rebuild the component in Konflux"
+    exception_context:
+      when_to_exception: >-
+        When the component type does not support CVE scanning (e.g., Helm
+        charts, FBC fragments). The component team must confirm that the
+        artifact type is not scannable by standard tools.
+      exception_template_category: cve_scan_missing
+
+  - id: tasks.successful_pipeline_tasks
+    type: conforma_violation
+    title: "Not all pipeline tasks completed successfully"
+    description: >-
+      One or more tasks in the build pipeline did not complete successfully.
+      The attestation shows a task with a non-success status. This can be
+      caused by transient failures (network, timeouts) or genuine build
+      issues. Check the specific task logs in Konflux.
+    conforma_rule_codes:
+      - tasks.successful_pipeline_tasks
+    aliases:
+      - "successful pipeline tasks"
+      - "pipeline task failed"
+      - "task not successful"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "did not complete successfully"
+      - "Not all pipeline tasks completed successfully"
+    fix_steps:
+      - action: "Identify which task failed from the violation details"
+      - action: "Check the Konflux build logs for the failing task to understand the error"
+      - action: "If the failure is transient (timeout, network), rebuild the component"
+      - action: "If the failure is persistent, fix the underlying issue in the component or pipeline config"
+        reference: "https://konflux-ci.dev/docs/building/customizing-the-build/"
+      - action: "Rebuild the component in Konflux"
+
+  - id: source_image.exists
+    type: conforma_violation
+    title: "Source container image not found"
+    description: >-
+      The source container image associated with the binary image does not
+      exist. Konflux builds automatically produce a source container image
+      alongside the binary image via the source-build task. If the source
+      image is missing, it usually means the source-build task was not
+      included in the pipeline or it failed silently.
+    conforma_rule_codes:
+      - source_image.exists
+    aliases:
+      - "source image"
+      - "source container"
+      - "missing source image"
+      - "source image exists"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: true
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "Source container image not found"
+      - "source_image.exists"
+    fix_steps:
+      - action: "Verify the build pipeline includes the source-build task"
+      - action: "Check the build logs for source-build task failures"
+      - action: "Rebuild the component in Konflux — the source image is automatically produced when the pipeline is properly configured"
+      - action: "After rebuild, verify the source image exists using 'cosign tree <IMAGE>'"
+        reference: "https://conforma.dev/docs/user-guide/cosign.html"
+
+  - id: source_image.signed
+    type: conforma_violation
+    title: "Source container image is not signed"
+    description: >-
+      The source container image exists but lacks a valid cryptographic
+      signature. Tekton Chains should automatically sign all images
+      (including source images) produced by PipelineRuns. If the source
+      image is unsigned, it indicates a Chains configuration issue.
+    conforma_rule_codes:
+      - source_image.signed
+    aliases:
+      - "source image signed"
+      - "unsigned source image"
+      - "source image signature"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "Source container image is not signed"
+      - "source_image.signed"
+    fix_steps:
+      - action: "Check if the source image exists first using 'cosign tree <IMAGE>'"
+        reference: "https://conforma.dev/docs/user-guide/cosign.html"
+      - action: "Verify the PipelineRun annotation 'chains.tekton.dev/signed' is 'true'"
+        reference: "https://konflux-ci.dev/docs/troubleshooting/releases/"
+      - action: "Check the Tekton Chains controller logs for signing errors"
+      - action: "Verify the component service account has only the 'appstudio-pipeline-dockercfg-*' secret in its imagePullSecrets"
+      - action: "Rebuild the component in Konflux"
+
+  - id: test.no_failed_tests
+    type: conforma_violation
+    title: "A test task in the build pipeline reported a failure"
+    description: >-
+      One or more non-informative test tasks in the build pipeline reported
+      a FAILED result via the TEST_OUTPUT task result. The failing test and
+      task name are included in the violation message. For FBC fragment
+      components, FIPS check failures on push builds are a known false
+      positive (FIPS only runs on nightly builds).
+    conforma_rule_codes:
+      - test.no_failed_tests
+    aliases:
+      - "test failed"
+      - "failed test"
+      - "no failed tests"
+      - "test failure"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "from the build Pipeline reports a failed test"
+      - "reports a failed test"
+    fix_steps:
+      - action: "Identify which test task failed from the violation message"
+      - action: "Check the build logs in Konflux for the failing task to understand the test failure"
+      - action: "For FBC components: if the failing task is fbc-fips-check on a push build, this is a known false positive — FIPS only runs on nightly"
+      - action: "Fix the underlying test failure in the component code or configuration"
+      - action: "Rebuild the component in Konflux"
+        reference: "https://conforma.dev/docs/policy/packages/release_test.html"
+
+  - id: test.no_erred_tests
+    type: conforma_violation
+    title: "A test task in the build pipeline reported an error"
+    description: >-
+      One or more test tasks in the build pipeline reported an ERROR result
+      via the TEST_OUTPUT task result. An error (as opposed to a failure)
+      typically means the test infrastructure itself had a problem, not
+      that a test assertion failed.
+    conforma_rule_codes:
+      - test.no_erred_tests
+    aliases:
+      - "test erred"
+      - "test error"
+      - "erred test"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "from the build Pipeline reports a test erred"
+      - "reports a test erred"
+    fix_steps:
+      - action: "Identify which test task erred from the violation message"
+      - action: "Check the build logs in Konflux — errors usually indicate infrastructure issues, not test assertion failures"
+      - action: "Common causes: network timeouts, unavailable external resources, misconfigured test parameters"
+      - action: "If the error is transient, rebuild the component"
+      - action: "If persistent, investigate the test task configuration and prerequisites"
+        reference: "https://conforma.dev/docs/policy/packages/release_test.html"
+
+  - id: cve.cve_blockers
+    type: conforma_violation
+    title: "Blocking CVE found in the image"
+    description: >-
+      The CVE scan found vulnerabilities at restricted severity levels
+      (critical and high by default) that have a known fix available.
+      The restricted levels are configurable via the
+      restrict_cve_security_levels rule data key. A leeway period (in days
+      from public disclosure) can be configured per severity.
+    conforma_rule_codes:
+      - cve.cve_blockers
+    aliases:
+      - "cve blocker"
+      - "blocking cve"
+      - "critical cve"
+      - "high cve"
+      - "cve vulnerability"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: high
+      requires_rebuild: true
+    symptoms:
+      - "vulnerability of critical security level"
+      - "vulnerability of high security level"
+    fix_steps:
+      - action: "Identify the CVEs and affected packages from the violation details"
+      - action: "Update the affected packages to versions that include the CVE fix"
+      - action: "If the CVE is in the base image, update the base image to a patched version"
+      - action: "If a fix is not yet available, check if a leeway period applies (configured via cve_leeway in rule data)"
+        reference: "https://conforma.dev/docs/policy/packages/release_cve.html"
+      - action: "Rebuild the component in Konflux"
+
+  - id: cve.unpatched_cve_blockers
+    type: conforma_violation
+    title: "Blocking unpatched CVE found in the image"
+    description: >-
+      The CVE scan found vulnerabilities at restricted severity levels
+      that do NOT have a known fix available. By default, the restricted
+      list for unpatched CVEs is empty (no block). When configured, these
+      can only be remediated by removing the impacted dependency or
+      waiting for a fix.
+    conforma_rule_codes:
+      - cve.unpatched_cve_blockers
+    aliases:
+      - "unpatched cve"
+      - "unpatched vulnerability"
+      - "no fix available"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: false
+      typical_owner: component_team
+      estimated_effort: high
+      requires_rebuild: false
+    symptoms:
+      - "unpatched vulnerability of critical security level"
+      - "unpatched vulnerability of high security level"
+    fix_steps:
+      - action: "Identify the unpatched CVEs and affected packages from the violation details"
+      - action: "Check if the affected dependency can be removed or replaced with an alternative"
+      - action: "If the dependency cannot be removed, wait for the upstream fix and monitor the CVE status"
+      - action: "Consider requesting a policy exception if the risk is accepted"
+        reference: "https://conforma.dev/docs/policy/packages/release_cve.html"
+
+  - id: labels.deprecated_labels
+    type: conforma_violation
+    title: "Image uses deprecated labels"
+    description: >-
+      The container image contains labels that have been deprecated.
+      Deprecated labels have replacement labels that should be used
+      instead. The list of deprecated labels is defined in the
+      deprecated_labels rule data key.
+    conforma_rule_codes:
+      - labels.deprecated_labels
+    aliases:
+      - "deprecated labels"
+      - "deprecated label"
+      - "label deprecated"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "label is deprecated, replace with"
+    fix_steps:
+      - action: "Identify the deprecated labels and their replacements from the violation message"
+      - action: "Update the Dockerfile LABEL instructions or the LABELS parameter in the build-container task to use the replacement labels"
+        reference: "https://konflux-ci.dev/docs/building/labels-and-annotations/"
+      - action: "Remove the deprecated label from the build configuration"
+      - action: "Rebuild the component in Konflux"
+        reference: "https://conforma.dev/docs/policy/packages/release_labels.html"
+
+  - id: labels.disallowed_inherited_labels
+    type: conforma_violation
+    title: "Label inherited from parent image without override"
+    description: >-
+      Certain labels must be explicitly set on the child image and should
+      not be inherited from the parent image with the parent's value.
+      For example, 'name' and 'version' labels should reflect the child
+      image, not the base image. FBC images use a separate list
+      (fbc_disallowed_inherited_labels).
+    conforma_rule_codes:
+      - labels.disallowed_inherited_labels
+    aliases:
+      - "inherited label"
+      - "disallowed inherited"
+      - "parent label"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: low
+      requires_rebuild: true
+    symptoms:
+      - "label should not be inherited from the parent image"
+    fix_steps:
+      - action: "Identify which labels are incorrectly inherited from the violation details"
+      - action: "Explicitly set the flagged labels in the child image Dockerfile using LABEL instructions"
+      - action: "Or set them via the LABELS parameter of the build-container task in .tekton/ PipelineRun YAML"
+        reference: "https://konflux-ci.dev/docs/building/labels-and-annotations/"
+      - action: "Rebuild the component in Konflux"
+        reference: "https://conforma.dev/docs/policy/packages/release_labels.html"
+
+  - id: olm.unpinned_references
+    type: conforma_violation
+    title: "Unpinned image references in OLM bundle"
+    description: >-
+      One or more image references in the OLM bundle CSV lack a digest
+      (sha256) to uniquely identify the image version. All image
+      references in the bundle must be pinned to a specific digest for
+      reproducibility and security.
+    conforma_rule_codes:
+      - olm.unpinned_references
+    aliases:
+      - "unpinned olm"
+      - "unpinned bundle"
+      - "olm unpinned"
+      - "unpinned image reference"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "image reference is not pinned"
+    fix_steps:
+      - action: "Identify which image references are unpinned from the violation details"
+      - action: "Replace tag-based image references with digest-based ones (e.g., registry.redhat.io/repo:tag -> registry.redhat.io/repo@sha256:...)"
+      - action: "Configure component nudging in Konflux so image digests are automatically updated when dependencies rebuild"
+        reference: "https://konflux-ci.dev/docs/end-to-end/building-olm/"
+      - action: "Rebuild the component in Konflux"
+        reference: "https://conforma.dev/docs/policy/packages/release_olm.html"
+
+  - id: olm.allowed_registries
+    type: conforma_violation
+    title: "OLM bundle image reference from disallowed registry"
+    description: >-
+      An image reference in the OLM bundle CSV is from a registry that is
+      not in the allowed registry prefixes list. All CSV image references
+      must match a prefix in the allowed_olm_image_registry_prefixes
+      rule data.
+    conforma_rule_codes:
+      - olm.allowed_registries
+    aliases:
+      - "olm registry"
+      - "olm allowed registry"
+      - "csv image registry"
+    classification:
+      resolution_path: code_fix
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "csv image reference is not from an allowed registry"
+    fix_steps:
+      - action: "Identify which image references are from disallowed registries from the violation details"
+      - action: "Update the CSV image references to use images from allowed registries (e.g., registry.redhat.io)"
+      - action: "If the image must come from a different registry, check the allowed_olm_image_registry_prefixes rule data for the full allowed list"
+      - action: "Rebuild the component in Konflux"
+        reference: "https://conforma.dev/docs/policy/packages/release_olm.html"
+
+  - id: olm.unmapped_references
+    type: conforma_violation
+    title: "Unmapped image reference in OLM bundle"
+    description: >-
+      An image reference in the OLM bundle CSV is not present in the
+      release snapshot and is not already accessible in the target
+      registry. This usually means the image was not built as part of
+      the release or was not properly included in the snapshot.
+    conforma_rule_codes:
+      - olm.unmapped_references
+    aliases:
+      - "unmapped olm"
+      - "unmapped image"
+      - "olm unmapped"
+    classification:
+      resolution_path: mixed
+      fixable_at_code_level: true
+      typical_owner: component_team
+      estimated_effort: medium
+      requires_rebuild: true
+    symptoms:
+      - "csv image reference is not in the snapshot or accessible"
+    fix_steps:
+      - action: "Identify which image references are unmapped from the violation details"
+      - action: "Ensure the referenced image is built as a component in the same Konflux application"
+      - action: "Configure component nudging so the bundle CSV is updated when the referenced image is rebuilt"
+        reference: "https://konflux-ci.dev/docs/end-to-end/building-olm/"
+      - action: "Verify the image exists in the target registry and is accessible"
+      - action: "Rebuild the component in Konflux"
+        reference: "https://conforma.dev/docs/policy/packages/release_olm.html"
+
+  - id: schedule.weekday_restriction
+    type: conforma_violation
+    title: "Release blocked on disallowed weekday"
+    description: >-
+      The release pipeline ran on a weekday that is in the disallowed
+      list. This is a policy check to prevent releases on certain days
+      (e.g., Fridays). Only applies to pipelines with pipeline_intention
+      set to 'release' or 'production'.
+    conforma_rule_codes:
+      - schedule.weekday_restriction
+    aliases:
+      - "weekday restriction"
+      - "disallowed weekday"
+      - "release day blocked"
+    classification:
+      resolution_path: operational
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: false
+    symptoms:
+      - "is a disallowed weekday"
+    fix_steps:
+      - action: "Try again on a different day that is not in the disallowed list"
+      - action: "Check the disallowed_weekdays rule data key to see which days are blocked"
+        reference: "https://conforma.dev/docs/policy/packages/release_schedule.html"
+      - action: "If the release is urgent, request a temporary policy exception for the weekday restriction"
+
+  - id: schedule.date_restriction
+    type: conforma_violation
+    title: "Release blocked on disallowed date"
+    description: >-
+      The release pipeline ran on a date that is in the disallowed list.
+      This is typically used for freeze periods, holidays, or other
+      blackout windows. Only applies to pipelines with pipeline_intention
+      set to 'release' or 'production'.
+    conforma_rule_codes:
+      - schedule.date_restriction
+    aliases:
+      - "date restriction"
+      - "disallowed date"
+      - "release date blocked"
+      - "freeze"
+    classification:
+      resolution_path: operational
+      fixable_at_code_level: false
+      typical_owner: devops
+      estimated_effort: low
+      requires_rebuild: false
+    symptoms:
+      - "is a disallowed date"
+    fix_steps:
+      - action: "Try again on a different date that is not in the disallowed list"
+      - action: "Check the disallowed_dates rule data key to see which dates are blocked"
+        reference: "https://conforma.dev/docs/policy/packages/release_schedule.html"
+      - action: "If the release is urgent, request a temporary policy exception for the date restriction"
+
 known_false_alerts:
   - id: fbc_single_component_no_failed_tests
     title: "FBC single component failures (no_failed_tests)"
@@ -666,7 +1385,7 @@ known_false_alerts:
       Only ignore for single-component conforma runs. If this appears in full
       conforma reports, the auto-nudging updates of base image references are
       likely broken.
-    reference: "https://redhat-internal.slack.com/archives/C04PZ7H0VA8/p1768489979230979?thread_ts=1765380381.393849&cid=C04PZ7H0VA8"
+    reference: ""
 
   - id: fbc_no_failed_tests_push
     title: "no_failed_tests in rhoai-fbc-fragment on push builds"
