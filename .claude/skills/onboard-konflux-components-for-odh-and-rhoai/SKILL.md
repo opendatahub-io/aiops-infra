@@ -400,20 +400,18 @@ EXIT_CODE=$?
 - Exit 2: `is_operator=false` (skipped) or entry already present. Script updated `pipeline_state.json`. Nothing further needed.
 - Exit 1: hard failure. Print `$OUTPUT` and stop.
 
-### Step 8h: add-to-krd-release-plan (step key: `krd_rpa`, RHOAI only)
+### Step 8h: krd-release-plan (step key: `krd_rpa`, RHOAI only)
 
 **Execute if** `krd_rpa` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
 
-> **VPN must be active.**
+> **VPN needed.**
 
 ```bash
 OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_krd_rpa.sh" --jira-url "$JIRA_URL")
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `mr_raised`, MR URL recorded, label `krd-rpa-mr-raised` added). Set `NEW_PRS_RAISED="true"`.
-- Exit 2: already present or ODH (skipped). Script updated `pipeline_state.json`. Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Same Exits as other steps.
 
 ### Step 8i: update-rhoai-product-listing (step key: `product_listing`, RHOAI only)
 
