@@ -21,6 +21,8 @@ from pathlib import Path
 # when multiple skills have their own _setup_env.py (e.g., in test conftest).
 _HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("_setup_env", _HERE / "_setup_env.py")
+if _spec is None or _spec.loader is None:
+    raise RuntimeError(f"Cannot load _setup_env.py from {_HERE}. File may be missing.")
 _setup_env = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_setup_env)
 _setup_env.bootstrap_env()
@@ -48,8 +50,8 @@ _DEFAULT_FALLBACK = _REFERENCES / "conforma-rule-catalog-full.json"
 
 def load_catalog(path: Path) -> tuple[list[dict], list[dict]]:
     """Load YAML catalog. Returns (violations, false_alerts)."""
-    with open(path) as f:
-        data = yaml.safe_load(f)
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
     return data.get("violations", []), data.get("known_false_alerts", [])
 
 
@@ -57,7 +59,7 @@ def load_fallback(path: Path) -> list[dict]:
     """Load JSON fallback catalog. Returns empty list if file is missing."""
     if not path.is_file():
         return []
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
