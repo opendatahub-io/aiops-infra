@@ -24,7 +24,7 @@ If not authenticated, follow the **gitlab-auth** skill.
 2. **Clone the catalog repo** (one-time, updates via `git pull`):
 
 ```bash
-python3 scripts/component_catalog_ops.py ensure-repo
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" ensure-repo
 ```
 
 This clones `data-hub/component-maturity` to `~/.conforma/component-maturity/`. On subsequent runs it does `git pull --ff-only` to refresh data.
@@ -37,10 +37,10 @@ Map one or more Konflux component names (with version suffixes like `-v3-5-ea-1`
 
 ```bash
 # Single component
-python3 scripts/component_catalog_ops.py resolve --component odh-dashboard-v3-5-ea-1
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" resolve --component odh-dashboard-v3-5-ea-1
 
 # Multiple components
-python3 scripts/component_catalog_ops.py resolve --components odh-dashboard-v3-5-ea-1,odh-vllm-cpu-v3-5-ea-1,rhoai-fbc-fragment-v3-5
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" resolve --components odh-dashboard-v3-5-ea-1,odh-vllm-cpu-v3-5-ea-1,rhoai-fbc-fragment-v3-5
 ```
 
 Output is a JSON dict mapping each Konflux name to its Jira Component (or `null` if unmapped).
@@ -48,7 +48,7 @@ Output is a JSON dict mapping each Konflux name to its Jira Component (or `null`
 ### List all component-to-Jira mappings
 
 ```bash
-python3 scripts/component_catalog_ops.py list
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" list
 ```
 
 Groups all mapped image names under their Jira Component.
@@ -87,7 +87,7 @@ The JSON reference files in the catalog repo are updated by upstream CI. To get 
 cd ~/.conforma/component-maturity && git pull
 ```
 
-Or re-run `python3 scripts/component_catalog_ops.py ensure-repo`, which does `git pull` automatically if the repo is already cloned.
+Or re-run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" ensure-repo`, which does `git pull` automatically if the repo is already cloned.
 
 ### Audit Jira Component fields on existing tickets
 
@@ -95,13 +95,13 @@ Scan all RHOAIENG tickets created by conforma skills and verify/fix their Jira C
 
 ```bash
 # Audit: show what would change
-python3 scripts/component_catalog_ops.py audit-jira-components
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" audit-jira-components
 
 # Fix: update Jira tickets with resolved components
-python3 scripts/component_catalog_ops.py audit-jira-components --fix
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" audit-jira-components --fix
 
 # Custom JQL filter
-python3 scripts/component_catalog_ops.py audit-jira-components \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" audit-jira-components \
   --jql 'project = RHOAIENG AND labels = "conforma-exception-ai-skill" AND component = DevOps'
 ```
 

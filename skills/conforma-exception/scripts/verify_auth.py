@@ -8,7 +8,7 @@ All workflows require both acli (Jira) and glab (GitLab) since all workflows
 create at least a RHOAIENG ticket and a GitLab MR.
 
 Can be run standalone for debugging:
-    python3 scripts/verify_auth.py
+    python3 skills/conforma-exception/scripts/verify_auth.py
 """
 
 from __future__ import annotations

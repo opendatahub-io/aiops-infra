@@ -13,6 +13,7 @@
 #   violations[].classification.typical_owner: component_team | devops | konflux_team
 #   violations[].classification.estimated_effort: low | medium | high
 #   violations[].classification.requires_rebuild: bool
+#   violations[].triage_note: short context-aware "first thing to check" for RHOAI (optional)
 #   known_false_alerts[].action: ignore
 
 source_url: "https://docs.google.com/document/d/1LsHzcZ2TAIIc4slqAdMnDBovYa2EzgOD8bWx-QXR8kM/"
@@ -22,6 +23,10 @@ violations:
   - id: hermetic_task.hermetic
     type: conforma_violation
     title: "Build task was not invoked with the hermetic parameter set"
+    triage_note: >-
+      Check if hermetic=true is set in the component's PipelineRun YAML in
+      konflux-central. If missing, add it and enable prefetch-dependencies
+      for all package managers used by the build. Requires a rebuild.
     description: >-
       All container images built by Internal Red Hat Konflux are required to be
       built in Hermetic environment. The 'hermetic' parameter of PipelineRun spec
@@ -59,6 +64,10 @@ violations:
   - id: trusted_task.trusted.unpinned_reference
     type: conforma_violation
     title: "Task XXXX is used by pipeline task YYYY via an unpinned reference"
+    triage_note: >-
+      A task reference in konflux-central is using a branch (e.g. 'main')
+      instead of a pinned commit SHA. Pin it to a specific SHA and rebuild.
+      Renovate should handle this automatically — check for unmerged Renovate PRs.
     description: >-
       A Konflux task container image used during build was not pinned to a
       specific tag. For example, 'main' branch was used instead of a commit
@@ -85,6 +94,10 @@ violations:
   - id: trusted_task.trusted.not_built_by_trusted
     type: conforma_violation
     title: "Image not built by a trusted task"
+    triage_note: >-
+      The Konflux task bundle SHAs are stale. Check for unmerged Renovate PRs
+      in konflux-central for the affected RHOAI version branch. If the SHA is
+      already up-to-date, just rebuild the component — don't bump the version tag.
     description: >-
       The Konflux task bundle container images used to build the component are
       outdated. Updating Konflux task bundle references is automatic for
@@ -117,6 +130,9 @@ violations:
   - id: trusted_task.trusted.missing_buildah
     type: conforma_violation
     title: "One of buildah/buildah-remote/buildah-oci-ta/buildah-remote-oci-ta tasks is missing"
+    triage_note: >-
+      Same root cause as 'not built by a trusted task' — stale task bundle SHA.
+      Update the SHA in konflux-central (check Renovate PRs first) and rebuild.
     description: >-
       Most likely caused by an outdated Konflux container image reference.
       The procedure to fix is the same as for 'not built by a trusted task'.
@@ -140,6 +156,10 @@ violations:
   - id: trusted_task.trusted.untrusted_version
     type: conforma_violation
     title: "Untrusted version of PipelineTask included in the build chain"
+    triage_note: >-
+      The error message tells you exactly which task and which SHA to update to.
+      Apply that SHA in konflux-central and rebuild. Usually means Renovate
+      bumped the SHA but the component wasn't rebuilt yet.
     description: >-
       The error message itself specifies which task needs updating and provides
       the target SHA. Update the mentioned task's container image reference
@@ -164,6 +184,9 @@ violations:
   - id: no_conforma_report_in_slack
     type: operational_issue
     title: "No Conforma report/notification in Slack"
+    triage_note: >-
+      Check the conforma-reporter GitHub Action for recent failures. This is
+      an infrastructure issue, not a policy violation — no exception needed.
     description: >-
       There may be problems with running the conforma-reporter GitHub Action.
       This is NOT a conforma policy violation but an infrastructure issue that
@@ -189,6 +212,11 @@ violations:
   - id: fbc_fips_check_missing
     type: conforma_violation
     title: "One of fbc-fips-check/fbc-fips-check-oci-ta tasks is missing"
+    triage_note: >-
+      For RHOAI, FIPS checks are skipped on on-push Konflux pipelines because
+      they take 3-4h. Confirm the FIPS task is running on the nightly
+      (on-schedule) pipeline instead. If this is from a nightly report,
+      then investigate.
     description: >-
       This error appears for FBC fragment conforma check. The FIPS check normally
       runs as part of the rhoai-fbc-fragment build but takes 3-4 hours on recent
@@ -218,6 +246,11 @@ violations:
   - id: rpm_signature.allowed
     type: conforma_violation
     title: "Signing key is not one of the allowed keys"
+    triage_note: >-
+      Check the 3rd-party packages spreadsheet first — there may already be an
+      existing exception or work item for this signing key. If the RPM is
+      available from a Red Hat repo (RH AIPCC, RHAIIS), switch to that source.
+      Exception is last resort and requires a legal agreement with the vendor.
     description: >-
       Only software meeting these criteria can be part of RHOAI: (1) software
       built by Red Hat (signed by key 199e2f91fd431d51), (2) software from
@@ -260,6 +293,11 @@ violations:
   - id: rpm_packages.unique_version
     type: conforma_violation
     title: "Mismatched versions of RPM found across different arches"
+    triage_note: >-
+      Try rebuilding the component first — this often happens when an RPM
+      was updated mid-build window and different arches picked up different
+      versions. If it persists after rebuild, the Dockerfile likely has
+      arch-conditional logic that needs fixing by the component team.
     description: >-
       This violation appears for container images built for multiple CPU
       architectures. It means one arch has a different version of an RPM
@@ -291,6 +329,11 @@ violations:
   - id: rpm_repo_id_check
     type: conforma_violation
     title: "RPM repo id check failed: unknown or disallowed repository_id"
+    triage_note: >-
+      The repo file (e.g. ubi.repo) uses arch-agnostic names like
+      'ubi-9-baseos-rpms' instead of arch-specific ones like
+      'ubi-9-for-x86_64-baseos-rpms'. Fix the repo file and rebuild
+      rpms.lock.yaml. Component team fix.
     description: >-
       Repository IDs used in the component's Dockerfile must include the
       architecture in their name (e.g., ubi-9-for-x86_64-baseos-rpms
@@ -324,6 +367,11 @@ violations:
   - id: tasks.required_untrusted_task_found
     type: conforma_violation
     title: "Task is or will be unsupported -- upgrade to a newer version"
+    triage_note: >-
+      Check for unmerged Renovate PRs in konflux-central for the affected
+      RHOAI version branch. If the PR exists and the digest is recent, merge
+      it. Then rebuild the affected components — they are NOT automatically
+      rebuilt when SHAs change in konflux-central.
     description: >-
       The component was built with a task that is (or will be) outdated/expired.
       Renovate is configured to automatically bump digests to the newest SHA for
@@ -355,6 +403,12 @@ violations:
   - id: test.no_failed_tests.fbc_fips_check_erred
     type: conforma_violation
     title: "The Task fbc-fips-check-oci-ta from the build Pipeline reports a test erred"
+    triage_note: >-
+      For RHOAI, FIPS checks only run on nightly (on-schedule) Konflux
+      pipelines — they take 3-4h so they're skipped on push builds. If this
+      is from a push build, it can be ignored. If from a nightly build,
+      download the fbc-fips-check-oci-ta log and filter out known false
+      positives to find the real errors.
     description: >-
       FIPS check task reported an error. Need to investigate the detailed logs
       from the rhoai-fbc-fragment build in Konflux (not the conforma run).
@@ -387,6 +441,10 @@ violations:
   - id: version_label_mismatch
     type: operational_issue
     title: "Version label X does not match expected Y"
+    triage_note: >-
+      Rebuild the component in Konflux — this publishes the image with the
+      correct version label. Usually happens when the version was bumped
+      but the component wasn't rebuilt.
     description: >-
       The conforma-reporter GitHub workflow checks if all container images on
       quay.io have the correct Version label before creating a snapshot. If
@@ -409,6 +467,11 @@ violations:
   - id: test.no_failed_tests.fbc_target_index_pruning
     type: conforma_violation
     title: "The Task fbc-target-index-pruning-check reports a failed test"
+    triage_note: >-
+      Usually caused by a channel reset (e.g. beta channel). Check with
+      Rishab Prasad to confirm. If confirmed, add image refs (skopeo inspect
+      per OCP version) to the self-service FBC exception file on GitLab —
+      DevOps has direct merge access.
     description: >-
       The conforma report doesn't give details of the failed test itself.
       Need to check the rhoai-fbc-fragment build logs in Konflux. Often
@@ -445,6 +508,11 @@ violations:
   - id: builtin.attestation.signature_check
     type: conforma_violation
     title: "No image attestations found matching the given public key"
+    triage_note: >-
+      Check the PipelineRun annotation 'chains.tekton.dev/signed' — if
+      'failed', Tekton Chains couldn't push the attestation. Most common
+      cause: extra or incorrect secrets on the build-pipeline service account.
+      A rebuild usually fixes it.
     description: >-
       The Conforma engine verifies that every container image has a signed
       SLSA Provenance attestation (.att OCI artifact) that matches the expected
@@ -495,6 +563,11 @@ violations:
   - id: builtin.attestation.syntax_check
     type: conforma_violation
     title: "Attestation syntax check failed"
+    triage_note: >-
+      The attestation exists but is malformed. Check the Tekton Chains
+      controller version — this is usually a Chains bug, not a component
+      issue. Rebuild the component; if it persists, escalate to the
+      Konflux team.
     description: >-
       The Conforma engine verifies that the attestation attached to the image
       has valid in-toto SLSA Provenance format. This is a built-in check that
@@ -526,6 +599,10 @@ violations:
   - id: builtin.image.signature_check
     type: conforma_violation
     title: "Image signature check failed"
+    triage_note: >-
+      Check for a .sig tag on quay.io for this image digest. If missing,
+      Tekton Chains failed to sign — check 'chains.tekton.dev/signed'
+      annotation on the PipelineRun. A rebuild usually resolves it.
     description: >-
       The Conforma engine verifies that the container image itself has a valid
       cosign signature (.sig OCI artifact) matching the expected public key.
@@ -565,6 +642,10 @@ violations:
   - id: prefetch_dependencies.mode_not_permissive
     type: conforma_violation
     title: "Prefetch-dependencies mode is permissive"
+    triage_note: >-
+      Remove or change the 'permissive' mode setting in the prefetch-dependencies
+      task parameters in the PipelineRun YAML (konflux-central or .tekton/).
+      Quick fix, requires rebuild.
     description: >-
       The prefetch-dependencies task mode should not be set to 'permissive'.
       Change it to a secure value in the PipelineRun YAML.
@@ -590,6 +671,9 @@ violations:
   - id: prefetch_dependencies.package_registry_proxy_enabled
     type: conforma_violation
     title: "Package registry proxy not enabled"
+    triage_note: >-
+      Set enable-package-registry-proxy=true in the prefetch-dependencies
+      task parameters in the PipelineRun YAML. Quick fix, requires rebuild.
     description: >-
       The prefetch-dependencies task should have the package registry proxy
       enabled for secure dependency resolution.

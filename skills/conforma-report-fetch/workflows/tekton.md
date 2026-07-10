@@ -79,6 +79,30 @@ The raw EC JSON report is written to `/tmp/` (path recorded in `raw_report_path`
 
 When the user asks to fetch a Conforma report from a PipelineRun:
 
+**Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
+
+0. **Resolve aiops-infra root (REQUIRED before any script)**: Run with Bash description: `"Resolve aiops-infra repository root and create run context"`:
+
+```bash
+_ROOT="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+[ -z "$_ROOT" ] && _ROOT="$HOME/.local/share/aiops-infra"
+[ -f "$_ROOT/pyproject.toml" ] || { echo "ERROR: aiops-infra repo not found at $_ROOT. Set AIOPS_INFRA_ROOT or clone to ~/.local/share/aiops-infra"; exit 1; }
+_RUNDIR="$HOME/.conforma/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$_RUNDIR"
+cat > "$_RUNDIR/context.yaml" << EOF
+aiops_infra_root: $_ROOT
+run:
+  created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+  run_dir: ${_RUNDIR/#$HOME/\~}
+steps: {}
+EOF
+ln -sfn "$_RUNDIR" "$HOME/.conforma/.conforma-active"
+echo "aiops_infra_root=$_ROOT"
+echo "run_dir=$_RUNDIR"
+```
+
+   If the output path does not contain a `pyproject.toml`, stop and instruct the user to set `AIOPS_INFRA_ROOT` or clone the repo to `~/.local/share/aiops-infra`.
+
 1. **Get the PipelineRun name** from the user. They typically copy this from the Konflux UI.
 
 2. **Run the fetch script**:

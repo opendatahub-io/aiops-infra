@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+from _repo_root import REPO_ROOT as _REPO_ROOT
 WORK_DIR = Path(os.environ.get("CONFORMA_WORKDIR", "")) if os.environ.get("CONFORMA_WORKDIR") else Path.home() / ".conforma"
 EC_BINARY_DIR = WORK_DIR / "bin"
 EC_BINARY_PATH = EC_BINARY_DIR / "ec"

@@ -17,10 +17,12 @@ This skill is part of the conforma suite in [aiops-infra](https://github.com/ope
 
 ## Prerequisites
 
-**Always run the unified prerequisite check first:**
+**Step 0 — Resolve repo root**: Before running any script, ensure `context.yaml` exists with `aiops_infra_root` by running the Step 0 block from the workflow. All `python3` commands below use `$_R` as the repo root prefix, resolved from `context.yaml`.
+
+**Always run the unified prerequisite check first**:
 
 ```bash
-python3 scripts/verify_conforma_prerequisites.py --fix
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix
 ```
 
 Only the `github` check is required for this skill. Other checks (GitLab, Jira, Slack) are not needed.
@@ -31,14 +33,14 @@ Only the `github` check is required for this skill. Other checks (GitLab, Jira, 
 
 When the user asks about reporter status, tooling health, or workflow status:
 
-1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py --format markdown`. Only github auth is required -- other failures can be ignored for this skill.
+1. **Prerequisites check**: Run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --format markdown`. Only github auth is required -- other failures can be ignored for this skill.
 
 2. **Resolve release**: If the user provided a release, use it directly. Otherwise ask which release to check.
 
 3. **Check tooling health**:
 
 ```bash
-python3 skills/conforma-tooling-health/scripts/check_tooling_health.py \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-tooling-health/scripts/check_tooling_health.py" \
   --release "$RELEASE" \
   --output "$RUNDIR/tooling-health.json"
 ```

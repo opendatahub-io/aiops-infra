@@ -800,6 +800,9 @@ def check_violations_coverage(
             "coverage_label": coverage_label,
             "gate_status": gate["status"],
             "analyzed_release": analyzed_release,
+            "descriptions": info.get("descriptions", []),
+            "solution": info.get("solution", ""),
+            "messages": info.get("messages", []),
         }
         if require_slack:
             entry["open_slack_threads"] = slack_threads
@@ -969,6 +972,16 @@ def main() -> int:
         release = conforma_context_ops.get(run_dir, "application.release", None)
 
     clone_dir = args.clone_dir
+    if clone_dir is None and run_dir:
+        candidate = Path(conforma_context_ops.discover_work_dir()) / "konflux-release-data"
+        if candidate.exists():
+            clone_dir = str(candidate)
+
+    metadata_file = args.metadata_file
+    if metadata_file is None and run_dir:
+        candidate = Path(run_dir) / "fetch-metadata.json"
+        if candidate.exists():
+            metadata_file = str(candidate)
 
     pf: list[str] | None = None
     ssf: list[str] | None = None
@@ -1000,7 +1013,7 @@ def main() -> int:
         environment=environment,
         require_jira=args.require_jira,
         require_slack=args.require_slack,
-        metadata_file=args.metadata_file,
+        metadata_file=metadata_file,
         release=release,
         csv_path=csv_path,
         self_service_files=ssf,

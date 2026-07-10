@@ -268,6 +268,10 @@ def main() -> int:
         return 1
 
     metadata_file = args.metadata_file
+    if metadata_file is None and run_dir:
+        candidate = Path(run_dir) / "fetch-metadata.json"
+        if candidate.exists():
+            metadata_file = str(candidate)
 
     result = submit_resolution_guide(
         guide_file=guide_file,

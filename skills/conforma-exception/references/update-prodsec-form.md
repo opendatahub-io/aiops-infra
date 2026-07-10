@@ -24,7 +24,7 @@ The source must contain the raw `FB_PUBLIC_LOAD_DATA_` JavaScript variable.
 ### 2. Run Discovery
 
 ```bash
-python3 skills/conforma-exception/scripts/fill_prodsec_form.py \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/fill_prodsec_form.py" \
   --discover /path/to/prodsec-form-2026.html \
   --output skills/conforma-exception/scripts/prodsec_form_config.yaml
 ```
@@ -72,7 +72,7 @@ form_url: "https://docs.google.com/forms/d/e/NEW_FORM_ID/viewform"
 ### 5. Validate
 
 ```bash
-python3 skills/conforma-exception/scripts/fill_prodsec_form.py --validate-config
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/fill_prodsec_form.py" --validate-config
 ```
 
 This checks for staleness, unmapped required fields, and missing form URL.
@@ -80,7 +80,7 @@ This checks for staleness, unmapped required fields, and missing form URL.
 ### 6. Test
 
 ```bash
-python3 skills/conforma-exception/scripts/fill_prodsec_form.py --generate \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/fill_prodsec_form.py" --generate \
   --rule hermetic_task.hermetic \
   --components "odh-mlflow-v3-3" \
   --rhoai-version rhoai-3.3 \

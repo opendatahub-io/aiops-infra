@@ -4,7 +4,7 @@
 Produces a ship/no-ship verdict with detailed breakdown.
 
 Usage:
-    python3 scripts/check_readiness.py \\
+    python3 skills/conforma-release-readiness/scripts/check_readiness.py \\
       --release rhoai-3.5 \\
       --violations-input ~/.conforma/conforma-analyze.yaml
 """
@@ -18,9 +18,7 @@ from pathlib import Path
 
 import yaml
 
-_REPO_SCRIPTS = str(Path(__file__).resolve().parent.parent.parent.parent / "scripts")
-if _REPO_SCRIPTS not in sys.path:
-    sys.path.insert(0, _REPO_SCRIPTS)
+import _setup_env  # noqa: F401
 
 import conforma_context_ops  # noqa: E402
 
@@ -34,7 +32,7 @@ def load_violations(violations_path: Path) -> dict:
 def load_exceptions(clone_dir: Path, environment: str) -> list[dict]:
     """Load active exceptions from a konflux-release-data clone."""
     # Reuse manage_exceptions scanning
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "conforma-exception" / "scripts"))
+    sys.path.insert(0, str(_setup_env.REPO_ROOT / "skills" / "conforma-exception" / "scripts"))
     try:
         from manage_exceptions import annotate_expiry, scan_all_exceptions
 

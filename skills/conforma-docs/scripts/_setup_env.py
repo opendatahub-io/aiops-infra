@@ -1,12 +1,11 @@
-"""Auto-bootstrap for conforma-tooling-health skill scripts.
+"""Auto-bootstrap for conforma-docs skill scripts.
 
 Adds the repo-root ``scripts/`` directory to ``sys.path`` so that shared
-modules (``github_ops``) can be imported directly.
+modules can be imported directly.
 
 Import this module at the top of any skill script that needs shared ops::
 
     import _setup_env  # noqa: F401  (side-effect import)
-    import github_ops
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ _BOOTSTRAPPED = False
 def _find_repo_root() -> Path:
     """Walk up from this file to find the repository root.
 
-    Path from this file: scripts/ -> conforma-tooling-health/ -> skills/ -> <repo>/
+    Path from this file: scripts/ -> conforma-docs/ -> skills/ -> <repo>/
     """
     here = Path(__file__).resolve().parent
     candidate = here.parent.parent.parent

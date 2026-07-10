@@ -12,21 +12,21 @@ Search Slack for messages mentioning conforma violation rules from the last 30 d
 ## Usage
 
 ```
-python3 scripts/conforma_slack_ops.py search-threads --rules <rule1,rule2> [--components <comp1,comp2>]
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_slack_ops.py" search-threads --rules <rule1,rule2> [--components <comp1,comp2>]
 ```
 
 ## Examples
 
 ```bash
-python3 scripts/conforma_slack_ops.py search-threads --rules trusted_task.trusted
-python3 scripts/conforma_slack_ops.py search-threads \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_slack_ops.py" search-threads --rules trusted_task.trusted
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_slack_ops.py" search-threads \
   --rules "rpm_signature.allowed:8a3872bf3228467c" \
   --components odh-spark-operator-v3-4,odh-vllm-cpu-v3-4
 ```
 
 ## Prerequisites
 
-- Slack auth: `python3 scripts/slack_ops.py verify-auth`
+- Slack auth: `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/slack_ops.py" verify-auth`
 
 ## Output
 

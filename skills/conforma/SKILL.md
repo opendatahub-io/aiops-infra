@@ -50,6 +50,8 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 
 3. **Violations-first philosophy.** When a user mentions a violation, always start with `conforma-analyze` to understand the current state before suggesting exception creation. If the violation is fixable at the code level (consult [`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml) for classification), route to `conforma-remedy` first. Exceptions are a last resort.
 
+3a. **Triage note first.** When a user asks "why do I see violation X?" or "what does violation X mean?", check the `triage_note` field in the violation catalog entry. If present, **lead with the triage note** — it provides the most common RHOAI-specific context and often answers the question without the full runbook. Only expand into full fix steps if the user asks for more detail.
+
 4. **Auth issues take priority.** If the user reports an auth error or a skill fails with an auth-related error, route to the appropriate auth skill first.
 
 5. **Ambiguous queries.** If the user's intent matches multiple skills equally, ask them to clarify. Example: "I need help with conforma" could mean analyze, exception, or docs.

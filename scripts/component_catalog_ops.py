@@ -21,15 +21,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-_scripts_dir = str(Path(__file__).resolve().parent)
-if _scripts_dir not in sys.path:
-    sys.path.insert(0, _scripts_dir)
+from _repo_root import REPO_ROOT as _REPO_ROOT  # noqa: E402
 
 import konflux_environment  # noqa: E402
 
 konflux_environment.load()
-
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CLONE_DIR = (
     Path(os.environ.get("CONFORMA_WORKDIR", "")) / "component-maturity"
     if os.environ.get("CONFORMA_WORKDIR")

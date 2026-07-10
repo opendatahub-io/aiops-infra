@@ -65,13 +65,31 @@ rules:
     detail_label: null
 
   builtin.attestation.signature_check:
-    detail_label: null
+    detail_label: "error"
+    extraction:
+      field: "message"
+      pattern: "Error:\\s*([^:]+)"
+      group: 1
 
   builtin.attestation.syntax_check:
     detail_label: null
 
   builtin.image.signature_check:
     detail_label: null
+
+  tasks.required_tasks_found:
+    detail_label: "missing task"
+    extraction:
+      field: "message"
+      pattern: "\"([^\"]+)\""
+      group: 1
+
+  tasks.successful_pipeline_tasks:
+    detail_label: "task name"
+    extraction:
+      field: "full_violation_code_suffix"
+      pattern: "^(.+)$"
+      group: 1
 
   test.no_failed_tests:
     detail_label: "task name"

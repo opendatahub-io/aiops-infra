@@ -28,7 +28,7 @@ Installing any app into the Red Hat Internal Slack workspace requires RH Slack a
 ## Quick Verification
 
 ```bash
-python3 scripts/slack_ops.py verify-auth
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/slack_ops.py" verify-auth
 ```
 
 This checks:
@@ -105,7 +105,7 @@ SLACK_WORKSPACE_URL=https://redhat-internal.slack.com
 ### 4. Verify
 
 ```bash
-python3 scripts/slack_ops.py verify-auth
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/slack_ops.py" verify-auth
 ```
 
 ## Agent Workflow for Slack Auth
@@ -129,7 +129,7 @@ When the agent detects that Slack auth is missing or expired, follow this exact 
 5. **Import and verify**:
    ```bash
    slackdump workspace import ~/.conforma/.slack-secrets && rm -f ~/.conforma/.slack-secrets
-   python3 scripts/slack_ops.py verify-auth
+   _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/slack_ops.py" verify-auth
    ```
 
 **NEVER** skip steps, and **NEVER** ask the user to paste credentials in the chat.

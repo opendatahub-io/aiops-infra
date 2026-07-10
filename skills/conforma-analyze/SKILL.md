@@ -47,10 +47,12 @@ When presenting violation data — whether standalone or when handing off to the
 
 **Output presentation:** Read and follow [`skills/references/script-output-presentation.md`](../references/script-output-presentation.md) — all script output must be presented verbatim using the format rules defined there.
 
-**Always run the unified prerequisite check first:**
+**Step 0 — Resolve repo root**: Before running any script, ensure `context.yaml` exists with `aiops_infra_root` by running the Step 0 block from the workflow (see `workflows/full-analysis.md`). All `python3` commands below use `$_R` as the repo root prefix, resolved from `context.yaml`.
+
+**Always run the unified prerequisite check first**:
 
 ```bash
-python3 scripts/verify_conforma_prerequisites.py --fix
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix
 ```
 
 This single command verifies:
@@ -67,7 +69,7 @@ This single command verifies:
 **Component-maturity catalog** (required for Jira Component enrichment): The parse step enriches every component with its owning Jira Component from the component-maturity catalog. This requires VPN and GitLab auth. The parse script will clone/refresh the catalog automatically and fail hard if the catalog is unreachable:
 
 ```bash
-python3 scripts/component_catalog_ops.py ensure-repo
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" ensure-repo
 ```
 
 ## Remote Data Access Policy

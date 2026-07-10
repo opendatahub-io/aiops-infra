@@ -46,7 +46,7 @@ Many teams also run Conforma verification on a recurring schedule (e.g. daily) v
 
 ## Your Environment
 
-The specific infrastructure details — which Konflux cluster, which GitLab instance hosts `konflux-release-data`, which reporter workflow to use — are **auto-discovered** from your GitLab host and Konflux tenant name. This keeps the skills portable across products and teams. Run `python3 scripts/verify_conforma_prerequisites.py --fix` to check your setup. If auto-discovery doesn't work, add the required variables to `~/.conforma/.env` manually.
+The specific infrastructure details — which Konflux cluster, which GitLab instance hosts `konflux-release-data`, which reporter workflow to use — are **auto-discovered** from your GitLab host and Konflux tenant name. This keeps the skills portable across products and teams. Run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix` to check your setup. If auto-discovery doesn't work, add the required variables to `~/.conforma/.env` manually.
 
 ## Key Concepts
 

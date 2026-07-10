@@ -149,38 +149,10 @@ def get_semantic_catalog() -> dict:
     return _SEMANTIC_CATALOG
 
 
-def extract_semantic_detail(
-    code: str,
-    message: str,
-    full_violation_code: str,
-    catalog: dict | None = None,
+def _apply_extraction(
+    extraction: dict, message: str, full_violation_code: str
 ) -> str:
-    """Extract the semantic detail that defines a unique violation.
-
-    The semantic detail is the actionable root cause (e.g., a repo ID, an
-    attribute name, a package name). It is extracted using the rule-specific
-    config in the violation-detail-extractors.yaml catalog.
-
-    A violation = (violation_code + component + semantic_detail).
-    """
-    if catalog is None:
-        catalog = get_semantic_catalog()
-
-    rules = catalog.get("rules", {})
-    entry = rules.get(code)
-    if entry is None:
-        entry = catalog.get("_default")
-    if entry is None:
-        suffix = full_violation_code.split(":", 1)[1] if ":" in full_violation_code else ""
-        return suffix
-
-    if entry.get("detail_label") is None:
-        return ""
-
-    extraction = entry.get("extraction")
-    if extraction is None:
-        return ""
-
+    """Apply a single extraction config and return the extracted detail."""
     field = extraction.get("field", "")
     pattern_str = extraction.get("pattern", "")
     group = extraction.get("group", 1)
@@ -207,6 +179,53 @@ def extract_semantic_detail(
         return result
 
     return match.group(group) if match.lastindex and group <= match.lastindex else match.group(0)
+
+
+def extract_semantic_detail(
+    code: str,
+    message: str,
+    full_violation_code: str,
+    catalog: dict | None = None,
+) -> str:
+    """Extract the semantic detail that defines a unique violation.
+
+    The semantic detail is the actionable root cause (e.g., a repo ID, an
+    attribute name, a package name). It is extracted using the rule-specific
+    config in the violation-detail-extractors.yaml catalog.
+
+    For uncataloged codes (not in the catalog's ``rules`` section), the
+    configured extraction is tried first (typically full_violation_code suffix
+    via ``_default``).  When that yields nothing, the raw ``message`` is used
+    as the semantic detail so that new violation codes surface their details
+    automatically without manual catalog entries.
+
+    A violation = (violation_code + component + semantic_detail).
+    """
+    if catalog is None:
+        catalog = get_semantic_catalog()
+
+    rules = catalog.get("rules", {})
+    entry = rules.get(code)
+    is_cataloged = entry is not None
+    if not is_cataloged:
+        entry = catalog.get("_default")
+    if entry is None:
+        suffix = full_violation_code.split(":", 1)[1] if ":" in full_violation_code else ""
+        return suffix or message
+
+    if entry.get("detail_label") is None:
+        return ""
+
+    extraction = entry.get("extraction")
+    if extraction is None:
+        return message if not is_cataloged else ""
+
+    result = _apply_extraction(extraction, message, full_violation_code)
+
+    if not result and not is_cataloged:
+        return message
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -537,21 +556,57 @@ def build_violations_index(
                 "releases": defaultdict(set),
                 "seen_violations": set(),
                 "csv_row_count": 0,
+                "descriptions": set(),
+                "solution": "",
+                "messages": set(),
             }
         by_code[code]["csv_row_count"] += 1
         by_code[code]["seen_violations"].add((code, component, rec.get("semantic_detail", "")))
         by_code[code]["releases"][release].add(component)
+        desc = rec.get("description", "")
+        if desc:
+            by_code[code]["descriptions"].add(desc)
+        if not by_code[code]["solution"] and rec.get("solution"):
+            by_code[code]["solution"] = rec["solution"]
+        msg = rec.get("message", "")
+        if msg:
+            by_code[code]["messages"].add(msg)
         records_by_code[code].append(rec)
 
         by_component[component]["rules"].add(code)
         by_component[component]["releases"].add(release)
 
     rules_config = catalog.get("rules", {})
+    default_detail_label = catalog.get("_default", {}).get("detail_label")
+
+    # Auto-suppress uniform details for uncataloged codes: when every record
+    # for a code has the same non-empty semantic_detail that came from the
+    # message fallback, suppress it to avoid redundant display.  Details
+    # derived from the full_violation_code suffix are always meaningful
+    # (policy-matching identifiers) and must NOT be suppressed.
+    for code, recs in records_by_code.items():
+        if code in rules_config:
+            continue
+        unique_details = {r.get("semantic_detail", "") for r in recs}
+        if len(unique_details) == 1 and unique_details != {""}:
+            has_suffix = any(":" in r.get("full_violation_code", "") for r in recs)
+            if has_suffix:
+                continue
+            for r in recs:
+                r["semantic_detail"] = ""
+            by_code[code]["seen_violations"] = {
+                (code, r["component_name"], "") for r in recs
+            }
+
     violations_by_rule = {}
     for code, info in sorted(by_code.items()):
         detail_label = None
         if code in rules_config:
             detail_label = rules_config[code].get("detail_label")
+        else:
+            has_details = any(r.get("semantic_detail", "") for r in records_by_code[code])
+            if has_details and default_detail_label is not None:
+                detail_label = default_detail_label
 
         rule_entry = {
             "title": info["title"],
@@ -560,6 +615,9 @@ def build_violations_index(
             "csv_row_count": info["csv_row_count"],
             "releases": {},
             "semantic_violations": _build_semantic_violations(records_by_code[code], catalog),
+            "descriptions": sorted(info["descriptions"]),
+            "solution": info["solution"],
+            "messages": sorted(info["messages"]),
         }
         if detail_label is not None:
             rule_entry["detail_label"] = detail_label

@@ -41,3 +41,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: check-path-references
+        name: no broken path references
+        entry: python tests/check_path_references.py
+        language: system
+        pass_filenames: false
+        always_run: true

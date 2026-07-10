@@ -788,6 +788,10 @@ def main() -> int:
         release = conforma_context_ops.get(run_dir, "application.release", None)
 
     metadata_file = args.metadata_file
+    if metadata_file is None and run_dir:
+        candidate = Path(run_dir) / "fetch-metadata.json"
+        if candidate.exists():
+            metadata_file = str(candidate)
 
     component_owners: dict[str, str | None] = {}
     if violations_yaml_path:

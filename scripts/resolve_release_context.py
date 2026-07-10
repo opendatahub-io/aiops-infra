@@ -269,8 +269,11 @@ def _format_resolved(
         f"| **Cluster domain** | {cluster_text} |",
         f"| **Tenant** | {tenant} |",
         f"| **Conforma policy dir** | {policy_dir_text} |",
-        f"| **Environment** | {environment} |",
     ]
+    if policy_file_links:
+        files_cell = " · ".join(policy_file_links)
+        lines.append(f"| **Policy files** | {files_cell} |")
+    lines.append(f"| **Environment** | {environment} |")
     if code_freeze_date and upcoming_release_date and code_freeze_date > upcoming_release_date:
         lines.append(f"| **Code freeze ({version_label})** | Already passed (next code freeze {code_freeze_date} is for a future release) |")
     elif code_freeze_date:
@@ -283,9 +286,10 @@ def _format_resolved(
         lines.append(f"| **Upcoming release date ({version_label})** | {upcoming_release_date} —{upcoming_source_text} verify on [Product Pages]({product_pages_url}) |")
     eos_source_text = f" based on {eos_source}," if eos_source else ""
     lines.append(f"| **End of Support ({version_label})** | {eos_text} —{eos_source_text} verify on [Product Pages]({product_pages_url}) |")
-    if policy_file_links:
-        files_cell = " · ".join(policy_file_links)
-        lines.append(f"| **Policy files** | {files_cell} |")
+    lines.append(
+        "| **RHOAI Conforma doc** | [Conforma for RHOAI](https://docs.google.com/document/d/1LsHzcZ2TAIIc4slqAdMnDBovYa2EzgOD8bWx-QXR8kM/edit?tab=t.0#heading=h.5j6svfi94fr3)"
+        " — reference only, superseded by conforma-* AI skills |"
+    )
     lines.extend([
         "",
         "*Source: GitLab tree (konflux-release-data, main branch)*",
@@ -588,22 +592,7 @@ def main() -> int:
         result = resolve(args.query, environment_override=args.environment)
 
     if result.get("status") == "resolved":
-        if args.output_dir:
-            base_dir = Path(args.output_dir)
-        else:
-            base_dir = conforma_context_ops.discover_work_dir()
-
-        existing_context = base_dir / "context.yaml"
-        if existing_context.is_file():
-            rundir = str(base_dir)
-            print(f"Reusing existing run directory: {rundir}", file=sys.stderr)
-        else:
-            rundir = create_rundir(str(base_dir))
-            print(f"Run directory created: {rundir}", file=sys.stderr)
-
-        rundir_path = Path(rundir)
-
-        context_initial = {
+        context_data = {
             "application": {
                 "name": "rhoai",
                 "version": result["version_dir"].lstrip("v"),
@@ -627,10 +616,42 @@ def main() -> int:
             },
         }
 
-        conforma_context_ops.create(rundir_path, context_initial)
-        conforma_context_ops.set_active(rundir_path)
+        # Check if Step 0 already created a minimal context.yaml (has
+        # aiops_infra_root but no application key yet) — merge into it
+        # rather than creating a new run directory.
+        merge_mode = False
+        try:
+            active_run_dir = conforma_context_ops.discover_run_dir()
+            existing = conforma_context_ops.load(active_run_dir)
+            if "aiops_infra_root" in existing and "application" not in existing:
+                merge_mode = True
+        except (FileNotFoundError, KeyError):
+            pass
 
-        result["rundir"] = rundir
+        if merge_mode:
+            rundir_path = active_run_dir
+            for key, value in context_data.items():
+                conforma_context_ops.put(rundir_path, key, value)
+            print(f"Enriched existing run directory: {rundir_path}", file=sys.stderr)
+        else:
+            if args.output_dir:
+                base_dir = Path(args.output_dir)
+            else:
+                base_dir = conforma_context_ops.discover_work_dir()
+
+            existing_context = base_dir / "context.yaml"
+            if existing_context.is_file():
+                rundir = str(base_dir)
+                print(f"Reusing existing run directory: {rundir}", file=sys.stderr)
+            else:
+                rundir = create_rundir(str(base_dir))
+                print(f"Run directory created: {rundir}", file=sys.stderr)
+
+            rundir_path = Path(rundir)
+            conforma_context_ops.create(rundir_path, context_data)
+            conforma_context_ops.set_active(rundir_path)
+
+        result["rundir"] = str(rundir_path)
 
     json.dump(result, sys.stdout, indent=2)
     print()

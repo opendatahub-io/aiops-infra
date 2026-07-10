@@ -12,16 +12,16 @@ Search the konflux-release-data policy files for existing conforma exceptions ma
 ## Usage
 
 ```
-python3 scripts/conforma_policy_ops.py search-exceptions --rule <rule> --policy-files <file1,file2> [--clone-dir ~/.conforma/konflux-release-data]
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_policy_ops.py" search-exceptions --rule <rule> --policy-files <file1,file2> [--clone-dir ~/.conforma/konflux-release-data]
 ```
 
 ## Examples
 
 ```bash
-python3 scripts/conforma_policy_ops.py search-exceptions \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_policy_ops.py" search-exceptions \
   --rule hermetic_task.hermetic \
   --policy-files registry-rhoai-prod.yaml,fbc-rhoai-prod.yaml
-python3 scripts/conforma_policy_ops.py search-exceptions \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_policy_ops.py" search-exceptions \
   --rule "rpm_signature.allowed:9386b48a1a693c5c" \
   --policy-files registry-rhoai-prod.yaml \
   --clone-dir ~/.conforma/konflux-release-data

@@ -473,6 +473,10 @@ def main() -> int:
         executive_summary_file = str(Path(run_dir) / "executive-summary.md")
 
     analysis_output_file = args.analysis_output_file
+    if analysis_output_file is None and run_dir:
+        candidate = Path(run_dir) / "conforma-analysis.md"
+        if candidate.exists():
+            analysis_output_file = str(candidate)
 
     tooling_health_json = args.tooling_health_json
     if tooling_health_json is None and context and run_dir:
@@ -492,9 +496,15 @@ def main() -> int:
     upcoming_release_date = args.upcoming_release_date
     code_freeze_date = args.code_freeze_date
 
-    if args.metadata_file:
+    metadata_file = args.metadata_file
+    if metadata_file is None and run_dir:
+        candidate = Path(run_dir) / "fetch-metadata.json"
+        if candidate.exists():
+            metadata_file = str(candidate)
+
+    if metadata_file:
         try:
-            metadata = json.loads(Path(args.metadata_file).read_text(encoding="utf-8"))
+            metadata = json.loads(Path(metadata_file).read_text(encoding="utf-8"))
             release_meta = metadata.get("releases", {}).get(release, {})
             if not source_path:
                 source_path = release_meta.get("source_path", "")

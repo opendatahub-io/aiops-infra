@@ -62,7 +62,8 @@ Check the `known_false_alerts` section of the catalog. If the violation matches 
 
 ### 3. Present the fix
 
-From the matching catalog entry, present:
+From the matching catalog entry, present **in this order**:
+- **Triage note** (if present) — the `triage_note` field is a short, context-aware "first thing to check" for RHOAI. **Always lead with this** — it answers the most common question ("why am I seeing this?") before diving into the full runbook. If the triage note fully answers the user's question, you can stop there and offer to show full details on request.
 - **Title and description** — what the violation means
 - **Classification** — who typically owns this (`typical_owner`), effort level, whether a rebuild is needed
 - **Fix steps** — the ordered `fix_steps` from the catalog, including references/links

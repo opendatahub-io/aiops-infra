@@ -14,17 +14,55 @@ When the user asks to show violations, analyze violations, fetch conforma report
 
 If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), extract the release branch from the URL path (the segment after `/blob/` and before the next `/`) and pass it to the fetch script via `--releases`. Example: from the URL above, extract `rhoai-3.4` and run with `--releases rhoai-3.4`.
 
+### Display-before-question rule (HARD REQUIREMENT)
+
+**Whenever a step produces a `display` field AND a `user_question`, the agent MUST render the `display` content verbatim as markdown in the response text BEFORE calling AskQuestion.** Tool results are agent context and are NOT visible to the user — the user only sees text the agent writes in its response. If the agent calls AskQuestion without first rendering the `display` content, the user sees a question with no context. This is a hard failure.
+
+The sequence is always: (1) render `display` as markdown → (2) call AskQuestion. Never combine these into the same tool-call batch — the display text must appear in the response before the question.
+
 ### AskQuestion rule
 
 **Every AskQuestion call MUST use `question_text` and `question_options` from script JSON output verbatim.** Never compose question text in the agent — if a script does not output these fields, fix the script. This ensures questions are self-contained and readable in the Claude Code CLI permission dialog without requiring the user to expand collapsed output.
 
 **Bash description rule**: Every Bash tool call MUST use the exact description string specified in each step (e.g. `"Check Conforma prerequisites: GitHub, GitLab, Jira, Slack auth"`). The description appears in the Claude Code CLI permission dialog before the command runs — it must be informative enough to understand without expanding collapsed output.
 
+### Auto-continue on routine confirmations
+
+Do not prompt the user for confirmation on:
+1. **Optional prerequisite failures** (e.g. Slack auth) — show the prerequisites summary, then continue automatically.
+2. **Release context resolution** — show the resolved release info, then continue automatically.
+
+Still prompt for genuinely ambiguous situations (e.g. multiple candidate releases returned by `--list`).
+
 ### Steps
 
-**Important**: Steps 1–10 use shared variables set in step 2: `$RUNDIR` (timestamped run directory), `$RELEASE` (release branch), and `$ENVIRONMENT` (`stage` or `prod`). All intermediate outputs live in `$RUNDIR`.
+**Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
 
-1. **Prerequisites check**: Run `python3 scripts/verify_conforma_prerequisites.py --format json` with Bash description: `"Check Conforma prerequisites: GitHub, GitLab, Jira, Slack auth"`. Parse the JSON output object. If exit code is non-zero, **stop immediately** — render the `display` field directly (not in a code block) and do not proceed. Do NOT interpret, reformat, or summarize — the script output is self-explanatory. The user must fix failures before the workflow can continue.
+**Important**: Step 0 creates a `context.yaml` file in a timestamped run directory under `~/.conforma/` and sets it as the active run via a `.conforma-active` symlink. Step 2 enriches this context with release and environment data. All subsequent scripts auto-discover the active run directory and read `release`, `environment`, output paths, and intermediate results from `context.yaml`. **Do NOT pass `--release`, `--environment`, `--run-dir`, or output paths as CLI arguments** — the scripts resolve them automatically. Only pass arguments that represent behavioral choices not stored in context.yaml (e.g. `--format markdown`, `--require-slack false`, `--dry-run`).
+
+0. **Resolve aiops-infra root (REQUIRED before any script)**: Run with Bash description: `"Resolve aiops-infra repository root and create run context"`:
+
+```bash
+_ROOT="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+[ -z "$_ROOT" ] && _ROOT="$HOME/.local/share/aiops-infra"
+[ -f "$_ROOT/pyproject.toml" ] || { echo "ERROR: aiops-infra repo not found at $_ROOT. Set AIOPS_INFRA_ROOT or clone to ~/.local/share/aiops-infra"; exit 1; }
+_RUNDIR="$HOME/.conforma/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$_RUNDIR"
+cat > "$_RUNDIR/context.yaml" << EOF
+aiops_infra_root: $_ROOT
+run:
+  created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+  run_dir: ${_RUNDIR/#$HOME/\~}
+steps: {}
+EOF
+ln -sfn "$_RUNDIR" "$HOME/.conforma/.conforma-active"
+echo "aiops_infra_root=$_ROOT"
+echo "run_dir=$_RUNDIR"
+```
+
+   If the output path does not contain a `pyproject.toml`, stop and instruct the user to set `AIOPS_INFRA_ROOT` or clone the repo to `~/.local/share/aiops-infra`.
+
+1. **Prerequisites check**: Run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --format json` with Bash description: `"Check Conforma prerequisites: GitHub, GitLab, Jira, Slack auth"`. Parse the JSON output object. If exit code is non-zero, **stop immediately** — render the `display` field directly (not in a code block) and do not proceed. Do NOT interpret, reformat, or summarize — the script output is self-explanatory. The user must fix failures before the workflow can continue.
 
    **Slack is optional.** If exit code is 0 and the JSON contains a `user_question` key: render the `display` field directly, then use AskQuestion with `user_question.question_text` and `user_question.question_options` verbatim. If the user chooses "No, set up Slack first", follow the `slack-auth` skill. Otherwise continue — pass `--require-slack false` to `violations_coverage.py` in step 6.
 
@@ -32,20 +70,20 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
 
    ```bash
    # Without explicit environment (defaults to prod):
-   python3 scripts/resolve_release_context.py --query "<extracted_release_text>" --output-dir ~/.conforma
+   _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/resolve_release_context.py" --query "<extracted_release_text>" --output-dir ~/.conforma
 
    # With explicit environment (stage or prod):
-   python3 scripts/resolve_release_context.py --query "<extracted_release_text>" --environment stage --output-dir ~/.conforma
+   _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/resolve_release_context.py" --query "<extracted_release_text>" --environment stage --output-dir ~/.conforma
    ```
 
    Parse the JSON output. Present the `confirmation_display` field **verbatim as markdown** (NOT in a code block) so that embedded links are clickable.
 
    Then act on the `status` field:
-   - **`"resolved"`**: Use AskQuestion with `question_text` and `question_options` from the resolved JSON verbatim. On "Yes", set: `RELEASE=<.release>`, `KONFLUX_APP=<.konflux_app>`, `RUNDIR=<.rundir>`, `ENVIRONMENT=<.environment>`. The script has already created the run directory and saved `context.yaml` inside it.
+   - **`"resolved"`**: Use AskQuestion with `question_text` and `question_options` from the resolved JSON verbatim. On "Yes", proceed to step 3. The script has already created the run directory, saved `context.yaml` inside it, and set the `.conforma-active` symlink — all downstream scripts auto-discover these.
 
      **Upcoming release date (HARD REQUIREMENT):** Check the `upcoming_release_date` field in the resolved JSON. If it is `null` or missing, the workflow **MUST NOT proceed**. Ask the user to provide the upcoming release date manually (YYYY-MM-DD format). Once provided, update `context.yaml` by running:
      ```bash
-     python3 scripts/conforma_context_ops.py put resolve.upcoming_release_date "<YYYY-MM-DD>" --run-dir "$RUNDIR"
+     _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_context_ops.py" put resolve.upcoming_release_date "<YYYY-MM-DD>"
      ```
      Downstream steps will read it from `context.yaml` automatically.
    - **`"ambiguous"`**: Use AskQuestion with the numbered candidates from `candidates[]`. After the user selects, re-run with `--query "<selected_version_dir>" --output-dir ~/.conforma` to get a "resolved" result.
@@ -54,102 +92,76 @@ If the user provides a GitHub URL to a specific report (e.g. `https://github.com
    If the user did not mention any release and you cannot extract one from their query, use `--list` to show available versions and ask the user to pick:
 
    ```bash
-   python3 scripts/resolve_release_context.py --list
+   _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/resolve_release_context.py" --list
    ```
 
-3. **Check tooling health**: Before fetching reports, check the health of conforma infrastructure tools. The `$RUNDIR` was already created by step 2. Run the health check with Bash description: `"Check conforma-reporter workflow health for $RELEASE"`. **Always pass `--environment`** with the environment from step 2 (`stage` or `prod`):
+3. **Check tooling health**: Before fetching reports, check the health of conforma infrastructure tools. Run the health check with Bash description: `"Check conforma-reporter workflow health"`:
 
 ```bash
-python3 skills/conforma-tooling-health/scripts/check_tooling_health.py \
-  --release "$RELEASE" \
-  --environment "$ENVIRONMENT" \
-  --output "$RUNDIR/tooling-health.json"
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-tooling-health/scripts/check_tooling_health.py"
 ```
+
+   The script reads release, environment, and output path from `context.yaml` automatically.
 
    Parse the JSON output and act on `overall_health`. For **all non-healthy states**, first render the `display` field from the JSON **as markdown** (not in a code block) — this shows a table with clickable links to the latest run and last success so the user can investigate before answering. Then act on the status:
 
    - **`"healthy"`** -- proceed silently to step 4 (fetch reports).
    - **`"unhealthy"` or `"error"`** -- render the `display` field as markdown, then use AskQuestion with `question_text` and `question_options` from the tooling health JSON verbatim. Only proceed to step 4 if the user confirms.
-   - **`"in_progress"`** -- render the `display` field as markdown, then use AskQuestion with `question_text` and `question_options` from the tooling health JSON verbatim. If the user chooses to wait, monitor the run using `python3 scripts/run_github_workflow.py monitor --repo-url https://github.com/red-hat-data-services/conforma-reporter --run-id RUN_ID --timeout 60 --poll-interval 60`, then re-run `check_tooling_health.py` to refresh status. If the run fails after waiting, fall back to the unhealthy prompt.
+   - **`"in_progress"`** -- render the `display` field as markdown, then use AskQuestion with `question_text` and `question_options` from the tooling health JSON verbatim. If the user chooses to wait, monitor the run using `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/run_github_workflow.py" monitor --repo-url https://github.com/red-hat-data-services/conforma-reporter --run-id RUN_ID --timeout 60 --poll-interval 60`, then re-run the tooling health check. If the run fails after waiting, fall back to the unhealthy prompt.
    - **`"no_runs"`** -- render the `display` field as markdown, warn ("No conforma-reporter runs found for this branch -- report may not exist") and proceed.
 
-   The `$RUNDIR` variable from step 2 is used by ALL subsequent steps — never change it mid-workflow.
-
-4. **Fetch reports**: Fetch CSVs into the run directory created in step 3. **Always pass `--releases $RELEASE`** and **`--environment $ENVIRONMENT`** to scope the fetch to the target release and environment from step 2. Use Bash description: `"Fetch Conforma violation CSV reports for $RELEASE"`:
+4. **Fetch reports**: Fetch CSVs into the active run directory. Use Bash description: `"Fetch Conforma violation CSV reports"`:
 
 ```bash
-python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
-  --releases "$RELEASE" \
-  --environment "$ENVIRONMENT" \
-  --output-dir "$RUNDIR" \
-  --metadata-file "$RUNDIR/fetch-metadata.json"
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py"
 ```
 
-   To fetch multiple specific releases (e.g. for cross-release comparison):
+   The script reads release, environment, output directory, and metadata file path from `context.yaml` automatically.
+
+   To fetch multiple specific releases (e.g. for cross-release comparison), pass `--releases` explicitly:
 
 ```bash
-python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
-  --releases rhoai-2.25,rhoai-3.4 \
-  --environment "$ENVIRONMENT" \
-  --output-dir "$RUNDIR" \
-  --metadata-file "$RUNDIR/fetch-metadata.json"
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" \
+  --releases rhoai-2.25,rhoai-3.4
 ```
 
    To fetch ALL supported releases (rare — only for full-portfolio audits):
 
 ```bash
-python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
-  --all \
-  --environment "$ENVIRONMENT" \
-  --output-dir "$RUNDIR" \
-  --metadata-file "$RUNDIR/fetch-metadata.json"
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" --all
 ```
 
-   The output directory will contain `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release. The `fetch-metadata.json` contains `source_path` and `created_at` per release — needed by steps 8-9. Some in-development/EA branches may not have report CSVs yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
+   The output directory will contain `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release. The `fetch-metadata.json` contains `source_path` and `created_at` per release — needed by downstream steps. Some in-development/EA branches may not have report CSVs yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
 
-5. **Parse violations and warnings**: Run on the **same timestamped directory from step 3** to produce the structured YAML. Use Bash description: `"Parse Conforma violations and warnings for $RELEASE"`. **Always pass `--release $RELEASE`** and **`--environment $ENVIRONMENT`** to ensure only the target release's CSVs are parsed and correct report URLs are generated. **Warnings CSVs are parsed by default** — any warning with an enforcement date within 21 days is included as a warning becoming a violation. The parse step also **enriches each component with its owning Jira Component** from the component-maturity catalog (requires VPN + GitLab auth). If the catalog is unreachable, the script fails hard — ensure VPN is active:
+5. **Parse violations and warnings**: Parse the fetched CSVs into a structured YAML. Use Bash description: `"Parse Conforma violations and warnings"`. **Warnings CSVs are parsed by default** — any warning with an enforcement date within 21 days is included as a warning becoming a violation. The parse step also **enriches each component with its owning Jira Component** from the component-maturity catalog (requires VPN + GitLab auth). If the catalog is unreachable, the script fails hard — ensure VPN is active:
 
 ```bash
-python3 skills/conforma-analyze/scripts/parse_violations.py \
-  --reports-dir ~/.conforma/20260604-123000 \
-  --release "$RELEASE" \
-  --environment "$ENVIRONMENT" \
-  --output ~/.conforma/20260604-123000/violations.yaml
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/parse_violations.py"
 ```
+
+   The script reads release, environment, reports directory, and output path from `context.yaml` automatically.
 
    To customize the enforcement threshold:
 
 ```bash
-python3 skills/conforma-analyze/scripts/parse_violations.py \
-  --reports-dir ~/.conforma/20260604-123000 \
-  --environment "$ENVIRONMENT" \
-  --output ~/.conforma/20260604-123000/violations.yaml \
-  --upcoming-threshold-days 14
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/parse_violations.py" --upcoming-threshold-days 14
 ```
 
    For CI/testing only (no catalog enrichment):
 
 ```bash
-python3 skills/conforma-analyze/scripts/parse_violations.py \
-  --reports-dir ~/.conforma/20260604-123000 \
-  --environment "$ENVIRONMENT" \
-  --output ~/.conforma/20260604-123000/violations.yaml \
-  --no-catalog
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/parse_violations.py" --no-catalog
 ```
 
-6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations for $RELEASE"`. Run the CSV analysis script on the **run directory created by step 3** (printed in its stderr output). Never use `~/.conforma/latest` — always use the specific timestamped directory to avoid analyzing stale data. Pass `--violations-yaml` for ownership, `--metadata-file` and `--release` for the report header and staleness check. **Save the output to a file** — do NOT present the analysis in the chat (the executive summary in step 9 covers the key data; the full analysis is linked as a detailed document):
+6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations"`. **Save the output to a file** — do NOT present the analysis in the chat (the executive summary in step 9 covers the key data; the full analysis is linked as a detailed document):
 
 ```bash
-python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
-  --reports-dir "$RUNDIR" \
-  --violations-yaml "$RUNDIR/violations.yaml" \
-  --metadata-file "$RUNDIR/fetch-metadata.json" \
-  --release "$RELEASE" \
-  --format markdown \
-  --output "$RUNDIR/conforma-analysis.md"
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/analyze_csv_report.py" --format markdown
 ```
 
-   The script automatically prepends a report header (source CSV URL + generation date) and a staleness warning (if the report is >3 days old) when `--metadata-file` is provided.
+   The script reads reports directory, violations YAML, metadata file, release, and output path from `context.yaml` automatically. The only required CLI arg is `--format markdown` (default is `text`).
+
+   The script automatically prepends a report header (source CSV URL + generation date) and a staleness warning (if the report is >3 days old).
 
    The analysis covers:
    - Totals and breakdown by violation code (count, %, affected components)
@@ -157,11 +169,11 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
    - Per-component violation patterns (code combinations)
    - **Warnings becoming violations** — policies nearing their enforcement date (within 21 days by default)
    - Prioritized remediation recommendations with resolution %
-   - **Jira Component ownership** — when `--violations-yaml` is provided, component names are annotated with their owning Jira Component (e.g. `odh-vllm-rhel9 (vLLM)`)
+   - **Jira Component ownership** — component names are annotated with their owning Jira Component (e.g. `odh-vllm-rhel9 (vLLM)`)
 
-   **No chat output from this step.** The analysis is saved to `$RUNDIR/conforma-analysis.md` and linked in the executive summary (step 9).
+   **No chat output from this step.** The analysis is saved to the run directory and linked in the executive summary (step 9).
 
-7. **Cross-reference with exceptions, open Merge Requests, open Jira, and Slack**: Use Bash description: `"Cross-reference violations with exceptions, Merge Requests, Jira, Slack for $RELEASE"`. After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open Merge Requests (classified as *exception* or *remedy*), open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
+7. **Cross-reference with exceptions, open Merge Requests, open Jira, and Slack**: Use Bash description: `"Cross-reference violations with exceptions, Merge Requests, Jira, Slack"`. After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open Merge Requests (classified as *exception* or *remedy*), open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
 
    **Target version checking (HARDCODED — always performed)**: Every Jira ticket found is automatically classified by its `fixVersion` relevance to the currently-analyzed release. Tickets are annotated as:
    - (no annotation) — fixVersion targets the currently analyzed release
@@ -172,60 +184,34 @@ python3 skills/conforma-analyze/scripts/analyze_csv_report.py \
 
    All required auth (GitLab, Jira) was already verified in step 1. Slack is optional — if not configured, pass `--require-slack false`.
 
-   The script manages the `~/.conforma/konflux-release-data` clone (fresh fetch + reset). It enforces the repo clone policy: it will `git fetch` any existing `--clone-dir` and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
-
-   **Save the output to a JSON file** for use by the resolution guide generator (step 8):
+   The script reads violations YAML, CSV path, release, environment, clone directory, metadata file, and output path from `context.yaml` automatically. The script manages the `~/.conforma/konflux-release-data` clone (fresh fetch + reset). It enforces the repo clone policy: it will `git fetch` any existing clone and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
 
 ```bash
 # With Slack (when configured):
-python3 skills/conforma-analyze/scripts/violations_coverage.py \
-  --violations-yaml "$RUNDIR/violations.yaml" \
-  --csv "$RUNDIR/$RELEASE.csv" \
-  --clone-dir ~/.conforma/konflux-release-data \
-  --environment "$ENVIRONMENT" \
-  --release "$RELEASE" \
-  --metadata-file "$RUNDIR/fetch-metadata.json" \
-  --output "$RUNDIR/coverage.json"
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violations_coverage.py"
 
 # Without Slack (when not configured):
-python3 skills/conforma-analyze/scripts/violations_coverage.py \
-  --violations-yaml "$RUNDIR/violations.yaml" \
-  --csv "$RUNDIR/$RELEASE.csv" \
-  --clone-dir ~/.conforma/konflux-release-data \
-  --environment "$ENVIRONMENT" \
-  --release "$RELEASE" \
-  --require-slack false \
-  --metadata-file "$RUNDIR/fetch-metadata.json" \
-  --output "$RUNDIR/coverage.json"
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violations_coverage.py" --require-slack false
 ```
 
-   Pass the violations YAML from step 4 as input. The coverage table is the primary deliverable; the statistical breakdown from step 5 can be presented as supplementary detail below it.
-
-   The coverage table is included in the executive summary (step 9). If needed separately, use the Read tool on `$RUNDIR/coverage.json` and extract the `markdown_table` field — render it directly as markdown (not in a code block).
+   The coverage table is the primary deliverable and is included in the executive summary (step 9). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
 
 8. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **executive summary** is presented in the chat — the full guide is linked as a detailed document. See step 9 for the generation command and presentation rules.
 
-9. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide for $RELEASE"`. Run the resolution guide generator on the intermediate outputs from steps 3-7. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis. **Pass `--executive-summary-file`** to also generate a compact summary for chat display, and **`--analysis-output-file`** to link the analysis output from step 6:
+9. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide"`. Run the resolution guide generator on the intermediate outputs from steps 3-7. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
 
 ```bash
-python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
-  --violations-yaml "$RUNDIR/violations.yaml" \
-  --coverage-json "$RUNDIR/coverage.json" \
-  --reports-dir "$RUNDIR" \
-  --release "$RELEASE" \
-  --metadata-file "$RUNDIR/fetch-metadata.json" \
-  --tooling-health-json "$RUNDIR/tooling-health.json" \
-  --output "$RUNDIR/conforma-status-and-resolution-guide.md" \
-  --executive-summary-file "$RUNDIR/executive-summary.md" \
-  --analysis-output-file "$RUNDIR/conforma-analysis.md"
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/generate_resolution_guide.py"
 ```
+
+   The script reads all inputs (violations YAML, coverage JSON, reports directory, release, metadata file, tooling health JSON, analysis output file) and output paths (guide file, executive summary file) from `context.yaml` automatically.
 
    ---
 
    **⛔ HARD FAILURE RULES FOR STEP 9 — READ THESE BEFORE PROCEEDING:**
 
    **RULE 1 — EXECUTIVE SUMMARY ONLY (no full guide in chat):**
-   The agent MUST read `$RUNDIR/executive-summary.md` with the Read tool and then **copy its ENTIRE content verbatim into the response text**. This file contains the metadata header, tooling health warning, key takeaways, summary metrics, and links to the detailed documents. The agent MUST NOT:
+   The agent MUST read `executive-summary.md` from the active run directory (printed by the script) with the Read tool and then **copy its ENTIRE content verbatim into the response text**. This file contains the metadata header, tooling health warning, key takeaways, summary metrics, and links to the detailed documents. The agent MUST NOT:
    - Paste the full resolution guide (`conforma-status-and-resolution-guide.md`) into the chat
    - Paste the full analysis output (`conforma-analysis.md`) into the chat
    - Summarize, paraphrase, or abbreviate the executive summary content
@@ -246,24 +232,18 @@ python3 skills/conforma-analyze/scripts/generate_resolution_guide.py \
 
    ---
 
-10. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 9)*: After the executive summary has been rendered in the previous response, run the submit script in dry-run mode with Bash description: `"Preview submission of resolution guide for $RELEASE (dry run)"`, then use AskQuestion with `question_text` and `question_options` from the dry-run JSON verbatim. Do NOT auto-submit. Only run without `--dry-run` if the user confirms.
+10. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 9)*: After the executive summary has been rendered in the previous response, run the submit script in dry-run mode with Bash description: `"Preview submission of resolution guide (dry run)"`, then use AskQuestion with `question_text` and `question_options` from the dry-run JSON verbatim. Do NOT auto-submit. Only run without `--dry-run` if the user confirms.
 
 ```bash
-python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
-  --guide-file "$RUNDIR/conforma-status-and-resolution-guide.md" \
-  --release "$RELEASE" \
-  --environment "$ENVIRONMENT" \
-  --dry-run
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/submit_resolution_guide.py" --dry-run
 ```
 
-   Use the `question_text` and `question_options` from the dry-run JSON output for AskQuestion verbatim. If the user confirms, run without `--dry-run` and pass `--metadata-file` so the script can automatically clean up any legacy guide from the old `prod/release_day/` location and from the repo root:
+   The script reads guide file path, release, environment, and metadata file from `context.yaml` automatically.
+
+   Use the `question_text` and `question_options` from the dry-run JSON output for AskQuestion verbatim. If the user confirms, run without `--dry-run`:
 
 ```bash
-python3 skills/conforma-analyze/scripts/submit_resolution_guide.py \
-  --guide-file "$RUNDIR/conforma-status-and-resolution-guide.md" \
-  --release "$RELEASE" \
-  --environment "$ENVIRONMENT" \
-  --metadata-file "$RUNDIR/fetch-metadata.json"
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/submit_resolution_guide.py"
 ```
 
    The script commits directly to the release branch. If submission fails (e.g. auth issue, branch protection), report the error but do not treat it as a workflow failure — the local guide file is still the primary deliverable.

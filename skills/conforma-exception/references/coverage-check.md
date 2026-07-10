@@ -6,7 +6,7 @@ This reference is the canonical source for the coverage check workflow. It is us
 
 ## Prerequisites
 
-All auth is verified upfront by `python3 scripts/verify_conforma_prerequisites.py` (conforma-analyze workflow step 1). If that passed, the coverage check has everything it needs:
+All auth is verified upfront by `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py`" (conforma-analyze workflow step 1). If that passed, the coverage check has everything it needs:
 
 - Violations parsed into a YAML file via `parse_violations.py` (steps 1–4)
 - GitLab auth (token in `~/.conforma/.env`, VPN active)
@@ -29,7 +29,7 @@ No manual clone management is needed — just pass `--clone-dir ~/.conforma/konf
 ## Running the Coverage Check
 
 ```bash
-python3 skills/conforma-analyze/scripts/violations_coverage.py \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violations_coverage.py" \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir ~/.conforma/konflux-release-data \
   --environment prod > "$RUNDIR/coverage.json"

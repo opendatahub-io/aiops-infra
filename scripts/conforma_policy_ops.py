@@ -12,7 +12,7 @@ from pathlib import Path
 
 import conforma_mr_ops
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+from _repo_root import REPO_ROOT as _REPO_ROOT
 WORK_DIR = (
     Path(os.environ.get("CONFORMA_WORKDIR", ""))
     if os.environ.get("CONFORMA_WORKDIR")

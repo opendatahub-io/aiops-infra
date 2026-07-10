@@ -30,7 +30,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+from _repo_root import REPO_ROOT as _REPO_ROOT
 DOTENV_PATH = Path.home() / ".conforma" / ".env"
 
 REQUIRED_VARS: list[str] = ["GITLAB_HOST", "KONFLUX_CLUSTER_DOMAIN"]

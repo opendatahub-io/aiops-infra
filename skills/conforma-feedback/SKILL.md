@@ -16,7 +16,7 @@ Report bugs, enhancement requests, or general feedback about Conforma skills by 
 - `git` available on PATH
 - Current working directory must be inside a git repository
 
-Verify with: `python3 scripts/verify_conforma_prerequisites.py --fix`
+Verify with: `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix`
 
 ## Workflow
 
@@ -86,7 +86,7 @@ Follow these steps **in order**. Each step is deterministic -- do not skip or re
 ### Step 0 -- Detect repository
 
 ```bash
-python3 skills/conforma-feedback/scripts/submit_feedback.py detect
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-feedback/scripts/submit_feedback.py" detect
 ```
 
 Returns `platform`, `repo_path`, `host`. If `platform` is `unknown`, halt and ask the user to clarify.
@@ -95,15 +95,15 @@ Returns `platform`, `repo_path`, `host`. If `platform` is `unknown`, halt and as
 
 Run the platform-appropriate auth verification:
 
-- **GitHub:** `python3 scripts/github_ops.py verify-auth`
-- **GitLab:** `python3 scripts/gitlab_ops.py verify-auth`
+- **GitHub:** `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/github_ops.py" verify-auth`
+- **GitLab:** `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/gitlab_ops.py" verify-auth`
 
 If auth fails, route to the appropriate auth skill (`github-auth` or `gitlab-auth`) and halt.
 
 ### Step 2 -- Issues enabled
 
 ```bash
-python3 skills/conforma-feedback/scripts/submit_feedback.py check-issues \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-feedback/scripts/submit_feedback.py" check-issues \
     --repo-path <repo_path> --platform <platform> [--host <host>]
 ```
 
@@ -125,7 +125,7 @@ Gather information from the user. For each field, **infer the value from convers
 ### Step 4 -- Generate draft
 
 ```bash
-python3 skills/conforma-feedback/scripts/submit_feedback.py gather-context \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-feedback/scripts/submit_feedback.py" gather-context \
     --skill-name "<skill>" \
     --type "<bug|enhancement>" \
     --summary "<one-line summary>" \
@@ -153,7 +153,7 @@ If the user requests edits, update the fields and re-run Step 4. Iterate until c
 ### Step 6 -- Submit
 
 ```bash
-python3 skills/conforma-feedback/scripts/submit_feedback.py submit \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-feedback/scripts/submit_feedback.py" submit \
     --repo-path "<repo_path>" \
     --platform "<platform>" \
     --title "<confirmed title>" \
@@ -260,7 +260,7 @@ Follow these steps **in order**. Steps 0-1 are shared with the interactive workf
 ### Step 2 -- Classify error
 
 ```bash
-python3 skills/conforma-feedback/scripts/submit_feedback.py classify-error \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-feedback/scripts/submit_feedback.py" classify-error \
     --exception-type "FileNotFoundError" \
     --error-message "query.py not found at ~/.conforma/component-maturity/..." \
     --script-path "scripts/component_catalog_ops.py"
@@ -274,7 +274,7 @@ Returns `{"classified": true, "pattern_id": "...", "affected_skill": "...", "sev
 ### Step 3 -- Search for duplicates
 
 ```bash
-python3 skills/conforma-feedback/scripts/submit_feedback.py search-existing \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-feedback/scripts/submit_feedback.py" search-existing \
     --repo-path "<repo_path>" \
     --platform "<platform>" \
     --label infrastructure \
@@ -289,7 +289,7 @@ Returns `{"matches": [...], "total": N}`.
 ### Step 4 -- Generate draft
 
 ```bash
-python3 skills/conforma-feedback/scripts/submit_feedback.py from-error \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-feedback/scripts/submit_feedback.py" from-error \
     --skill-name "<skill>" \
     --workflow-step "<step description>" \
     --script-path "<path/to/script.py>" \

@@ -60,6 +60,9 @@ Follow them in ALL generated content — code, comments, commit messages, docume
 | KONFLUX_TENANT | TENANT | Variable names |
 
 - **Never abbreviate** in user-facing output (chat, reports, docs, comments). Abbreviations are only acceptable in internal variable names, log prefixes, and non-rendered code comments.
+- Always use "`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml" (never "`skills/references/violation-catalog.yaml`](../references/violation-catalog.yaml")
+- Always use "README.md](../README.md" (never "README.md](README.md")
+- Always use "script-output-presentation.md](../../references/script-output-presentation.md" (never "script-output-presentation.md](../references/script-output-presentation.md")
 
 ### Behavior and Workflow
 

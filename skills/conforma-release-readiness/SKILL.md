@@ -39,7 +39,7 @@ When the user asks "can X ship?", "is X ready?", "release readiness for X":
 3. **Run readiness check**:
 
 ```bash
-python3 skills/conforma-release-readiness/scripts/check_readiness.py \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py" \
   --release rhoai-3.5 \
   --violations-input ~/.conforma/conforma-analyze.yaml
 ```
@@ -64,11 +64,11 @@ The readiness check produces:
 **"Can rhoai-3.5 ship?"**
 
 ```bash
-python3 skills/conforma-release-readiness/scripts/check_readiness.py --release rhoai-3.5 --violations-input ~/.conforma/violations.yaml
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py" --release rhoai-3.5 --violations-input ~/.conforma/violations.yaml
 ```
 
 **"Release readiness for 3.4"**
 
 ```bash
-python3 skills/conforma-release-readiness/scripts/check_readiness.py --release rhoai-3.4 --violations-input ~/.conforma/violations.yaml
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py" --release rhoai-3.4 --violations-input ~/.conforma/violations.yaml
 ```

@@ -541,7 +541,7 @@ class TestExtractSemanticDetail:
         )
         assert result == ""
 
-    def test_builtin_attestation_signature_check_returns_empty(self):
+    def test_builtin_attestation_signature_check_extracts_error(self):
         result = parse_violations.extract_semantic_detail(
             "builtin.attestation.signature_check",
             "No image attestations found matching the given public key. "
@@ -549,7 +549,7 @@ class TestExtractSemanticDetail:
             "attestations were created. Error: no matching attestations",
             "builtin.attestation.signature_check",
         )
-        assert result == ""
+        assert result == "no matching attestations"
 
     def test_builtin_attestation_syntax_check_returns_empty(self):
         result = parse_violations.extract_semantic_detail(
@@ -589,6 +589,30 @@ class TestExtractSemanticDetail:
     def test_unknown_code_no_suffix_returns_empty(self):
         result = parse_violations.extract_semantic_detail(
             "unknown_rule.no_suffix", "", "unknown_rule.no_suffix"
+        )
+        assert result == ""
+
+    def test_unknown_code_no_suffix_with_message_returns_message(self):
+        result = parse_violations.extract_semantic_detail(
+            "some.unknown_rule",
+            "Something went wrong with component X",
+            "some.unknown_rule",
+        )
+        assert result == "Something went wrong with component X"
+
+    def test_unknown_code_with_suffix_prefers_suffix(self):
+        result = parse_violations.extract_semantic_detail(
+            "some.unknown_rule",
+            "Something went wrong with component X",
+            "some.unknown_rule:component-x",
+        )
+        assert result == "component-x"
+
+    def test_cataloged_code_no_message_fallback(self):
+        result = parse_violations.extract_semantic_detail(
+            "rpm_repos.ids_known",
+            "message without a matching repository_id pattern",
+            "rpm_repos.ids_known",
         )
         assert result == ""
 
@@ -632,6 +656,85 @@ class TestSemanticViolationsInIndex:
         entry = by_rule["rpm_repos.ids_known"]
         assert entry["count"] == 1
         assert entry["csv_row_count"] == 2
+
+    def test_uniform_message_suppressed_for_uncataloged(self, tmp_path):
+        """Uncataloged code where all rows have the same message: detail suppressed."""
+        csv_file = tmp_path / "rhoai-3.4.csv"
+        csv_file.write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a,img:sha1,"Generic failure message",,new_rule.check,title,desc,sol\n'
+            'violation,comp-b,img:sha2,"Generic failure message",,new_rule.check,title,desc,sol\n'
+        )
+        records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
+
+        by_rule = index["violation_data"]["violations_by_rule"]
+        entry = by_rule["new_rule.check"]
+        assert entry["count"] == 2
+        sem_viols = entry["semantic_violations"]
+        assert len(sem_viols) == 1
+        assert sem_viols[0]["detail"] == ""
+        assert sorted(sem_viols[0]["components"]) == ["comp-a", "comp-b"]
+        assert "detail_label" not in entry
+
+    def test_suffix_derived_detail_not_suppressed_for_uncataloged(self, tmp_path):
+        """Uncataloged code with uniform suffix-derived detail: NOT suppressed."""
+        csv_file = tmp_path / "rhoai-3.4.csv"
+        csv_file.write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a,img:sha1,"Some message",,new_rule.check,title,'
+            '"To exclude this rule add ""new_rule.check:my-suffix"" to the `exclude` section of the policy configuration.",sol\n'
+            'violation,comp-b,img:sha2,"Some message",,new_rule.check,title,'
+            '"To exclude this rule add ""new_rule.check:my-suffix"" to the `exclude` section of the policy configuration.",sol\n'
+        )
+        records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
+
+        by_rule = index["violation_data"]["violations_by_rule"]
+        entry = by_rule["new_rule.check"]
+        sem_viols = entry["semantic_violations"]
+        assert len(sem_viols) == 1
+        assert sem_viols[0]["detail"] == "my-suffix"
+        assert sorted(sem_viols[0]["components"]) == ["comp-a", "comp-b"]
+
+    def test_diverse_messages_preserved_for_uncataloged(self, tmp_path):
+        """Uncataloged code with different messages: details preserved."""
+        csv_file = tmp_path / "rhoai-3.4.csv"
+        csv_file.write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a,img,"Task A is missing",,brand_new.uncataloged_rule,title,desc,sol\n'
+            'violation,comp-b,img,"Task B is missing",,brand_new.uncataloged_rule,title,desc,sol\n'
+        )
+        records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
+
+        by_rule = index["violation_data"]["violations_by_rule"]
+        entry = by_rule["brand_new.uncataloged_rule"]
+        assert entry["count"] == 2
+        sem_viols = entry["semantic_violations"]
+        assert len(sem_viols) == 2
+        details = {sv["detail"] for sv in sem_viols}
+        assert details == {"Task A is missing", "Task B is missing"}
+        assert entry["detail_label"] == "detail"
+
+    def test_detail_label_propagated_for_diverse_uncataloged(self, tmp_path):
+        """Uncataloged code with diverse details gets detail_label from _default."""
+        csv_file = tmp_path / "rhoai-3.4.csv"
+        csv_file.write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a,img,"Missing task X",,brand_new.rule,title,desc,sol\n'
+            'violation,comp-a,img,"Missing task Y",,brand_new.rule,title,desc,sol\n'
+        )
+        records = parse_violations.parse_csv_file(csv_file, "rhoai-3.4")
+        index = parse_violations.build_violations_index(records, ["rhoai-3.4"], "prod")
+
+        by_rule = index["violation_data"]["violations_by_rule"]
+        entry = by_rule["brand_new.rule"]
+        assert entry["detail_label"] == "detail"
+        sem_viols = entry["semantic_violations"]
+        details = {sv["detail"] for sv in sem_viols}
+        assert "Missing task X" in details
+        assert "Missing task Y" in details
 
 
 class TestBuildSemanticDetailLookup:

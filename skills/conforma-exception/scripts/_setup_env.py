@@ -35,6 +35,19 @@ def _find_repo_root() -> Path:
     if (candidate / "pyproject.toml").is_file():
         return candidate
 
+    ctx_path = Path.home() / ".conforma" / ".conforma-active" / "context.yaml"
+    if ctx_path.is_file():
+        try:
+            import yaml as _yaml
+
+            _ctx = _yaml.safe_load(ctx_path.read_text(encoding="utf-8"))
+            if _ctx and "aiops_infra_root" in _ctx:
+                p = Path(os.path.expanduser(str(_ctx["aiops_infra_root"])))
+                if (p / "pyproject.toml").is_file():
+                    return p
+        except Exception:
+            pass
+
     env_root = os.environ.get("AIOPS_INFRA_ROOT")
     if env_root:
         p = Path(env_root)

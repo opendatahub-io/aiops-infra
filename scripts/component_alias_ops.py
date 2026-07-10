@@ -10,7 +10,7 @@ import argparse
 import json
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+from _repo_root import REPO_ROOT as _REPO_ROOT
 DEFAULT_ALIASES_PATH = _REPO_ROOT / "skills" / "references" / "component-aliases.yaml"
 
 

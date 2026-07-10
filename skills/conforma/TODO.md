@@ -48,3 +48,11 @@ Report date: 2026-06-27T04:27:21Z
 Summary: 7 unique violations — 2 fully covered, 1 partially covered, 4 not covered.
 
 the executive summary does a better job 
+
+16. ~~add link to the rhoai conforma doc - https://docs.google.com/document/d/1LsHzcZ2TAIIc4slqAdMnDBovYa2EzgOD8bWx-QXR8kM/edit?tab=t.0#heading=h.5j6svfi94fr3 -  to the 'context confirmation' table in executive summary, make a note that this doc is for reference only and is superseeded by conforma-* AI skills~~ - done
+
+17. ~~ensure all the fields (description, message, solution) from the source conforma csv report are included in the detailed section of the resolution guide, e.g.: under https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.5/prod/conforma-status-and-resolution-guide.md#violation-tasks-successful_pipeline_tasks~~ - done
+
+18. ~~ensure that for codes like "One of "fbc-fips-check","fbc-fips-check-oci-ta","fbc-fips-check-matrix-based-oci-ta" tasks is missing" (content of the message field in the source conforma csv) we don't only show the code (tasks.required_tasks_found) but not the details on what task was missing - ensure the solution is covering all possible variaties of conforma violation codes and the details that should be shown for them, e.g.: in the past we discovered that hermetic type of violation doesn't have or need to show any semantic details, while the failed_tests violation or 'disallowed attribute' have the semantic details in the source report csv and should be shown in the executive summary and resolution guide - we need an implemention of code that (which we already have something for it as far as I remember) that will do a better job at retrieving the semantic details when necessary so the user or developed doesn't have to maintain the list (or file bug reports and improve the conforma skill) of which violation codes need to be accompanies by the semantic details and which not~~ - done
+
+19. remove /home/wznoinsk/dev/opendatahub-io/aiops-infra/.work/site-config.example.yaml and any references to site-config from all conforma* skills

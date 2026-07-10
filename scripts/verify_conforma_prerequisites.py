@@ -32,15 +32,11 @@ import re
 import sys
 from pathlib import Path
 
-_scripts_dir = str(Path(__file__).resolve().parent)
-if _scripts_dir not in sys.path:
-    sys.path.insert(0, _scripts_dir)
+from _repo_root import REPO_ROOT  # noqa: E402
 
 import konflux_environment  # noqa: E402
 
 konflux_environment.load()
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _check_python_deps() -> dict:

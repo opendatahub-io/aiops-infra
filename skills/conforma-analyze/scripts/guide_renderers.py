@@ -153,6 +153,10 @@ def render_metadata_header(
             lines.append(f"| **Conforma policy config** | {file_links} |")
         elif policy_dir_url:
             lines.append(f"| **Conforma policy config** | [policy directory]({policy_dir_url}) |")
+        lines.append(
+            "| **RHOAI Conforma doc** | [Conforma for RHOAI](https://docs.google.com/document/d/1LsHzcZ2TAIIc4slqAdMnDBovYa2EzgOD8bWx-QXR8kM/edit?tab=t.0#heading=h.5j6svfi94fr3)"
+            " — reference only, superseded by conforma-* AI skills |"
+        )
 
     lines.append(f"| **Generated** | {now} |")
     lines.append(f"| **Source CSV** | [{source_path}]({source_url}) |")
@@ -679,6 +683,7 @@ def render_resolution_guide(
             lines.append(" | ".join(search_parts))
             lines.append("")
 
+        render_csv_source_fields(lines, v)
         render_divergence_warning(lines, v)
 
         if coverage == "fully_covered":
@@ -707,6 +712,32 @@ def render_resolution_guide(
         lines.append("")
 
     return "\n".join(lines)
+
+
+def render_csv_source_fields(lines: list[str], violation: dict) -> None:
+    """Render description, message, and solution fields from the source CSV report."""
+    descriptions = violation.get("descriptions", [])
+    solution = violation.get("solution", "")
+    messages = violation.get("messages", [])
+
+    if not descriptions and not solution and not messages:
+        return
+
+    if descriptions:
+        lines.append("**Description** (from source report):")
+        for desc in descriptions:
+            lines.append(f"- {desc}")
+        lines.append("")
+
+    if messages:
+        lines.append("**Message** (from source report):")
+        for msg in messages:
+            lines.append(f"- {msg}")
+        lines.append("")
+
+    if solution:
+        lines.append(f"**Solution** (from source report): {solution}")
+        lines.append("")
 
 
 def render_divergence_warning(lines: list[str], violation: dict) -> None:
@@ -931,6 +962,11 @@ def render_known_false_alerts(
 
 def render_cataloged_violation(lines: list[str], entry: dict, violation: dict) -> None:
     """Render resolution details for a violation with a catalog match."""
+    triage_note = entry.get("triage_note", "")
+    if triage_note:
+        lines.append(f"**Quick context**: {triage_note}")
+        lines.append("")
+
     classification = entry.get("classification", {})
     resolution_path = classification.get("resolution_path", "unknown")
     typical_owner = classification.get("typical_owner", "unknown")
@@ -1149,7 +1185,7 @@ def write_executive_summary(
     the guide file is written (it's not known inside generate_resolution_guide).
     """
     SECTION_SPACER = "\n&nbsp;\n"
-    sections = [metadata_header, key_takeaways, summary_metrics, tooling_health]
+    sections = [metadata_header, key_takeaways, tooling_health, summary_metrics]
     content = SECTION_SPACER.join(s for s in sections if s)
 
     doc_lines = [SECTION_SPACER, "## Detailed Documents", ""]

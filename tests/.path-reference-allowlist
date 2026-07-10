@@ -1,0 +1,5 @@
+# Runtime-generated files that may not exist on disk.
+# One repo-relative path per line. Blank lines and # comments are ignored.
+# These paths are excluded from the broken-reference check in
+# tests/check_path_references.py.
+skills/conforma-exception/scripts/prodsec_form_config.yaml

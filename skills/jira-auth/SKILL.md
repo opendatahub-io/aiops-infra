@@ -18,7 +18,7 @@ Always instruct the user to write tokens to the `~/.conforma/.env` file directly
 ## Quick Verification
 
 ```bash
-python3 scripts/jira_ops.py verify-auth
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/jira_ops.py" verify-auth
 ```
 
 This checks:

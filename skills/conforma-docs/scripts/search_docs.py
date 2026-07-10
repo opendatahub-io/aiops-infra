@@ -7,8 +7,8 @@ Auto-discovers all skills/conforma* directories and indexes:
 - SKILL.md — skill definitions (prose only; frontmatter and code blocks stripped)
 
 Usage:
-    python3 scripts/search_docs.py --query "hermetic build"
-    python3 scripts/search_docs.py --query "rpm signing key" --format json
+    python3 skills/conforma-docs/scripts/search_docs.py --query "hermetic build"
+    python3 skills/conforma-docs/scripts/search_docs.py --query "rpm signing key" --format json
 """
 
 from __future__ import annotations
@@ -21,7 +21,9 @@ from pathlib import Path
 
 import yaml
 
-SKILLS_DIR = Path(__file__).resolve().parent.parent.parent
+import _setup_env  # noqa: F401
+
+SKILLS_DIR = _setup_env.REPO_ROOT / "skills"
 
 
 def _discover_conforma_dirs() -> list[Path]:

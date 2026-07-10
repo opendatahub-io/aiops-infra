@@ -4,7 +4,7 @@
 
 When the user asks about Conforma exception types (e.g. "what are the conforma exception types", "list exception types", "show me conforma violations"), always:
 
-1. Run `python3 skills/conforma-exception/scripts/create_exception.py --list-exception-types` (from this skill directory). This returns JSON with:
+1. Run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" --list-exception-types` (from this skill directory). This returns JSON with:
    - `common`: the 7 most common RHOAI exception types (full details)
    - `common_count`, `non_common_count`, `total_catalog_rules`, `conforma_rules_url`: counts and links for the summary
 
@@ -25,7 +25,7 @@ When the user asks about Conforma exception types (e.g. "what are the conforma e
 
    Then add a brief note suggesting the user can ask to see more details on the remaining templated types or the full list of all supported types if they're interested. Do NOT use the AskQuestion tool here -- just mention it conversationally in the response text.
 
-4. If the user asks to see remaining types, run `python3 skills/conforma-exception/scripts/create_exception.py --list-exception-types --all` and render the `non_common` array plus the `catch_all` entry in the same table format.
+4. If the user asks to see remaining types, run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" --list-exception-types --all` and render the `non_common` array plus the `catch_all` entry in the same table format.
 
 5. If the user asks for the rule reference, read `references/conforma-release-policy-rules.yaml` and display the rules grouped by category heading (the `# ---` comment sections) as a compact table with columns: Rule Code, Name, Docs (link).
 
@@ -40,7 +40,7 @@ When the user asks about Conforma exception types (e.g. "what are the conforma e
 ### Standalone mode (user-provided details)
 
 ```bash
-python3 skills/conforma-exception/scripts/create_exception.py \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" \
   --rhoai-version rhoai-3.3 \
   --rule hermetic_task.hermetic \
   --components odh-mlflow-v3-3,odh-another-v3-3 \
@@ -52,7 +52,7 @@ python3 skills/conforma-exception/scripts/create_exception.py \
 ### With existing Jira tickets
 
 ```bash
-python3 skills/conforma-exception/scripts/create_exception.py \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" \
   --rhoai-version rhoai-3.3 \
   --rule hermetic_task.hermetic \
   --components odh-mlflow-v3-3 \
@@ -67,7 +67,7 @@ python3 skills/conforma-exception/scripts/create_exception.py \
 ### Self-service (auto-detected from rule)
 
 ```bash
-python3 skills/conforma-exception/scripts/create_exception.py \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" \
   --rhoai-version rhoai-3.4 \
   --rule schedule.weekday_restriction \
   --components rhoai-fbc-fragment-v3-4 \
@@ -238,7 +238,7 @@ All created tickets receive the `conforma-exception-ai-skill` and `conforma-viol
 10. **PSX Jira ticket visibility / watchers (MANDATORY)**: PSX tickets are restricted — **watchers are a hard requirement, not optional**. The script always adds the mandatory watchers (Jay Koehler, Lindani Phiri) even if `--watchers` is omitted, but the full team should be included for proper visibility.
 
     The agent MUST follow this flow:
-    1. **Automatically run team discovery** by calling `add_jira_watchers.discover_team()` (or `python3 skills/conforma-exception/scripts/add_jira_watchers.py --tickets <placeholder> --auto-discover --dry-run`) to find the caller's team from Jira groups ≤ 100 members.
+    1. **Automatically run team discovery** by calling `add_jira_watchers.discover_team()` (or `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/add_jira_watchers.py" --tickets <placeholder> --auto-discover --dry-run`) to find the caller's team from Jira groups ≤ 100 members.
     2. **Present the full watcher list** (mandatory watchers + discovered team) to the user for confirmation:
        - "The following people will be added as Additional watchers on the PSX ticket: [full name list]. Confirm?"
        - "Yes, add all"

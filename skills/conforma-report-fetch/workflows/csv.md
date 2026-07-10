@@ -19,8 +19,34 @@ See [README.md](../README.md) for installation and shared prerequisites.
 **Auth check:**
 
 ```bash
-python3 scripts/verify_conforma_prerequisites.py --fix
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix
 ```
+
+### Steps
+
+**Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
+
+0. **Resolve aiops-infra root (REQUIRED before any script)**: Run with Bash description: `"Resolve aiops-infra repository root and create run context"`:
+
+```bash
+_ROOT="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+[ -z "$_ROOT" ] && _ROOT="$HOME/.local/share/aiops-infra"
+[ -f "$_ROOT/pyproject.toml" ] || { echo "ERROR: aiops-infra repo not found at $_ROOT. Set AIOPS_INFRA_ROOT or clone to ~/.local/share/aiops-infra"; exit 1; }
+_RUNDIR="$HOME/.conforma/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$_RUNDIR"
+cat > "$_RUNDIR/context.yaml" << EOF
+aiops_infra_root: $_ROOT
+run:
+  created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+  run_dir: ${_RUNDIR/#$HOME/\~}
+steps: {}
+EOF
+ln -sfn "$_RUNDIR" "$HOME/.conforma/.conforma-active"
+echo "aiops_infra_root=$_ROOT"
+echo "run_dir=$_RUNDIR"
+```
+
+   If the output path does not contain a `pyproject.toml`, stop and instruct the user to set `AIOPS_INFRA_ROOT` or clone the repo to `~/.local/share/aiops-infra`.
 
 ### Data Source
 
@@ -46,21 +72,21 @@ If `release_day` is unavailable (e.g. for in-development versions), the script a
 
 ```bash
 # Auto-detect releases, auto-create ~/.conforma/<timestamp>/:
-python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py"
 
 # Explicit releases:
-python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py --releases rhoai-2.25,rhoai-3.4
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" --releases rhoai-2.25,rhoai-3.4
 
 # Explicit output directory (used by conforma-analyze):
-python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" \
   --releases rhoai-3.4 \
   --output-dir /path/to/output
 
 # Skip fetching warnings CSVs:
-python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py --no-warnings
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" --no-warnings
 
 # Use pre-downloaded CSVs instead of fetching:
-python3 skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" \
   --local-dir /path/to/csvs
 ```
 

@@ -610,6 +610,10 @@ def main() -> int:
         print(f"Metadata written to {args.metadata_file}", file=sys.stderr)
     else:
         print(json_output)
+
+    if run_dir and not args.metadata_file:
+        rundir_metadata = Path(run_dir) / "fetch-metadata.json"
+        rundir_metadata.write_text(json_output + "\n", encoding="utf-8")
     return 1 if failed else 0
 
 

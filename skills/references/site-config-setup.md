@@ -4,7 +4,7 @@ Shared reference for skills that need infrastructure config (GitLab host, Konflu
 
 ## When to Use
 
-Run the prerequisites check (`python3 scripts/verify_conforma_prerequisites.py --fix`) at the start of any skill that needs infrastructure config. If all required variables are already set (from `~/.conforma/.env` or discovery cache), this flow is skipped entirely.
+Run the prerequisites check (`_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix`) at the start of any skill that needs infrastructure config. If all required variables are already set (from `~/.conforma/.env` or discovery cache), this flow is skipped entirely.
 
 ## Setup: Add to ~/.conforma/.env
 
@@ -20,7 +20,7 @@ The setup requires only two values. Everything else is auto-discovered from the 
 2. **Verify discovery** (optional — happens automatically on load):
 
    ```bash
-   python3 scripts/konflux_tenant_env_discovery.py --tenant YOUR_TENANT_NAME --human
+   _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/konflux_tenant_env_discovery.py" --tenant YOUR_TENANT_NAME --human
    ```
 
 3. **If tenant is on multiple clusters**, add `PREFERRED_KONFLUX_CLUSTER` to `~/.conforma/.env`:
@@ -46,12 +46,12 @@ KONFLUX_CLUSTER_DOMAIN=your-cluster-domain
 To debug discovery failures:
 
 ```bash
-python3 scripts/konflux_tenant_env_discovery.py --tenant $TENANT --human
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/konflux_tenant_env_discovery.py" --tenant $TENANT --human
 ```
 
 ## Flow (Agent Behavior on Validation Failures)
 
-1. **Check**: Run `python3 scripts/verify_conforma_prerequisites.py --fix`. Present output verbatim.
+1. **Check**: Run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix`. Present output verbatim.
    - Exit 0: all good, proceed.
    - Exit 1: failures — stop, show output, user must fix.
 

@@ -12,7 +12,7 @@ Verify and troubleshoot GitHub authentication. This skill does not own any scrip
 ## Quick Verification
 
 ```bash
-python3 scripts/github_ops.py verify-auth
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/github_ops.py" verify-auth
 ```
 
 This checks:
