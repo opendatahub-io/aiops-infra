@@ -397,7 +397,18 @@ class TestParseComponentsFromDiffGlobalCoverage:
         result = mod._parse_components_from_diff(diff, "hermetic_task.hermetic")
         assert result == ["comp-a"]
 
-    def test_volatile_with_image_url_is_not_global(self):
+    def test_volatile_with_image_url_resolves_matching_components(self):
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
+        )
+        result = mod._parse_components_from_diff(
+            diff, "hermetic_task.hermetic",
+            requested_components=["odh-dashboard-v3-4", "odh-model-v3-4"],
+        )
+        assert result == ["odh-dashboard-v3-4"]
+
+    def test_volatile_with_image_url_no_requested_returns_empty(self):
         diff = (
             "+          - value: hermetic_task.hermetic\n"
             "+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
@@ -416,14 +427,29 @@ class TestParseComponentsFromDiffGlobalCoverage:
         result = mod._parse_components_from_diff(diff, "hermetic_task.hermetic")
         assert result == ["comp-a"]
 
-    def test_volatile_with_image_url_in_context(self):
+    def test_volatile_with_image_url_in_context_resolves(self):
         """MR adds effectiveUntil but imageUrl pre-exists as context."""
         diff = (
             "+          - value: hermetic_task.hermetic\n"
             "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
             "             imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
         )
-        result = mod._parse_components_from_diff(diff, "hermetic_task.hermetic")
+        result = mod._parse_components_from_diff(
+            diff, "hermetic_task.hermetic",
+            requested_components=["odh-dashboard-v3-4", "odh-modelmesh-v3-4"],
+        )
+        assert result == ["odh-dashboard-v3-4"]
+
+    def test_volatile_with_image_url_no_match(self):
+        """imageUrl doesn't match any requested component."""
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
+        )
+        result = mod._parse_components_from_diff(
+            diff, "hermetic_task.hermetic",
+            requested_components=["odh-model-v3-4", "odh-modelmesh-v3-4"],
+        )
         assert result == []
 
     def test_unrelated_bare_item_not_matched(self):
@@ -849,3 +875,92 @@ class TestExtractEffectiveUntilFromDiff:
             "+            effectiveUntil: '2026-12-31T23:59:59Z'\n"
         )
         assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") == "2026-12-31"
+
+
+# ---------------------------------------------------------------------------
+# imageUrl-scoped coverage at analyze_mr_component_coverage level
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyzeMrImageUrlCoverage:
+    """Tests for imageUrl-scoped exception handling in analyze_mr_component_coverage."""
+
+    def setup_method(self):
+        mod._mr_cache._diffs.clear()
+
+    def test_image_url_covers_matching_components(self):
+        diff = (
+            "+++ b/config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml\n"
+            "+          - value: rpm_signature.allowed:8a3872bf3228467c\n"
+            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
+            "+            imageUrl: quay.io/rhoai/odh-vllm-cpu-rhel9\n"
+        )
+        mod._mr_cache.store(
+            19385,
+            [{"new_path": "config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml", "diff": diff}],
+        )
+        result = mod.analyze_mr_component_coverage(
+            mr_iid=19385,
+            rule="rpm_signature.allowed",
+            requested_components=["odh-vllm-cpu-v3-5-ea-2", "odh-dashboard-v3-4"],
+        )
+        assert result["source"] == "diff"
+        assert result["suggestion"] == "extend_mr"
+        assert result["covered"] == ["odh-vllm-cpu-v3-5-ea-2"]
+        assert result["missing"] == ["odh-dashboard-v3-4"]
+
+    def test_image_url_covers_all_requested(self):
+        diff = (
+            "+++ b/config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml\n"
+            "+          - value: hermetic_task.hermetic\n"
+            "+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
+        )
+        mod._mr_cache.store(
+            300,
+            [{"new_path": "config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml", "diff": diff}],
+        )
+        result = mod.analyze_mr_component_coverage(
+            mr_iid=300,
+            rule="hermetic_task.hermetic",
+            requested_components=["odh-dashboard-v3-4", "odh-dashboard-v3-5"],
+        )
+        assert result["source"] == "diff"
+        assert result["suggestion"] == "fully_covered"
+        assert sorted(result["covered"]) == ["odh-dashboard-v3-4", "odh-dashboard-v3-5"]
+
+
+# ---------------------------------------------------------------------------
+# URL-containing values in rule extraction regexes
+# ---------------------------------------------------------------------------
+
+
+class TestExtractRulesUrlValues:
+    """Tests for _extract_all_rules_from_changes with URL-containing values."""
+
+    def _make_change(self, diff: str, path: str = "EnterpriseContractPolicy/registry.yaml") -> dict:
+        return {"new_path": path, "diff": diff}
+
+    def test_quoted_url_value_captured_fully(self):
+        diff = '+  - value: "sbom_spdx.allowed_package_sources:https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"\n'
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert any(r.startswith("sbom_spdx.allowed_package_sources:https://") for r in result)
+
+    def test_quoted_bare_url_exclusion_captured(self):
+        diff = '+  - "sbom_spdx.allowed_package_sources:https://example.com/pkg.whl"\n'
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert any("sbom_spdx.allowed_package_sources" in r for r in result)
+
+    def test_unquoted_simple_value_still_works(self):
+        diff = "+  - value: hermetic_task.hermetic\n"
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert result == {"hermetic_task.hermetic"}
+
+    def test_unquoted_bare_rule_still_works(self):
+        diff = "+    - rpm_signature.allowed:9386b48a1a693c5c\n"
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert result == {"rpm_signature.allowed:9386b48a1a693c5c"}
+
+    def test_single_quoted_url_value(self):
+        diff = "+  - value: 'sbom_spdx.allowed_package_sources:https://example.com/pkg.whl'\n"
+        result = mod._extract_all_rules_from_changes([self._make_change(diff)])
+        assert any("sbom_spdx.allowed_package_sources:https://example.com/pkg.whl" in r for r in result)

@@ -23,10 +23,25 @@ is classified as an **exception** Merge Request; all others are **remedy**."""
 # Matches a conforma rule code in an added diff line, in two YAML positions:
 #   1. volatile exception:   ``- value: rule.code`` or ``- value: "rule.code"``
 #   2. permanent exclusion:  ``- rule.code``           or ``- "rule.code"``
-# Rule codes always contain at least one dot and consist of lowercase
-# alphanumerics, underscores, dots, colons, and hyphens.
-_RULE_VALUE_RE = re.compile(r'^\+\s+-\s+value:\s+["\']?([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)["\']?', re.MULTILINE)
-_RULE_BARE_RE = re.compile(r'^\+\s+-\s+["\']?([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)["\']?\s*$', re.MULTILINE)
+# Quoted values capture everything between quotes (handles URL-containing
+# suffixes like ``sbom_spdx.allowed_package_sources:https://...``).
+# Unquoted values use a restrictive character class (no ``/``).
+_RULE_VALUE_RE = re.compile(
+    r'^\+\s+-\s+value:\s+(?:'
+    r'"([^"]+)"'
+    r"|'([^']+)'"
+    r'|([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)'
+    r')',
+    re.MULTILINE,
+)
+_RULE_BARE_RE = re.compile(
+    r'^\+\s+-\s+(?:'
+    r'"([^"]+)"'
+    r"|'([^']+)'"
+    r'|([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)'
+    r')\s*$',
+    re.MULTILINE,
+)
 
 _thread_local = threading.local()
 
@@ -107,11 +122,9 @@ def _extract_all_rules_from_changes(changes: list[dict]) -> set[str]:
             continue
         diff = change.get("diff", "")
         for m in _RULE_VALUE_RE.finditer(diff):
-            rules.add(m.group(1))
+            rules.add(m.group(1) or m.group(2) or m.group(3))
         for m in _RULE_BARE_RE.finditer(diff):
-            # bare "- rule.code" is only a rule exclusion when the code has a dot
-            # and is NOT a component name (component names start with "odh-")
-            candidate = m.group(1)
+            candidate = m.group(1) or m.group(2) or m.group(3)
             if "." in candidate and not candidate.startswith("odh-"):
                 rules.add(candidate)
     return rules
@@ -237,7 +250,11 @@ def _parse_diff_lines(diff_text: str) -> list[tuple[str, bool]]:
     return result
 
 
-def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
+def _parse_components_from_diff(
+    diff_text: str,
+    rule: str,
+    requested_components: list[str] | None = None,
+) -> list[str]:
     """Extract componentNames for a given rule from a unified diff.
 
     Processes both added (``+``) and context (`` ``) lines to correctly
@@ -253,8 +270,14 @@ def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
     with no ``componentNames:`` or ``imageUrl:`` among its sibling keys
     (whether added or context).
 
+    **imageUrl-scoped exception** — ``- value: <rule>`` with an
+    ``imageUrl:`` sibling.  When *requested_components* is provided, the
+    imageUrl is resolved to matching components via
+    :func:`image_url_covers_component`.
+
     Returns:
       - Specific component names when ``componentNames:`` is present.
+      - Matching *requested_components* when ``imageUrl:`` is present.
       - :data:`GLOBAL_COVERAGE` (``["*"]``) when the rule is added without
         component scoping.
       - Empty list when the rule is not found in added lines.
@@ -285,14 +308,19 @@ def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
             i += 1
             in_component_names = False
             has_component_scoping = False
+            image_url = ""
             while i < len(lines):
                 s, _ = lines[i]
                 if not s or s.startswith("- value:"):
                     break
-                if s.startswith("componentNames:") or s.startswith("imageUrl:"):
+                if s.startswith("componentNames:"):
                     has_component_scoping = True
-                if s == "componentNames:":
                     in_component_names = True
+                    i += 1
+                    continue
+                if s.startswith("imageUrl:"):
+                    has_component_scoping = True
+                    image_url = s[len("imageUrl:"):].strip().strip('"').strip("'")
                     i += 1
                     continue
                 if in_component_names and s.startswith("- "):
@@ -306,6 +334,11 @@ def _parse_components_from_diff(diff_text: str, rule: str) -> list[str]:
                 i += 1
             if not has_component_scoping:
                 return GLOBAL_COVERAGE
+            if image_url and not components and requested_components:
+                components.extend(
+                    c for c in requested_components
+                    if image_url_covers_component(image_url, c)
+                )
         else:
             i += 1
 
@@ -624,7 +657,9 @@ def analyze_mr_component_coverage(
     for change in changes:
         path = change.get("new_path", "")
         if any(marker in path for marker in EXCEPTION_PATH_MARKERS):
-            diff_components.extend(_parse_components_from_diff(change.get("diff", ""), rule))
+            diff_components.extend(_parse_components_from_diff(
+            change.get("diff", ""), rule, requested_components=requested_components,
+        ))
             if mr_effective_until is None:
                 mr_effective_until = extract_effective_until_from_diff(
                     change.get("diff", ""), rule
