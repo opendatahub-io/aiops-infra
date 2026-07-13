@@ -6,9 +6,9 @@ This skill is part of the conforma suite. Follow the install instructions in [co
 
 ## Additional prerequisites (Tekton mode)
 
-The Tekton JSON mode requires extra tools beyond the shared suite prerequisites:
+The Tekton JSON mode (`fetch_conforma_tekton_result.py`) requires:
 
 - **VPN**: Connected to the corporate VPN
 - **`oc` CLI**: Installed and authenticated to the Konflux cluster (`oc login --server=$KONFLUX_INTERNAL_API`)
-- **`jq`**: Installed (used for JSON parsing)
-- **Environment variables**: `TEKTON_RESULTS_API_DOMAIN`, `KONFLUX_NAMESPACE` (see SKILL.md for details)
+
+When used with `context.yaml` (populated by `resolve_release_context.py`), no environment variables are needed. For standalone usage without context, configuration falls back to env vars (`KONFLUX_NAMESPACE`, `KONFLUX_CLUSTER_DOMAIN`, `KONFLUX_TOKEN`) and then to hardcoded defaults (p02 cluster, `rhoai-tenant` namespace).

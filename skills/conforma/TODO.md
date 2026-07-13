@@ -19,7 +19,7 @@ Introduce a centralized product configuration so the conforma skill suite can wo
 
 7. research and consider splitting python files into smaller modules - it should make it faster for LLM to work with them (e.g.: is the whole file sent to LLM even when only single function or line is modified?)
 
-8. start using konflux (tekton results api) as the source of the conforma reports, and stop using the future/release_day ones and instead include handling release date vs. conforma exception effectiveUntil and expiration date on warnings inside the skill's scripts
+8. ~~start using konflux (tekton results api) as the source of the conforma reports, and stop using the future/release_day ones and instead include handling release date vs. conforma exception effectiveUntil and expiration date on warnings inside the skill's scripts~~ - done (fetch_conforma_tekton_result.py replaces both Bash scripts, supports registry/chart/fbc policy types, integrates with context.yaml)
 
 9. explore source bot ?
 

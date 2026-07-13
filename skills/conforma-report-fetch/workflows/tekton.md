@@ -6,59 +6,94 @@ No additional references needed.
 
 # Tekton JSON Reports Workflow
 
-## 2. Tekton JSON Reports (Konflux) — Preferred
+Fetch the raw EC verification report JSON for a specific PipelineRun directly from Konflux via the Tekton Results API. This is the **most up-to-date source** — it reads the exact output of the verification run, with no scheduled-job lag.
 
-Fetch the raw EC verification report JSON for a specific PipelineRun directly from the Konflux cluster. This is the **most up-to-date source** — it reads the exact output of the verification run, with no scheduled-job lag. Uses the Tekton Results API as the primary data source, with automatic fallback to live pod container logs when archive data is not yet populated.
+The script `fetch_conforma_tekton_result.py` accepts either a **version shortcode** (e.g. `3.5`, `3.5ea.2`, `rhoai-3.5`) or an **exact PipelineRun name**. Version shortcodes are automatically resolved to the newest matching multi-component PipelineRun.
 
-The output is a handover state document that records fetch status and the path to the raw report file. Downstream tools (e.g. `conforma-parse`) consume this handover -- they MUST check `report_fetch.status`, not the script exit code. The script exits non-zero if it cannot resolve any required infrastructure coordinate (PipelineRun UUID, verify TaskRun, or log record) and no handover is produced. It exits 0 with `report_fetch.status: "failed"` if the run was found but report extraction failed.
+Three **policy types** are supported via `--type`: `registry` (default), `chart`, `fbc`. Each type searches for PipelineRuns with a distinct naming prefix.
+
+Configuration is resolved in order: CLI arg > `context.yaml` > env var > default. When `context.yaml` is populated (by `resolve_release_context.py`), no CLI args or env vars are needed beyond the version.
+
+The output is a handover state document that records fetch status and the path to the raw report file. Downstream tools (e.g. `conforma-parse`) consume this handover — they MUST check `report_fetch.status`, not the script exit code.
 
 ### Prerequisites
 
-See [README.md](../README.md) for shared prerequisites. Tekton mode requires these additional tools:
+See [README.md](../README.md) for shared prerequisites. Tekton mode requires:
 
 - **VPN**: Connected to the corporate VPN (required for internal Tekton Results API domain routing)
 - **`oc` CLI**: Installed and authenticated to the Konflux cluster:
   ```bash
   oc login --server=$KONFLUX_INTERNAL_API
   ```
-- **`jq`**: Installed (used for JSON parsing and handover assembly)
-- **`curl`**, **`awk`**, **`sed`**: Standard Unix tools (used for API requests and log extraction)
-- **Namespace access**: Read access to the namespace specified by `KONFLUX_NAMESPACE`
-- **Environment variables** (via infrastructure discovery, or manually in `~/.conforma/.env`):
-  - `KONFLUX_CLUSTER_DOMAIN` — Konflux cluster domain (Tekton route and API URL are derived from this)
-  - `KONFLUX_NAMESPACE` — target Konflux namespace
 
 ### Usage
 
 ```bash
-skills/conforma-report-fetch/scripts/fetch_tekton_report.sh <pipelinerun-name> --output /tmp/conforma-handover.json
+# By version shortcode (resolves to newest matching PipelineRun):
+python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5 --output /tmp/conforma-handover.json
+
+# By version shortcode with EA suffix:
+python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5ea.2 --output /tmp/conforma-handover.json
+
+# By policy type (chart):
+python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5 --type chart --output /tmp/conforma-handover.json
+
+# FBC policy type:
+python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5ea.1 --type fbc --output /tmp/conforma-handover.json
+
+# By exact PipelineRun name:
+python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py conforma-registry-rhoai-prod-v3-5-c7tjp --output /tmp/conforma-handover.json
+
+# Version from context.yaml (after resolve_release_context.py):
+python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py --output /tmp/conforma-handover.json
 ```
 
 ### Arguments
 
 | Argument | Required | Default | Description |
 |---|---|---|---|
-| `<pipelinerun-name>` | yes | -- | Konflux PipelineRun name (positional argument). Trailing `-verify` is stripped automatically if present. |
-| `--handover` | no | -- | Path to an existing handover JSON to update (preserves state from prior steps) |
-| `--output` | no | stdout | Path to write the updated handover JSON |
-| *(stdin pipe)* | no | -- | Alternative to `--handover`: pipe a handover JSON via stdin (e.g. `echo '{}' \| skills/conforma-report-fetch/scripts/fetch_tekton_report.sh <name>`) |
+| `<version-or-name>` | no | from context.yaml | RHOAI version shortcode (e.g. `3.5`, `3.5ea.2`) or exact PipelineRun name. Falls back to `resolve.version_dir` in context.yaml if omitted. |
+| `--type` | no | `registry` | Policy type: `registry`, `chart`, or `fbc`. |
+| `--namespace` | no | from context/env/default | Konflux namespace. Falls back to `resolve.tenant` in context, then `KONFLUX_NAMESPACE` env, then `rhoai-tenant`. |
+| `--cluster-domain` | no | from context/env/default | Konflux cluster domain. Falls back to `resolve.cluster_domain` in context, then `KONFLUX_CLUSTER_DOMAIN` env, then p02 default. |
+| `--environment` | no | from context/default | `prod` or `stage`. Falls back to `environment` in context, then `prod`. |
+| `--handover` | no | -- | Path to an existing handover JSON to update (preserves state from prior steps). |
+| `--output` | no | stdout | Path to write the updated handover JSON. |
+| *(stdin pipe)* | no | -- | Alternative to `--handover`: pipe a handover JSON via stdin. |
 
 ### Environment Variables
 
 | Variable | Description |
 |---|---|
 | `KONFLUX_TOKEN` | Optional. Bearer token for cluster auth. Falls back to `oc whoami -t` if unset. |
-| `KONFLUX_CLUSTER_DOMAIN` | Required (unless `TEKTON_RESULTS_API_DOMAIN` is set). Cluster domain — Tekton route is derived automatically. |
-| `KONFLUX_NAMESPACE` | Required. Target Konflux namespace. |
-| `TEKTON_RESULTS_API_DOMAIN` | Optional. Overrides the Tekton Results hostname (derived from `KONFLUX_CLUSTER_DOMAIN` by default). |
+| `KONFLUX_NAMESPACE` | Optional. Namespace fallback when not in context.yaml. |
+| `KONFLUX_CLUSTER_DOMAIN` | Optional. Cluster domain fallback when not in context.yaml. |
+| `TEKTON_RESULTS_API_DOMAIN` | Optional. Full Tekton Results API domain override. |
+
+### PipelineRun Discovery
+
+When a version shortcode is provided, the script builds an ITS prefix based on the policy type and searches for matching PipelineRuns:
+
+| Type | ITS prefix pattern | Example match |
+|---|---|---|
+| `registry` | `conforma-registry-{app}-{env}-{ver}` | `conforma-registry-rhoai-prod-v3-5-c7tjp` |
+| `chart` | `conforma-registry-{app}-chart-{env}-{ver}` | `conforma-registry-rhoai-chart-prod-v3-5-abc12` |
+| `fbc` | `conforma-fbc-{app}-{env}-{ver}` | `conforma-fbc-rhoai-prod-v3-5-ea-1-xyz99` |
+
+The search uses regex `^{PREFIX}-[a-z0-9]+$` to match only the Tekton random suffix, avoiding GA/EA cross-matching.
+
+Search strategy:
+1. Query live cluster PipelineRuns sorted by creation time (fastest)
+2. If no primary match: search with `-future` suffix backup
+3. Fall back to Tekton Results API archive for pruned runs
 
 ### Handover Output
 
 ```json
 {
   "metadata": {
-    "pipeline_run": "conforma-registry-rhoai-prod-v3-4-future-abc123",
-    "namespace": "<KONFLUX_NAMESPACE>",
+    "pipeline_run": "conforma-registry-rhoai-prod-v3-5-c7tjp",
+    "namespace": "rhoai-tenant",
     "created_at": "2026-06-05T14:00:00Z",
     "policy_source": "github.com/conforma/config//default"
   },
@@ -77,7 +112,7 @@ The raw EC JSON report is written to `/tmp/` (path recorded in `raw_report_path`
 
 ### Workflow
 
-When the user asks to fetch a Conforma report from a PipelineRun:
+When the user asks to fetch a Conforma report:
 
 **Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
 
@@ -103,11 +138,11 @@ echo "run_dir=$_RUNDIR"
 
    If the output path does not contain a `pyproject.toml`, stop and instruct the user to set `AIOPS_INFRA_ROOT` or clone the repo to `~/.local/share/aiops-infra`.
 
-1. **Get the PipelineRun name** from the user. They typically copy this from the Konflux UI.
+1. **Get the version or PipelineRun name** from the user. They can provide a version shortcode (e.g. `3.5`, `3.5ea.2`) or an exact PipelineRun name copied from the Konflux UI. Also ask which policy type if not obvious (registry is default).
 
 2. **Run the fetch script**:
    ```bash
-   skills/conforma-report-fetch/scripts/fetch_tekton_report.sh <pipelinerun-name> --output /tmp/conforma-handover.json
+   python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py <version-or-name> --type <registry|chart|fbc> --output /tmp/conforma-handover.json
    ```
 
 3. **Check the handover output**: Read the handover JSON. If `report_fetch.status` is `"completed"`, the raw report is at the path in `report_fetch.raw_report_path`. If `"failed"`, report the error from `report_fetch.error`.
@@ -115,4 +150,3 @@ echo "run_dir=$_RUNDIR"
 4. **Pass downstream**: Hand the state file to the next pipeline step (e.g. `conforma-parse`).
 
 ---
-
