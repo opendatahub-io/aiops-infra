@@ -106,6 +106,126 @@ class TestViolationEntries:
                 )
 
 
+class TestSymptomQuality:
+    """Symptoms must match real violation messages — no placeholders, no too-short strings."""
+
+    def test_no_placeholder_patterns_in_symptoms(self, catalog):
+        import re
+        placeholder = re.compile(r"\bX{3,}\b|\bY{3,}\b|\bZ{3,}\b", re.IGNORECASE)
+        for entry in catalog["violations"]:
+            for symptom in entry.get("symptoms", []):
+                assert not placeholder.search(symptom), (
+                    f"Violation '{entry['id']}' symptom has placeholder: '{symptom}'. "
+                    "Use a generic fragment instead (e.g., 'did not complete successfully' "
+                    "instead of 'Task \"XXXX\" did not complete successfully')."
+                )
+
+    def test_symptoms_meet_minimum_length(self, catalog):
+        min_len = 10
+        for entry in catalog["violations"]:
+            for symptom in entry.get("symptoms", []):
+                assert len(symptom) >= min_len, (
+                    f"Violation '{entry['id']}' symptom too short ({len(symptom)} chars): "
+                    f"'{symptom}'. Minimum is {min_len} for substring matching."
+                )
+
+
+class TestNoDuplicateAliases:
+    """Each alias should map to exactly one violation — duplicates cause silent shadowing."""
+
+    def test_no_duplicate_aliases_across_entries(self, catalog):
+        alias_to_id = {}
+        duplicates = []
+        for entry in catalog["violations"]:
+            for alias in entry.get("aliases", []):
+                key = alias.lower()
+                if key in alias_to_id:
+                    duplicates.append(
+                        f"alias '{alias}' in both '{alias_to_id[key]}' and '{entry['id']}'"
+                    )
+                alias_to_id[key] = entry["id"]
+        assert not duplicates, (
+            f"Duplicate aliases cause silent shadowing (first match wins): {duplicates}"
+        )
+
+
+class TestReferenceURLs:
+    """Reference URLs must be public — no private repos or internal URLs."""
+
+    _BLOCKED_PATTERNS = [
+        "redhat-internal.slack.com",
+        "gitlab.cee.redhat.com",
+    ]
+
+    def test_no_internal_urls_in_fix_steps(self, catalog):
+        violations_with_internal = []
+        for entry in catalog["violations"]:
+            for step in entry.get("fix_steps", []):
+                ref = step.get("reference", "")
+                for pattern in self._BLOCKED_PATTERNS:
+                    if pattern in ref:
+                        violations_with_internal.append(
+                            f"'{entry['id']}' fix_step ref contains '{pattern}': {ref}"
+                        )
+        assert not violations_with_internal, (
+            f"Internal URLs found in fix_steps (this is a public repo): {violations_with_internal}"
+        )
+
+    def test_no_internal_urls_in_false_alerts(self, catalog):
+        alerts_with_internal = []
+        for entry in catalog.get("known_false_alerts", []):
+            ref = entry.get("reference", "")
+            for pattern in self._BLOCKED_PATTERNS:
+                if pattern in ref:
+                    alerts_with_internal.append(
+                        f"'{entry['id']}' reference contains '{pattern}': {ref}"
+                    )
+        assert not alerts_with_internal, (
+            f"Internal URLs found in known_false_alerts: {alerts_with_internal}"
+        )
+
+    def test_no_internal_urls_in_fallback_references(self, catalog):
+        refs_with_internal = []
+        for entry in catalog.get("fallback_references", []):
+            ref = entry.get("reference", "")
+            for pattern in self._BLOCKED_PATTERNS:
+                if pattern in ref:
+                    refs_with_internal.append(
+                        f"'{entry.get('code_prefix', '?')}' reference contains '{pattern}': {ref}"
+                    )
+        assert not refs_with_internal, (
+            f"Internal URLs found in fallback_references: {refs_with_internal}"
+        )
+
+
+class TestRuleCodeShadowing:
+    """When multiple entries share a conforma_rule_code, each must be reachable via unique id, symptoms, or aliases."""
+
+    def test_shared_rule_codes_have_distinguishing_symptoms_or_aliases(self, catalog):
+        from collections import defaultdict
+        code_to_entries = defaultdict(list)
+        for entry in catalog["violations"]:
+            for code in entry.get("conforma_rule_codes", []):
+                code_to_entries[code].append(entry)
+
+        problems = []
+        for code, entries in code_to_entries.items():
+            if len(entries) <= 1:
+                continue
+            for entry in entries[1:]:
+                has_unique_alias = bool(entry.get("aliases"))
+                has_unique_symptom = bool(entry.get("symptoms"))
+                unique_id = entry["id"] != code
+                if not (has_unique_alias or has_unique_symptom or unique_id):
+                    problems.append(
+                        f"'{entry['id']}' shares rule_code '{code}' but has no unique "
+                        "id, aliases, or symptoms to match via alternative paths"
+                    )
+        assert not problems, (
+            f"Entries shadowed by rule_code matching with no alternative path: {problems}"
+        )
+
+
 class TestKnownFalseAlerts:
     def test_all_have_required_fields(self, catalog):
         required = {"id", "title", "description", "applies_to", "action", "condition"}

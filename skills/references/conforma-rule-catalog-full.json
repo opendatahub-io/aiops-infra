@@ -1,0 +1,1514 @@
+[
+  {
+    "rule_id": "maven_repos__deny_unpermitted_urls",
+    "rule_package": "maven_repos",
+    "rule_name": "Known Repository URLs",
+    "description": "Ensures each Maven artifact's repository URL appears in the permitted list.",
+    "policy_type": "release",
+    "collections": ["redhat_maven", "policy_data"]
+  },
+  {
+    "rule_id": "maven_repos__policy_data_missing",
+    "rule_package": "maven_repos",
+    "rule_name": "Policy data validation",
+    "description": "Confirms that policy data for permitted Maven repository URLs has been provided.",
+    "policy_type": "release",
+    "collections": ["redhat_maven", "policy_data"]
+  },
+  {
+    "rule_id": "attestation_type__deprecated_policy_attestation_format",
+    "rule_package": "attestation_type",
+    "rule_name": "Deprecated policy attestation format",
+    "description": "Flags use of outdated attestation formats.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "attestation_type__known_attestation_type",
+    "rule_package": "attestation_type",
+    "rule_name": "Known attestation type found",
+    "description": "Verifies the attestation uses a recognized type.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat", "redhat_rpms", "slsa3"]
+  },
+  {
+    "rule_id": "attestation_type__known_attestation_types_provided",
+    "rule_package": "attestation_type",
+    "rule_name": "Known attestation types provided",
+    "description": "Ensures the list of known attestation types is available in rule data.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "attestation_type__pipelinerun_attestation_found",
+    "rule_package": "attestation_type",
+    "rule_name": "PipelineRun attestation found",
+    "description": "Confirms a PipelineRun attestation exists for the image.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat", "redhat_rpms", "slsa3"]
+  },
+  {
+    "rule_id": "base_image_registries__allowed_registries_provided",
+    "rule_package": "base_image_registries",
+    "rule_name": "Allowed base image registry prefixes list was provided",
+    "description": "Confirms the allowed registry prefix list exists in rule data.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "base_image_registries__base_image_permitted",
+    "rule_package": "base_image_registries",
+    "rule_name": "Base image comes from permitted registry",
+    "description": "Validates each base image originates from an approved registry.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "base_image_registries__base_image_info_found",
+    "rule_package": "base_image_registries",
+    "rule_name": "Base images provided",
+    "description": "Ensures base image information is present in the attestation.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "buildah_build_task__add_capabilities_param",
+    "rule_package": "buildah_build_task",
+    "rule_name": "ADD_CAPABILITIES parameter",
+    "description": "Checks the ADD_CAPABILITIES parameter is appropriately set.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "buildah_build_task__buildah_uses_local_dockerfile",
+    "rule_package": "buildah_build_task",
+    "rule_name": "Buildah task uses a local Dockerfile",
+    "description": "Verifies the build uses a Dockerfile from the local source.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "buildah_build_task__platform_param",
+    "rule_package": "buildah_build_task",
+    "rule_name": "PLATFORM parameter",
+    "description": "Validates the PLATFORM parameter against disallowed patterns.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "buildah_build_task__privileged_nested_param",
+    "rule_package": "buildah_build_task",
+    "rule_name": "PRIVILEGED_NESTED parameter",
+    "description": "Checks the PRIVILEGED_NESTED parameter setting.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "buildah_build_task__disallowed_platform_patterns_pattern",
+    "rule_package": "buildah_build_task",
+    "rule_name": "disallowed_platform_patterns format",
+    "description": "Validates the format of disallowed platform pattern rule data.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "cve__cve_blockers",
+    "rule_package": "cve",
+    "rule_name": "Blocking CVE check",
+    "description": "Fails if patched CVEs at configured severity levels are found.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "cve__unpatched_cve_blockers",
+    "rule_package": "cve",
+    "rule_name": "Blocking unpatched CVE check",
+    "description": "Fails if unpatched CVEs at configured severity levels are found.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "cve__cve_results_found",
+    "rule_package": "cve",
+    "rule_name": "CVE scan results found",
+    "description": "Confirms CVE scan results exist in the attestation.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "cve__cve_warnings",
+    "rule_package": "cve",
+    "rule_name": "Non-blocking CVE check",
+    "description": "Emits warnings for patched CVEs at warning-level severities.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "cve__unpatched_cve_warnings",
+    "rule_package": "cve",
+    "rule_name": "Non-blocking unpatched CVE check",
+    "description": "Emits warnings for unpatched CVEs at warning-level severities.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "cve__rule_data_provided",
+    "rule_package": "cve",
+    "rule_name": "Rule data provided",
+    "description": "Validates that CVE-related rule data configuration is present.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "external_parameters__pipeline_run_params",
+    "rule_package": "external_parameters",
+    "rule_name": "Pipeline run params",
+    "description": "Validates pipeline run parameters match expected values in SLSA Provenance externalParameters.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "external_parameters__pipeline_run_params_provided",
+    "rule_package": "external_parameters",
+    "rule_name": "PipelineRun params provided",
+    "description": "Confirms rule data for pipeline run params is available.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "external_parameters__restrict_shared_volumes",
+    "rule_package": "external_parameters",
+    "rule_name": "Restrict shared volumes",
+    "description": "Checks that shared volumes are not used improperly.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "git_branch__git_branch",
+    "rule_package": "git_branch",
+    "rule_name": "Builds have a trusted target branch",
+    "description": "Ensures the build's target branch matches allowed patterns from allowed_target_branch_patterns rule data.",
+    "policy_type": "release",
+    "collections": ["redhat_rpms"]
+  },
+  {
+    "rule_id": "github_certificate__gh_workflow_extensions",
+    "rule_package": "github_certificate",
+    "rule_name": "GitHub Workflow Certificate Extensions",
+    "description": "Validates expected certificate extensions are present for images signed using slsa-github-generator.",
+    "policy_type": "release",
+    "collections": ["github"]
+  },
+  {
+    "rule_id": "github_certificate__gh_workflow_name",
+    "rule_package": "github_certificate",
+    "rule_name": "GitHub Workflow Name",
+    "description": "Checks the workflow name in the signing certificate.",
+    "policy_type": "release",
+    "collections": ["github"]
+  },
+  {
+    "rule_id": "github_certificate__gh_workflow_repository",
+    "rule_package": "github_certificate",
+    "rule_name": "GitHub Workflow Repository",
+    "description": "Verifies the repository in the certificate matches expectations.",
+    "policy_type": "release",
+    "collections": ["github"]
+  },
+  {
+    "rule_id": "github_certificate__gh_workflow_ref",
+    "rule_package": "github_certificate",
+    "rule_name": "GitHub Workflow Repository (Ref)",
+    "description": "Validates the workflow ref (branch/tag) in the certificate.",
+    "policy_type": "release",
+    "collections": ["github"]
+  },
+  {
+    "rule_id": "github_certificate__gh_workflow_trigger",
+    "rule_package": "github_certificate",
+    "rule_name": "GitHub Workflow Trigger",
+    "description": "Checks the event trigger recorded in the certificate.",
+    "policy_type": "release",
+    "collections": ["github"]
+  },
+  {
+    "rule_id": "github_certificate__rule_data_provided",
+    "rule_package": "github_certificate",
+    "rule_name": "Rule data provided",
+    "description": "Ensures GitHub certificate rule data is available.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "hermetic_task__hermetic",
+    "rule_package": "hermetic_task",
+    "rule_name": "Task called with hermetic param set",
+    "description": "Verifies that tasks required to be hermetic were invoked with correct parameters for hermetic execution.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "labels__deprecated_labels",
+    "rule_package": "labels",
+    "rule_name": "Deprecated labels",
+    "description": "Flags labels that are deprecated.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "labels__disallowed_inherited_labels",
+    "rule_package": "labels",
+    "rule_name": "Disallowed inherited labels",
+    "description": "Identifies inherited labels that should not be present.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "labels__inaccessible_config",
+    "rule_package": "labels",
+    "rule_name": "Inaccessible image config",
+    "description": "Reports when image config cannot be accessed.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "labels__inaccessible_manifest",
+    "rule_package": "labels",
+    "rule_name": "Inaccessible image manifest",
+    "description": "Reports when image manifest cannot be accessed.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "labels__inaccessible_parent_config",
+    "rule_package": "labels",
+    "rule_name": "Inaccessible parent image config",
+    "description": "Reports when parent image config cannot be accessed.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "labels__inaccessible_parent_manifest",
+    "rule_package": "labels",
+    "rule_name": "Inaccessible parent image manifest",
+    "description": "Reports when parent image manifest cannot be accessed.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "labels__optional_labels",
+    "rule_package": "labels",
+    "rule_name": "Optional labels",
+    "description": "Warns when recommended optional labels are missing.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "labels__required_labels",
+    "rule_package": "labels",
+    "rule_name": "Required labels",
+    "description": "Fails when required labels are absent from the container image.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "labels__rule_data_provided",
+    "rule_package": "labels",
+    "rule_name": "Rule data provided",
+    "description": "Validates label-related rule data is available.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "olm__csv_semver_format",
+    "rule_package": "olm",
+    "rule_name": "ClusterServiceVersion semver format",
+    "description": "Validates CSV version follows semver format.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__feature_annotations_format",
+    "rule_package": "olm",
+    "rule_name": "Feature annotations have expected value",
+    "description": "Checks OLM feature annotations match expected format.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__allowed_registries",
+    "rule_package": "olm",
+    "rule_name": "Images referenced by OLM bundle are from allowed registries",
+    "description": "Validates bundle image references use approved registries.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__required_network_policy_rbac_for_operands",
+    "rule_package": "olm",
+    "rule_name": "NetworkPolicy RBAC present in OLM bundle",
+    "description": "Ensures NetworkPolicy RBAC resources exist in the bundle.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__allowed_resource_kinds",
+    "rule_package": "olm",
+    "rule_name": "OLM bundle image manifests contain only allowed resource kinds",
+    "description": "Restricts resource kinds in bundle manifests.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__olm_bundle_multi_arch",
+    "rule_package": "olm",
+    "rule_name": "OLM bundle images are not multi-arch",
+    "description": "Ensures OLM bundles are not multi-architecture.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__allowed_registries_related",
+    "rule_package": "olm",
+    "rule_name": "Related images references are from allowed registries",
+    "description": "Validates related image references use approved registries.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__required_olm_features_annotations_provided",
+    "rule_package": "olm",
+    "rule_name": "Required OLM feature annotations list provided",
+    "description": "Confirms feature annotation rule data exists.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "olm__subscriptions_annotation_format",
+    "rule_package": "olm",
+    "rule_name": "Subscription annotation has expected value",
+    "description": "Validates subscription annotations.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__inaccessible_related_images",
+    "rule_package": "olm",
+    "rule_name": "Unable to access related images for a component",
+    "description": "Reports when related images cannot be accessed.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__unmapped_references",
+    "rule_package": "olm",
+    "rule_name": "Unmapped images in OLM bundle",
+    "description": "Identifies images in the bundle not mapped to components.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__unpinned_references",
+    "rule_package": "olm",
+    "rule_name": "Unpinned images in OLM bundle",
+    "description": "Flags image references not pinned to a digest.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__unpinned_snapshot_references",
+    "rule_package": "olm",
+    "rule_name": "Unpinned images in input snapshot",
+    "description": "Flags unpinned images in the input snapshot.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "olm__unpinned_related_images",
+    "rule_package": "olm",
+    "rule_name": "Unpinned related images for a component",
+    "description": "Flags unpinned related image references.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "pre_build_script_task__pre_build_script_task_runner_image_allowed",
+    "rule_package": "pre_build_script_task",
+    "rule_name": "Script runner image comes from allowed registry",
+    "description": "Validates the runner image registry for pre-build-script tasks.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "pre_build_script_task__valid_pre_build_script_task_runner_image_ref",
+    "rule_package": "pre_build_script_task",
+    "rule_name": "Script runner image is a valid image reference",
+    "description": "Checks the image reference format.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "pre_build_script_task__pre_build_script_task_runner_image_in_sbom",
+    "rule_package": "pre_build_script_task",
+    "rule_name": "Script runner image is included in the sbom",
+    "description": "Ensures the runner image appears in the SBOM.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "pre_build_script_task__pre_build_script_task_runner_image_in_results",
+    "rule_package": "pre_build_script_task",
+    "rule_name": "Script runner image is listed in the task results",
+    "description": "Confirms the runner image is in task results.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "prefetch_dependencies__mode_not_permissive",
+    "rule_package": "prefetch_dependencies",
+    "rule_name": "Prefetch dependencies mode parameter check",
+    "description": "Ensures prefetch-dependencies mode is not set to a permissive value.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "prefetch_dependencies__package_registry_proxy_enabled",
+    "rule_package": "prefetch_dependencies",
+    "rule_name": "Prefetch task has package registry proxy enabled",
+    "description": "Validates that the registry proxy is enabled for dependency fetching.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "provenance_materials__git_clone_source_matches_provenance",
+    "rule_package": "provenance_materials",
+    "rule_name": "Git clone source matches materials provenance",
+    "description": "Ensures git clone source aligns with provenance materials.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "provenance_materials__git_clone_task_found",
+    "rule_package": "provenance_materials",
+    "rule_name": "Git clone task found",
+    "description": "Confirms a git clone task exists in the pipeline.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "quay_expiration__expires_label",
+    "rule_package": "quay_expiration",
+    "rule_name": "Expires label",
+    "description": "Fails if an expiration label is set on the image, typically from pre-merge CI on-pr builds.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "rhtap_multi_ci__attestation_format",
+    "rule_package": "rhtap_multi_ci",
+    "rule_name": "SLSA Provenance Attestation Format",
+    "description": "Validates the provenance attestation format for RHTAP multi-CI pipelines.",
+    "policy_type": "release",
+    "collections": ["rhtap-multi-ci"]
+  },
+  {
+    "rule_id": "rhtap_multi_ci__attestation_found",
+    "rule_package": "rhtap_multi_ci",
+    "rule_name": "SLSA Provenance Attestation Found",
+    "description": "Confirms a provenance attestation exists for RHTAP multi-CI builds.",
+    "policy_type": "release",
+    "collections": ["rhtap-multi-ci"]
+  },
+  {
+    "rule_id": "rpm_build_deps__download_location_valid",
+    "rule_package": "rpm_build_deps",
+    "rule_name": "Builds have valid download locations",
+    "description": "Validates download URLs for RPM build dependencies in CycloneDX SBOMs.",
+    "policy_type": "release",
+    "collections": ["redhat_rpms"]
+  },
+  {
+    "rule_id": "rpm_packages__unique_version",
+    "rule_package": "rpm_packages",
+    "rule_name": "Unique Version",
+    "description": "Ensures RPM package versions are unique across the image.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "rpm_pipeline__invalid_pipeline",
+    "rule_package": "rpm_pipeline",
+    "rule_name": "Task version invalid_pipeline",
+    "description": "Validates RPMs are built in an approved pipeline.",
+    "policy_type": "release",
+    "collections": ["redhat_rpms"]
+  },
+  {
+    "rule_id": "rpm_repos__ids_known",
+    "rule_package": "rpm_repos",
+    "rule_name": "All rpms have known repo ids",
+    "description": "Validates each RPM's repo ID against the permitted list.",
+    "policy_type": "release",
+    "collections": ["redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "rpm_repos__rule_data_provided",
+    "rule_package": "rpm_repos",
+    "rule_name": "Known repo id list provided",
+    "description": "Ensures the permitted RPM repo ID list is in rule data.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "rpm_signature__allowed",
+    "rule_package": "rpm_signature",
+    "rule_name": "Allowed RPM signature key",
+    "description": "Validates RPM signatures against allowed signing keys.",
+    "policy_type": "release",
+    "collections": ["redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "rpm_signature__result_format",
+    "rule_package": "rpm_signature",
+    "rule_name": "Result format",
+    "description": "Checks the format of RPM signature results.",
+    "policy_type": "release",
+    "collections": ["redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "rpm_signature__rule_data_provided",
+    "rule_package": "rpm_signature",
+    "rule_name": "Rule data provided",
+    "description": "Ensures RPM signature rule data is available.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "sbom__disallowed_packages_provided",
+    "rule_package": "sbom",
+    "rule_name": "Disallowed packages list is provided",
+    "description": "Confirms the disallowed packages list exists in rule data.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "sbom__found",
+    "rule_package": "sbom",
+    "rule_name": "Found",
+    "description": "Verifies at least one SBOM is present for the image.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__allowed",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Allowed",
+    "description": "Validates CycloneDX SBOM packages against allowed lists.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__allowed_package_external_references",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Allowed package external references",
+    "description": "Checks package external references against allowed patterns.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__allowed_package_sources",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Allowed package sources",
+    "description": "Validates CycloneDX package sources against allowed list.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__allowed_proxy_urls",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Allowed proxy URLs",
+    "description": "Checks proxy URLs against allowed patterns.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__disallowed_package_attributes",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Disallowed package attributes",
+    "description": "Flags packages with forbidden attributes in CycloneDX SBOM.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__disallowed_package_external_references",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Disallowed package external references",
+    "description": "Flags packages with forbidden external references.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__experimental_hermeto_backend",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Experimental Hermeto backend",
+    "description": "Checks for use of experimental Hermeto backend in CycloneDX.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__proxy_metadata_required",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Proxy metadata required",
+    "description": "Validates proxy metadata is present when required.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__cdx_supported_version",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Supported Version",
+    "description": "Ensures the CycloneDX version is supported.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__valid_cdx_1_4",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Valid 1.4",
+    "description": "Validates against CycloneDX 1.4 schema.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__valid_cdx_1_5",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Valid 1.5",
+    "description": "Validates against CycloneDX 1.5 schema.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "sbom_cyclonedx__valid_cdx_1_6",
+    "rule_package": "sbom_cyclonedx",
+    "rule_name": "Valid 1.6",
+    "description": "Validates against CycloneDX 1.6 schema.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "slsa_build_build_service__allowed_builder_ids_provided",
+    "rule_package": "slsa_build_build_service",
+    "rule_name": "Allowed builder IDs provided",
+    "description": "Confirms allowed builder IDs exist in rule data.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "slsa_build_build_service__slsa_builder_id_found",
+    "rule_package": "slsa_build_build_service",
+    "rule_name": "SLSA Builder ID found",
+    "description": "Verifies a builder ID is present in provenance.",
+    "policy_type": "release",
+    "collections": ["slsa3", "redhat"]
+  },
+  {
+    "rule_id": "slsa_build_build_service__slsa_builder_id_accepted",
+    "rule_package": "slsa_build_build_service",
+    "rule_name": "SLSA Builder ID is known and accepted",
+    "description": "Validates the builder ID against the allowed list.",
+    "policy_type": "release",
+    "collections": ["slsa3", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "slsa_build_scripted_build__build_script_used",
+    "rule_package": "slsa_build_scripted_build",
+    "rule_name": "Build task contains steps",
+    "description": "Ensures the build task contains defined steps (SLSA scripted build requirement).",
+    "policy_type": "release",
+    "collections": ["slsa3", "redhat"]
+  },
+  {
+    "rule_id": "slsa_build_scripted_build__build_task_image_results_found",
+    "rule_package": "slsa_build_scripted_build",
+    "rule_name": "Build task set image digest and url task results",
+    "description": "Verifies build task produced image digest and URL results.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "slsa_build_scripted_build__image_built_by_trusted_task",
+    "rule_package": "slsa_build_scripted_build",
+    "rule_name": "Image built by trusted Task",
+    "description": "Confirms the image was built by a trusted task.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "slsa_build_scripted_build__subject_build_task_matches",
+    "rule_package": "slsa_build_scripted_build",
+    "rule_name": "Provenance subject matches build task image result",
+    "description": "Cross-checks provenance subject with build task results.",
+    "policy_type": "release",
+    "collections": ["slsa3", "redhat"]
+  },
+  {
+    "rule_id": "slsa_provenance_available__allowed_predicate_types_provided",
+    "rule_package": "slsa_provenance_available",
+    "rule_name": "Allowed predicate types provided",
+    "description": "Confirms allowed predicate types exist in rule data.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "slsa_provenance_available__attestation_predicate_type_accepted",
+    "rule_package": "slsa_provenance_available",
+    "rule_name": "Expected attestation predicate type found",
+    "description": "Validates the attestation uses an accepted predicate type.",
+    "policy_type": "release",
+    "collections": ["minimal", "slsa3", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "slsa_source_version_controlled__materials_uri_is_git_repo",
+    "rule_package": "slsa_source_version_controlled",
+    "rule_name": "Material uri is a git repo",
+    "description": "Ensures material URIs point to git repositories.",
+    "policy_type": "release",
+    "collections": ["minimal", "slsa3", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "slsa_source_version_controlled__materials_format_okay",
+    "rule_package": "slsa_source_version_controlled",
+    "rule_name": "Materials have uri and digest",
+    "description": "Validates materials contain both URI and digest.",
+    "policy_type": "release",
+    "collections": ["minimal", "slsa3", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "slsa_source_version_controlled__materials_include_git_sha",
+    "rule_package": "slsa_source_version_controlled",
+    "rule_name": "Materials include git commit shas",
+    "description": "Confirms materials include git commit SHA references.",
+    "policy_type": "release",
+    "collections": ["minimal", "slsa3", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "slsa_source_correlated__expected_source_code_reference",
+    "rule_package": "slsa_source_correlated",
+    "rule_name": "Expected source code reference",
+    "description": "Validates the source code reference matches expectations per SLSA v1 verification model.",
+    "policy_type": "release",
+    "collections": ["minimal", "slsa3", "redhat"]
+  },
+  {
+    "rule_id": "slsa_source_correlated__rule_data_provided",
+    "rule_package": "slsa_source_correlated",
+    "rule_name": "Rule data provided",
+    "description": "Ensures source correlation rule data is available.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "slsa_source_correlated__source_code_reference_provided",
+    "rule_package": "slsa_source_correlated",
+    "rule_name": "Source code reference provided",
+    "description": "Confirms a source code reference was supplied.",
+    "policy_type": "release",
+    "collections": ["minimal", "slsa3", "redhat", "redhat_rpms"]
+  },
+  {
+    "rule_id": "slsa_source_correlated__attested_source_code_reference",
+    "rule_package": "slsa_source_correlated",
+    "rule_name": "Source reference",
+    "description": "Validates the attested source code reference.",
+    "policy_type": "release",
+    "collections": ["minimal", "slsa3", "redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__allowed",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Allowed",
+    "description": "Validates SPDX SBOM packages against allowed lists.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__allowed_package_external_references",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Allowed package external references",
+    "description": "Checks SPDX package external references against allowed patterns.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__allowed_package_sources",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Allowed package sources",
+    "description": "Validates SPDX package sources against allowed list.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__allowed_proxy_urls",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Allowed proxy URLs",
+    "description": "Checks proxy URLs against allowed patterns.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__contains_files",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Contains files",
+    "description": "Verifies the SPDX SBOM contains file entries.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__contains_packages",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Contains packages",
+    "description": "Verifies the SPDX SBOM contains package entries.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__disallowed_package_attributes",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Disallowed package attributes",
+    "description": "Flags forbidden package attributes in SPDX SBOM.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__disallowed_package_external_references",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Disallowed package external references",
+    "description": "Flags forbidden external references in SPDX SBOM.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__experimental_hermeto_backend",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Experimental Hermeto backend",
+    "description": "Checks for experimental Hermeto backend usage in SPDX.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__matches_image",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Matches image",
+    "description": "Validates SPDX SBOM corresponds to the correct image.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__proxy_metadata_required",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Proxy metadata required",
+    "description": "Validates proxy metadata presence in SPDX.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "sbom_spdx__valid",
+    "rule_package": "sbom_spdx",
+    "rule_name": "Valid",
+    "description": "Validates overall SPDX SBOM structure.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "schedule__date_restriction",
+    "rule_package": "schedule",
+    "rule_name": "Date Restriction",
+    "description": "Enforces date-based release restrictions.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "schedule__rule_data_provided",
+    "rule_package": "schedule",
+    "rule_name": "Rule data provided",
+    "description": "Validates schedule rule data is present.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "schedule__weekday_restriction",
+    "rule_package": "schedule",
+    "rule_name": "Weekday Restriction",
+    "description": "Enforces day-of-week release restrictions.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "source_image__exists",
+    "rule_package": "source_image",
+    "rule_name": "Exists",
+    "description": "Confirms a source container image exists for the built image.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "source_image__signed",
+    "rule_package": "source_image",
+    "rule_name": "Signed",
+    "description": "Validates the source image is signed.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "tasks__required_untrusted_task_found",
+    "rule_package": "tasks",
+    "rule_name": "All required tasks are from trusted tasks",
+    "description": "Fails if a required task is not from the trusted list.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "tasks__required_tasks_found",
+    "rule_package": "tasks",
+    "rule_name": "All required tasks were included in the pipeline",
+    "description": "Validates all required tasks executed in the pipeline.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "tasks__data_provided",
+    "rule_package": "tasks",
+    "rule_name": "Data provided",
+    "description": "Confirms task-related rule data is available.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "tasks__future_required_tasks_found",
+    "rule_package": "tasks",
+    "rule_name": "Future required tasks were found",
+    "description": "Warns about tasks that will become required in future.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "tasks__pinned_task_refs",
+    "rule_package": "tasks",
+    "rule_name": "Pinned Task references",
+    "description": "Ensures task references are pinned to specific versions.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "tasks__pipeline_has_tasks",
+    "rule_package": "tasks",
+    "rule_name": "Pipeline run includes at least one task",
+    "description": "Confirms the pipeline is not empty.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "tasks__pipeline_required_tasks_list_provided",
+    "rule_package": "tasks",
+    "rule_name": "Required tasks list for pipeline was provided",
+    "description": "Validates pipeline-specific required tasks data exists.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "tasks__required_tasks_list_provided",
+    "rule_package": "tasks",
+    "rule_name": "Required tasks list was provided",
+    "description": "Validates default required tasks data exists.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "tasks__successful_pipeline_tasks",
+    "rule_package": "tasks",
+    "rule_name": "Successful pipeline tasks",
+    "description": "Confirms pipeline tasks completed successfully.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "tasks__unsupported",
+    "rule_package": "tasks",
+    "rule_name": "Task version unsupported",
+    "description": "Flags tasks using unsupported versions.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test__test_all_images",
+    "rule_package": "test",
+    "rule_name": "Image digest is present in IMAGES_PROCESSED result",
+    "description": "Ensures the image digest appears in processed results.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test__no_failed_informative_tests",
+    "rule_package": "test",
+    "rule_name": "No informative tests failed",
+    "description": "Warns on informative test failures.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test__no_erred_tests",
+    "rule_package": "test",
+    "rule_name": "No tests erred",
+    "description": "Fails if any test produced an error.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test__no_failed_tests",
+    "rule_package": "test",
+    "rule_name": "No tests failed",
+    "description": "Fails if any test failed.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test__no_test_warnings",
+    "rule_package": "test",
+    "rule_name": "No tests produced warnings",
+    "description": "Reports test warnings.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test__no_skipped_tests",
+    "rule_package": "test",
+    "rule_name": "No tests were skipped",
+    "description": "Reports skipped tests.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test__test_results_known",
+    "rule_package": "test",
+    "rule_name": "No unsupported test result values found",
+    "description": "Validates test result values are recognized.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test__rule_data_provided",
+    "rule_package": "test",
+    "rule_name": "Rule data provided",
+    "description": "Ensures test rule data is available.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "test__test_data_found",
+    "rule_package": "test",
+    "rule_name": "Test data found in task results",
+    "description": "Confirms test data exists in task results.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test__test_results_found",
+    "rule_package": "test",
+    "rule_name": "Test data includes results key",
+    "description": "Validates test data structure contains results.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test_attestation__no_failed_tests",
+    "rule_package": "test_attestation",
+    "rule_name": "No failed test attestations",
+    "description": "Fails if any test attestation reports failure.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test_attestation__no_test_warnings",
+    "rule_package": "test_attestation",
+    "rule_name": "No test attestation warnings",
+    "description": "Reports test attestation warnings.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test_attestation__test_result_known",
+    "rule_package": "test_attestation",
+    "rule_name": "No unsupported test attestation result values",
+    "description": "Validates result values are recognized in test attestations.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "test_attestation__test_data_found",
+    "rule_package": "test_attestation",
+    "rule_name": "Test attestation data includes result",
+    "description": "Confirms test attestation data contains a result.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_task__data_format",
+    "rule_package": "trusted_task",
+    "rule_name": "Data format",
+    "description": "Validates the format of trusted task data.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_task__future_deny_rule",
+    "rule_package": "trusted_task",
+    "rule_name": "Future deny rule will apply",
+    "description": "Warns about upcoming deny rules for tasks.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_task__pinned",
+    "rule_package": "trusted_task",
+    "rule_name": "Task references are pinned",
+    "description": "Ensures tasks are pinned to specific digests.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_task__tagged",
+    "rule_package": "trusted_task",
+    "rule_name": "Task references are tagged",
+    "description": "Verifies tasks have version tags.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_task__data",
+    "rule_package": "trusted_task",
+    "rule_name": "Task tracking data was provided",
+    "description": "Confirms trusted task tracking data exists.",
+    "policy_type": "release",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "trusted_task__trusted",
+    "rule_package": "trusted_task",
+    "rule_name": "Tasks are trusted",
+    "description": "Validates tasks appear in the trusted list.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_task__current",
+    "rule_package": "trusted_task",
+    "rule_name": "Tasks using the latest versions",
+    "description": "Checks tasks use current versions.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_task__valid_trusted_artifact_inputs",
+    "rule_package": "trusted_task",
+    "rule_name": "Trusted Artifact produced in pipeline",
+    "description": "Validates trusted artifact chain in the pipeline.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_task__trusted_parameters",
+    "rule_package": "trusted_task",
+    "rule_name": "Trusted parameters",
+    "description": "Verifies task parameters are trusted.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "volatile_config__expiring_rule",
+    "rule_package": "volatile_config",
+    "rule_name": "Volatile rule expiring soon",
+    "description": "Warns when a volatile rule is about to expire.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "volatile_config__expired_rule",
+    "rule_package": "volatile_config",
+    "rule_name": "Volatile rule has expired",
+    "description": "Reports expired volatile rules.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "volatile_config__invalid_config",
+    "rule_package": "volatile_config",
+    "rule_name": "Volatile rule has invalid configuration",
+    "description": "Flags invalid volatile rule configurations.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "volatile_config__no_expiration",
+    "rule_package": "volatile_config",
+    "rule_name": "Volatile rule has no expiration",
+    "description": "Warns when a volatile rule lacks an expiration date.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "volatile_config__pending_rule",
+    "rule_package": "volatile_config",
+    "rule_name": "Volatile rule pending activation",
+    "description": "Reports volatile rules not yet active.",
+    "policy_type": "release",
+    "collections": ["minimal", "redhat"]
+  },
+  {
+    "rule_id": "rpm_ostree_task__builder_image_param",
+    "rule_package": "rpm_ostree_task",
+    "rule_name": "Builder image parameter",
+    "description": "Validates the builder image parameter for rpm-ostree tasks.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "rpm_ostree_task__rule_data",
+    "rule_package": "rpm_ostree_task",
+    "rule_name": "Rule data",
+    "description": "Ensures rpm-ostree rule data is available.",
+    "policy_type": "release",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "task_bundle__missing_required_data",
+    "rule_package": "task_bundle",
+    "rule_name": "Missing required data",
+    "description": "Flags missing data needed for bundle validation.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "task_bundle__untrusted_task_bundle",
+    "rule_package": "task_bundle",
+    "rule_name": "Task bundle is not trusted",
+    "description": "Fails if a bundle is not in the trusted list.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "task_bundle__out_of_date_task_bundle",
+    "rule_package": "task_bundle",
+    "rule_name": "Task bundle is out of date",
+    "description": "Warns about outdated bundles.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "task_bundle__empty_task_bundle_reference",
+    "rule_package": "task_bundle",
+    "rule_name": "Task bundle reference is empty",
+    "description": "Fails on empty bundle references.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "task_bundle__disallowed_task_reference",
+    "rule_package": "task_bundle",
+    "rule_name": "Task bundle was not used or is not defined",
+    "description": "Flags tasks not using bundles.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "task_bundle__unpinned_task_bundle",
+    "rule_package": "task_bundle",
+    "rule_name": "Unpinned task bundle reference",
+    "description": "Fails when bundle references are not pinned to a digest.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "basic__expected_kind",
+    "rule_package": "basic",
+    "rule_name": "Pipeline definition has expected kind",
+    "description": "Validates the Kubernetes resource kind is Pipeline.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "required_tasks__missing_future_required_task",
+    "rule_package": "required_tasks",
+    "rule_name": "Missing future required task",
+    "description": "Warns about tasks that will become required in pipeline definitions.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "required_tasks__missing_required_task",
+    "rule_package": "required_tasks",
+    "rule_name": "Missing required task",
+    "description": "Fails when a currently required task is absent from the pipeline definition.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "required_tasks__tasks_found",
+    "rule_package": "required_tasks",
+    "rule_name": "Pipeline contains tasks",
+    "description": "Confirms the pipeline has tasks defined.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "required_tasks__required_tasks_list_present",
+    "rule_package": "required_tasks",
+    "rule_name": "Required task list is present in rule data",
+    "description": "Validates rule data includes the required tasks list.",
+    "policy_type": "pipeline",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "required_tasks__required_tasks_found",
+    "rule_package": "required_tasks",
+    "rule_name": "Required tasks found in pipeline definition",
+    "description": "Confirms all required tasks appear in the pipeline definition.",
+    "policy_type": "pipeline",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "build_labels__build_type_label_set",
+    "rule_package": "build_labels",
+    "rule_name": "Build task has build type label",
+    "description": "Ensures the build type label is set on the task.",
+    "policy_type": "build_task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "build_labels__build_task_has_label",
+    "rule_package": "build_labels",
+    "rule_name": "Build task has label",
+    "description": "Validates that the build task has required labels.",
+    "policy_type": "build_task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "step_images__step_images_accessible",
+    "rule_package": "step_images",
+    "rule_name": "Step images are valid",
+    "description": "Confirms step images can be accessed/pulled.",
+    "policy_type": "task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "step_image_registries__step_image_registry_prefix_list_provided",
+    "rule_package": "step_image_registries",
+    "rule_name": "Permitted step image registry prefix list provided",
+    "description": "Confirms registry prefix rule data exists for step images.",
+    "policy_type": "task",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "step_image_registries__step_images_permitted",
+    "rule_package": "step_image_registries",
+    "rule_name": "Step images come from permitted registry",
+    "description": "Validates step images against allowed registries.",
+    "policy_type": "task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "annotations__expires_on_format",
+    "rule_package": "annotations",
+    "rule_name": "Task definition uses expires-on annotation in RFC3339 format",
+    "description": "Validates the expiration annotation format on task definitions.",
+    "policy_type": "task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "results__required",
+    "rule_package": "results",
+    "rule_name": "Required result defined",
+    "description": "Ensures required results are defined in the task.",
+    "policy_type": "task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "results__rule_data_provided",
+    "rule_package": "results",
+    "rule_name": "Rule data provided",
+    "description": "Validates result-related rule data exists.",
+    "policy_type": "task",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "kind__kind_present",
+    "rule_package": "kind",
+    "rule_name": "Kind field is present in task definition",
+    "description": "Confirms the kind field exists in the task definition.",
+    "policy_type": "task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "kind__expected_kind",
+    "rule_package": "kind",
+    "rule_name": "Task definition has expected kind",
+    "description": "Validates the kind is Task.",
+    "policy_type": "task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_artifacts__parameter",
+    "rule_package": "trusted_artifacts",
+    "rule_name": "Parameter",
+    "description": "Validates trusted artifact parameter conventions in task definitions.",
+    "policy_type": "task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_artifacts__result",
+    "rule_package": "trusted_artifacts",
+    "rule_name": "Result",
+    "description": "Validates trusted artifact result conventions in task definitions.",
+    "policy_type": "task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "trusted_artifacts__workspace",
+    "rule_package": "trusted_artifacts",
+    "rule_name": "Workspace",
+    "description": "Validates trusted artifact workspace conventions in task definitions.",
+    "policy_type": "task",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "stepaction_image__permitted",
+    "rule_package": "stepaction_image",
+    "rule_name": "Image comes from permitted registry",
+    "description": "Validates the StepAction image registry is allowed.",
+    "policy_type": "stepaction",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "stepaction_image__accessible",
+    "rule_package": "stepaction_image",
+    "rule_name": "Image is accessible",
+    "description": "Confirms the StepAction image can be accessed.",
+    "policy_type": "stepaction",
+    "collections": ["redhat"]
+  },
+  {
+    "rule_id": "stepaction_image__rule_data",
+    "rule_package": "stepaction_image",
+    "rule_name": "Rule data provided",
+    "description": "Ensures StepAction image rule data exists.",
+    "policy_type": "stepaction",
+    "collections": ["policy_data"]
+  },
+  {
+    "rule_id": "stepaction_kind__valid",
+    "rule_package": "stepaction_kind",
+    "rule_name": "StepAction definition has expected kind",
+    "description": "Validates the kind is StepAction.",
+    "policy_type": "stepaction",
+    "collections": ["redhat"]
+  }
+]
