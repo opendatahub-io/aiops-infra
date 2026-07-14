@@ -524,7 +524,7 @@ def cmd_remove_multidoc_list_item(args):
         if isinstance(item, dict):
             meta = item.get("metadata", {})
             item_name = meta.get("name", "") if isinstance(meta, dict) else ""
-            if args.name in str(item_name):
+            if str(item_name) == args.name:
                 to_remove.append(i)
 
     if not to_remove:

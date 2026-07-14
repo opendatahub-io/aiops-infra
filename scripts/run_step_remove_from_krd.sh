@@ -131,7 +131,7 @@ elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
       "$PDS_FILE" \
       --doc-kind "ProjectDevelopmentStreamTemplate" \
       --array-key "spec.resources" \
-      --name "${COMPONENT_NAME}-" || true
+      --name "${COMPONENT_NAME}-{{.versionName}}" || true
     CHANGES_MADE=true
   fi
 
