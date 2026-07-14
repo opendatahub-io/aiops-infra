@@ -30,39 +30,23 @@ If the user's phrase does not match any alias in the catalog, first run `analyze
 
 **Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
 
-0. **Resolve aiops-infra root (REQUIRED before any script)**: Run with Bash description: `"Resolve aiops-infra repository root and create run context"`:
+0. **Initialize conforma run (REQUIRED before any script)**: Run with Bash description: `"Initialize conforma run context for <extracted_release_text>"`:
 
 ```bash
-_ROOT="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-[ -z "$_ROOT" ] && _ROOT="$HOME/.local/share/aiops-infra"
-[ -f "$_ROOT/pyproject.toml" ] || { echo "ERROR: aiops-infra repo not found at $_ROOT. Set AIOPS_INFRA_ROOT or clone to ~/.local/share/aiops-infra"; exit 1; }
-_RUNDIR="$HOME/.conforma/$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$_RUNDIR"
-cat > "$_RUNDIR/context.yaml" << EOF
-aiops_infra_root: $_ROOT
-run:
-  created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-  run_dir: ${_RUNDIR/#$HOME/\~}
-steps: {}
-EOF
-ln -sfn "$_RUNDIR" "$HOME/.conforma/.conforma-active"
-echo "aiops_infra_root=$_ROOT"
-echo "run_dir=$_RUNDIR"
+_R="${AIOPS_INFRA_ROOT:-$(python3 -c 'from _repo_root import REPO_ROOT; print(REPO_ROOT)' 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null)}"
+python3 "$_R/scripts/init_conforma_run.py" "<extracted_release_text>" --set violation_code "<resolved_code>"
 ```
 
-   If the output path does not contain a `pyproject.toml`, stop and instruct the user to set `AIOPS_INFRA_ROOT` or clone the repo to `~/.local/share/aiops-infra`.
+   This is the **only step where user input appears on the command line**. The `--set violation_code` stores the resolved violation code in context.yaml for use by Step 3. All subsequent steps use fixed commands.
 
 1. **Prerequisites check**: Run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --format markdown`. If exit code is non-zero, render the markdown output directly and stop. Do not interpret or reformat.
 
 2. **Resolve the violation code**: Map the user's phrase to an exact `--code` value using the `aliases` field in [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml).
 
-3. **Run the history script**:
+3. **Run the history script**: The script reads `--release` (from `application.release` or `user_query`), `--code` (from `violation_code`), and `--environment` (from `environment`) from context.yaml automatically.
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" \
-  --release rhoai-3.5-ea.1 \
-  --code prefetch_dependencies.mode_not_permissive \
-  --format text
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" --format text
 ```
 
    Use `--format text` when presenting results to the user. Use `--format json` when piping output to another tool or for programmatic consumption.

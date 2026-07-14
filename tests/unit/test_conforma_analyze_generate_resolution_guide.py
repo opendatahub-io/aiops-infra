@@ -1671,6 +1671,7 @@ class TestMainAutoExtraction:
     def test_fails_without_source_path_or_metadata_file(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog, monkeypatch
     ):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty-workdir"))
         output_file = tmp_path / "guide.md"
         rc = self._run_main([
             "--violations-yaml", str(sample_violations_yaml),

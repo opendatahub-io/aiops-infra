@@ -29,10 +29,8 @@ import importlib
 import json
 import os
 import re
-import sys
 from pathlib import Path
 
-from _repo_root import REPO_ROOT  # noqa: E402
 
 import konflux_environment  # noqa: E402
 
@@ -106,6 +104,7 @@ def _check_konflux() -> dict:
 
         try:
             import gitlab_ops
+
             token = gitlab_ops.discover_token(f"https://{host}")
         except Exception:
             token = os.environ.get("GITLAB_TOKEN")
@@ -123,6 +122,7 @@ def _check_konflux() -> dict:
         preferred = os.environ.get("PREFERRED_KONFLUX_CLUSTER")
         try:
             import konflux_tenant_env_discovery
+
             konflux_tenant_env_discovery.discover(tenant, preferred_cluster=preferred)
             # Discovery succeeded — derive secondary vars so everything is consistent.
             konflux_environment.load()
@@ -132,10 +132,7 @@ def _check_konflux() -> dict:
                     "ok": False,
                     "name": "konflux",
                     "error": "Discovery succeeded but KONFLUX_CLUSTER_DOMAIN is still unset",
-                    "fix": (
-                        "This is unexpected. Try manually setting:\n"
-                        "  KONFLUX_CLUSTER_DOMAIN=your-cluster-domain"
-                    ),
+                    "fix": ("This is unexpected. Try manually setting:\n  KONFLUX_CLUSTER_DOMAIN=your-cluster-domain"),
                 }
         except Exception as exc:
             error_msg = str(exc)
@@ -145,10 +142,7 @@ def _check_konflux() -> dict:
                     "ok": False,
                     "name": "konflux",
                     "error": error_msg,
-                    "fix": (
-                        "Add to ~/.conforma/.env:\n"
-                        "  PREFERRED_KONFLUX_CLUSTER=your-cluster-id"
-                    ),
+                    "fix": ("Add to ~/.conforma/.env:\n  PREFERRED_KONFLUX_CLUSTER=your-cluster-id"),
                 }
             return {
                 "ok": False,
@@ -174,10 +168,7 @@ def _check_konflux() -> dict:
             "ok": False,
             "name": "konflux",
             "error": probe_error,
-            "fix": (
-                f"VPN CONNECTION REQUIRED: Cannot resolve {api_host}\n"
-                f"Connect to Red Hat VPN, then retry."
-            ),
+            "fix": (f"VPN CONNECTION REQUIRED: Cannot resolve {api_host}\nConnect to Red Hat VPN, then retry."),
         }
 
     if not https_ok:
@@ -314,10 +305,7 @@ def _check_gitlab_auth() -> dict:
             "ok": False,
             "name": "gitlab",
             "error": "GITLAB_HOST not set",
-            "fix": (
-                "Add to ~/.conforma/.env:\n"
-                "  GITLAB_HOST=your-gitlab-host"
-            ),
+            "fix": ("Add to ~/.conforma/.env:\n  GITLAB_HOST=your-gitlab-host"),
         }
 
     import gitlab_ops
@@ -343,14 +331,17 @@ def _check_gitlab_auth() -> dict:
     token_url = f"https://{host}/-/user_settings/personal_access_tokens"
 
     # Detect VPN/DNS/connectivity failures and prioritize them in the fix message
-    is_vpn_issue = any(indicator in error_str for indicator in [
-        "Failed to resolve",
-        "Name or service not known",
-        "NameResolutionError",
-        "Max retries exceeded",
-        "Connection refused",
-        "Network is unreachable",
-    ])
+    is_vpn_issue = any(
+        indicator in error_str
+        for indicator in [
+            "Failed to resolve",
+            "Name or service not known",
+            "NameResolutionError",
+            "Max retries exceeded",
+            "Connection refused",
+            "Network is unreachable",
+        ]
+    )
 
     if is_vpn_issue:
         return {
@@ -415,14 +406,17 @@ def _check_jira_auth() -> dict:
     has_email = bool(os.environ.get("JIRA_EMAIL"))
 
     # Detect VPN/connectivity failures (Jira is VPN-gated like GitLab)
-    is_vpn_issue = any(indicator in error_str for indicator in [
-        "Failed to resolve",
-        "Name or service not known",
-        "NameResolutionError",
-        "Max retries exceeded",
-        "Connection refused",
-        "Network is unreachable",
-    ])
+    is_vpn_issue = any(
+        indicator in error_str
+        for indicator in [
+            "Failed to resolve",
+            "Name or service not known",
+            "NameResolutionError",
+            "Max retries exceeded",
+            "Connection refused",
+            "Network is unreachable",
+        ]
+    )
 
     if is_vpn_issue:
         return {
@@ -567,11 +561,7 @@ def _check_quay_auth() -> dict:
             ),
         }
 
-    token_url = (
-        "https://quay.io/v2/auth"
-        "?service=quay.io"
-        "&scope=repository:rhoai/odh-dashboard-rhel9:pull"
-    )
+    token_url = "https://quay.io/v2/auth?service=quay.io&scope=repository:rhoai/odh-dashboard-rhel9:pull"
     try:
         token_resp = requests.get(
             token_url,
@@ -599,9 +589,7 @@ def _check_quay_auth() -> dict:
                 "credentials are invalid or expired"
             ),
             "fix": (
-                "podman login quay.io\n"
-                "(Re-authenticate with valid credentials. "
-                f"Current auth config: {config_path})"
+                f"podman login quay.io\n(Re-authenticate with valid credentials. Current auth config: {config_path})"
             ),
         }
 
@@ -614,10 +602,7 @@ def _check_quay_auth() -> dict:
                 f"actual container images in the registry — quay.io auth "
                 f"returned HTTP {token_resp.status_code}"
             ),
-            "fix": (
-                "podman login quay.io\n"
-                f"Current auth config: {config_path}"
-            ),
+            "fix": (f"podman login quay.io\nCurrent auth config: {config_path}"),
         }
 
     token_data = token_resp.json()
@@ -631,10 +616,7 @@ def _check_quay_auth() -> dict:
                 "actual container images in the registry — quay.io auth "
                 "returned no token"
             ),
-            "fix": (
-                "podman login quay.io\n"
-                f"Current auth config: {config_path}"
-            ),
+            "fix": (f"podman login quay.io\nCurrent auth config: {config_path}"),
         }
 
     try:
@@ -680,10 +662,7 @@ def _check_quay_auth() -> dict:
                 f"actual container images in the registry — quay.io "
                 f"returned HTTP {resp.status_code}"
             ),
-            "fix": (
-                "podman login quay.io\n"
-                f"Current auth config: {config_path}"
-            ),
+            "fix": (f"podman login quay.io\nCurrent auth config: {config_path}"),
         }
 
     return {
@@ -712,12 +691,14 @@ def run_all_checks() -> list[dict]:
         try:
             results.append(check_fn())
         except Exception as exc:
-            results.append({
-                "ok": False,
-                "name": check_fn.__name__.replace("_check_", ""),
-                "error": f"Check raised exception: {exc}",
-                "fix": None,
-            })
+            results.append(
+                {
+                    "ok": False,
+                    "name": check_fn.__name__.replace("_check_", ""),
+                    "error": f"Check raised exception: {exc}",
+                    "fix": None,
+                }
+            )
     return results
 
 
@@ -907,6 +888,24 @@ def main() -> int:
 
     results = run_all_checks()
     required_ok = all(r["ok"] for r in results if not r.get("optional"))
+
+    slack_result = next(
+        (r for r in results if r.get("name") == "slack"),
+        None,
+    )
+    slack_available = slack_result["ok"] if slack_result else False
+    try:
+        import conforma_context_ops
+
+        run_dir = conforma_context_ops.discover_run_dir()
+        conforma_context_ops.update_step(
+            run_dir,
+            "prerequisites",
+            "completed",
+            slack_available=slack_available,
+        )
+    except (FileNotFoundError, ImportError):
+        pass
 
     if args.output_format == "json":
         slack_warn = next(

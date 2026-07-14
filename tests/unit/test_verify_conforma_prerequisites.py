@@ -8,7 +8,14 @@ import konflux_environment
 import verify_conforma_prerequisites as prereqs
 
 
-def _make_check(ok: bool, name: str, optional: bool = False, error: str | None = None, fix: str | None = None, detail: str | None = None) -> dict:
+def _make_check(
+    ok: bool,
+    name: str,
+    optional: bool = False,
+    error: str | None = None,
+    fix: str | None = None,
+    detail: str | None = None,
+) -> dict:
     result = {
         "ok": ok,
         "name": name,
@@ -89,7 +96,9 @@ class TestSlackCheckMarkedOptional:
     """Ensure the Slack check result always carries optional=True."""
 
     def test_slack_pass_is_optional(self):
-        with patch("slack_ops.verify_auth", return_value={"ok": True, "team": "test", "team_url": "https://test.slack.com"}):
+        with patch(
+            "slack_ops.verify_auth", return_value={"ok": True, "team": "test", "team_url": "https://test.slack.com"}
+        ):
             result = prereqs._check_slack_auth()
         assert result["optional"] is True
         assert result["ok"] is True
@@ -236,9 +245,9 @@ class TestGitlabErrorClassification:
 
     DNS_ERROR = (
         "HTTPSConnectionPool(host='gitlab.corp.internal', port=443): Max retries exceeded "
-        "with url: /api/v4/user (Caused by NameResolutionError(\"HTTPSConnection"
+        'with url: /api/v4/user (Caused by NameResolutionError("HTTPSConnection'
         "(host='gitlab.corp.internal', port=443): Failed to resolve 'gitlab.corp.internal' "
-        "([Errno -2] Name or service not known)\"))"
+        '([Errno -2] Name or service not known)"))'
     )
 
     CONNECTION_REFUSED_ERROR = "ConnectionRefusedError: [Errno 111] Connection refused"
@@ -304,9 +313,9 @@ class TestJiraErrorClassification:
 
     DNS_ERROR = (
         "HTTPSConnectionPool(host='redhat.atlassian.net', port=443): Max retries exceeded "
-        "with url: /rest/api/2/myself (Caused by NameResolutionError(\"HTTPSConnection"
+        'with url: /rest/api/2/myself (Caused by NameResolutionError("HTTPSConnection'
         "(host='redhat.atlassian.net', port=443): Failed to resolve 'redhat.atlassian.net' "
-        "([Errno -2] Name or service not known)\"))"
+        '([Errno -2] Name or service not known)"))'
     )
 
     AUTH_401_ERROR = (
@@ -372,6 +381,7 @@ class TestKonfluxConnectivity:
     def test_cluster_reachable_and_authenticated(self, mock_oc, _mock_probe):
         def side_effect(result):
             result.konflux_reachable = True
+
         mock_oc.side_effect = side_effect
         result = prereqs._check_konflux()
         assert result["ok"] is True
@@ -379,9 +389,15 @@ class TestKonfluxConnectivity:
         assert "test-cluster-01" in result["detail"]
 
     @patch.dict("os.environ", BASE_ENV, clear=False)
-    @patch.object(prereqs, "_probe_konflux_cluster", return_value=(
-        False, False, "Cannot resolve host: [Errno -2] Name or service not known",
-    ))
+    @patch.object(
+        prereqs,
+        "_probe_konflux_cluster",
+        return_value=(
+            False,
+            False,
+            "Cannot resolve host: [Errno -2] Name or service not known",
+        ),
+    )
     def test_dns_failure_reports_vpn(self, _mock_probe):
         result = prereqs._check_konflux()
         assert result["ok"] is False
@@ -389,9 +405,15 @@ class TestKonfluxConnectivity:
         assert "test-cluster-01" in result["fix"]
 
     @patch.dict("os.environ", BASE_ENV, clear=False)
-    @patch.object(prereqs, "_probe_konflux_cluster", return_value=(
-        True, False, "Cannot connect to host:6443: timed out",
-    ))
+    @patch.object(
+        prereqs,
+        "_probe_konflux_cluster",
+        return_value=(
+            True,
+            False,
+            "Cannot connect to host:6443: timed out",
+        ),
+    )
     def test_https_failure_reports_vpn(self, _mock_probe):
         result = prereqs._check_konflux()
         assert result["ok"] is False
@@ -403,9 +425,8 @@ class TestKonfluxConnectivity:
     def test_network_ok_but_not_authenticated(self, mock_oc, _mock_probe):
         def side_effect(result):
             result.konflux_reachable = False
-            result.error_details["konflux"] = (
-                "error: You must be logged in to the server (Unauthorized)"
-            )
+            result.error_details["konflux"] = "error: You must be logged in to the server (Unauthorized)"
+
         mock_oc.side_effect = side_effect
         result = prereqs._check_konflux()
         assert result["ok"] is False
@@ -419,6 +440,7 @@ class TestKonfluxConnectivity:
     def test_no_cli_but_network_reachable(self, mock_oc, _mock_probe):
         def side_effect(result):
             result.konflux_reachable = None
+
         mock_oc.side_effect = side_effect
         result = prereqs._check_konflux()
         assert result["ok"] is True
@@ -431,6 +453,7 @@ class TestProbeKonfluxCluster:
 
     def test_dns_failure(self):
         import socket
+
         with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
             dns_ok, https_ok, error = prereqs._probe_konflux_cluster("api.fake.host")
         assert dns_ok is False
@@ -439,6 +462,7 @@ class TestProbeKonfluxCluster:
 
     def test_https_success(self):
         from unittest.mock import MagicMock
+
         mock_resp = MagicMock()
         mock_resp.status = 200
         mock_resp.__enter__ = lambda s: s
@@ -454,11 +478,19 @@ class TestProbeKonfluxCluster:
 
     def test_http_error_counts_as_success(self):
         import urllib.error
+
         with (
             patch("socket.getaddrinfo", return_value=[("fake",)]),
-            patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-                "https://api.fake:6443/healthz", 401, "Unauthorized", {}, None,
-            )),
+            patch(
+                "urllib.request.urlopen",
+                side_effect=urllib.error.HTTPError(
+                    "https://api.fake:6443/healthz",
+                    401,
+                    "Unauthorized",
+                    {},
+                    None,
+                ),
+            ),
         ):
             dns_ok, https_ok, error = prereqs._probe_konflux_cluster("api.fake.host")
         assert dns_ok is True
@@ -467,11 +499,15 @@ class TestProbeKonfluxCluster:
 
     def test_ssl_error_counts_as_success(self):
         import urllib.error
+
         with (
             patch("socket.getaddrinfo", return_value=[("fake",)]),
-            patch("urllib.request.urlopen", side_effect=urllib.error.URLError(
-                "CERTIFICATE_VERIFY_FAILED",
-            )),
+            patch(
+                "urllib.request.urlopen",
+                side_effect=urllib.error.URLError(
+                    "CERTIFICATE_VERIFY_FAILED",
+                ),
+            ),
         ):
             dns_ok, https_ok, error = prereqs._probe_konflux_cluster("api.fake.host")
         assert dns_ok is True
@@ -480,11 +516,15 @@ class TestProbeKonfluxCluster:
 
     def test_connection_timeout(self):
         import urllib.error
+
         with (
             patch("socket.getaddrinfo", return_value=[("fake",)]),
-            patch("urllib.request.urlopen", side_effect=urllib.error.URLError(
-                "timed out",
-            )),
+            patch(
+                "urllib.request.urlopen",
+                side_effect=urllib.error.URLError(
+                    "timed out",
+                ),
+            ),
         ):
             dns_ok, https_ok, error = prereqs._probe_konflux_cluster("api.fake.host")
         assert dns_ok is True
@@ -540,8 +580,9 @@ class TestFindQuayAuth:
 class TestCheckQuayAuth:
     """Tests for _check_quay_auth — the full quay.io preflight check (Bearer token flow)."""
 
-    def _mock_token_and_api(self, tmp_path, *, token_status=200, api_status=200,
-                            token_json=None, token_exc=None, api_exc=None):
+    def _mock_token_and_api(
+        self, tmp_path, *, token_status=200, api_status=200, token_json=None, token_exc=None, api_exc=None
+    ):
         """Helper: set up auth config and mock requests.get (token) + requests.head (API)."""
         import requests as req_mod
         from unittest.mock import MagicMock
@@ -598,8 +639,8 @@ class TestCheckQuayAuth:
 
     def test_fails_on_token_network_error(self, tmp_path):
         import requests as req_mod
-        patches = self._mock_token_and_api(
-            tmp_path, token_exc=req_mod.ConnectionError("timeout"))
+
+        patches = self._mock_token_and_api(tmp_path, token_exc=req_mod.ConnectionError("timeout"))
         with patches[0], patches[1], patches[2]:
             result = prereqs._check_quay_auth()
         assert result["ok"] is False
@@ -607,8 +648,8 @@ class TestCheckQuayAuth:
 
     def test_fails_on_api_network_error(self, tmp_path):
         import requests as req_mod
-        patches = self._mock_token_and_api(
-            tmp_path, api_exc=req_mod.ConnectionError("timeout"))
+
+        patches = self._mock_token_and_api(tmp_path, api_exc=req_mod.ConnectionError("timeout"))
         with patches[0], patches[1], patches[2]:
             result = prereqs._check_quay_auth()
         assert result["ok"] is False
@@ -631,8 +672,67 @@ class TestCheckQuayAuth:
         """Ensure _check_quay_auth is registered in run_all_checks."""
         source = prereqs.run_all_checks.__code__
         import dis
+
         called_names = set()
         for instr in dis.get_instructions(source):
             if instr.opname == "LOAD_GLOBAL" or instr.opname == "LOAD_ATTR":
                 called_names.add(instr.argval)
         assert "_check_quay_auth" in called_names
+
+
+# ---------------------------------------------------------------------------
+# Prerequisites context persistence (update_step)
+# ---------------------------------------------------------------------------
+
+
+class TestPrerequisitesContextPersistence:
+    """Verify that main() writes slack_available to context.yaml."""
+
+    def _run_main_with_checks(self, tmp_path, monkeypatch, checks):
+        """Run main() with mocked run_all_checks and a temp context.yaml."""
+        import yaml
+
+        import conforma_context_ops as ctx
+
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "run1"
+        ctx.create(run_dir)
+        ctx.set_active(run_dir)
+
+        with (
+            patch.object(prereqs, "run_all_checks", return_value=checks),
+            patch("sys.argv", ["verify_conforma_prerequisites.py"]),
+        ):
+            prereqs.main()
+
+        data = yaml.safe_load((run_dir / "context.yaml").read_text())
+        return data
+
+    def test_slack_available_written_to_context(self, tmp_path, monkeypatch):
+        checks = [
+            _make_check(True, "python_deps"),
+            _make_check(True, "slack", optional=True),
+        ]
+        data = self._run_main_with_checks(tmp_path, monkeypatch, checks)
+        assert data["steps"]["prerequisites"]["slack_available"] is True
+
+    def test_slack_unavailable_written_to_context(self, tmp_path, monkeypatch):
+        checks = [
+            _make_check(True, "python_deps"),
+            _make_check(False, "slack", optional=True, error="no credentials"),
+        ]
+        data = self._run_main_with_checks(tmp_path, monkeypatch, checks)
+        assert data["steps"]["prerequisites"]["slack_available"] is False
+
+    def test_no_run_dir_does_not_crash(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        checks = [
+            _make_check(True, "python_deps"),
+            _make_check(True, "slack", optional=True),
+        ]
+        with (
+            patch.object(prereqs, "run_all_checks", return_value=checks),
+            patch("sys.argv", ["verify_conforma_prerequisites.py"]),
+        ):
+            ret = prereqs.main()
+        assert ret == 0

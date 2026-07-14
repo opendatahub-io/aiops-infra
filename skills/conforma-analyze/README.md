@@ -18,6 +18,15 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 #    "what's the conforma status for rhoai-3.4?"
 ```
 
+## Deterministic workflow commands
+
+Step 0 (`init_conforma_run.py`) is the **only command where user input appears on the CLI**. All subsequent workflow steps use fixed commands — parameters like `--query`, `--require-slack`, `--release`, `--environment` are read from `context.yaml` automatically. This eliminates permission prompt churn in Claude Code (each run uses identical command strings).
+
+Key context.yaml integrations:
+- `resolve_release_context.py` reads `user_query` from context.yaml when `--query` is omitted
+- `violations_coverage.py` reads `steps.prerequisites.slack_available` when `--require-slack` is omitted
+- `violation_history.py` reads `application.release`, `violation_code`, and `environment` from context.yaml
+
 ## Additional prerequisites
 
 - `GITHUB_TOKEN` with read access to `red-hat-data-services/conforma-reporter` (private repo)

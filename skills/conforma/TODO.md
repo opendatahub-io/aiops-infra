@@ -8,8 +8,7 @@ review the plan one more time, find and fix, gaps, mistakes, discrepancies, impl
 
 3. esnure the exception process follows the steps that not all violations need VP approval
 
-4. review, improve and implement 'Central Run Context File for Conforma Workflows' plan originally written by cursor
-Introduce a run-context.yaml file per timestamped ~/.conforma/ directory that serves as the single source of truth for all conforma run parameters. A new shared module scripts/run_context_ops.py manages reads/writes, each script reads defaults from it (CLI args override), and each step persists its outputs back into it.
+4. ~~review, improve and implement 'Central Run Context File for Conforma Workflows' plan originally written by cursor~~ — partially done. `conforma_context_ops.py` manages context.yaml. `init_conforma_run.py` replaces inline bash Step 0. Prerequisites, resolve, coverage, and violation_history scripts all read from context.yaml with CLI override. Remaining: some scripts (e.g. `analyze_csv_report.py`, `generate_resolution_guide.py`) still accept explicit CLI args rather than reading from context — these already auto-discover via `discover_run_dir()` but could be further simplified.
 
 5. review, improve and implement 'Conforma Live Workflow Verification' plan originaly created by cursor
 Add a runtime verification layer to conforma skill workflows that validates all outputs end-to-end before presenting results to the user, then commits verified outputs to the repo. Start with conforma-analyze (most mature, most outputs) and design the framework to be extensible to other conforma skills.

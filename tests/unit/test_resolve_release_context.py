@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -522,6 +522,7 @@ class TestCreateRundir:
         rundir = mod.create_rundir(str(tmp_path))
         dirname = __import__("pathlib").Path(rundir).name
         import re
+
         assert re.match(r"^\d{8}-\d{6}$", dirname)
 
     def test_creates_parent_directories(self, tmp_path):
@@ -544,10 +545,18 @@ class TestOutputDir:
 
         rundir = mod.create_rundir(str(tmp_path))
         result["rundir"] = rundir
-        conforma_context_ops.create(Path(rundir), {
-            "application": {"name": "rhoai", "release": result["release"], "version": "3.4", "konflux_app": result.get("konflux_app", "rhoai-v3-4")},
-            "environment": result.get("environment", "prod"),
-        })
+        conforma_context_ops.create(
+            Path(rundir),
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": result["release"],
+                    "version": "3.4",
+                    "konflux_app": result.get("konflux_app", "rhoai-v3-4"),
+                },
+                "environment": result.get("environment", "prod"),
+            },
+        )
 
         ctx = conforma_context_ops.load(Path(rundir))
         assert ctx["application"]["release"] == "rhoai-3.4"
@@ -745,8 +754,9 @@ class TestConformaActiveSymlink:
 
 class TestPolicyFilesInResult:
     def test_resolved_includes_filtered_policy_files(self, mock_env, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES",
-                           "fbc-rhoai-prod.yaml,fbc-rhoai-stage.yaml,registry-rhoai-prod.yaml")
+        monkeypatch.setenv(
+            "KONFLUX_CONFORMA_POLICY_FILES", "fbc-rhoai-prod.yaml,fbc-rhoai-stage.yaml,registry-rhoai-prod.yaml"
+        )
         with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
             result = mod.resolve("3.4")
 
@@ -755,8 +765,7 @@ class TestPolicyFilesInResult:
         assert result["policy_files"] == ["fbc-rhoai-prod.yaml", "registry-rhoai-prod.yaml"]
 
     def test_policy_files_filtered_by_stage(self, mock_env, monkeypatch):
-        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES",
-                           "fbc-rhoai-prod.yaml,fbc-rhoai-stage.yaml")
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_FILES", "fbc-rhoai-prod.yaml,fbc-rhoai-stage.yaml")
         with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
             result = mod.resolve("stage 3.4")
 
@@ -791,24 +800,50 @@ class TestUpcomingReleaseDate:
         mod.release_dates._release_data_cache = None
 
     def test_resolved_result_includes_upcoming_release_date(self):
-        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
-             patch.object(mod.release_dates, "_fetch_release_data", return_value={
-                 "supported": [{"version": "3.5", "products": {"rhoai": {
-                     "milestones": [{"type": "ga", "date": "2026-08-15", "version": "3.5"}],
-                 }}}],
-             }):
+        with (
+            patch.object(mod, "list_version_dirs", return_value=["v3.5"]),
+            patch.object(
+                mod.release_dates,
+                "_fetch_release_data",
+                return_value={
+                    "supported": [
+                        {
+                            "version": "3.5",
+                            "products": {
+                                "rhoai": {
+                                    "milestones": [{"type": "ga", "date": "2026-08-15", "version": "3.5"}],
+                                }
+                            },
+                        }
+                    ],
+                },
+            ),
+        ):
             result = mod.resolve("3.5")
 
         assert result["status"] == "resolved"
         assert result["upcoming_release_date"] == "2026-08-15"
 
     def test_confirmation_display_contains_upcoming_release_date(self):
-        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
-             patch.object(mod.release_dates, "_fetch_release_data", return_value={
-                 "supported": [{"version": "3.5", "products": {"rhoai": {
-                     "milestones": [{"type": "ga", "date": "2026-08-15", "version": "3.5"}],
-                 }}}],
-             }):
+        with (
+            patch.object(mod, "list_version_dirs", return_value=["v3.5"]),
+            patch.object(
+                mod.release_dates,
+                "_fetch_release_data",
+                return_value={
+                    "supported": [
+                        {
+                            "version": "3.5",
+                            "products": {
+                                "rhoai": {
+                                    "milestones": [{"type": "ga", "date": "2026-08-15", "version": "3.5"}],
+                                }
+                            },
+                        }
+                    ],
+                },
+            ),
+        ):
             result = mod.resolve("3.5")
 
         assert "Upcoming release date (RHOAI 3.5)" in result["confirmation_display"]
@@ -817,8 +852,10 @@ class TestUpcomingReleaseDate:
         assert "Product Pages" in result["confirmation_display"]
 
     def test_upcoming_release_date_none_omits_row(self):
-        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
-             patch.object(mod.release_dates, "_fetch_release_data", return_value=None):
+        with (
+            patch.object(mod, "list_version_dirs", return_value=["v3.5"]),
+            patch.object(mod.release_dates, "_fetch_release_data", return_value=None),
+        ):
             result = mod.resolve("3.5")
 
         assert result["upcoming_release_date"] is None
@@ -846,30 +883,56 @@ class TestCodeFreezeDate:
         mod.release_dates._release_data_cache = None
 
     def test_resolved_result_includes_code_freeze_date(self):
-        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
-             patch.object(mod.release_dates, "_fetch_release_data", return_value={
-                 "supported": [{"version": "3.5", "products": {"rhoai": {
-                     "milestones": [
-                         {"type": "ga", "date": "2026-08-20", "version": "3.5"},
-                         {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
-                     ],
-                 }}}],
-             }):
+        with (
+            patch.object(mod, "list_version_dirs", return_value=["v3.5"]),
+            patch.object(
+                mod.release_dates,
+                "_fetch_release_data",
+                return_value={
+                    "supported": [
+                        {
+                            "version": "3.5",
+                            "products": {
+                                "rhoai": {
+                                    "milestones": [
+                                        {"type": "ga", "date": "2026-08-20", "version": "3.5"},
+                                        {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
+                                    ],
+                                }
+                            },
+                        }
+                    ],
+                },
+            ),
+        ):
             result = mod.resolve("3.5")
 
         assert result["status"] == "resolved"
         assert result["code_freeze_date"] == "2026-07-24"
 
     def test_confirmation_display_contains_code_freeze_date(self):
-        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
-             patch.object(mod.release_dates, "_fetch_release_data", return_value={
-                 "supported": [{"version": "3.5", "products": {"rhoai": {
-                     "milestones": [
-                         {"type": "ga", "date": "2026-08-20", "version": "3.5"},
-                         {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
-                     ],
-                 }}}],
-             }):
+        with (
+            patch.object(mod, "list_version_dirs", return_value=["v3.5"]),
+            patch.object(
+                mod.release_dates,
+                "_fetch_release_data",
+                return_value={
+                    "supported": [
+                        {
+                            "version": "3.5",
+                            "products": {
+                                "rhoai": {
+                                    "milestones": [
+                                        {"type": "ga", "date": "2026-08-20", "version": "3.5"},
+                                        {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
+                                    ],
+                                }
+                            },
+                        }
+                    ],
+                },
+            ),
+        ):
             result = mod.resolve("3.5")
 
         assert "Code freeze (RHOAI 3.5)" in result["confirmation_display"]
@@ -878,8 +941,10 @@ class TestCodeFreezeDate:
         assert "Product Pages" in result["confirmation_display"]
 
     def test_code_freeze_date_none_both_dates_unknown_omits_row(self):
-        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
-             patch.object(mod.release_dates, "_fetch_release_data", return_value=None):
+        with (
+            patch.object(mod, "list_version_dirs", return_value=["v3.5"]),
+            patch.object(mod.release_dates, "_fetch_release_data", return_value=None),
+        ):
             result = mod.resolve("3.5")
 
         assert result["code_freeze_date"] is None
@@ -887,15 +952,28 @@ class TestCodeFreezeDate:
         assert "Code freeze" not in result["confirmation_display"]
 
     def test_code_freeze_after_upcoming_release_shows_already_passed(self):
-        with patch.object(mod, "list_version_dirs", return_value=["v3.3"]), \
-             patch.object(mod.release_dates, "_fetch_release_data", return_value={
-                 "supported": [{"version": "3.3", "products": {"rhoai": {
-                     "milestones": [
-                         {"type": "ga", "date": "2026-07-09", "version": "3.3.5"},
-                         {"type": "ga_code_freeze", "date": "2026-07-31", "version": "3.3"},
-                     ],
-                 }}}],
-             }):
+        with (
+            patch.object(mod, "list_version_dirs", return_value=["v3.3"]),
+            patch.object(
+                mod.release_dates,
+                "_fetch_release_data",
+                return_value={
+                    "supported": [
+                        {
+                            "version": "3.3",
+                            "products": {
+                                "rhoai": {
+                                    "milestones": [
+                                        {"type": "ga", "date": "2026-07-09", "version": "3.3.5"},
+                                        {"type": "ga_code_freeze", "date": "2026-07-31", "version": "3.3"},
+                                    ],
+                                }
+                            },
+                        }
+                    ],
+                },
+            ),
+        ):
             result = mod.resolve("3.3")
 
         assert result["code_freeze_date"] == "2026-07-31"
@@ -906,14 +984,27 @@ class TestCodeFreezeDate:
         assert "Product Pages" not in display or "Code freeze" in display
 
     def test_code_freeze_none_with_upcoming_release_shows_already_passed(self):
-        with patch.object(mod, "list_version_dirs", return_value=["v3.3"]), \
-             patch.object(mod.release_dates, "_fetch_release_data", return_value={
-                 "supported": [{"version": "3.3", "products": {"rhoai": {
-                     "milestones": [
-                         {"type": "ga", "date": "2026-07-09", "version": "3.3.5"},
-                     ],
-                 }}}],
-             }):
+        with (
+            patch.object(mod, "list_version_dirs", return_value=["v3.3"]),
+            patch.object(
+                mod.release_dates,
+                "_fetch_release_data",
+                return_value={
+                    "supported": [
+                        {
+                            "version": "3.3",
+                            "products": {
+                                "rhoai": {
+                                    "milestones": [
+                                        {"type": "ga", "date": "2026-07-09", "version": "3.3.5"},
+                                    ],
+                                }
+                            },
+                        }
+                    ],
+                },
+            ),
+        ):
             result = mod.resolve("3.3")
 
         assert result["code_freeze_date"] is None
@@ -923,17 +1014,75 @@ class TestCodeFreezeDate:
         assert "not found in rhai-release-data.yaml" in display
 
     def test_code_freeze_before_upcoming_release_is_relevant(self):
-        with patch.object(mod, "list_version_dirs", return_value=["v3.5"]), \
-             patch.object(mod.release_dates, "_fetch_release_data", return_value={
-                 "supported": [{"version": "3.5", "products": {"rhoai": {
-                     "milestones": [
-                         {"type": "ga", "date": "2026-08-20", "version": "3.5"},
-                         {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
-                     ],
-                 }}}],
-             }):
+        with (
+            patch.object(mod, "list_version_dirs", return_value=["v3.5"]),
+            patch.object(
+                mod.release_dates,
+                "_fetch_release_data",
+                return_value={
+                    "supported": [
+                        {
+                            "version": "3.5",
+                            "products": {
+                                "rhoai": {
+                                    "milestones": [
+                                        {"type": "ga", "date": "2026-08-20", "version": "3.5"},
+                                        {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
+                                    ],
+                                }
+                            },
+                        }
+                    ],
+                },
+            ),
+        ):
             result = mod.resolve("3.5")
 
         assert result["code_freeze_date"] == "2026-07-24"
         assert result["code_freeze_already_passed"] is False
         assert "Already passed" not in result["confirmation_display"]
+
+
+# ---------------------------------------------------------------------------
+# Context.yaml query fallback
+# ---------------------------------------------------------------------------
+
+
+class TestQueryFromContext:
+    """Verify that main() reads user_query from context.yaml when --query is omitted."""
+
+    def test_reads_query_from_context_yaml(self, tmp_path, monkeypatch):
+
+        import conforma_context_ops as ctx
+
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "run1"
+        ctx.create(run_dir, {"user_query": "rhoai-3.5"})
+        ctx.set_active(run_dir)
+
+        monkeypatch.setattr("sys.argv", ["resolve_release_context.py"])
+        with patch.object(mod, "resolve", return_value={"status": "ambiguous"}) as mock_resolve:
+            mod.main()
+        mock_resolve.assert_called_once()
+        assert mock_resolve.call_args[0][0] == "rhoai-3.5"
+
+    def test_cli_query_overrides_context(self, tmp_path, monkeypatch):
+        import conforma_context_ops as ctx
+
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "run1"
+        ctx.create(run_dir, {"user_query": "rhoai-3.5"})
+        ctx.set_active(run_dir)
+
+        monkeypatch.setattr("sys.argv", ["resolve_release_context.py", "--query", "rhoai-3.4"])
+        with patch.object(mod, "resolve", return_value={"status": "ambiguous"}) as mock_resolve:
+            mod.main()
+        mock_resolve.assert_called_once()
+        assert mock_resolve.call_args[0][0] == "rhoai-3.4"
+
+    def test_fails_without_query_or_context(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setattr("sys.argv", ["resolve_release_context.py"])
+        with pytest.raises(SystemExit) as exc_info:
+            mod.main()
+        assert exc_info.value.code != 0

@@ -197,7 +197,9 @@ class TestTraceHistory:
             patch.object(violation_history, "_fetch_commits", return_value=commits),
             patch.object(violation_history, "_fetch_csv_content", side_effect=mock_fetch_csv),
         ):
-            result = violation_history.trace_history("rhoai-3.4", "hermetic_task.hermetic", environment="prod", until_found=True)
+            result = violation_history.trace_history(
+                "rhoai-3.4", "hermetic_task.hermetic", environment="prod", until_found=True
+            )
 
         assert "error" not in result
         assert call_count == 2
@@ -223,3 +225,94 @@ class TestTraceHistory:
 
     def teardown_method(self):
         violation_history._github_token_cache = None
+
+
+# ---------------------------------------------------------------------------
+# Context.yaml parameter fallback
+# ---------------------------------------------------------------------------
+
+
+class TestContextIntegration:
+    """Verify that main() reads --release, --code, --environment from context.yaml."""
+
+    def _setup_run(
+        self, tmp_path, monkeypatch, *, user_query=None, violation_code=None, environment=None, release=None
+    ):
+        import conforma_context_ops as ctx
+
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "run1"
+        initial = {}
+        if user_query:
+            initial["user_query"] = user_query
+        if violation_code:
+            initial["violation_code"] = violation_code
+        if environment:
+            initial["environment"] = environment
+        if release:
+            initial.setdefault("application", {})["release"] = release
+        ctx.create(run_dir, initial)
+        ctx.set_active(run_dir)
+        return run_dir
+
+    def test_reads_release_from_context(self, tmp_path, monkeypatch):
+        self._setup_run(
+            tmp_path, monkeypatch, release="rhoai-3.5", violation_code="hermetic_task.hermetic", environment="prod"
+        )
+        monkeypatch.setattr("sys.argv", ["violation_history.py", "--format", "json"])
+        with patch.object(violation_history, "trace_history", return_value={"timeline": []}) as mock_trace:
+            violation_history.main()
+        assert mock_trace.call_args[1]["release"] == "rhoai-3.5"
+
+    def test_reads_code_from_context(self, tmp_path, monkeypatch):
+        self._setup_run(
+            tmp_path, monkeypatch, release="rhoai-3.5", violation_code="hermetic_task.hermetic", environment="prod"
+        )
+        monkeypatch.setattr("sys.argv", ["violation_history.py", "--format", "json"])
+        with patch.object(violation_history, "trace_history", return_value={"timeline": []}) as mock_trace:
+            violation_history.main()
+        assert mock_trace.call_args[1]["code"] == "hermetic_task.hermetic"
+
+    def test_reads_environment_from_context(self, tmp_path, monkeypatch):
+        self._setup_run(
+            tmp_path, monkeypatch, release="rhoai-3.5", violation_code="hermetic_task.hermetic", environment="stage"
+        )
+        monkeypatch.setattr("sys.argv", ["violation_history.py", "--format", "json"])
+        with patch.object(violation_history, "trace_history", return_value={"timeline": []}) as mock_trace:
+            violation_history.main()
+        assert mock_trace.call_args[1]["environment"] == "stage"
+
+    def test_cli_overrides_context(self, tmp_path, monkeypatch):
+        self._setup_run(
+            tmp_path, monkeypatch, release="rhoai-3.5", violation_code="hermetic_task.hermetic", environment="prod"
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "violation_history.py",
+                "--release",
+                "rhoai-3.4",
+                "--code",
+                "trusted_task.trusted",
+                "--environment",
+                "stage",
+                "--format",
+                "json",
+            ],
+        )
+        with patch.object(violation_history, "trace_history", return_value={"timeline": []}) as mock_trace:
+            violation_history.main()
+        assert mock_trace.call_args[1]["release"] == "rhoai-3.4"
+        assert mock_trace.call_args[1]["code"] == "trusted_task.trusted"
+        assert mock_trace.call_args[1]["environment"] == "stage"
+
+    def test_fails_without_release_or_context(self, tmp_path, monkeypatch):
+        import pytest
+
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setattr(
+            "sys.argv", ["violation_history.py", "--code", "hermetic_task.hermetic", "--environment", "prod"]
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            violation_history.main()
+        assert exc_info.value.code != 0

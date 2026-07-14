@@ -38,56 +38,43 @@ Still prompt for genuinely ambiguous situations (e.g. multiple candidate release
 
 **Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
 
-**Important**: Step 0 creates a `context.yaml` file in a timestamped run directory under `~/.conforma/` and sets it as the active run via a `.conforma-active` symlink. Step 2 enriches this context with release and environment data. All subsequent scripts auto-discover the active run directory and read `release`, `environment`, output paths, and intermediate results from `context.yaml`. **Do NOT pass `--release`, `--environment`, `--run-dir`, or output paths as CLI arguments** — the scripts resolve them automatically. Only pass arguments that represent behavioral choices not stored in context.yaml (e.g. `--format markdown`, `--require-slack false`, `--dry-run`).
+**Important**: Step 0 creates a `context.yaml` file in a timestamped run directory under `~/.conforma/` and sets it as the active run via a `.conforma-active` symlink. Step 1 persists prerequisite results (including Slack availability) to context.yaml. Step 2 enriches the context with release and environment data. All subsequent scripts auto-discover the active run directory and read `release`, `environment`, output paths, and intermediate results from `context.yaml`. **Do NOT pass `--release`, `--environment`, `--run-dir`, `--require-slack`, or output paths as CLI arguments** — the scripts resolve them automatically. Only pass arguments that represent behavioral choices not stored in context.yaml (e.g. `--format markdown`, `--dry-run`).
 
-0. **Resolve aiops-infra root (REQUIRED before any script)**: Run with Bash description: `"Resolve aiops-infra repository root and create run context"`:
+0. **Initialize conforma run (REQUIRED before any script)**: Run with Bash description: `"Initialize conforma run context for <extracted_release_text>"`:
 
 ```bash
-_ROOT="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-[ -z "$_ROOT" ] && _ROOT="$HOME/.local/share/aiops-infra"
-[ -f "$_ROOT/pyproject.toml" ] || { echo "ERROR: aiops-infra repo not found at $_ROOT. Set AIOPS_INFRA_ROOT or clone to ~/.local/share/aiops-infra"; exit 1; }
-_RUNDIR="$HOME/.conforma/$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$_RUNDIR"
-cat > "$_RUNDIR/context.yaml" << EOF
-aiops_infra_root: $_ROOT
-run:
-  created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-  run_dir: ${_RUNDIR/#$HOME/\~}
-steps: {}
-EOF
-ln -sfn "$_RUNDIR" "$HOME/.conforma/.conforma-active"
-echo "aiops_infra_root=$_ROOT"
-echo "run_dir=$_RUNDIR"
+_R="${AIOPS_INFRA_ROOT:-$(python3 -c 'from _repo_root import REPO_ROOT; print(REPO_ROOT)' 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null)}"
+python3 "$_R/scripts/init_conforma_run.py" "<extracted_release_text>"
 ```
 
-   If the output path does not contain a `pyproject.toml`, stop and instruct the user to set `AIOPS_INFRA_ROOT` or clone the repo to `~/.local/share/aiops-infra`.
+   This is the **only step where user input appears on the command line**. All subsequent steps use fixed commands that read parameters from context.yaml. The script creates a timestamped run directory under `~/.conforma/`, writes `aiops_infra_root` and `user_query` to `context.yaml`, and sets the `.conforma-active` symlink.
 
 1. **Prerequisites check**: Run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --format json` with Bash description: `"Check Conforma prerequisites: GitHub, GitLab, Jira, Slack auth"`. Parse the JSON output object. If exit code is non-zero, **stop immediately** — render the `display` field directly (not in a code block) and do not proceed. Do NOT interpret, reformat, or summarize — the script output is self-explanatory. The user must fix failures before the workflow can continue.
 
-   **Slack is optional.** If exit code is 0 and the JSON contains a `user_question` key: render the `display` field directly, then use AskQuestion with `user_question.question_text` and `user_question.question_options` verbatim. If the user chooses "No, set up Slack first", follow the `slack-auth` skill. Otherwise continue — pass `--require-slack false` to `violations_coverage.py` in step 6.
+   **Slack is optional.** If exit code is 0 and the JSON contains a `user_question` key: render the `display` field directly, then use AskQuestion with `user_question.question_text` and `user_question.question_options` verbatim. If the user chooses "No, set up Slack first", follow the `slack-auth` skill. Otherwise continue — Slack availability is automatically persisted to `steps.prerequisites.slack_available` in context.yaml via `update_step()` and auto-detected by downstream scripts (e.g. `violations_coverage.py`).
 
-2. **Resolve release context**: Run the context resolution script with Bash description: `"Resolve release context for <extracted_release_text>"`. Extract the release identifier from the user's query (e.g., "rhoai-3.5-ea.1", "3.4", "3.5 ea 1") and pass it to the script. If the user mentions an environment ("stage" or "prod"), **always pass it via `--environment`** — do not rely on keyword extraction from the query string. If the user provided a GitHub URL, extract the branch from the `/blob/<branch>/` segment and use that as the query. **Always pass `--output-dir ~/.conforma`** — the script creates a timestamped run directory, saves `context.yaml` inside it, and includes the `rundir` path in its JSON output.
+2. **Resolve release context**: Run with Bash description: `"Resolve release context"`. The script reads `user_query` from context.yaml automatically (written by Step 0). Environment is auto-detected from the query text by `extract_environment()` (parses "stage"/"prod" keywords, defaults to "prod"). The script enriches the existing context.yaml in merge mode (since Step 0 already created it).
 
    ```bash
-   # Without explicit environment (defaults to prod):
-   _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/resolve_release_context.py" --query "<extracted_release_text>" --output-dir ~/.conforma
-
-   # With explicit environment (stage or prod):
-   _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/resolve_release_context.py" --query "<extracted_release_text>" --environment stage --output-dir ~/.conforma
+   _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/resolve_release_context.py"
    ```
 
    Parse the JSON output. Present the `confirmation_display` field **verbatim as markdown** (NOT in a code block) so that embedded links are clickable.
 
    Then act on the `status` field:
-   - **`"resolved"`**: Use AskQuestion with `question_text` and `question_options` from the resolved JSON verbatim. On "Yes", proceed to step 3. The script has already created the run directory, saved `context.yaml` inside it, and set the `.conforma-active` symlink — all downstream scripts auto-discover these.
+   - **`"resolved"`**: Use AskQuestion with `question_text` and `question_options` from the resolved JSON verbatim. On "Yes", proceed to step 3. The script has enriched the existing context.yaml with release and environment data — all downstream scripts auto-discover these.
 
      **Upcoming release date (HARD REQUIREMENT):** Check the `upcoming_release_date` field in the resolved JSON. If it is `null` or missing, the workflow **MUST NOT proceed**. Ask the user to provide the upcoming release date manually (YYYY-MM-DD format). Once provided, update `context.yaml` by running:
      ```bash
      _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_context_ops.py" put resolve.upcoming_release_date "<YYYY-MM-DD>"
      ```
      Downstream steps will read it from `context.yaml` automatically.
-   - **`"ambiguous"`**: Use AskQuestion with the numbered candidates from `candidates[]`. After the user selects, re-run with `--query "<selected_version_dir>" --output-dir ~/.conforma` to get a "resolved" result.
-   - **`"not_found"`** or **`"error"`**: Present the `confirmation_display` verbatim and **stop**. Do NOT attempt to guess or proceed without a resolved context. No run directory is created for non-resolved statuses.
+   - **`"ambiguous"`**: Use AskQuestion with the numbered candidates from `candidates[]`. After the user selects, update `user_query` in context.yaml and re-run the resolve script:
+     ```bash
+     _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_context_ops.py" put user_query "<selected_version_dir>"
+     _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/resolve_release_context.py"
+     ```
+   - **`"not_found"`** or **`"error"`**: Present the `confirmation_display` verbatim and **stop**. Do NOT attempt to guess or proceed without a resolved context.
 
    If the user did not mention any release and you cannot extract one from their query, use `--list` to show available versions and ask the user to pick:
 
@@ -182,16 +169,12 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 
    This ensures the user can distinguish between "this violation has a fix landing in the current release" vs "there's a Jira for this but it targets a future release and is NOT a solution for the current report".
 
-   All required auth (GitLab, Jira) was already verified in step 1. Slack is optional — if not configured, pass `--require-slack false`.
+   All required auth (GitLab, Jira) was already verified in step 1. Slack availability is auto-detected from `steps.prerequisites.slack_available` in context.yaml (persisted by step 1) — no manual `--require-slack` flag needed.
 
    The script reads violations YAML, CSV path, release, environment, clone directory, metadata file, and output path from `context.yaml` automatically. The script manages the `~/.conforma/konflux-release-data` clone (fresh fetch + reset). It enforces the repo clone policy: it will `git fetch` any existing clone and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
 
 ```bash
-# With Slack (when configured):
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violations_coverage.py"
-
-# Without Slack (when not configured):
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violations_coverage.py" --require-slack false
 ```
 
    The coverage table is the primary deliverable and is included in the executive summary (step 9). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).

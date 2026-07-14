@@ -102,9 +102,7 @@ def parse_query(raw: str) -> str | None:
     #   "3.5-ea2"    -> "3.5-ea.2" (no separator before number)
     #   "3.5ea1"     -> "3.5-ea.1" (no separators at all)
     #   "3-5.ea2"    -> "3.5-ea.2" (dash-separated major-minor, after normalization above)
-    ea_match = re.match(
-        r"^(\d+\.\d+)[\s.\-]*ea[\s.\-]*(\d+)$", text
-    )
+    ea_match = re.match(r"^(\d+\.\d+)[\s.\-]*ea[\s.\-]*(\d+)$", text)
     if ea_match:
         text = f"{ea_match.group(1)}-ea.{ea_match.group(2)}"
 
@@ -138,10 +136,7 @@ def list_version_dirs(cluster_id: str, tenant: str) -> list[str]:
             break
         page += 1
 
-    return sorted(
-        item["name"] for item in items
-        if item.get("type") == "tree" and re.match(r"^v\d", item["name"])
-    )
+    return sorted(item["name"] for item in items if item.get("type") == "tree" and re.match(r"^v\d", item["name"]))
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +161,7 @@ def match_versions(candidate: str, available: list[str]) -> list[str]:
 # Output formatting
 # ---------------------------------------------------------------------------
 
+
 def _build_links(
     cluster_domain: str,
     policy_dir: str,
@@ -187,9 +183,7 @@ def _build_links(
         else:
             links["cluster_console"] = f"{base}/"
     if gitlab_host and policy_dir:
-        links["policy_dir"] = (
-            f"https://{gitlab_host}/{gitlab_project}/-/tree/main/{policy_dir}"
-        )
+        links["policy_dir"] = f"https://{gitlab_host}/{gitlab_project}/-/tree/main/{policy_dir}"
         relevant = [f for f in policy_files if app_slug and app_slug in f]
         if environment and relevant:
             relevant = [f for f in relevant if f"-{environment}." in f]
@@ -244,10 +238,7 @@ def _format_resolved(
     if links and links.get("policy_files"):
         policy_file_links = [f"[{f['name']}]({f['url']})" for f in links["policy_files"]]
     if links and links.get("self_service_exception_files"):
-        policy_file_links.extend(
-            f"[exceptions/{f['name']}]({f['url']})"
-            for f in links["self_service_exception_files"]
-        )
+        policy_file_links.extend(f"[exceptions/{f['name']}]({f['url']})" for f in links["self_service_exception_files"])
 
     import release_dates
     from conforma_constants import build_report_url
@@ -275,25 +266,35 @@ def _format_resolved(
         lines.append(f"| **Policy files** | {files_cell} |")
     lines.append(f"| **Environment** | {environment} |")
     if code_freeze_date and upcoming_release_date and code_freeze_date > upcoming_release_date:
-        lines.append(f"| **Code freeze ({version_label})** | Already passed (next code freeze {code_freeze_date} is for a future release) |")
+        lines.append(
+            f"| **Code freeze ({version_label})** | Already passed (next code freeze {code_freeze_date} is for a future release) |"
+        )
     elif code_freeze_date:
         cf_source_text = f" based on {code_freeze_source}," if code_freeze_source else ""
-        lines.append(f"| **Code freeze ({version_label})** | {code_freeze_date} —{cf_source_text} verify on [Product Pages]({product_pages_url}) |")
+        lines.append(
+            f"| **Code freeze ({version_label})** | {code_freeze_date} —{cf_source_text} verify on [Product Pages]({product_pages_url}) |"
+        )
     elif not code_freeze_date and upcoming_release_date:
         lines.append(f"| **Code freeze ({version_label})** | Already passed (not found in rhai-release-data.yaml) |")
     if upcoming_release_date:
         upcoming_source_text = f" based on {upcoming_release_source}," if upcoming_release_source else ""
-        lines.append(f"| **Upcoming release date ({version_label})** | {upcoming_release_date} —{upcoming_source_text} verify on [Product Pages]({product_pages_url}) |")
+        lines.append(
+            f"| **Upcoming release date ({version_label})** | {upcoming_release_date} —{upcoming_source_text} verify on [Product Pages]({product_pages_url}) |"
+        )
     eos_source_text = f" based on {eos_source}," if eos_source else ""
-    lines.append(f"| **End of Support ({version_label})** | {eos_text} —{eos_source_text} verify on [Product Pages]({product_pages_url}) |")
+    lines.append(
+        f"| **End of Support ({version_label})** | {eos_text} —{eos_source_text} verify on [Product Pages]({product_pages_url}) |"
+    )
     lines.append(
         "| **RHOAI Conforma doc** | [Conforma for RHOAI](https://docs.google.com/document/d/1LsHzcZ2TAIIc4slqAdMnDBovYa2EzgOD8bWx-QXR8kM/edit?tab=t.0#heading=h.5j6svfi94fr3)"
         " — reference only, superseded by conforma-* AI skills |"
     )
-    lines.extend([
-        "",
-        "*Source: GitLab tree (konflux-release-data, main branch)*",
-    ])
+    lines.extend(
+        [
+            "",
+            "*Source: GitLab tree (konflux-release-data, main branch)*",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -301,7 +302,7 @@ def _format_ambiguous(query: str, candidates: list[str]) -> str:
     lines = [
         "### Conforma Workflow \u2014 Multiple Matches",
         "",
-        f'User requested: **{query}**',
+        f"User requested: **{query}**",
         "",
         "| # | Version | Release | Application |",
         "|---|---------|---------|-------------|",
@@ -318,9 +319,9 @@ def _format_not_found(query: str, available: list[str], tenant: str, cluster_id:
     lines = [
         "### Conforma Workflow \u2014 Version Not Found",
         "",
-        f'User requested: **{query}**',
+        f"User requested: **{query}**",
         "",
-        f'No matching version found in tenant `{tenant}` on cluster `{cluster_id}`.',
+        f"No matching version found in tenant `{tenant}` on cluster `{cluster_id}`.",
         "",
         "**Available versions:**",
         "",
@@ -341,14 +342,16 @@ def _format_error(messages: list[str]) -> str:
     ]
     for msg in messages:
         lines.append(msg)
-    lines.extend([
-        "",
-        "Run prerequisites check first:",
-        "",
-        "```",
-        "python3 scripts/verify_conforma_prerequisites.py --fix",
-        "```",
-    ])
+    lines.extend(
+        [
+            "",
+            "Run prerequisites check first:",
+            "",
+            "```",
+            "python3 scripts/verify_conforma_prerequisites.py --fix",
+            "```",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -382,28 +385,32 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
         missing.append("TENANT or KONFLUX_NAMESPACE (not set)")
 
     if missing:
-        display = _format_error([f"Missing required environment:"] + [f"  - {m}" for m in missing])
+        display = _format_error(["Missing required environment:"] + [f"  - {m}" for m in missing])
         return {"status": "error", "confirmation_display": display}
 
     cluster_id = cluster_domain.split(".")[0]
 
     candidate = parse_query(query)
     if candidate is None:
-        display = _format_error([
-            f'Could not parse release from query: "{query}"',
-            "",
-            "Expected formats: rhoai-X.Y, X.Y, X.Y-ea.N, rhoai-X.Y-ea.N",
-        ])
+        display = _format_error(
+            [
+                f'Could not parse release from query: "{query}"',
+                "",
+                "Expected formats: rhoai-X.Y, X.Y, X.Y-ea.N, rhoai-X.Y-ea.N",
+            ]
+        )
         return {"status": "error", "confirmation_display": display}
 
     try:
         available = list_version_dirs(cluster_id, tenant)
     except Exception as exc:
-        display = _format_error([
-            f"GitLab tree query failed: {exc}",
-            "",
-            "Check GITLAB_HOST, GITLAB_TOKEN, and GITLAB_PROJECT in ~/.conforma/.env",
-        ])
+        display = _format_error(
+            [
+                f"GitLab tree query failed: {exc}",
+                "",
+                "Check GITLAB_HOST, GITLAB_TOKEN, and GITLAB_PROJECT in ~/.conforma/.env",
+            ]
+        )
         return {"status": "error", "confirmation_display": display}
 
     matches = match_versions(candidate, available)
@@ -417,25 +424,35 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
         self_service_raw = os.environ.get("KONFLUX_SELF_SERVICE_FILES", "")
         all_self_service = [f.strip() for f in self_service_raw.split(",") if f.strip()]
         app_slug = "rhoai"
-        self_service_files = [
-            f for f in all_self_service
-            if app_slug in f and f"-{environment}." in f
-        ]
+        self_service_files = [f for f in all_self_service if app_slug in f and f"-{environment}." in f]
         relevant_policy = [f for f in policy_files if app_slug in f]
         if environment:
             relevant_policy = [f for f in relevant_policy if f"-{environment}." in f]
         release_branch = version_to_release(v)
         konflux_app = version_to_konflux_app(v)
         eos_date, eos_source = release_dates.get_eos_date_with_source(release_branch)
-        upcoming_release_date, upcoming_release_source = release_dates.get_upcoming_release_date_with_source(release_branch)
+        upcoming_release_date, upcoming_release_source = release_dates.get_upcoming_release_date_with_source(
+            release_branch
+        )
         code_freeze_date, code_freeze_source = release_dates.get_code_freeze_date_with_source(release_branch)
         links = _build_links(
-            cluster_domain, policy_dir, gitlab_host, gitlab_project, policy_files, app_slug,
-            tenant=tenant, konflux_app=konflux_app, environment=environment,
+            cluster_domain,
+            policy_dir,
+            gitlab_host,
+            gitlab_project,
+            policy_files,
+            app_slug,
+            tenant=tenant,
+            konflux_app=konflux_app,
+            environment=environment,
             self_service_files=self_service_files,
         )
         display = _format_resolved(
-            query, v, cluster_domain, tenant, policy_dir,
+            query,
+            v,
+            cluster_domain,
+            tenant,
+            policy_dir,
             environment=environment,
             links=links,
             end_of_support=eos_date,
@@ -460,7 +477,11 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
             "upcoming_release_date": upcoming_release_date,
             "code_freeze_date": code_freeze_date,
             "code_freeze_already_passed": (
-                (code_freeze_date is not None and upcoming_release_date is not None and code_freeze_date > upcoming_release_date)
+                (
+                    code_freeze_date is not None
+                    and upcoming_release_date is not None
+                    and code_freeze_date > upcoming_release_date
+                )
                 or (code_freeze_date is None and upcoming_release_date is not None)
             ),
             "self_service_files": self_service_files,
@@ -567,29 +588,38 @@ def create_rundir(output_dir: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Resolve a release query into Konflux application context."
+    parser = argparse.ArgumentParser(description="Resolve a release query into Konflux application context.")
+    group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument(
+        "--query",
+        help="Release identifier from user (e.g. 'rhoai-3.5-ea.1', '3.4'). "
+        "Falls back to user_query in context.yaml if omitted.",
     )
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--query", help="Release identifier from user (e.g. 'rhoai-3.5-ea.1', '3.4')")
     group.add_argument("--list", action="store_true", help="List all available versions")
     parser.add_argument(
         "--environment",
         choices=["stage", "prod"],
         help="Explicit environment override. When set, takes precedence over "
-             "any environment keyword extracted from --query.",
+        "any environment keyword extracted from --query.",
     )
     parser.add_argument(
         "--output-dir",
         help="Create a timestamped run directory under this path and save context.yaml into it. "
-             "Only takes effect when status is 'resolved'.",
+        "Only takes effect when status is 'resolved'.",
     )
     args = parser.parse_args()
 
     if args.list:
         result = list_all()
     else:
-        result = resolve(args.query, environment_override=args.environment)
+        query = args.query
+        if query is None:
+            try:
+                run_dir = conforma_context_ops.discover_run_dir()
+                query = conforma_context_ops.get(run_dir, "user_query")
+            except (FileNotFoundError, KeyError):
+                parser.error("--query is required when no context.yaml with user_query exists")
+        result = resolve(query, environment_override=args.environment)
 
     if result.get("status") == "resolved":
         context_data = {

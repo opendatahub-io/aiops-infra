@@ -19,16 +19,14 @@ import argparse
 import csv
 import io
 import json
-import os
 import posixpath
-import subprocess
 import sys
-import urllib.parse
-from pathlib import Path
 
 import requests
 
 import _setup_env  # noqa: F401 -- loads ~/.conforma/.env and adds scripts/ to sys.path
+
+import conforma_context_ops
 
 from conforma_constants import (
     CONFORMA_REPORTER_REPO,
@@ -39,8 +37,6 @@ from conforma_constants import (
 from github_ops import get_token as _get_github_token  # noqa: F401
 
 _github_token_cache: str | None = None
-
-
 
 
 def _gh_headers() -> dict[str, str]:
@@ -207,14 +203,16 @@ def trace_history(
         content = _fetch_csv_content(commit["sha"], csv_path)
         if content is None:
             print("  FETCH_FAILED", file=sys.stderr)
-            timeline.append({
-                "sha": sha_short,
-                "date": commit["date"],
-                "present": False,
-                "count": 0,
-                "components": [],
-                "fetch_failed": True,
-            })
+            timeline.append(
+                {
+                    "sha": sha_short,
+                    "date": commit["date"],
+                    "present": False,
+                    "count": 0,
+                    "components": [],
+                    "fetch_failed": True,
+                }
+            )
             continue
 
         result = _check_violation_in_csv(content, code, component)
@@ -389,19 +387,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Trace violation history in conforma-reporter CSV")
     parser.add_argument(
         "--release",
-        required=True,
-        help="Release branch (e.g. rhoai-3.5-ea.1)",
+        default=None,
+        help="Release branch (e.g. rhoai-3.5-ea.1). Falls back to context.yaml if omitted.",
     )
     parser.add_argument(
         "--code",
-        required=True,
-        help="Exact violation code (e.g. prefetch_dependencies.mode_not_permissive)",
+        default=None,
+        help="Exact violation code (e.g. prefetch_dependencies.mode_not_permissive). "
+        "Falls back to violation_code in context.yaml if omitted.",
     )
     parser.add_argument(
         "--component",
         default=None,
         help="Optional component name filter",
     )
+
     def _positive_int(value: str) -> int:
         n = int(value)
         if n <= 0:
@@ -432,20 +432,44 @@ def main() -> int:
     )
     parser.add_argument(
         "--environment",
-        required=True,
+        default=None,
         choices=["prod", "stage"],
-        help="Target environment (prod or stage) — determines which CSV paths to probe",
+        help="Target environment (prod or stage). Falls back to context.yaml if omitted (default: prod).",
     )
     args = parser.parse_args()
 
+    release = args.release
+    code = args.code
+    environment = args.environment
+    if release is None or code is None or environment is None:
+        try:
+            run_dir = conforma_context_ops.discover_run_dir()
+            if release is None:
+                release = conforma_context_ops.get(run_dir, "application.release", None)
+                if release is None:
+                    release = conforma_context_ops.get(run_dir, "user_query", None)
+            if code is None:
+                code = conforma_context_ops.get(run_dir, "violation_code", None)
+            if environment is None:
+                environment = conforma_context_ops.get(run_dir, "environment", "prod")
+        except (FileNotFoundError, KeyError):
+            pass
+
+    if not release:
+        parser.error("--release is required when no context.yaml with application.release exists")
+    if not code:
+        parser.error("--code is required when no context.yaml with violation_code exists")
+    if not environment:
+        environment = "prod"
+
     data = trace_history(
-        release=args.release,
-        code=args.code,
+        release=release,
+        code=code,
         component=args.component,
         max_commits=args.max_commits,
         csv_path_override=args.csv_path,
         until_found=args.until_found,
-        environment=args.environment,
+        environment=environment,
     )
 
     if args.format == "json":

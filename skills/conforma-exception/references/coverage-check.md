@@ -37,7 +37,7 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 
 This checks all violations against existing exceptions in the policy file, searches for open Merge Requests, open Jira tickets, and Slack threads — all in one pass.
 
-For CI-only environments (no Slack access), disable with `--require-slack false`. This should **never** be used in the interactive conforma-analyze workflow.
+For CI-only environments (no Slack access), disable with `--require-slack false`. In the interactive conforma-analyze workflow, Slack availability is auto-detected from `steps.prerequisites.slack_available` in context.yaml — no manual flag needed.
 
 ## Presenting Results
 

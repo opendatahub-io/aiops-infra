@@ -23,9 +23,7 @@ import fnmatch
 import json
 import sys
 import time
-import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
 from pathlib import Path
 
 import component_alias_ops
@@ -119,13 +117,15 @@ def _build_component_exception_details(
         if comp in comp_details:
             result.append(comp_details[comp])
         else:
-            result.append({
-                "component": comp,
-                "file": None,
-                "line": None,
-                "effective_until": None,
-                "url": None,
-            })
+            result.append(
+                {
+                    "component": comp,
+                    "file": None,
+                    "line": None,
+                    "effective_until": None,
+                    "url": None,
+                }
+            )
     return result
 
 
@@ -133,11 +133,6 @@ def _log(msg: str) -> None:
     """Progress message to stderr (never mixed with JSON stdout)."""
     print(msg, file=sys.stderr, flush=True)
 
-
-from conforma_constants import (
-    CONFORMA_REPORTER_URL,
-    VERIFY_NEXT_STEP,
-)
 
 from coverage_status_ops import map_gate_status as _map_gate_status  # noqa: F401 — backward compat re-export
 from coverage_status_ops import extract_exception_expiry as _extract_exception_expiry  # noqa: F401 — backward compat re-export
@@ -295,14 +290,16 @@ def _run_ec_coverage(
 
     ec_binary = conforma_ec_validate.ensure_ec_binary()
 
-    spec_path, all_entries = conforma_ec_validate.build_snapshot_from_csv(
-        csv_path, str(work_dir / "spec.json")
-    )
+    spec_path, all_entries = conforma_ec_validate.build_snapshot_from_csv(csv_path, str(work_dir / "spec.json"))
     all_component_names = [e["name"] for e in all_entries]
-    _log(f"  Snapshot: {spec_path} ({len(all_entries)} image entries, {len(set(all_component_names))} unique components)")
+    _log(
+        f"  Snapshot: {spec_path} ({len(all_entries)} image entries, {len(set(all_component_names))} unique components)"
+    )
 
     component_groups = _group_components_by_policy(
-        list(dict.fromkeys(all_component_names)), policy_paths, mapping_rules,
+        list(dict.fromkeys(all_component_names)),
+        policy_paths,
+        mapping_rules,
     )
 
     merged_violations: dict[str, set[str]] = {}
@@ -320,7 +317,9 @@ def _run_ec_coverage(
         policy_entries = [e for e in all_entries if e["name"] in assigned_components]
         base_image_groups = conforma_ec_validate.group_entries_by_base_image(policy_entries)
 
-        _log(f"  Validating against {policy_path.name} ({len(assigned_components)} components, {len(base_image_groups)} batches)...")
+        _log(
+            f"  Validating against {policy_path.name} ({len(assigned_components)} components, {len(base_image_groups)} batches)..."
+        )
 
         local_policy = conforma_ec_validate.prepare_policy_for_local_use(
             str(policy_path), str(policy_work_dir / "policy-local.yaml")
@@ -332,9 +331,7 @@ def _run_ec_coverage(
             batch_dir = policy_work_dir / f"batch-{batch_idx:03d}"
             batch_dir.mkdir(parents=True, exist_ok=True)
 
-            batch_spec = conforma_ec_validate.build_snapshot_from_entries(
-                entries, str(batch_dir / "spec.json")
-            )
+            batch_spec = conforma_ec_validate.build_snapshot_from_entries(entries, str(batch_dir / "spec.json"))
             _log(f"    Batch {batch_idx}/{len(base_image_groups)}: {base_url} ({len(entries)} digests)...")
 
             try:
@@ -362,12 +359,12 @@ def _run_ec_coverage(
     _log(f"  Merged: {len(merged_violations)} components, {total_viols} violations, {total_succ} successes")
 
     csv_violations = conforma_ec_validate.extract_csv_violations(csv_path)
-    validation = conforma_ec_validate.validate_ec_against_csv(
-        csv_violations, merged_violations, merged_successes
-    )
+    validation = conforma_ec_validate.validate_ec_against_csv(csv_violations, merged_violations, merged_successes)
 
     if validation["validated"]:
-        _log(f"  Baseline validation passed: {validation['confirmed_violations']} active, {validation['confirmed_covered']} covered by exception")
+        _log(
+            f"  Baseline validation passed: {validation['confirmed_violations']} active, {validation['confirmed_covered']} covered by exception"
+        )
     else:
         _log(
             f"  WARNING: {validation['divergence_count']} violation(s) in the source CSV report "
@@ -414,18 +411,20 @@ def _ec_coverage_for_rule(
             covered.append(comp)
         elif ec_succ is not None:
             uncovered.append(comp)
-            divergences.append({
-                "component": comp,
-                "violation_code": rule,
-                "reason": (
-                    "The source CSV report lists this as a violation, but "
-                    "running Conforma now does not evaluate this rule for "
-                    "this component. The Conforma policy may have changed "
-                    "since the report was generated (rule renamed, removed "
-                    "from the policy bundle, or evaluation error). Coverage "
-                    "cannot be verified automatically."
-                ),
-            })
+            divergences.append(
+                {
+                    "component": comp,
+                    "violation_code": rule,
+                    "reason": (
+                        "The source CSV report lists this as a violation, but "
+                        "running Conforma now does not evaluate this rule for "
+                        "this component. The Conforma policy may have changed "
+                        "since the report was generated (rule renamed, removed "
+                        "from the policy bundle, or evaluation error). Coverage "
+                        "cannot be verified automatically."
+                    ),
+                }
+            )
         else:
             covered.append(comp)
 
@@ -477,7 +476,9 @@ def check_violations_coverage(
 
     aliases = component_alias_ops.load_aliases()
     if aliases:
-        _log(f"Loaded {len(all_rules)} rules across {len(releases)} release(s) ({len(set().union(*aliases.values()))} component aliases)")
+        _log(
+            f"Loaded {len(all_rules)} rules across {len(releases)} release(s) ({len(set().union(*aliases.values()))} component aliases)"
+        )
     else:
         _log(f"Loaded {len(all_rules)} rules across {len(releases)} release(s)")
 
@@ -537,9 +538,7 @@ def check_violations_coverage(
     def _fetch_slack():
         t0 = time.monotonic()
         _log(f"  [Slack] Searching Slack threads for {len(all_rules)} rules...")
-        result = conforma_slack_ops.prefetch_open_slack_threads(
-            all_rules, rule_to_components=rule_to_components
-        )
+        result = conforma_slack_ops.prefetch_open_slack_threads(all_rules, rule_to_components=rule_to_components)
         total_threads = sum(len(v) for v in result.values())
         _log(f"  [Slack] Done — {total_threads} thread(s) found ({time.monotonic() - t0:.1f}s)")
         return "slack", result
@@ -613,7 +612,10 @@ def check_violations_coverage(
 
         # Coverage from ec validate (authoritative, catches all exception types).
         covered, uncovered, coverage, coverage_label, rule_divergences = _ec_coverage_for_rule(
-            rule, all_components, ec_violations, ec_successes,
+            rule,
+            all_components,
+            ec_violations,
+            ec_successes,
         )
 
         # Self-service exception coverage (supplements EC, which doesn't see exceptions/ files).
@@ -638,7 +640,9 @@ def check_violations_coverage(
                     else:
                         coverage = "partially_covered"
                         coverage_label = f"{len(uncovered)} of {len(all_components)} without exception coverage"
-                    _log(f"    Self-service exceptions rescued {len(rescued)} component(s) from {ss_result.get('source_files', [])}")
+                    _log(
+                        f"    Self-service exceptions rescued {len(rescued)} component(s) from {ss_result.get('source_files', [])}"
+                    )
 
         # Gate check for enrichment metadata (expiry dates, policy file links).
         gate = conforma_policy_ops.check_existing_exception_gate(
@@ -666,10 +670,7 @@ def check_violations_coverage(
             rules_in_diff = mr.get("rules_in_diff", [])
             title_mentions = mr.get("title_mentions_rule", True)
             rule_base = rule.split(":")[0]
-            diff_covers_rule = any(
-                r == rule or r.split(":")[0] == rule_base
-                for r in rules_in_diff
-            )
+            diff_covers_rule = any(r == rule or r.split(":")[0] == rule_base for r in rules_in_diff)
             if diff_covers_rule and not title_mentions:
                 mr["discrepancy"] = "code_only"
                 mr["discrepancy_detail"] = (
@@ -702,9 +703,7 @@ def check_violations_coverage(
         jira_tickets = prefetched_jira.get(rule, [])
         if analyzed_release:
             for t in jira_tickets:
-                t["version_relevance"] = conforma_jira_ops.classify_ticket_version_relevance(
-                    t, analyzed_release
-                )
+                t["version_relevance"] = conforma_jira_ops.classify_ticket_version_relevance(t, analyzed_release)
         jira_label = ""
         if jira_tickets:
             labels = []
@@ -739,7 +738,9 @@ def check_violations_coverage(
         search_urls = _build_search_urls(rule, slack_team_url)
         if search_urls["mr"]:
             mr_label = (
-                (mr_label + f" ([try manual search]({search_urls['mr']}))") if mr_label else f"[try manual search]({search_urls['mr']})"
+                (mr_label + f" ([try manual search]({search_urls['mr']}))")
+                if mr_label
+                else f"[try manual search]({search_urls['mr']})"
             )
         if search_urls["jira"]:
             jira_label = (
@@ -825,7 +826,9 @@ def check_violations_coverage(
     report_meta = _load_report_metadata(analyzed_release, metadata_file)
 
     md_table = _render_violations_markdown_table(
-        results, summary, report_meta=report_meta,
+        results,
+        summary,
+        report_meta=report_meta,
     )
 
     output = {
@@ -888,7 +891,9 @@ def _render_violations_markdown_table(
             status = f"Exception granted ({covered_count}/{total_count} components covered)"
         elif v.get("coverage") == "partially_covered" and total_count:
             uncovered = total_count - covered_count
-            status = f"Exception granted ({covered_count}/{total_count} components covered, {uncovered} without coverage)"
+            status = (
+                f"Exception granted ({covered_count}/{total_count} components covered, {uncovered} without coverage)"
+            )
         jira = v.get("open_jira_label", "")
         ns = v.get("next_steps_short", v["next_steps"])
         lines.append(f"| {i} | {rule} | {viol_count} | {status} | {jira} | {ns} |")
@@ -911,7 +916,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clone-dir", default=None)
     parser.add_argument("--environment", default=None, choices=["prod", "stage"])
     parser.add_argument("--require-jira", type=lambda v: v.lower() in ("true", "1", "yes"), default=True)
-    parser.add_argument("--require-slack", type=lambda v: v.lower() in ("true", "1", "yes"), default=True)
+    parser.add_argument(
+        "--require-slack",
+        type=lambda v: v.lower() in ("true", "1", "yes"),
+        default=None,
+        help="Require Slack search. Auto-detected from context.yaml if omitted.",
+    )
     parser.add_argument("--metadata-file", default=None, help="Path to fetch-metadata.json for report header")
     parser.add_argument(
         "--release",
@@ -1006,13 +1016,19 @@ def main() -> int:
     if output_file is None and run_dir:
         output_file = str(Path(run_dir) / "coverage.json")
 
+    require_slack = args.require_slack
+    if require_slack is None and run_dir:
+        require_slack = conforma_context_ops.get(run_dir, "steps.prerequisites.slack_available", None)
+    if require_slack is None:
+        require_slack = True
+
     result = check_violations_coverage(
         violations_yaml_path=violations_yaml,
         policy_files=pf,
         clone_dir=clone_dir,
         environment=environment,
         require_jira=args.require_jira,
-        require_slack=args.require_slack,
+        require_slack=require_slack,
         metadata_file=metadata_file,
         release=release,
         csv_path=csv_path,

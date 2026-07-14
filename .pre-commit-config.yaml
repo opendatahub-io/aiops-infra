@@ -47,3 +47,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: check-workflow-determinism
+        name: no conditional command variants in workflows
+        entry: python tests/check_workflow_determinism.py
+        language: system
+        pass_filenames: false
+        always_run: true

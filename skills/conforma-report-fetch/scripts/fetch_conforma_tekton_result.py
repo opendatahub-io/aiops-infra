@@ -40,7 +40,7 @@ POLICY_TYPES = ("registry", "chart", "fbc")
 
 _DEFAULTS = {
     "namespace": "rhoai-tenant",
-    "cluster_domain": "stone-prod-p02.hjvn.p1",
+    "cluster_domain": None,
     "environment": "prod",
     "app_name": "rhoai",
 }
@@ -102,6 +102,15 @@ def _resolve_config(args: argparse.Namespace) -> dict:
         None, context, "application.name",
         default=_DEFAULTS["app_name"],
     )
+
+    if not cluster_domain:
+        print(
+            "Error: cluster_domain not resolved. Provide it via:\n"
+            "  --cluster-domain, context.yaml (resolve.cluster_domain),\n"
+            "  or KONFLUX_CLUSTER_DOMAIN env var.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     version_input = args.version
     version_dir = None

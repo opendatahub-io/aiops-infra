@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 import yaml
@@ -83,10 +82,12 @@ class TestRenderViolationsMarkdownTable:
         assert "Slack" not in md
 
     def test_next_steps_short_used_in_table(self):
-        results = [self._make_row(
-            next_steps="Fix in code or request exception — see resolution guide",
-            next_steps_short="Fix in code — see guide below",
-        )]
+        results = [
+            self._make_row(
+                next_steps="Fix in code or request exception — see resolution guide",
+                next_steps_short="Fix in code — see guide below",
+            )
+        ]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         md = mod._render_violations_markdown_table(results, summary)
         assert "see guide below" in md
@@ -218,7 +219,6 @@ class TestGateStatusMapping:
         Scans the source AST for dict literals like ``"status": "..."`` to
         find every status the gate can return.
         """
-        import ast
         import inspect
         import re
 
@@ -230,8 +230,7 @@ class TestGateStatusMapping:
         assert gate_statuses, "Could not extract any gate statuses from source"
         for status in gate_statuses:
             assert status in mod._GATE_STATUS_MAP, (
-                f"Gate status '{status}' is not handled in _GATE_STATUS_MAP. "
-                f"Add it to violations_coverage.py."
+                f"Gate status '{status}' is not handled in _GATE_STATUS_MAP. Add it to violations_coverage.py."
             )
 
     def test_unknown_gate_status_raises(self):
@@ -239,15 +238,11 @@ class TestGateStatusMapping:
             map_gate_status({"status": "totally_new_status"}, "test.rule", [], [])
 
     def test_permanent_maps_to_fully_covered(self):
-        cov, label = map_gate_status(
-            {"status": "permanent"}, "test.rule", [], []
-        )
+        cov, label = map_gate_status({"status": "permanent"}, "test.rule", [], [])
         assert cov == "fully_covered"
 
     def test_passed_maps_to_not_covered(self):
-        cov, label = map_gate_status(
-            {"status": "passed"}, "test.rule", [], []
-        )
+        cov, label = map_gate_status({"status": "passed"}, "test.rule", [], [])
         assert cov == "not_covered"
 
 
@@ -259,7 +254,6 @@ class TestReleaseOverride:
         assert meta["release"] == "rhoai-3.5-ea.1"
 
     def test_report_header_with_metadata_file(self, tmp_path):
-        import json
 
         meta_file = tmp_path / "fetch-metadata.json"
         meta_data = {
@@ -280,20 +274,22 @@ class TestReleaseOverride:
         assert "abc123" in result["source_url"]
 
     def test_markdown_table_shows_correct_release(self):
-        results = [{
-            "rule": "test.rule",
-            "display_components": "comp-v1",
-            "exception_expiry": {},
-            "exception_details_by_component": [],
-            "covered_count": 0,
-            "total_components": 1,
-            "coverage": "not_covered",
-            "open_mr_label": "",
-            "open_jira_label": "",
-            "status_label": "No coverage",
-            "next_steps": "Fix in code",
-            "next_steps_short": "Fix in code",
-        }]
+        results = [
+            {
+                "rule": "test.rule",
+                "display_components": "comp-v1",
+                "exception_expiry": {},
+                "exception_details_by_component": [],
+                "covered_count": 0,
+                "total_components": 1,
+                "coverage": "not_covered",
+                "open_mr_label": "",
+                "open_jira_label": "",
+                "status_label": "No coverage",
+                "next_steps": "Fix in code",
+                "next_steps_short": "Fix in code",
+            }
+        ]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         meta = {"release": "rhoai-3.5-ea.1", "source_path": "prod/future/build_type_latest/report.csv"}
         md = mod._render_violations_markdown_table(results, summary, report_meta=meta)
@@ -408,10 +404,18 @@ class TestBuildComponentExceptionDetails:
             "status": "blocked",
             "permanent_exclusions": [],
             "active_exceptions": [
-                {"file": "config/policy/registry-rhoai-prod.yaml", "line": 75,
-                 "effectiveUntil": "2026-06-30T00:00:00Z", "covers_components": ["comp-a"]},
-                {"file": "config/policy/registry-rhoai-prod.yaml", "line": 101,
-                 "effectiveUntil": "2026-10-10T00:00:00Z", "covers_components": ["comp-b"]},
+                {
+                    "file": "config/policy/registry-rhoai-prod.yaml",
+                    "line": 75,
+                    "effectiveUntil": "2026-06-30T00:00:00Z",
+                    "covers_components": ["comp-a"],
+                },
+                {
+                    "file": "config/policy/registry-rhoai-prod.yaml",
+                    "line": 101,
+                    "effectiveUntil": "2026-10-10T00:00:00Z",
+                    "covers_components": ["comp-b"],
+                },
             ],
         }
         result = mod._build_component_exception_details(
@@ -434,9 +438,12 @@ class TestBuildComponentExceptionDetails:
             "status": "blocked",
             "permanent_exclusions": [],
             "active_exceptions": [
-                {"file": "config/policy/registry-rhoai-prod.yaml", "line": 50,
-                 "effectiveUntil": "2026-08-01T00:00:00Z",
-                 "covers_components": ["comp-a", "comp-b", "comp-c"]},
+                {
+                    "file": "config/policy/registry-rhoai-prod.yaml",
+                    "line": 50,
+                    "effectiveUntil": "2026-08-01T00:00:00Z",
+                    "covers_components": ["comp-a", "comp-b", "comp-c"],
+                },
             ],
         }
         result = mod._build_component_exception_details(
@@ -454,13 +461,15 @@ class TestBuildComponentExceptionDetails:
             "status": "blocked",
             "permanent_exclusions": [],
             "active_exceptions": [
-                {"file": "config/policy/registry-jetpack-prod.yaml", "line": 31,
-                 "effectiveUntil": "2026-08-01T00:00:00Z", "covers_components": ["comp-a"]},
+                {
+                    "file": "config/policy/registry-jetpack-prod.yaml",
+                    "line": 31,
+                    "effectiveUntil": "2026-08-01T00:00:00Z",
+                    "covers_components": ["comp-a"],
+                },
             ],
         }
-        result = mod._build_component_exception_details(
-            gate, ["comp-a"], policy_files=["registry-rhoai-prod.yaml"]
-        )
+        result = mod._build_component_exception_details(gate, ["comp-a"], policy_files=["registry-rhoai-prod.yaml"])
         assert len(result) == 1
         assert result[0]["url"] is None
         assert result[0]["file"] is None
@@ -498,8 +507,12 @@ class TestBuildComponentExceptionDetails:
             "status": "blocked",
             "permanent_exclusions": [],
             "active_exceptions": [
-                {"file": "config/policy/registry-rhoai-prod.yaml", "line": 42,
-                 "effectiveUntil": "2026-09-30", "covers_components": ["comp-a"]},
+                {
+                    "file": "config/policy/registry-rhoai-prod.yaml",
+                    "line": 42,
+                    "effectiveUntil": "2026-09-30",
+                    "covers_components": ["comp-a"],
+                },
             ],
         }
         result = mod._build_component_exception_details(gate, ["comp-a"])
@@ -514,7 +527,10 @@ class TestEcCoverageForRule:
         ec_viols = {"comp-a": set(), "comp-b": set()}
         ec_succ = {"comp-a": {"rule.x"}, "comp-b": {"rule.x"}}
         covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
-            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+            "rule.x",
+            ["comp-a", "comp-b"],
+            ec_viols,
+            ec_succ,
         )
         assert covered == ["comp-a", "comp-b"]
         assert uncovered == []
@@ -526,7 +542,10 @@ class TestEcCoverageForRule:
         ec_viols = {"comp-a": {"rule.x"}, "comp-b": {"rule.x"}}
         ec_succ = {"comp-a": set(), "comp-b": set()}
         covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
-            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+            "rule.x",
+            ["comp-a", "comp-b"],
+            ec_viols,
+            ec_succ,
         )
         assert covered == []
         assert uncovered == ["comp-a", "comp-b"]
@@ -537,7 +556,10 @@ class TestEcCoverageForRule:
         ec_viols = {"comp-a": set(), "comp-b": {"rule.x"}}
         ec_succ = {"comp-a": {"rule.x"}, "comp-b": set()}
         covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
-            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+            "rule.x",
+            ["comp-a", "comp-b"],
+            ec_viols,
+            ec_succ,
         )
         assert covered == ["comp-a"]
         assert uncovered == ["comp-b"]
@@ -549,7 +571,10 @@ class TestEcCoverageForRule:
         ec_viols = {"comp-a": set()}
         ec_succ = {"comp-a": {"rule.x"}}
         covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
-            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+            "rule.x",
+            ["comp-a", "comp-b"],
+            ec_viols,
+            ec_succ,
         )
         assert "comp-a" in covered
         assert "comp-b" in uncovered
@@ -558,7 +583,10 @@ class TestEcCoverageForRule:
         ec_viols = {"comp-a": set(), "comp-b": set()}
         ec_succ = {"comp-a": {"rule.x"}, "comp-b": set()}
         covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
-            "rule.x", ["comp-a", "comp-b"], ec_viols, ec_succ,
+            "rule.x",
+            ["comp-a", "comp-b"],
+            ec_viols,
+            ec_succ,
         )
         assert "comp-a" in covered
         assert "comp-b" in uncovered
@@ -571,7 +599,9 @@ class TestEcCoverageForRule:
     def test_no_successes_falls_back_to_two_way(self):
         ec_viols = {"comp-a": set(), "comp-b": {"rule.x"}}
         covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
-            "rule.x", ["comp-a", "comp-b"], ec_viols,
+            "rule.x",
+            ["comp-a", "comp-b"],
+            ec_viols,
         )
         assert "comp-a" in covered
         assert "comp-b" in uncovered
@@ -582,23 +612,29 @@ class TestOutputFlag:
     """Verify --output writes JSON to file instead of stdout."""
 
     def test_output_writes_valid_json_to_file(self, tmp_path, monkeypatch):
-        import json
 
         output_file = tmp_path / "result.json"
         monkeypatch.setattr(
-            mod, "check_violations_coverage",
+            mod,
+            "check_violations_coverage",
             lambda **_kw: {"summary": {"total": 0}, "violations": []},
         )
         monkeypatch.setattr(
             "sys.argv",
             [
                 "violations_coverage.py",
-                "--violations-yaml", "dummy.yaml",
-                "--csv", "dummy.csv",
-                "--environment", "prod",
-                "--clone-dir", str(tmp_path),
-                "--policy-files", "a.yaml",
-                "--output", str(output_file),
+                "--violations-yaml",
+                "dummy.yaml",
+                "--csv",
+                "dummy.csv",
+                "--environment",
+                "prod",
+                "--clone-dir",
+                str(tmp_path),
+                "--policy-files",
+                "a.yaml",
+                "--output",
+                str(output_file),
             ],
         )
         mod.main()
@@ -608,23 +644,28 @@ class TestOutputFlag:
     def test_no_output_flag_prints_to_stdout(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty-workdir"))
         monkeypatch.setattr(
-            mod, "check_violations_coverage",
+            mod,
+            "check_violations_coverage",
             lambda **_kw: {"summary": {"total": 0}},
         )
         monkeypatch.setattr(
             "sys.argv",
             [
                 "violations_coverage.py",
-                "--violations-yaml", "dummy.yaml",
-                "--csv", "dummy.csv",
-                "--environment", "prod",
-                "--clone-dir", str(tmp_path),
-                "--policy-files", "a.yaml",
+                "--violations-yaml",
+                "dummy.yaml",
+                "--csv",
+                "dummy.csv",
+                "--environment",
+                "prod",
+                "--clone-dir",
+                str(tmp_path),
+                "--policy-files",
+                "a.yaml",
             ],
         )
         mod.main()
         captured = capsys.readouterr()
-        import json
         data = json.loads(captured.out)
         assert "summary" in data
 
@@ -639,16 +680,24 @@ class TestOutputFlag:
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
 
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.2", "version": "3.5-ea.2", "konflux_app": "rhoai-v3-5-ea-2"},
-            "environment": "prod",
-            "resolve": {
-                "policy_files": [
-                    "rhoai-v3-5-ea-2-prod.yaml",
-                    "rhoai-v3-5-ea-2-prod-hermetic.yaml",
-                ],
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.2",
+                    "version": "3.5-ea.2",
+                    "konflux_app": "rhoai-v3-5-ea-2",
+                },
+                "environment": "prod",
+                "resolve": {
+                    "policy_files": [
+                        "rhoai-v3-5-ea-2-prod.yaml",
+                        "rhoai-v3-5-ea-2-prod-hermetic.yaml",
+                    ],
+                },
             },
-        })
+        )
         conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
         conforma_context_ops.set_active(run_dir)
@@ -659,7 +708,8 @@ class TestOutputFlag:
             "sys.argv",
             [
                 "violations_coverage.py",
-                "--clone-dir", str(tmp_path),
+                "--clone-dir",
+                str(tmp_path),
             ],
         )
         mod.main()
@@ -679,13 +729,21 @@ class TestOutputFlag:
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
 
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.2", "version": "3.5-ea.2", "konflux_app": "rhoai-v3-5-ea-2"},
-            "environment": "prod",
-            "resolve": {
-                "policy_files": ["from-context.yaml"],
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.2",
+                    "version": "3.5-ea.2",
+                    "konflux_app": "rhoai-v3-5-ea-2",
+                },
+                "environment": "prod",
+                "resolve": {
+                    "policy_files": ["from-context.yaml"],
+                },
             },
-        })
+        )
         conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
         conforma_context_ops.set_active(run_dir)
@@ -696,7 +754,8 @@ class TestOutputFlag:
             "sys.argv",
             [
                 "violations_coverage.py",
-                "--policy-files", "explicit.yaml",
+                "--policy-files",
+                "explicit.yaml",
             ],
         )
         mod.main()
@@ -705,17 +764,22 @@ class TestOutputFlag:
     def test_fails_without_policy_files_or_context_yaml(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty-workdir"))
         monkeypatch.setattr(
-            mod, "check_violations_coverage",
+            mod,
+            "check_violations_coverage",
             lambda **_kw: {"summary": {"total": 0}},
         )
         monkeypatch.setattr(
             "sys.argv",
             [
                 "violations_coverage.py",
-                "--violations-yaml", "dummy.yaml",
-                "--csv", "dummy.csv",
-                "--environment", "prod",
-                "--clone-dir", str(tmp_path),
+                "--violations-yaml",
+                "dummy.yaml",
+                "--csv",
+                "dummy.csv",
+                "--environment",
+                "prod",
+                "--clone-dir",
+                str(tmp_path),
             ],
         )
         rc = mod.main()
@@ -813,28 +877,36 @@ class TestComponentPolicyMapping:
 
     def test_fbc_maps_to_fbc_policy(self, policy_paths, mapping_rules):
         result = mod._map_component_to_policy(
-            "rhoai-fbc-fragment-v3-5-ea-2", policy_paths, mapping_rules,
+            "rhoai-fbc-fragment-v3-5-ea-2",
+            policy_paths,
+            mapping_rules,
         )
         assert result is not None
         assert result.name == "fbc-rhoai-stage.yaml"
 
     def test_chart_maps_to_chart_policy(self, policy_paths, mapping_rules):
         result = mod._map_component_to_policy(
-            "odh-chart-v3-5-ea-2", policy_paths, mapping_rules,
+            "odh-chart-v3-5-ea-2",
+            policy_paths,
+            mapping_rules,
         )
         assert result is not None
         assert result.name == "registry-rhoai-chart-stage.yaml"
 
     def test_regular_maps_to_registry_policy(self, policy_paths, mapping_rules):
         result = mod._map_component_to_policy(
-            "odh-dashboard-v3-5-ea-2", policy_paths, mapping_rules,
+            "odh-dashboard-v3-5-ea-2",
+            policy_paths,
+            mapping_rules,
         )
         assert result is not None
         assert result.name == "registry-rhoai-stage.yaml"
 
     def test_regular_does_not_match_chart_policy(self, policy_paths, mapping_rules):
         result = mod._map_component_to_policy(
-            "odh-training-cuda121-torch24-py311-v3-5-ea-2", policy_paths, mapping_rules,
+            "odh-training-cuda121-torch24-py311-v3-5-ea-2",
+            policy_paths,
+            mapping_rules,
         )
         assert result is not None
         assert "chart" not in result.name
@@ -857,7 +929,9 @@ class TestComponentPolicyMapping:
 
     def test_returns_none_when_no_matching_policy(self, mapping_rules):
         result = mod._map_component_to_policy(
-            "odh-dashboard-v3-5-ea-2", [], mapping_rules,
+            "odh-dashboard-v3-5-ea-2",
+            [],
+            mapping_rules,
         )
         assert result is None
 
@@ -870,18 +944,25 @@ class TestSelfServiceCoverageMerge:
         import conforma_mr_ops
 
         monkeypatch.setattr(
-            mod, "_run_ec_coverage",
+            mod,
+            "_run_ec_coverage",
             lambda *_a, **_kw: {"violations": ec_viols, "successes": ec_succ, "validation": {}},
         )
         monkeypatch.setattr(conforma_policy_ops, "refresh_clone", lambda *_a, **_kw: None)
-        monkeypatch.setattr(conforma_policy_ops, "check_existing_exception_gate", lambda **_kw: {
-            "checked": False, "status": "error", "open_merge_requests": [],
-            "permanent_exclusions": [], "existing_exceptions": [],
-        })
+        monkeypatch.setattr(
+            conforma_policy_ops,
+            "check_existing_exception_gate",
+            lambda **_kw: {
+                "checked": False,
+                "status": "error",
+                "open_merge_requests": [],
+                "permanent_exclusions": [],
+                "existing_exceptions": [],
+            },
+        )
         monkeypatch.setattr(conforma_mr_ops, "prefetch_open_mrs", lambda *_a, **_kw: {})
 
     def _write_violations_yaml(self, tmp_path):
-        import yaml
 
         viols_data = {
             "violation_data": {
@@ -902,13 +983,16 @@ class TestSelfServiceCoverageMerge:
 
     def test_ec_uncovered_rescued_by_self_service(self, tmp_path, monkeypatch):
         """EC says uncovered, self-service file covers it → reclassified as covered."""
-        import yaml
 
         exc_dir = tmp_path / "exceptions"
         exc_dir.mkdir()
-        (exc_dir / "registry-rhoai-stage.yaml").write_text(yaml.dump([
-            {"value": "hermetic_task.hermetic"},
-        ]))
+        (exc_dir / "registry-rhoai-stage.yaml").write_text(
+            yaml.dump(
+                [
+                    {"value": "hermetic_task.hermetic"},
+                ]
+            )
+        )
 
         viols_path = self._write_violations_yaml(tmp_path)
         self._mock_dependencies(
@@ -988,17 +1072,25 @@ class TestSelfServiceCoverageMerge:
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
 
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
-            "environment": "stage",
-            "resolve": {
-                "policy_files": ["registry-rhoai-stage.yaml"],
-                "self_service_files": [
-                    "registry-rhoai-stage.yaml",
-                    "fbc-rhoai-stage.yaml",
-                ],
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.1",
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": "stage",
+                "resolve": {
+                    "policy_files": ["registry-rhoai-stage.yaml"],
+                    "self_service_files": [
+                        "registry-rhoai-stage.yaml",
+                        "fbc-rhoai-stage.yaml",
+                    ],
+                },
             },
-        })
+        )
         conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
         conforma_context_ops.set_active(run_dir)
@@ -1009,7 +1101,8 @@ class TestSelfServiceCoverageMerge:
             "sys.argv",
             [
                 "violations_coverage.py",
-                "--clone-dir", str(tmp_path),
+                "--clone-dir",
+                str(tmp_path),
             ],
         )
         mod.main()
@@ -1035,14 +1128,22 @@ class TestContextIntegration:
     def test_reads_params_from_context(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
-            "environment": "prod",
-            "resolve": {
-                "policy_files": ["registry-rhoai-prod.yaml"],
-                "self_service_files": ["registry-rhoai-prod.yaml"],
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.1",
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": "prod",
+                "resolve": {
+                    "policy_files": ["registry-rhoai-prod.yaml"],
+                    "self_service_files": ["registry-rhoai-prod.yaml"],
+                },
             },
-        })
+        )
         conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.1.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
         conforma_context_ops.set_active(run_dir)
@@ -1063,11 +1164,19 @@ class TestContextIntegration:
     def test_updates_context_after_coverage(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
-            "environment": "prod",
-            "resolve": {"policy_files": ["registry-rhoai-prod.yaml"]},
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.1",
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": "prod",
+                "resolve": {"policy_files": ["registry-rhoai-prod.yaml"]},
+            },
+        )
         conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.1.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
         conforma_context_ops.set_active(run_dir)
@@ -1085,11 +1194,19 @@ class TestContextIntegration:
     def test_cli_overrides_context(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
-            "environment": "prod",
-            "resolve": {"policy_files": ["context-policy.yaml"]},
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.1",
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": "prod",
+                "resolve": {"policy_files": ["context-policy.yaml"]},
+            },
+        )
         conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.1.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
         conforma_context_ops.set_active(run_dir)
@@ -1097,11 +1214,16 @@ class TestContextIntegration:
         (run_dir / "violations.yaml").write_text("violation_data: {}\n")
 
         captured = self._mock_check(monkeypatch)
-        monkeypatch.setattr("sys.argv", [
-            "violations_coverage.py",
-            "--policy-files", "cli-policy.yaml",
-            "--environment", "stage",
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "violations_coverage.py",
+                "--policy-files",
+                "cli-policy.yaml",
+                "--environment",
+                "stage",
+            ],
+        )
         mod.main()
 
         assert captured["environment"] == "stage"
@@ -1114,3 +1236,68 @@ class TestContextIntegration:
             mod.main()
 
 
+class TestRequireSlackAutoDetect:
+    """Verify --require-slack auto-detection from context.yaml."""
+
+    def _setup_run(self, tmp_path, monkeypatch, slack_available=None):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260703-120000"
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.1",
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": "prod",
+                "resolve": {"policy_files": ["registry-rhoai-prod.yaml"]},
+            },
+        )
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.1.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
+        if slack_available is not None:
+            conforma_context_ops.update_step(run_dir, "prerequisites", "completed", slack_available=slack_available)
+        conforma_context_ops.set_active(run_dir)
+        (run_dir / "rhoai-3.5-ea.1.csv").write_text("header\n")
+        (run_dir / "violations.yaml").write_text("violation_data: {}\n")
+        return run_dir
+
+    def _mock_check(self, monkeypatch):
+        captured = {}
+
+        def mock(**kwargs):
+            captured.update(kwargs)
+            return {"summary": {"total": 0}, "violations": []}
+
+        monkeypatch.setattr(mod, "check_violations_coverage", mock)
+        return captured
+
+    def test_auto_detected_false_from_context(self, tmp_path, monkeypatch):
+        self._setup_run(tmp_path, monkeypatch, slack_available=False)
+        captured = self._mock_check(monkeypatch)
+        monkeypatch.setattr("sys.argv", ["violations_coverage.py"])
+        mod.main()
+        assert captured["require_slack"] is False
+
+    def test_auto_detected_true_from_context(self, tmp_path, monkeypatch):
+        self._setup_run(tmp_path, monkeypatch, slack_available=True)
+        captured = self._mock_check(monkeypatch)
+        monkeypatch.setattr("sys.argv", ["violations_coverage.py"])
+        mod.main()
+        assert captured["require_slack"] is True
+
+    def test_cli_overrides_context(self, tmp_path, monkeypatch):
+        self._setup_run(tmp_path, monkeypatch, slack_available=True)
+        captured = self._mock_check(monkeypatch)
+        monkeypatch.setattr("sys.argv", ["violations_coverage.py", "--require-slack", "false"])
+        mod.main()
+        assert captured["require_slack"] is False
+
+    def test_defaults_true_without_context(self, tmp_path, monkeypatch):
+        self._setup_run(tmp_path, monkeypatch, slack_available=None)
+        captured = self._mock_check(monkeypatch)
+        monkeypatch.setattr("sys.argv", ["violations_coverage.py"])
+        mod.main()
+        assert captured["require_slack"] is True
