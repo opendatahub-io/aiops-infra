@@ -34,14 +34,12 @@ When the user asks "can X ship?", "is X ready?", "release readiness for X":
 
 1. **Auth check**: Run auth verification for both GitHub and GitLab.
 
-2. **Fetch violations**: Use the `conforma-analyze` skill to get current violations for the requested release.
+2. **Fetch violations**: Use the `conforma-analyze` skill to get current violations for the requested release. This runs the full conforma-analyze workflow (which initializes context.yaml with the release via Step 0, resolves it via Step 2, and stores violations YAML path in context.yaml).
 
-3. **Run readiness check**:
+3. **Run readiness check**: The script reads release, environment, and violations input path from `context.yaml` automatically. Do NOT pass `--release` or `--violations-input`:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py" \
-  --release rhoai-3.5 \
-  --violations-input ~/.conforma/conforma-analyze.yaml
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py"
 ```
 
 4. **Present the verdict** to the user.
@@ -61,14 +59,16 @@ The readiness check produces:
 
 ## Examples
 
+All examples assume the conforma-analyze workflow has already run (which initializes context.yaml with the release). Do NOT pass `--release` or `--violations-input` — the script reads them from `context.yaml` automatically.
+
 **"Can rhoai-3.5 ship?"**
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py" --release rhoai-3.5 --violations-input ~/.conforma/violations.yaml
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py"
 ```
 
 **"Release readiness for 3.4"**
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py" --release rhoai-3.4 --violations-input ~/.conforma/violations.yaml
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py"
 ```

@@ -70,17 +70,17 @@ If `release_day` is unavailable (e.g. for in-development versions), the script a
 
 ### Usage
 
+**In the conforma-analyze workflow**: Do NOT pass `--releases` — the script reads the release from `context.yaml` automatically (set by Step 0 + Step 2). The standard command is always:
+
 ```bash
-# Auto-detect releases, auto-create ~/.conforma/<timestamp>/:
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py"
+```
 
-# Explicit releases:
+**Standalone / advanced usage** (outside the standard workflow only):
+
+```bash
+# Cross-release comparison (ONLY when user explicitly asks to compare multiple releases):
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" --releases rhoai-2.25,rhoai-3.4
-
-# Explicit output directory (used by conforma-analyze):
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" \
-  --releases rhoai-3.4 \
-  --output-dir /path/to/output
 
 # Skip fetching warnings CSVs:
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" --no-warnings
@@ -94,13 +94,13 @@ When `--output-dir` is omitted, the script creates a timestamped directory under
 
 ### Release Auto-Detection
 
-When `--releases` is omitted, the script fetches the list of supported release branches from [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) in `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases.
+When `--releases` is omitted and no `context.yaml` release is set, the script fetches the list of supported release branches from [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) in `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases.
 
 Some in-development/EA branches may not have a violations report CSV yet. The script reports failures per release -- this is expected and not a blocker.
 
 ### Handling User-Provided URLs
 
-If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), extract the release branch from the URL path (the segment after `/blob/` and before the next `/`) and pass it via `--releases`.
+If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), pass the full URL or the extracted release identifier (e.g. `rhoai-3.4`) as the query text to Step 0 (`init_conforma_run.py`). The release context pipeline will resolve it automatically from `context.yaml`. Do NOT pass `--releases` to the fetch script — all downstream steps read from `context.yaml`.
 
 ---
 

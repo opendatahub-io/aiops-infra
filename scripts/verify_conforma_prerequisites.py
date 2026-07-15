@@ -168,7 +168,7 @@ def _check_konflux() -> dict:
             "ok": False,
             "name": "konflux",
             "error": probe_error,
-            "fix": (f"VPN CONNECTION REQUIRED: Cannot resolve {api_host}\nConnect to Red Hat VPN, then retry."),
+            "fix": (f"VPN CONNECTION REQUIRED: Cannot resolve {api_host}\n**Connect to Red Hat VPN, then retry.**"),
         }
 
     if not https_ok:
@@ -178,7 +178,7 @@ def _check_konflux() -> dict:
             "error": probe_error,
             "fix": (
                 f"Konflux cluster {cluster_id} DNS resolves but HTTPS connection failed.\n"
-                f"Connect to Red Hat VPN, then retry."
+                f"**Connect to Red Hat VPN, then retry.**"
             ),
         }
 
@@ -350,7 +350,7 @@ def _check_gitlab_auth() -> dict:
             "error": error_str,
             "fix": (
                 f"VPN CONNECTION REQUIRED: Cannot resolve {host}\n"
-                f"Connect to Red Hat VPN, then retry.\n"
+                f"**Connect to Red Hat VPN, then retry.**\n"
                 f"\n"
                 f"If VPN is connected and the error persists, ensure you have a Personal Access Token ({token_url})"
                 f" with scopes: api, read_repository, write_repository in ~/.conforma/.env:\n"
@@ -425,7 +425,7 @@ def _check_jira_auth() -> dict:
             "error": error_str,
             "fix": (
                 "VPN CONNECTION REQUIRED: Cannot reach Jira (redhat.atlassian.net)\n"
-                "Connect to Red Hat VPN, then retry.\n"
+                "**Connect to Red Hat VPN, then retry.**\n"
                 "\n"
                 "If VPN is connected and the error persists, ensure you have Jira credentials in ~/.conforma/.env:\n"
                 "  JIRA_API_TOKEN=your_jira_api_token\n"

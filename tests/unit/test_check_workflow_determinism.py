@@ -73,6 +73,41 @@ class TestFindConditionalPairs:
         assert pairs == []
 
 
+class TestFindExtractAndPassInstructions:
+    def test_detects_extract_and_pass_via_releases(self):
+        content = (
+            "extract the release branch from the URL path "
+            "and pass it to the fetch script via `--releases`."
+        )
+        findings = hook.find_extract_and_pass_instructions(content)
+        assert len(findings) == 1
+        assert findings[0]["flag"] == "--releases"
+
+    def test_detects_pass_via_release(self):
+        content = "Pass the branch via `--release` and the path via `--csv-path`."
+        findings = hook.find_extract_and_pass_instructions(content)
+        assert len(findings) == 1
+        assert findings[0]["flag"] == "--release"
+
+    def test_ignores_non_context_yaml_flags(self):
+        content = "Pass the format via `--format`."
+        findings = hook.find_extract_and_pass_instructions(content)
+        assert findings == []
+
+    def test_ignores_code_blocks(self):
+        content = "```\nextract the branch and pass it via `--releases`\n```"
+        findings = hook.find_extract_and_pass_instructions(content)
+        assert findings == []
+
+    def test_clean_prose_passes(self):
+        content = (
+            "The script reads the release from context.yaml automatically. "
+            "Do NOT pass `--releases` to the fetch script."
+        )
+        findings = hook.find_extract_and_pass_instructions(content)
+        assert findings == []
+
+
 class TestCheckFile:
     def test_clean_file(self, tmp_path):
         f = tmp_path / "clean.md"
@@ -92,6 +127,17 @@ class TestCheckFile:
             errors = hook.check_file(f)
         assert len(errors) == 1
         assert "With slack" in errors[0] or "With Slack" in errors[0].lower() or "slack" in errors[0].lower()
+
+    def test_detects_extract_and_pass_in_file(self, tmp_path):
+        f = tmp_path / "bad_prose.md"
+        f.write_text(
+            "### Handling URLs\n\n"
+            "extract the branch from the URL and pass it via `--releases`.\n"
+        )
+        with patch.object(hook, "REPO_ROOT", tmp_path):
+            errors = hook.check_file(f)
+        assert len(errors) == 1
+        assert "--releases" in errors[0]
 
 
 class TestDiscoverWorkflowFiles:

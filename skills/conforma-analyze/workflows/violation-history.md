@@ -22,8 +22,8 @@ If the user's phrase does not match any alias in the catalog, first run `analyze
 
 ### Extracting release from user input
 
-- If the user provides a release name like `3.5-ea.1`, prepend `rhoai-` to get the branch: `rhoai-3.5-ea.1`.
-- If the user provides a GitHub URL (e.g. `https://github.com/.../blob/rhoai-3.5-ea.1/prod/future/...`), extract the branch (`rhoai-3.5-ea.1`) and the CSV path after it (`prod/future/build_type_latest/conforma-violations-report.csv`). Pass the branch via `--release` and the path via `--csv-path`.
+- Pass the user's release text (e.g. `3.5-ea.1`, `rhoai-3.5-ea.1`, or a full GitHub URL) to Step 0 (`init_conforma_run.py`) as the query text. The release context pipeline resolves it automatically from `context.yaml`. Do NOT pass `--release` to the history script — it reads from `context.yaml`.
+- If the user provides a GitHub URL containing a specific CSV path (e.g. `.../prod/future/build_type_latest/...`), pass `--csv-path` to Step 3 to override the auto-detected path.
 - If no URL is provided and no `--csv-path` is given, the script auto-detects which CSV path exists on the branch (same fallback order as the fetch script).
 
 ### Steps
@@ -59,33 +59,35 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 
 ### Examples
 
+All examples assume Step 0 has already been run with the user's query (release + violation code stored in `context.yaml`). Do NOT pass `--release` or `--code` — the script reads them from `context.yaml` automatically.
+
 **"When was the last time we saw permissive prefetch mode for 3.5-ea.1?"**
 
+Step 0: `python3 "$_R/scripts/init_conforma_run.py" "rhoai-3.5-ea.1" --set violation_code "prefetch_dependencies.mode_not_permissive"`
+
+Step 3:
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" \
-  --release rhoai-3.5-ea.1 \
-  --code prefetch_dependencies.mode_not_permissive \
-  --format text
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" --format text
 ```
 
 **"When did rpm signature violations disappear for rhoai-3.4?"** (with `--until-found` for speed)
 
+Step 0: `python3 "$_R/scripts/init_conforma_run.py" "rhoai-3.4" --set violation_code "rpm_signature.allowed"`
+
+Step 3:
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" \
-  --release rhoai-3.4 \
-  --code rpm_signature.allowed \
-  --until-found \
-  --format text
+_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" --until-found --format text
 ```
 
 **From a URL with a specific CSV path:**
 
 Given URL `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.5-ea.1/prod/future/build_type_latest/conforma-violations-report.csv`:
 
+Step 0: `python3 "$_R/scripts/init_conforma_run.py" "rhoai-3.5-ea.1" --set violation_code "prefetch_dependencies.mode_not_permissive"`
+
+Step 3 (with `--csv-path` override for the non-standard CSV location):
 ```bash
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" \
-  --release rhoai-3.5-ea.1 \
-  --code prefetch_dependencies.mode_not_permissive \
   --csv-path prod/future/build_type_latest/conforma-violations-report.csv \
   --format text
 ```

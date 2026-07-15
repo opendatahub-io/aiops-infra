@@ -12,7 +12,7 @@ When the user asks to show violations, analyze violations, fetch conforma report
 
 ### Handling user-provided URLs
 
-If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), extract the release branch from the URL path (the segment after `/blob/` and before the next `/`) and pass it to the fetch script via `--releases`. Example: from the URL above, extract `rhoai-3.4` and run with `--releases rhoai-3.4`.
+If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), pass the full URL or the extracted release identifier (e.g. `rhoai-3.4`) as the query text to Step 0 (`init_conforma_run.py`). The release context pipeline (Step 2) will resolve it automatically from `context.yaml`. Do NOT pass `--releases` to the fetch script — all downstream steps read from `context.yaml`.
 
 ### Display-before-question rule (HARD REQUIREMENT)
 
@@ -38,7 +38,7 @@ Still prompt for genuinely ambiguous situations (e.g. multiple candidate release
 
 **Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
 
-**Important**: Step 0 creates a `context.yaml` file in a timestamped run directory under `~/.conforma/` and sets it as the active run via a `.conforma-active` symlink. Step 1 persists prerequisite results (including Slack availability) to context.yaml. Step 2 enriches the context with release and environment data. All subsequent scripts auto-discover the active run directory and read `release`, `environment`, output paths, and intermediate results from `context.yaml`. **Do NOT pass `--release`, `--environment`, `--run-dir`, `--require-slack`, or output paths as CLI arguments** — the scripts resolve them automatically. Only pass arguments that represent behavioral choices not stored in context.yaml (e.g. `--format markdown`, `--dry-run`).
+**Important**: Step 0 creates a `context.yaml` file in a timestamped run directory under `~/.conforma/` and sets it as the active run via a `.conforma-active` symlink. Step 1 persists prerequisite results (including Slack availability) to context.yaml. Step 2 enriches the context with release and environment data. All subsequent scripts auto-discover the active run directory and read `release`, `environment`, output paths, and intermediate results from `context.yaml`. **Do NOT pass `--release`, `--releases`, `--environment`, `--run-dir`, `--require-slack`, or output paths as CLI arguments** — the scripts resolve them automatically. Only pass arguments that represent behavioral choices not stored in context.yaml (e.g. `--format markdown`, `--dry-run`).
 
 0. **Initialize conforma run (REQUIRED before any script)**: Run with Bash description: `"Initialize conforma run context for <extracted_release_text>"`:
 
@@ -105,9 +105,10 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 
    The script reads release, environment, output directory, and metadata file path from `context.yaml` automatically.
 
-   To fetch multiple specific releases (e.g. for cross-release comparison), pass `--releases` explicitly:
+   **Do NOT pass `--releases`** for the standard single-release workflow — the script reads the release from `context.yaml` automatically. The `--releases` flag is ONLY for the rare cross-release comparison use case (when the user explicitly asks to compare multiple releases side by side):
 
 ```bash
+# ONLY for cross-release comparison — never for the standard workflow:
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-report-fetch/scripts/fetch_csv_reports.py" \
   --releases rhoai-2.25,rhoai-3.4
 ```

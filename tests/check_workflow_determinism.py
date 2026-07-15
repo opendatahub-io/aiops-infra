@@ -31,6 +31,19 @@ CONDITIONAL_COMMENT_RE = re.compile(
 
 STEP_HEADING_RE = re.compile(r"^#{1,4}\s+.*(?:Step|step)\s+\d+", re.IGNORECASE)
 
+CONTEXT_YAML_FLAGS = ["--release", "--releases", "--environment", "--run-dir",
+                      "--require-slack", "--output-dir"]
+
+EXTRACT_AND_PASS_RE = re.compile(
+    r"extract\b.*\b(?:pass|run with)\b.*(`--\w+`)",
+    re.IGNORECASE,
+)
+
+PASS_VIA_FLAG_RE = re.compile(
+    r"pass\b.*\bvia\s+(`--\w+`)",
+    re.IGNORECASE,
+)
+
 
 def discover_workflow_files() -> list[Path]:
     result = subprocess.run(
@@ -123,6 +136,28 @@ def find_conditional_pairs(blocks: list[dict]) -> list[dict]:
     return findings
 
 
+def find_extract_and_pass_instructions(content: str) -> list[dict]:
+    """Find prose lines that instruct the model to extract user data and pass via CLI flags."""
+    findings = []
+    in_code_block = False
+    for i, line in enumerate(content.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        matched_flags: set[str] = set()
+        for pattern in (EXTRACT_AND_PASS_RE, PASS_VIA_FLAG_RE):
+            m = pattern.search(stripped)
+            if m:
+                flag = m.group(1).strip("`")
+                if flag in CONTEXT_YAML_FLAGS and flag not in matched_flags:
+                    matched_flags.add(flag)
+                    findings.append({"line_no": i, "flag": flag, "text": stripped})
+    return findings
+
+
 def check_file(path: Path) -> list[str]:
     content = path.read_text(encoding="utf-8")
     blocks = extract_bash_blocks(content)
@@ -138,6 +173,14 @@ def check_file(path: Path) -> list[str]:
             f"'# With {pair['topic']}' (line {with_lns}) / "
             f"'# Without {pair['topic']}' (line {without_lns})"
         )
+
+    for finding in find_extract_and_pass_instructions(content):
+        errors.append(
+            f"{rel}: line {finding['line_no']} — prose instructs model to "
+            f"extract user data and pass via '{finding['flag']}' "
+            f"(should use context.yaml instead)"
+        )
+
     return errors
 
 
