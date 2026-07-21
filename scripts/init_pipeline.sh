@@ -78,6 +78,9 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     BUNDLE_DEPENDS_ON='["okc"]'
   fi
 
+  # krd_rpa (RHOAI-only) runs alongside build-config / bundle — after okc merges
+  KRD_RPA_DEPENDS_ON='["okc"]'
+
   # operator depends on bundle (both products)
   OPERATOR_DEPENDS_ON='["bundle"]'
 
@@ -123,7 +126,7 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     "krd_rpa": {
       "status": "${SKIP_RHOAI_ONLY}",
       "mr_url": "",
-      "depends_on": [],
+      "depends_on": ${KRD_RPA_DEPENDS_ON},
       "label_raised": "krd-rpa-mr-raised",
       "label_done": "krd-rpa-mr-merged"
     },
@@ -314,6 +317,18 @@ else
       jq '.steps.bundle.depends_on = ((.steps.bundle.depends_on // []) + ["okc"] | unique)' \
         "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
       echo "  bundle.depends_on: added okc (RHOAI prerequisite)" >&2
+    fi
+  fi
+
+  # krd_rpa: add "okc" if missing (RHOAI only — same gate as bundle / build-config)
+  if [[ "$CURRENT_PC" == "RHOAI" ]]; then
+    if jq -e '.steps.krd_rpa' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      if ! jq -e '.steps.krd_rpa.depends_on | index("okc") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+        TMP=$(mktemp)
+        jq '.steps.krd_rpa.depends_on = ((.steps.krd_rpa.depends_on // []) + ["okc"] | unique)' \
+          "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+        echo "  krd_rpa.depends_on: added okc (RHOAI prerequisite — with build-config)" >&2
+      fi
     fi
   fi
 

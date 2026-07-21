@@ -57,6 +57,7 @@ _DEPENDENCY_ODH: dict[str, str] = {
 }
 _DEPENDENCY_RHOAI: dict[str, str] = {
     "delivery_repo": "product_listing",
+    "okc":           "bundle + krd_rpa",
     "renovate":      "renovate_sync",
 }
 

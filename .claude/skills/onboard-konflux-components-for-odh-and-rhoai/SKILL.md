@@ -19,6 +19,7 @@ Orchestrates the complete component onboarding pipeline (idempotent re-run model
 5. `add-component-to-odh-konflux-central` **(ODH)** / `add-component-to-rhoai-konflux-central` + `create-pull-pipelines-in-rhoai-konflux-central` **(RHOAI; after krd merges)**
 6. `run-odh-konflux-onboarder-workflow` — triggered once krd+okc are both merged **(ODH only)**
 7. `integrate-component-with-bundle` — GitHub PR **(ODH: after onboarder_workflow; RHOAI: after okc merges)**
+7b. `krd-release-plan` (`krd_rpa`) — GitLab MR to ReleasePlanAdmission **(RHOAI only; after okc merges, alongside bundle)**
 8. `integrate-component-with-odh-operator` — GitHub PR **(after bundle merges; if is_operator=true)**
 9. `update-rhoai-product-listing` — GitLab MR, triggered after delivery-repo merges **(RHOAI only)**
 10. `setup-auto-merge` — GitHub PR to rhods-devops-infra **(RHOAI only)**
@@ -403,6 +404,8 @@ EXIT_CODE=$?
 ### Step 8h: krd-release-plan (step key: `krd_rpa`, RHOAI only)
 
 **Execute if** `krd_rpa` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
+
+The `depends_on: ["okc"]` check in Step 7 ensures this runs alongside build-config (`bundle`) after okc merges.
 
 > **VPN needed.**
 
