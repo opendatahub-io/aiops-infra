@@ -56,3 +56,5 @@ the executive summary does a better job
 
 19. ~~remove site-config.example.yaml and any references to site-config from all conforma skills~~ - done
 
+20. ~~Add TODO section to executive summary output — put actionable work items (numbered table with checkbox column) at the very top, above Context Confirmation. Rename "Executive Summary" section to "Violations Breakdown". Extract shared helpers (_find_covering_mr, _violation_count, _compute_violation_buckets) to module-level for reuse.~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190). Plan: `skills/conforma-analyze/.plans/add-todo-section-to-executive-summary.md`
+

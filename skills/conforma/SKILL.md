@@ -72,7 +72,7 @@ These rules apply to ALL conforma skill execution and output.
 - "No exception coverage" not "No coverage"
 - "Exception granted, violation should disappear on next Conforma run" not "Exception active"
 - "Rerun Conforma report in Konflux/GitHub and verify the violation is gone from the report" not vague phrases
-- "Executive Summary" not "Key Takeaways"
+- "Violations Breakdown" not "Executive Summary" or "Key Takeaways"
 - "manual search" / "search manually" for actionable search links
 - Merge Request titles for exceptions: prefix with [stage] or [prod]
 
@@ -81,7 +81,7 @@ These rules apply to ALL conforma skill execution and output.
 - List policy files as bullets, not comma-delimited
 - Exception links in resolution guide section, not summary table
 - Components column always populated, even for fully-covered violations
-- Reports must have Executive Summary above main table
+- Reports must have TODO above Context Confirmation, followed by Violations Breakdown above main table
 - Source CSV: link to exact git commit hash, not branch name
 - Report header: identify which specific report version was analyzed
 - Next-steps: brief (one line); detailed steps in resolution guide below

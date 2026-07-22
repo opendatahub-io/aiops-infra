@@ -181,6 +181,288 @@ def render_metadata_header(
     return "\n".join(lines)
 
 
+def _find_covering_mr(mrs: list[dict], component: str) -> dict | None:
+    """Find the first MR in *mrs* whose components list includes *component*."""
+    for mr in mrs:
+        if component in mr.get("mr_components", []):
+            return mr
+    return None
+
+
+def _violation_count(
+    rule: str, component: str,
+    by_component_rule: dict[tuple[str, str], int],
+) -> int:
+    """Return the exact violation count for a (rule, component) pair.
+
+    Falls back to the base rule (without ``:``) suffix, then to 1.
+    """
+    return (
+        by_component_rule.get((rule, component), 0)
+        or by_component_rule.get((rule.split(":")[0], component), 0)
+        or 1
+    )
+
+
+def _compute_violation_buckets(
+    coverage_data: dict,
+    analysis_result: analysis.AnalysisResult,
+    by_component_rule: dict[tuple[str, str], int],
+    upcoming_release_date: str = "",
+) -> dict:
+    """Classify violations into action-priority buckets.
+
+    Returns a dict with keys:
+        no_mr_entries, has_mr_entries,
+        expiring_no_mr, expiring_mr_insufficient, expiring_mr_sufficient,
+        covered_violations, not_covered_violations, total_violations, coverage_pct,
+        expiring_soon (list of tuples for 14-day window).
+    """
+    violations = coverage_data.get("violations", [])
+    total_violations = analysis_result.total_violations
+
+    covered_violations = 0
+    not_covered_violations = 0
+    for v in violations:
+        rule = v["rule"]
+        all_components = v.get("all_components", [])
+        uncovered_comps = v.get("uncovered_components", [])
+        covered_comps = [c for c in all_components if c not in uncovered_comps]
+        covered_violations += conforma_counting.violations_for_components(
+            rule, covered_comps, by_component_rule,
+        )
+        not_covered_violations += conforma_counting.violations_for_components(
+            rule, uncovered_comps, by_component_rule,
+        )
+
+    coverage_pct = (covered_violations / total_violations * 100) if total_violations > 0 else 0
+
+    uncovered_entries: list[dict] = []
+    for v in violations:
+        if v.get("coverage", "not_covered") == "fully_covered":
+            continue
+        rule = v["rule"]
+        uncovered_comps = v.get("uncovered_components", [])
+        mrs = v.get("open_merge_requests", [])
+        for comp in uncovered_comps:
+            uncovered_entries.append({
+                "rule": rule,
+                "component": comp,
+                "violation_count": _violation_count(rule, comp, by_component_rule),
+                "mr": _find_covering_mr(mrs, comp),
+            })
+
+    no_mr_entries = [e for e in uncovered_entries if not e["mr"]]
+    has_mr_entries = [e for e in uncovered_entries if e["mr"]]
+
+    expiring_no_mr: list[dict] = []
+    expiring_mr_insufficient: list[dict] = []
+    expiring_mr_sufficient: list[dict] = []
+
+    if upcoming_release_date:
+        try:
+            upcoming_dt = datetime.strptime(upcoming_release_date, "%Y-%m-%d").date()
+        except ValueError:
+            upcoming_dt = None
+
+        if upcoming_dt:
+            for v in violations:
+                if v.get("coverage") != "fully_covered":
+                    continue
+                expiry = v.get("exception_expiry", {})
+                if expiry.get("is_permanent"):
+                    continue
+                rule = v["rule"]
+                details = v.get("exception_details_by_component", [])
+                mrs = v.get("open_merge_requests", [])
+                for d in details:
+                    eu = d.get("effective_until")
+                    if not eu:
+                        continue
+                    try:
+                        eu_date = datetime.strptime(eu[:10], "%Y-%m-%d").date()
+                    except ValueError:
+                        continue
+                    if eu_date < upcoming_dt:
+                        comp = d.get("component", "")
+                        entry = {
+                            "rule": rule,
+                            "component": comp,
+                            "violation_count": _violation_count(rule, comp, by_component_rule),
+                            "effective_until": eu[:10],
+                        }
+                        covering_mr = _find_covering_mr(mrs, comp)
+                        if not covering_mr:
+                            expiring_no_mr.append(entry)
+                        else:
+                            mr_eu = covering_mr.get("effective_until")
+                            mr_eu_ok = False
+                            if mr_eu:
+                                try:
+                                    mr_eu_date = datetime.strptime(mr_eu[:10], "%Y-%m-%d").date()
+                                    mr_eu_ok = mr_eu_date >= upcoming_dt
+                                except ValueError:
+                                    pass
+                            entry["mr"] = covering_mr
+                            entry["mr_effective_until"] = mr_eu
+                            if mr_eu_ok:
+                                expiring_mr_sufficient.append(entry)
+                            else:
+                                expiring_mr_insufficient.append(entry)
+
+    expiry_threshold_days = 14
+    now = datetime.now(timezone.utc)
+    expiring_soon: list[tuple] = []
+    for v in violations:
+        if v.get("coverage") != "fully_covered":
+            continue
+        expiry = v.get("exception_expiry", {})
+        if expiry.get("is_permanent"):
+            continue
+        expiry_date_str = expiry.get("earliest_expiry")
+        if not expiry_date_str:
+            continue
+        try:
+            expiry_date = datetime.fromisoformat(expiry_date_str.replace("Z", "+00:00"))
+            days_left = (expiry_date.date() - now.date()).days
+            if days_left <= expiry_threshold_days:
+                rule = v["rule"]
+                exception_details = v.get("exception_details_by_component", [])
+                exception_values: set[str] = set()
+                for ed in exception_details:
+                    ev = ed.get("exception_value", "")
+                    if ev and ev != rule:
+                        exception_values.add(ev)
+                detail_suffix = f" ({', '.join(sorted(exception_values))})" if exception_values else ""
+                expiring_soon.append((rule, expiry_date.strftime("%Y-%m-%d"), days_left, detail_suffix))
+        except (ValueError, TypeError):
+            continue
+    expiring_soon.sort(key=lambda x: x[2])
+
+    table_num = 0
+    table_map = {}
+    table_num += 1
+    table_map["no_mr"] = table_num
+    if upcoming_release_date:
+        table_num += 1
+        table_map["expiring_no_mr"] = table_num
+        table_num += 1
+        table_map["expiring_mr_insufficient"] = table_num
+        table_num += 1
+        table_map["expiring_mr_sufficient"] = table_num
+    table_num += 1
+    table_map["has_mr"] = table_num
+
+    return {
+        "no_mr_entries": no_mr_entries,
+        "has_mr_entries": has_mr_entries,
+        "expiring_no_mr": expiring_no_mr,
+        "expiring_mr_insufficient": expiring_mr_insufficient,
+        "expiring_mr_sufficient": expiring_mr_sufficient,
+        "covered_violations": covered_violations,
+        "not_covered_violations": not_covered_violations,
+        "total_violations": total_violations,
+        "coverage_pct": coverage_pct,
+        "expiring_soon": expiring_soon,
+        "table_map": table_map,
+    }
+
+
+def render_todo(
+    coverage_data: dict,
+    analysis_result: analysis.AnalysisResult,
+    by_component_rule: dict[tuple[str, str], int],
+    tooling_health_data: dict | None = None,
+    upcoming_release_date: str = "",
+) -> str:
+    """Render a compact TODO table for the top of the executive summary.
+
+    Each row is auto-discovered from the data — only non-zero categories appear.
+    Rows link to anchor ids in the Violations Breakdown section below.
+    """
+    buckets = _compute_violation_buckets(
+        coverage_data, analysis_result, by_component_rule, upcoming_release_date,
+    )
+    tm = buckets["table_map"]
+
+    rows: list[tuple[str, int]] = []
+
+    no_mr_count = sum(e["violation_count"] for e in buckets["no_mr_entries"])
+    if no_mr_count:
+        rows.append((
+            f"[**Fix or add exceptions**](#table-{tm['no_mr']}) — no coverage or open MR",
+            no_mr_count,
+        ))
+
+    expiring_no_mr_count = sum(e["violation_count"] for e in buckets["expiring_no_mr"])
+    if expiring_no_mr_count:
+        rows.append((
+            f"[**Create MRs**](#table-{tm['expiring_no_mr']}) — exceptions expiring before release, no MR",
+            expiring_no_mr_count,
+        ))
+
+    expiring_insuf_count = sum(e["violation_count"] for e in buckets["expiring_mr_insufficient"])
+    if expiring_insuf_count:
+        rows.append((
+            f"[**Extend exception dates**](#table-{tm['expiring_mr_insufficient']}) — MR exception expires before release",
+            expiring_insuf_count,
+        ))
+
+    has_mr_count = sum(e["violation_count"] for e in buckets["has_mr_entries"])
+    if has_mr_count:
+        rows.append((
+            f"[**Track and merge**](#table-{tm['has_mr']}) open MRs",
+            has_mr_count,
+        ))
+
+    if tooling_health_data:
+        unhealthy = [
+            t for t in tooling_health_data.get("tools", [])
+            if t.get("health", {}).get("status") in ("unhealthy", "error")
+        ]
+        if unhealthy:
+            names = ", ".join(t.get("name", "unknown") for t in unhealthy)
+            rows.append((
+                f"[**Investigate tooling**](#tooling-health) — {names} workflow failing, data may be stale",
+                0,
+            ))
+
+    if buckets["expiring_soon"]:
+        count = len(buckets["expiring_soon"])
+        rows.append((
+            f"[**Review expiring exceptions**](#expiring-exceptions) — {count} exception{'s' if count != 1 else ''} expiring within 14 days",
+            0,
+        ))
+
+    if analysis_result.upcoming_violations:
+        count = len(analysis_result.upcoming_violations)
+        rows.append((
+            f"[**Review warnings**](#warnings-becoming-violations) — {count} warning{'s' if count != 1 else ''} becoming violations within 21 days",
+            0,
+        ))
+
+    if not rows:
+        return "## TODO\n\n> No actions required — all violations are covered\n"
+
+    total_violations_needing_attention = no_mr_count + expiring_no_mr_count + expiring_insuf_count + has_mr_count
+    lines = ["## TODO", ""]
+
+    summary_parts = [f"**{len(rows)} action{'s' if len(rows) != 1 else ''}** required"]
+    if total_violations_needing_attention:
+        summary_parts.append(f"{total_violations_needing_attention} violation{'s' if total_violations_needing_attention != 1 else ''} need attention")
+    lines.append(f"> {' — '.join(summary_parts)}")
+    lines.append("")
+
+    lines.append("| # | Action | Violations | Done |")
+    lines.append("|--:|--------|:----------:|:----:|")
+    for i, (action, viol_count) in enumerate(rows, 1):
+        viol_display = str(viol_count) if viol_count else "—"
+        lines.append(f"| {i} | {action} | {viol_display} | [ ] |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_key_takeaways(
     coverage_data: dict,
     analysis_result: analysis.AnalysisResult,
@@ -190,38 +472,28 @@ def render_key_takeaways(
     upcoming_release_date: str = "",
     policy_files: list[dict[str, str]] | None = None,
 ) -> str:
-    """Render the executive summary — exact violation counts, no approximation.
+    """Render the violations breakdown — exact violation counts, no approximation.
 
     A violation = unique (code, component, message) triple. Coverage is binary:
     each violation either has an exception or does not.
     """
-    violations = coverage_data.get("violations", [])
+    buckets = _compute_violation_buckets(
+        coverage_data, analysis_result, by_component_rule, upcoming_release_date,
+    )
 
-    total_violations = analysis_result.total_violations
+    no_mr_entries = buckets["no_mr_entries"]
+    has_mr_entries = buckets["has_mr_entries"]
+    no_mr_violation_count = sum(e["violation_count"] for e in no_mr_entries)
+    has_mr_violation_count = sum(e["violation_count"] for e in has_mr_entries)
+    covered_violations = buckets["covered_violations"]
+    total_violations = buckets["total_violations"]
+    coverage_pct = buckets["coverage_pct"]
+    expiring_no_mr = buckets["expiring_no_mr"]
+    expiring_mr_insufficient = buckets["expiring_mr_insufficient"]
+    expiring_mr_sufficient = buckets["expiring_mr_sufficient"]
+    expiring_soon = buckets["expiring_soon"]
 
-    # Compute covered/uncovered using exact per-component-rule counts
-    covered_violations = 0
-    not_covered_violations = 0
-
-    for v in violations:
-        coverage = v.get("coverage", "not_covered")
-        rule = v["rule"]
-        all_components = v.get("all_components", [])
-        uncovered_comps = v.get("uncovered_components", [])
-        covered_comps = [c for c in all_components if c not in uncovered_comps]
-
-        covered_count = conforma_counting.violations_for_components(
-            rule, covered_comps, by_component_rule,
-        )
-        uncovered_count = conforma_counting.violations_for_components(
-            rule, uncovered_comps, by_component_rule,
-        )
-        covered_violations += covered_count
-        not_covered_violations += uncovered_count
-
-    coverage_pct = (covered_violations / total_violations * 100) if total_violations > 0 else 0
-
-    lines = ["## Executive Summary", ""]
+    lines = ["## Violations Breakdown", ""]
 
     if tooling_health_data:
         tooling_line = _tooling_health_executive_line(tooling_health_data)
@@ -248,45 +520,12 @@ def render_key_takeaways(
         label = detail_labels.get(base_rule, "items")
         return f"{rule_link} ({', '.join(details[:10])} ... +{len(details) - 10} more {label}s)"
 
-    def _find_covering_mr(mrs: list[dict], component: str) -> dict | None:
-        for mr in mrs:
-            if component in mr.get("mr_components", []):
-                return mr
-        return None
-
-    def _violation_count(rule: str, component: str) -> int:
-        return (
-            by_component_rule.get((rule, component), 0)
-            or by_component_rule.get((rule.split(":")[0], component), 0)
-            or 1
-        )
-
-    # 1) Collect ALL components without an exception (from not_covered AND partially_covered codes)
-    uncovered_entries: list[dict] = []
-    for v in violations:
-        coverage = v.get("coverage", "not_covered")
-        if coverage == "fully_covered":
-            continue
-        rule = v["rule"]
-        uncovered_comps = v.get("uncovered_components", [])
-        mrs = v.get("open_merge_requests", [])
-        for comp in uncovered_comps:
-            uncovered_entries.append({
-                "rule": rule,
-                "component": comp,
-                "violation_count": _violation_count(rule, comp),
-                "mr": _find_covering_mr(mrs, comp),
-            })
-
-    no_mr_entries = [e for e in uncovered_entries if not e["mr"]]
-    has_mr_entries = [e for e in uncovered_entries if e["mr"]]
-    no_mr_violation_count = sum(e["violation_count"] for e in no_mr_entries)
-    has_mr_violation_count = sum(e["violation_count"] for e in has_mr_entries)
-
     table_num = 0
 
-    # 1a) Violations with no exception and no open Merge Request (highest risk)
+    # Table 1: Violations with no exception and no open Merge Request (highest risk)
     table_num += 1
+    lines.append(f'<a id="table-{table_num}"></a>')
+    lines.append("")
     lines.append(
         f"- **Table {table_num}.** — **{no_mr_violation_count:,} violations without exception or open Merge Request**:"
     )
@@ -302,136 +541,91 @@ def render_key_takeaways(
     lines.append("")
     lines.append("&nbsp;")
 
-    # 2) Exceptions expiring before the upcoming release date — split into 3 risk tiers
+    # Tables 2-4: Exceptions expiring before the upcoming release date
     if upcoming_release_date:
-        try:
-            upcoming_dt = datetime.strptime(upcoming_release_date, "%Y-%m-%d").date()
-        except ValueError:
-            upcoming_dt = None
+        # Table 2: Expiring exceptions with no open Merge Request
+        expiring_no_mr_count = sum(e["violation_count"] for e in expiring_no_mr)
+        table_num += 1
+        lines.append(f'<a id="table-{table_num}"></a>')
+        lines.append("")
+        lines.append(
+            f"- **Table {table_num}.** — **{expiring_no_mr_count:,} violations covered by currently active exceptions "
+            f"that expire before the upcoming release date ({upcoming_release_date}) "
+            f"and not addressed by any open Merge Request**:"
+        )
+        lines.append("")
+        lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception |")
+        lines.append("|--:|-----------|-----------|:----------:|-----------------|")
+        if expiring_no_mr:
+            for row_num, entry in enumerate(expiring_no_mr, 1):
+                violation_cell = _format_violation_cell(entry["rule"], entry["component"])
+                lines.append(
+                    f"| {row_num} | {violation_cell} | `{entry['component']}` "
+                    f"| {entry['violation_count']} | {entry['effective_until']} |"
+                )
+        else:
+            lines.append("| | No violations | | | |")
+        lines.append("")
+        lines.append("&nbsp;")
 
-        if upcoming_dt:
-            expiring_no_mr: list[dict] = []
-            expiring_mr_insufficient: list[dict] = []
-            expiring_mr_sufficient: list[dict] = []
-            for v in violations:
-                if v.get("coverage") != "fully_covered":
-                    continue
-                expiry = v.get("exception_expiry", {})
-                if expiry.get("is_permanent"):
-                    continue
-                rule = v["rule"]
-                details = v.get("exception_details_by_component", [])
-                mrs = v.get("open_merge_requests", [])
-                for d in details:
-                    eu = d.get("effective_until")
-                    if not eu:
-                        continue
-                    try:
-                        eu_date = datetime.strptime(eu[:10], "%Y-%m-%d").date()
-                    except ValueError:
-                        continue
-                    if eu_date < upcoming_dt:
-                        comp = d.get("component", "")
-                        entry = {
-                            "rule": rule,
-                            "component": comp,
-                            "violation_count": _violation_count(rule, comp),
-                            "effective_until": eu[:10],
-                        }
-                        covering_mr = _find_covering_mr(mrs, comp)
-                        if not covering_mr:
-                            expiring_no_mr.append(entry)
-                        else:
-                            mr_eu = covering_mr.get("effective_until")
-                            mr_eu_ok = False
-                            if mr_eu:
-                                try:
-                                    mr_eu_date = datetime.strptime(mr_eu[:10], "%Y-%m-%d").date()
-                                    mr_eu_ok = mr_eu_date >= upcoming_dt
-                                except ValueError:
-                                    pass
-                            entry["mr"] = covering_mr
-                            entry["mr_effective_until"] = mr_eu
-                            if mr_eu_ok:
-                                expiring_mr_sufficient.append(entry)
-                            else:
-                                expiring_mr_insufficient.append(entry)
+        # Table 3: Expiring exceptions with MR but MR expiry also before release
+        expiring_mr_insuf_count = sum(e["violation_count"] for e in expiring_mr_insufficient)
+        table_num += 1
+        lines.append(f'<a id="table-{table_num}"></a>')
+        lines.append("")
+        lines.append(
+            f"- **Table {table_num}.** — **{expiring_mr_insuf_count:,} violations covered by currently active exceptions "
+            f"that expire before the upcoming release date ({upcoming_release_date}) "
+            f"— open Merge Request exists but its proposed exception also expires before the release date**:"
+        )
+        lines.append("")
+        lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
+        lines.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
+        if expiring_mr_insufficient:
+            for row_num, entry in enumerate(expiring_mr_insufficient, 1):
+                violation_cell = _format_violation_cell(entry["rule"], entry["component"])
+                mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
+                mr_eu_display = entry.get("mr_effective_until") or "unknown"
+                lines.append(
+                    f"| {row_num} | {violation_cell} | `{entry['component']}` "
+                    f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
+                )
+        else:
+            lines.append("| | No violations | | | | | |")
+        lines.append("")
+        lines.append("&nbsp;")
 
-            # 2a) Expiring exceptions with no open Merge Request
-            expiring_no_mr_count = sum(e["violation_count"] for e in expiring_no_mr)
-            table_num += 1
-            lines.append(
-                f"- **Table {table_num}.** — **{expiring_no_mr_count:,} violations covered by currently active exceptions "
-                f"that expire before the upcoming release date ({upcoming_release_date}) "
-                f"and not addressed by any open Merge Request**:"
-            )
-            lines.append("")
-            lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception |")
-            lines.append("|--:|-----------|-----------|:----------:|-----------------|")
-            if expiring_no_mr:
-                for row_num, entry in enumerate(expiring_no_mr, 1):
-                    violation_cell = _format_violation_cell(entry["rule"], entry["component"])
-                    lines.append(
-                        f"| {row_num} | {violation_cell} | `{entry['component']}` "
-                        f"| {entry['violation_count']} | {entry['effective_until']} |"
-                    )
-            else:
-                lines.append("| | No violations | | | |")
-            lines.append("")
-            lines.append("&nbsp;")
+        # Table 4: Expiring exceptions with MR extending past release (lower risk)
+        expiring_mr_suf_count = sum(e["violation_count"] for e in expiring_mr_sufficient)
+        table_num += 1
+        lines.append(f'<a id="table-{table_num}"></a>')
+        lines.append("")
+        lines.append(
+            f"- **Table {table_num}.** — **{expiring_mr_suf_count:,} violations covered by currently active exceptions "
+            f"that expire before the upcoming release date ({upcoming_release_date}) "
+            f"— addressed by open Merge Requests extending past the release date**:"
+        )
+        lines.append("")
+        lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
+        lines.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
+        if expiring_mr_sufficient:
+            for row_num, entry in enumerate(expiring_mr_sufficient, 1):
+                violation_cell = _format_violation_cell(entry["rule"], entry["component"])
+                mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
+                mr_eu_display = entry.get("mr_effective_until") or "unknown"
+                lines.append(
+                    f"| {row_num} | {violation_cell} | `{entry['component']}` "
+                    f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
+                )
+        else:
+            lines.append("| | No violations | | | | | |")
+        lines.append("")
+        lines.append("&nbsp;")
 
-            # 2b) Expiring exceptions with open Merge Request but MR expiry also before release
-            expiring_mr_insuf_count = sum(e["violation_count"] for e in expiring_mr_insufficient)
-            table_num += 1
-            lines.append(
-                f"- **Table {table_num}.** — **{expiring_mr_insuf_count:,} violations covered by currently active exceptions "
-                f"that expire before the upcoming release date ({upcoming_release_date}) "
-                f"— open Merge Request exists but its proposed exception also expires before the release date**:"
-            )
-            lines.append("")
-            lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
-            lines.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
-            if expiring_mr_insufficient:
-                for row_num, entry in enumerate(expiring_mr_insufficient, 1):
-                    violation_cell = _format_violation_cell(entry["rule"], entry["component"])
-                    mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
-                    mr_eu_display = entry.get("mr_effective_until") or "unknown"
-                    lines.append(
-                        f"| {row_num} | {violation_cell} | `{entry['component']}` "
-                        f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
-                    )
-            else:
-                lines.append("| | No violations | | | | | |")
-            lines.append("")
-            lines.append("&nbsp;")
-
-            # 2c) Expiring exceptions with open Merge Request extending past release (lower risk)
-            expiring_mr_suf_count = sum(e["violation_count"] for e in expiring_mr_sufficient)
-            table_num += 1
-            lines.append(
-                f"- **Table {table_num}.** — **{expiring_mr_suf_count:,} violations covered by currently active exceptions "
-                f"that expire before the upcoming release date ({upcoming_release_date}) "
-                f"— addressed by open Merge Requests extending past the release date**:"
-            )
-            lines.append("")
-            lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
-            lines.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
-            if expiring_mr_sufficient:
-                for row_num, entry in enumerate(expiring_mr_sufficient, 1):
-                    violation_cell = _format_violation_cell(entry["rule"], entry["component"])
-                    mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
-                    mr_eu_display = entry.get("mr_effective_until") or "unknown"
-                    lines.append(
-                        f"| {row_num} | {violation_cell} | `{entry['component']}` "
-                        f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
-                    )
-            else:
-                lines.append("| | No violations | | | | | |")
-            lines.append("")
-            lines.append("&nbsp;")
-
-    # 3) Violations with no exception but having an open Merge Request
+    # Table 5: Violations with no exception but having an open Merge Request
     table_num += 1
+    lines.append(f'<a id="table-{table_num}"></a>')
+    lines.append("")
     lines.append(
         f"- **Table {table_num}.** — **{has_mr_violation_count:,} violations addressed** by open Merge Requests (not yet merged):"
     )
@@ -448,47 +642,20 @@ def render_key_takeaways(
     lines.append("")
     lines.append("&nbsp;")
 
-    # 5) Violations covered by exceptions
+    # Coverage summary
     coverage_line = f"- **{covered_violations:,} of {total_violations:,} violations ({coverage_pct:.1f}%) covered** by exceptions"
     if policy_files:
         file_links = " · ".join(f"[{f['name']}]({f['url']})" for f in policy_files)
         coverage_line += f" in {file_links}"
     lines.append(coverage_line)
 
-    expiry_threshold_days = 14
-    now = datetime.now(timezone.utc)
-    expiring_soon = []
-    for v in violations:
-        if v.get("coverage") != "fully_covered":
-            continue
-        expiry = v.get("exception_expiry", {})
-        if expiry.get("is_permanent"):
-            continue
-        expiry_date_str = expiry.get("earliest_expiry")
-        if not expiry_date_str:
-            continue
-        try:
-            expiry_date = datetime.fromisoformat(expiry_date_str.replace("Z", "+00:00"))
-            days_left = (expiry_date.date() - now.date()).days
-            if days_left <= expiry_threshold_days:
-                rule = v["rule"]
-                exception_details = v.get("exception_details_by_component", [])
-                exception_values: set[str] = set()
-                for ed in exception_details:
-                    ev = ed.get("exception_value", "")
-                    if ev and ev != rule:
-                        exception_values.add(ev)
-                detail_suffix = f" ({', '.join(sorted(exception_values))})" if exception_values else ""
-                expiring_soon.append((rule, expiry_date.strftime("%Y-%m-%d"), days_left, detail_suffix))
-        except (ValueError, TypeError):
-            continue
-
     if expiring_soon:
-        expiring_soon.sort(key=lambda x: x[2])
         parts = [f"`{rule}`{detail} (expires {date}, {days}d)" for rule, date, days, detail in expiring_soon]
-        lines.append(f"- **Exceptions expiring in next {expiry_threshold_days} days**: {', '.join(parts)}")
+        lines.append(f'<a id="expiring-exceptions"></a>')
+        lines.append(f"- **Exceptions expiring in next 14 days**: {', '.join(parts)}")
 
     if analysis_result.upcoming_violations:
+        lines.append(f'<a id="warnings-becoming-violations"></a>')
         lines.append(
             f"- **{len(analysis_result.upcoming_violations)} warnings becoming violations** "
             "within 21 days"
@@ -1170,6 +1337,7 @@ def _tooling_health_executive_line(tooling_health_data: dict) -> str | None:
 def write_executive_summary(
     output_path: str,
     *,
+    todo: str = "",
     metadata_header: str,
     tooling_health: str,
     key_takeaways: str,
@@ -1179,13 +1347,14 @@ def write_executive_summary(
 ) -> None:
     """Write a compact executive summary suitable for chat display.
 
-    Contains the metadata header, tooling health warning (if any), the
-    executive summary bullets, the summary metrics table, and links to
-    the detailed documents.  The guide_path is filled in by main() after
-    the guide file is written (it's not known inside generate_resolution_guide).
+    Contains the TODO action items, metadata header, tooling health warning
+    (if any), the violations breakdown tables, the summary metrics table,
+    and links to the detailed documents.  The guide_path is filled in by
+    main() after the guide file is written (it's not known inside
+    generate_resolution_guide).
     """
     SECTION_SPACER = "\n&nbsp;\n"
-    sections = [metadata_header, key_takeaways, tooling_health, summary_metrics]
+    sections = [todo, metadata_header, key_takeaways, tooling_health, summary_metrics]
     content = SECTION_SPACER.join(s for s in sections if s)
 
     doc_lines = [SECTION_SPACER, "## Detailed Documents", ""]

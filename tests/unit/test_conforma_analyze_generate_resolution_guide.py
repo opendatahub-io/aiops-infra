@@ -16,6 +16,12 @@ from guide_renderers import render_components_table
 from guide_renderers import render_metadata_header
 from guide_renderers import render_coverage_table
 from guide_renderers import render_work_scope
+from guide_renderers import render_todo
+from guide_renderers import render_key_takeaways
+from guide_renderers import write_executive_summary
+from guide_renderers import _find_covering_mr
+from guide_renderers import _violation_count
+from guide_renderers import _compute_violation_buckets
 
 
 @pytest.fixture
@@ -1412,7 +1418,8 @@ class TestExecutiveSummaryFile:
         assert es_path.exists()
         content = es_path.read_text()
         assert "# Conforma Status and Resolution Guide: rhoai-3.5-ea.2" in content
-        assert "## Executive Summary" in content
+        assert "## TODO" in content
+        assert "## Violations Breakdown" in content
         assert "## Summary" in content
         assert "## Detailed Documents" in content
 
@@ -2286,7 +2293,7 @@ class TestExecutiveSummaryViolationLinks:
         for rule in ["hermetic_task.hermetic", "sbom_spdx.disallowed_package_attributes"]:
             anchor = mod._violation_anchor(rule)
             link = f"[`{rule}`](#{anchor})"
-            exec_summary_section = content.split("## Executive Summary")[1].split("## Summary")[0]
+            exec_summary_section = content.split("## Violations Breakdown")[1].split("## Summary")[0]
             assert link in exec_summary_section, (
                 f"Expected anchor link {link} in executive summary"
             )
@@ -2614,5 +2621,479 @@ class TestContextIntegration:
         monkeypatch.setattr("sys.argv", ["generate_resolution_guide.py"])
         rc = mod.main()
         assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TODO / violation-bucket tests
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass, field
+import analyze_csv_report as analysis
+
+
+def _make_analysis_result(**kwargs):
+    """Create an AnalysisResult with sensible defaults, overridable by kwargs."""
+    defaults = dict(
+        total_violations=10,
+        total_csv_rows=20,
+        unique_codes=3,
+        unique_components=2,
+    )
+    defaults.update(kwargs)
+    return analysis.AnalysisResult(**defaults)
+
+
+def _make_coverage_data(violations=None, ec_validation=None):
+    """Build a minimal coverage_data dict."""
+    d = {"violations": violations or []}
+    if ec_validation:
+        d["ec_validation"] = ec_validation
+    return d
+
+
+def _uncovered_violation(rule, components, open_mrs=None):
+    """Create a not_covered violation entry for coverage_data."""
+    return {
+        "rule": rule,
+        "coverage": "not_covered",
+        "all_components": components,
+        "uncovered_components": components,
+        "open_merge_requests": open_mrs or [],
+    }
+
+
+def _covered_violation(rule, components, expiry_details=None, open_mrs=None,
+                        is_permanent=False, earliest_expiry=None):
+    """Create a fully_covered violation entry for coverage_data."""
+    v = {
+        "rule": rule,
+        "coverage": "fully_covered",
+        "all_components": components,
+        "uncovered_components": [],
+        "open_merge_requests": open_mrs or [],
+        "exception_expiry": {
+            "is_permanent": is_permanent,
+        },
+    }
+    if earliest_expiry:
+        v["exception_expiry"]["earliest_expiry"] = earliest_expiry
+    if expiry_details:
+        v["exception_details_by_component"] = expiry_details
+    return v
+
+
+def _mr(iid, url, components, effective_until=None):
+    """Create an open merge request dict."""
+    d = {"iid": iid, "url": url, "mr_components": components}
+    if effective_until:
+        d["effective_until"] = effective_until
+    return d
+
+
+# ---------------------------------------------------------------------------
+# TestExtractedHelpers
+# ---------------------------------------------------------------------------
+
+class TestExtractedHelpers:
+    """Tests for module-level helper functions extracted from render_key_takeaways."""
+
+    def test_find_covering_mr_found(self):
+        mrs = [_mr(1, "https://example.com/1", ["comp-a", "comp-b"])]
+        result = _find_covering_mr(mrs, "comp-a")
+        assert result is not None
+        assert result["iid"] == 1
+
+    def test_find_covering_mr_not_found(self):
+        mrs = [_mr(1, "https://example.com/1", ["comp-a"])]
+        result = _find_covering_mr(mrs, "comp-z")
+        assert result is None
+
+    def test_find_covering_mr_empty_list(self):
+        assert _find_covering_mr([], "comp-a") is None
+
+    def test_violation_count_exact_match(self):
+        by_cr = {("hermetic_task.hermetic", "comp-a"): 3}
+        assert _violation_count("hermetic_task.hermetic", "comp-a", by_cr) == 3
+
+    def test_violation_count_base_rule_fallback(self):
+        by_cr = {("rpm_signature.allowed", "comp-a"): 5}
+        assert _violation_count("rpm_signature.allowed:abc123", "comp-a", by_cr) == 5
+
+    def test_violation_count_fallback_to_one(self):
+        assert _violation_count("unknown.rule", "comp-x", {}) == 1
+
+
+# ---------------------------------------------------------------------------
+# TestComputeViolationBuckets
+# ---------------------------------------------------------------------------
+
+class TestComputeViolationBuckets:
+    """Tests for _compute_violation_buckets shared data extraction."""
+
+    def test_buckets_no_violations(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        buckets = _compute_violation_buckets(coverage, result, {})
+        assert buckets["no_mr_entries"] == []
+        assert buckets["has_mr_entries"] == []
+        assert buckets["expiring_no_mr"] == []
+        assert buckets["total_violations"] == 0
+
+    def test_buckets_uncovered_no_mr(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("hermetic_task.hermetic", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("hermetic_task.hermetic", "comp-a"): 2}
+        buckets = _compute_violation_buckets(coverage, result, by_cr)
+        assert len(buckets["no_mr_entries"]) == 1
+        assert buckets["no_mr_entries"][0]["violation_count"] == 2
+        assert buckets["has_mr_entries"] == []
+
+    def test_buckets_uncovered_with_mr(self):
+        mr = _mr(100, "https://example.com/100", ["comp-a"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("hermetic_task.hermetic", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("hermetic_task.hermetic", "comp-a"): 1}
+        buckets = _compute_violation_buckets(coverage, result, by_cr)
+        assert len(buckets["has_mr_entries"]) == 1
+        assert buckets["no_mr_entries"] == []
+
+    def test_buckets_expiring_tiers(self):
+        mr_insuf = _mr(200, "https://example.com/200", ["comp-a"], effective_until="2026-07-01")
+        mr_suf = _mr(201, "https://example.com/201", ["comp-b"], effective_until="2026-09-01")
+        coverage = _make_coverage_data(violations=[
+            _covered_violation(
+                "rule-a", ["comp-a", "comp-b", "comp-c"],
+                expiry_details=[
+                    {"component": "comp-a", "effective_until": "2026-07-10"},
+                    {"component": "comp-b", "effective_until": "2026-07-15"},
+                    {"component": "comp-c", "effective_until": "2026-07-20"},
+                ],
+                open_mrs=[mr_insuf, mr_suf],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=3)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-a", "comp-b"): 1, ("rule-a", "comp-c"): 1}
+        buckets = _compute_violation_buckets(coverage, result, by_cr, upcoming_release_date="2026-08-01")
+        assert len(buckets["expiring_no_mr"]) == 1  # comp-c has no MR
+        assert buckets["expiring_no_mr"][0]["component"] == "comp-c"
+        assert len(buckets["expiring_mr_insufficient"]) == 1  # comp-a MR expires before release
+        assert len(buckets["expiring_mr_sufficient"]) == 1  # comp-b MR extends past release
+
+    def test_buckets_counts_match_totals(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a", "comp-b"]),
+        ])
+        result = _make_analysis_result(total_violations=5)
+        by_cr = {("rule-a", "comp-a"): 2, ("rule-a", "comp-b"): 3}
+        buckets = _compute_violation_buckets(coverage, result, by_cr)
+        assert buckets["covered_violations"] + buckets["not_covered_violations"] == 5
+
+
+# ---------------------------------------------------------------------------
+# TestRenderTodo
+# ---------------------------------------------------------------------------
+
+class TestRenderTodo:
+    """Tests for render_todo() — compact TODO table at top of executive summary."""
+
+    def test_todo_all_buckets_populated(self):
+        mr = _mr(100, "https://example.com/100", ["comp-b"])
+        mr_insuf = _mr(200, "https://example.com/200", ["comp-d"], effective_until="2026-07-01")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
+            _covered_violation(
+                "rule-c", ["comp-c", "comp-d"],
+                expiry_details=[
+                    {"component": "comp-c", "effective_until": "2026-07-10"},
+                    {"component": "comp-d", "effective_until": "2026-07-15"},
+                ],
+                open_mrs=[mr_insuf],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=5)
+        by_cr = {
+            ("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1,
+            ("rule-c", "comp-c"): 1, ("rule-c", "comp-d"): 1,
+        }
+        output = render_todo(coverage, result, by_cr, upcoming_release_date="2026-08-01")
+        assert "## TODO" in output
+        assert "Fix or add exceptions" in output
+        assert "Track and merge" in output
+        assert "Create MRs" in output
+        assert "Extend exception dates" in output
+
+    def test_todo_empty_buckets_omitted(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_todo(coverage, result, by_cr)
+        assert "Fix or add exceptions" in output
+        assert "Create MRs" not in output
+        assert "Extend exception dates" not in output
+        assert "Track and merge" not in output
+
+    def test_todo_no_actions_required(self):
+        coverage = _make_coverage_data(violations=[
+            _covered_violation("rule-a", ["comp-a"], is_permanent=True),
+        ])
+        result = _make_analysis_result(total_violations=0)
+        output = render_todo(coverage, result, {})
+        assert "No actions required" in output
+
+    def test_todo_table_header_format(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_todo(coverage, result, by_cr)
+        assert "| # | Action | Violations | Done |" in output
+        assert "|--:|--------|:----------:|:----:|" in output
+
+    def test_todo_violation_counts_accurate(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a", "comp-b"]),
+        ])
+        result = _make_analysis_result(total_violations=7)
+        by_cr = {("rule-a", "comp-a"): 3, ("rule-a", "comp-b"): 4}
+        output = render_todo(coverage, result, by_cr)
+        assert "| 7 |" in output or "7 violation" in output
+
+    def test_todo_tooling_unhealthy_row(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "unhealthy"}}]}
+        output = render_todo(coverage, result, {}, tooling_health_data=tooling)
+        assert "Investigate tooling" in output
+        assert "conforma-reporter" in output
+
+    def test_todo_tooling_healthy_no_row(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "healthy"}}]}
+        output = render_todo(coverage, result, {}, tooling_health_data=tooling)
+        assert "Investigate tooling" not in output
+
+    def test_todo_warnings_becoming_violations_row(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0, upcoming_violations=["w1", "w2"])
+        output = render_todo(coverage, result, {})
+        assert "Review warnings" in output
+        assert "2 warnings" in output
+
+    def test_todo_summary_line_counts(self):
+        mr = _mr(100, "https://example.com/100", ["comp-b"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        output = render_todo(coverage, result, by_cr)
+        assert "**2 actions** required" in output
+
+    def test_todo_table4_omitted(self):
+        mr_suf = _mr(200, "https://example.com/200", ["comp-a"], effective_until="2026-09-01")
+        coverage = _make_coverage_data(violations=[
+            _covered_violation(
+                "rule-a", ["comp-a"],
+                expiry_details=[{"component": "comp-a", "effective_until": "2026-07-10"}],
+                open_mrs=[mr_suf],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_todo(coverage, result, by_cr, upcoming_release_date="2026-08-01")
+        assert "table-4" not in output
+        assert "Extend exception dates" not in output
+
+    def test_todo_links_to_anchors(self):
+        mr = _mr(100, "https://example.com/100", ["comp-b"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        output = render_todo(coverage, result, by_cr)
+        assert "(#table-1)" in output
+        assert "(#table-2)" in output  # no upcoming_release_date → tables 2-4 skipped, has_mr = table 2
+
+    def test_todo_links_with_upcoming_release_date(self):
+        mr = _mr(100, "https://example.com/100", ["comp-b"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        output = render_todo(coverage, result, by_cr, upcoming_release_date="2026-08-01")
+        assert "(#table-1)" in output
+        assert "(#table-5)" in output  # with upcoming_release_date → tables 2-4 present, has_mr = table 5
+
+
+# ---------------------------------------------------------------------------
+# TestKeyTakeawaysRename
+# ---------------------------------------------------------------------------
+
+class TestKeyTakeawaysRename:
+    """Tests that render_key_takeaways uses the new heading."""
+
+    def test_heading_is_violations_breakdown(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert output.startswith("## Violations Breakdown")
+        assert "## Executive Summary" not in output
+
+
+# ---------------------------------------------------------------------------
+# TestKeyTakeawaysAnchors
+# ---------------------------------------------------------------------------
+
+class TestKeyTakeawaysAnchors:
+    """Tests that render_key_takeaways output has HTML anchors for TODO links."""
+
+    def test_table_anchors_present(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert '<a id="table-1"></a>' in output
+
+    def test_table_anchors_with_expiring(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _covered_violation(
+                "rule-b", ["comp-b"],
+                expiry_details=[{"component": "comp-b", "effective_until": "2026-07-10"}],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr, upcoming_release_date="2026-08-01",
+        )
+        assert '<a id="table-1"></a>' in output
+        assert '<a id="table-2"></a>' in output
+        assert '<a id="table-3"></a>' in output
+        assert '<a id="table-4"></a>' in output
+
+    def test_table5_anchor_present(self):
+        mr = _mr(100, "https://example.com/100", ["comp-a"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        # Table 1 (empty) + Table 5 (with MR) — table numbering depends on
+        # whether upcoming_release_date is set; without it, tables 2-4 are
+        # skipped, so has_mr table is table 2
+        assert '<a id="table-2"></a>' in output
+
+    def test_warnings_anchor(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1, upcoming_violations=["w1"])
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert '<a id="warnings-becoming-violations"></a>' in output
+
+    def test_expiring_exceptions_anchor(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        now = datetime(2026, 7, 10, 0, 0, 0, tzinfo=timezone.utc)
+        coverage = _make_coverage_data(violations=[
+            _covered_violation(
+                "rule-a", ["comp-a"],
+                is_permanent=False,
+                earliest_expiry="2026-07-15T00:00:00Z",
+            ),
+            _uncovered_violation("rule-b", ["comp-b"]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        with patch("guide_renderers.datetime") as mock_dt:
+            mock_dt.now.return_value = now
+            mock_dt.strptime = datetime.strptime
+            mock_dt.fromisoformat = datetime.fromisoformat
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            output = render_key_takeaways(coverage, result, by_cr)
+        assert '<a id="expiring-exceptions"></a>' in output
+
+
+# ---------------------------------------------------------------------------
+# TestExecutiveSummaryTodoSection
+# ---------------------------------------------------------------------------
+
+class TestExecutiveSummaryTodoSection:
+    """Tests that write_executive_summary places TODO first and handles edge cases."""
+
+    def test_todo_section_appears_first(self, tmp_path):
+        es_path = str(tmp_path / "es.md")
+        write_executive_summary(
+            es_path,
+            todo="## TODO\n\n> **1 action** required\n",
+            metadata_header="# Header\n",
+            tooling_health="",
+            key_takeaways="## Violations Breakdown\n",
+            summary_metrics="## Summary\n",
+            guide_path=None,
+            analysis_path=None,
+        )
+        content = Path(es_path).read_text()
+        todo_pos = content.index("## TODO")
+        header_pos = content.index("# Header")
+        breakdown_pos = content.index("## Violations Breakdown")
+        assert todo_pos < header_pos < breakdown_pos
+
+    def test_todo_section_empty_string_omitted(self, tmp_path):
+        es_path = str(tmp_path / "es.md")
+        write_executive_summary(
+            es_path,
+            todo="",
+            metadata_header="# Header\n",
+            tooling_health="",
+            key_takeaways="## Violations Breakdown\n",
+            summary_metrics="## Summary\n",
+            guide_path=None,
+            analysis_path=None,
+        )
+        content = Path(es_path).read_text()
+        assert content.startswith("# Header")
+
+    def test_todo_anchors_resolve(self, tmp_path):
+        mr = _mr(100, "https://example.com/100", ["comp-b"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        todo = render_todo(coverage, result, by_cr)
+        key_takeaways = render_key_takeaways(coverage, result, by_cr)
+
+        import re
+        links = re.findall(r'\(#([\w-]+)\)', todo)
+        combined = todo + key_takeaways
+        for anchor_id in links:
+            assert f'<a id="{anchor_id}"></a>' in combined, (
+                f"TODO links to #{anchor_id} but no matching anchor found"
+            )
 
 
