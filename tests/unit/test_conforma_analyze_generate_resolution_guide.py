@@ -18,7 +18,8 @@ from guide_renderers import render_coverage_table
 from guide_renderers import render_work_scope
 from guide_renderers import render_todo
 from guide_renderers import render_key_takeaways
-from guide_renderers import write_executive_summary
+from guide_renderers import write_todo_preview
+from conforma_constants import TODO_PREVIEW_FILENAME
 from guide_renderers import _find_covering_mr
 from guide_renderers import _violation_count
 from guide_renderers import _compute_violation_buckets
@@ -1390,10 +1391,10 @@ class TestRenderComponentsTable:
         assert "[search Jira](https://jira.example.com/search)" in out
 
 
-class TestExecutiveSummaryFile:
-    """--executive-summary-file flag produces a compact summary for chat display."""
+class TestTodoPreviewFile:
+    """--todo-file flag produces a TODO preview for chat display."""
 
-    def test_executive_summary_written_when_flag_provided(
+    def test_todo_preview_written_when_flag_provided(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
     ):
         csv_content = (
@@ -1403,7 +1404,7 @@ class TestExecutiveSummaryFile:
         )
         (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
 
-        es_path = tmp_path / "executive-summary.md"
+        todo_path = tmp_path / TODO_PREVIEW_FILENAME
         mod.generate_resolution_guide(
             violations_yaml_path=str(sample_violations_yaml),
             coverage_json_path=str(sample_coverage_json),
@@ -1412,18 +1413,16 @@ class TestExecutiveSummaryFile:
             release="rhoai-3.5-ea.2",
             source_path="prod/future/build_type_latest/conforma-violations-report.csv",
             source_created_at="2026-06-10T05:19:05Z",
-            executive_summary_file=str(es_path),
+            todo_file=str(todo_path),
         )
 
-        assert es_path.exists()
-        content = es_path.read_text()
-        assert "# Conforma Status and Resolution Guide: rhoai-3.5-ea.2" in content
+        assert todo_path.exists()
+        content = todo_path.read_text()
         assert "## TODO" in content
         assert "## Violations Breakdown" in content
-        assert "## Summary" in content
-        assert "## Detailed Documents" in content
+        assert "| **Release branch**" in content
 
-    def test_executive_summary_not_written_when_flag_omitted(
+    def test_todo_preview_not_written_when_flag_omitted(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
     ):
         csv_content = (
@@ -1443,9 +1442,9 @@ class TestExecutiveSummaryFile:
             source_created_at="2026-06-10T05:19:05Z",
         )
 
-        assert not (tmp_path / "executive-summary.md").exists()
+        assert not (tmp_path / TODO_PREVIEW_FILENAME).exists()
 
-    def test_executive_summary_excludes_resolution_guide_content(
+    def test_todo_preview_excludes_resolution_guide_content(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
     ):
         csv_content = (
@@ -1455,7 +1454,7 @@ class TestExecutiveSummaryFile:
         )
         (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
 
-        es_path = tmp_path / "executive-summary.md"
+        todo_path = tmp_path / TODO_PREVIEW_FILENAME
         mod.generate_resolution_guide(
             violations_yaml_path=str(sample_violations_yaml),
             coverage_json_path=str(sample_coverage_json),
@@ -1464,42 +1463,17 @@ class TestExecutiveSummaryFile:
             release="rhoai-3.5-ea.2",
             source_path="prod/future/build_type_latest/conforma-violations-report.csv",
             source_created_at="2026-06-10T05:19:05Z",
-            executive_summary_file=str(es_path),
+            todo_file=str(todo_path),
         )
 
-        content = es_path.read_text()
+        content = todo_path.read_text()
         assert "## Resolution Guide" not in content
         assert "## Statistical Breakdown" not in content
         assert "## Violations Coverage" not in content
+        assert "## Summary" not in content
+        assert "## Detailed Documents" not in content
 
-    def test_executive_summary_includes_analysis_output_link(
-        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
-    ):
-        csv_content = (
-            "type,component_name,image,message,effective_on,code,title,description,solution\n"
-            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
-            "Hermetic,desc,Enable hermetic\n"
-        )
-        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
-
-        es_path = tmp_path / "executive-summary.md"
-        analysis_path = str(tmp_path / "conforma-analysis.md")
-        mod.generate_resolution_guide(
-            violations_yaml_path=str(sample_violations_yaml),
-            coverage_json_path=str(sample_coverage_json),
-            reports_dir=str(tmp_path),
-            catalog_path=str(sample_catalog),
-            release="rhoai-3.5-ea.2",
-            source_path="prod/future/build_type_latest/conforma-violations-report.csv",
-            source_created_at="2026-06-10T05:19:05Z",
-            executive_summary_file=str(es_path),
-            analysis_output_file=analysis_path,
-        )
-
-        content = es_path.read_text()
-        assert f"**Analysis Output**: `{analysis_path}`" in content
-
-    def test_full_guide_unchanged_with_executive_summary_flag(
+    def test_full_guide_unchanged_with_todo_flag(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
     ):
         from datetime import datetime, timezone
@@ -1530,7 +1504,7 @@ class TestExecutiveSummaryFile:
             content_without = mod.generate_resolution_guide(**kwargs)
             content_with = mod.generate_resolution_guide(
                 **kwargs,
-                executive_summary_file=str(tmp_path / "es.md"),
+                todo_file=str(tmp_path / "todo.md"),
             )
 
         assert content_without == content_with
@@ -1693,7 +1667,7 @@ class TestMainAutoExtraction:
 
 
 # ---------------------------------------------------------------------------
-# upcoming_release_date in executive summary
+# upcoming_release_date in TODO preview
 # ---------------------------------------------------------------------------
 
 
@@ -2265,8 +2239,8 @@ class TestUpcomingReleaseDate:
         assert "**0 violations addressed** by open Merge Requests (not yet merged)" in content
 
 
-class TestExecutiveSummaryViolationLinks:
-    """Violation titles in executive summary tables must link to their resolution guide sections."""
+class TestViolationLinks:
+    """Violation titles in violations breakdown tables must link to their resolution guide sections."""
 
     def test_violation_titles_are_anchor_links(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
@@ -2295,7 +2269,7 @@ class TestExecutiveSummaryViolationLinks:
             link = f"[`{rule}`](#{anchor})"
             exec_summary_section = content.split("## Violations Breakdown")[1].split("## Summary")[0]
             assert link in exec_summary_section, (
-                f"Expected anchor link {link} in executive summary"
+                f"Expected anchor link {link} in violations breakdown"
             )
 
     def test_anchor_links_match_resolution_guide_ids(
@@ -2324,7 +2298,7 @@ class TestExecutiveSummaryViolationLinks:
 
 
 class TestCoverageSummaryPolicyFileLinks:
-    """Coverage summary line in executive summary includes policy file links."""
+    """Coverage summary line includes policy file links."""
 
     def test_coverage_line_includes_file_links(
         self, tmp_path, sample_violations_yaml, sample_catalog,
@@ -2590,8 +2564,8 @@ class TestContextIntegration:
         ])
         rc = mod.main()
         assert rc == 0
-        assert (run_dir / "conforma-status-and-resolution-guide.md").is_file()
-        assert (run_dir / "executive-summary.md").is_file()
+        assert (run_dir / "conforma-resolution-guide.md").is_file()
+        assert (run_dir / TODO_PREVIEW_FILENAME).is_file()
 
     def test_updates_context_after_generation(self, tmp_path, monkeypatch, sample_catalog):
         run_dir = self._setup_run_with_artifacts(tmp_path, monkeypatch, sample_catalog)
@@ -2602,8 +2576,8 @@ class TestContextIntegration:
         mod.main()
         ctx = conforma_context_ops.load(run_dir)
         assert ctx["steps"]["resolution_guide"]["status"] == "completed"
-        assert ctx["steps"]["resolution_guide"]["guide_file"] == "conforma-status-and-resolution-guide.md"
-        assert ctx["steps"]["resolution_guide"]["executive_summary_file"] == "executive-summary.md"
+        assert ctx["steps"]["resolution_guide"]["guide_file"] == "conforma-resolution-guide.md"
+        assert ctx["steps"]["resolution_guide"]["todo_file"] == TODO_PREVIEW_FILENAME
 
     def test_source_metadata_from_context(self, tmp_path, monkeypatch, sample_catalog):
         run_dir = self._setup_run_with_artifacts(tmp_path, monkeypatch, sample_catalog)
@@ -2612,7 +2586,7 @@ class TestContextIntegration:
             "--catalog", str(sample_catalog),
         ])
         mod.main()
-        content = (run_dir / "conforma-status-and-resolution-guide.md").read_text()
+        content = (run_dir / "conforma-resolution-guide.md").read_text()
         assert "2026-06-10" in content
         assert "abc123" in content
 
@@ -2798,7 +2772,7 @@ class TestComputeViolationBuckets:
 # ---------------------------------------------------------------------------
 
 class TestRenderTodo:
-    """Tests for render_todo() — compact TODO table at top of executive summary."""
+    """Tests for render_todo() — compact TODO table at top of resolution guide."""
 
     def test_todo_all_buckets_populated(self):
         mr = _mr(100, "https://example.com/100", ["comp-b"])
@@ -3038,43 +3012,35 @@ class TestKeyTakeawaysAnchors:
 
 
 # ---------------------------------------------------------------------------
-# TestExecutiveSummaryTodoSection
+# TestTodoPreviewContent
 # ---------------------------------------------------------------------------
 
-class TestExecutiveSummaryTodoSection:
-    """Tests that write_executive_summary places TODO first and handles edge cases."""
+class TestTodoPreviewContent:
+    """Tests that write_todo_preview places TODO first and handles edge cases."""
 
     def test_todo_section_appears_first(self, tmp_path):
-        es_path = str(tmp_path / "es.md")
-        write_executive_summary(
-            es_path,
+        out_path = str(tmp_path / "todo.md")
+        write_todo_preview(
+            out_path,
             todo="## TODO\n\n> **1 action** required\n",
             metadata_header="# Header\n",
-            tooling_health="",
             key_takeaways="## Violations Breakdown\n",
-            summary_metrics="## Summary\n",
-            guide_path=None,
-            analysis_path=None,
         )
-        content = Path(es_path).read_text()
+        content = Path(out_path).read_text()
         todo_pos = content.index("## TODO")
         header_pos = content.index("# Header")
         breakdown_pos = content.index("## Violations Breakdown")
         assert todo_pos < header_pos < breakdown_pos
 
     def test_todo_section_empty_string_omitted(self, tmp_path):
-        es_path = str(tmp_path / "es.md")
-        write_executive_summary(
-            es_path,
+        out_path = str(tmp_path / "todo.md")
+        write_todo_preview(
+            out_path,
             todo="",
             metadata_header="# Header\n",
-            tooling_health="",
             key_takeaways="## Violations Breakdown\n",
-            summary_metrics="## Summary\n",
-            guide_path=None,
-            analysis_path=None,
         )
-        content = Path(es_path).read_text()
+        content = Path(out_path).read_text()
         assert content.startswith("# Header")
 
     def test_todo_anchors_resolve(self, tmp_path):

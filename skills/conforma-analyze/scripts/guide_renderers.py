@@ -375,7 +375,7 @@ def render_todo(
     tooling_health_data: dict | None = None,
     upcoming_release_date: str = "",
 ) -> str:
-    """Render a compact TODO table for the top of the executive summary.
+    """Render a compact TODO table for the top of the TODO preview.
 
     Each row is auto-discovered from the data — only non-zero categories appear.
     Rows link to anchor ids in the Violations Breakdown section below.
@@ -1334,40 +1334,26 @@ def _tooling_health_executive_line(tooling_health_data: dict) -> str | None:
     return f"- **Tooling unhealthy** -- {'; '.join(parts)}"
 
 
-def write_executive_summary(
+def write_todo_preview(
     output_path: str,
     *,
     todo: str = "",
     metadata_header: str,
-    tooling_health: str,
     key_takeaways: str,
-    summary_metrics: str,
-    guide_path: str | None,
-    analysis_path: str | None,
 ) -> None:
-    """Write a compact executive summary suitable for chat display.
+    """Write TODO preview file for chat display.
 
-    Contains the TODO action items, metadata header, tooling health warning
-    (if any), the violations breakdown tables, the summary metrics table,
-    and links to the detailed documents.  The guide_path is filled in by
-    main() after the guide file is written (it's not known inside
-    generate_resolution_guide).
+    Contains the TODO action items, metadata header (context confirmation),
+    and violations breakdown tables. This is the actionable subset shown in
+    agent chat — the full resolution guide (submitted to GitHub) contains
+    all sections including coverage, detailed resolution steps, and stats.
     """
     SECTION_SPACER = "\n&nbsp;\n"
-    sections = [todo, metadata_header, key_takeaways, tooling_health, summary_metrics]
+    sections = [todo, metadata_header, key_takeaways]
     content = SECTION_SPACER.join(s for s in sections if s)
 
-    doc_lines = [SECTION_SPACER, "## Detailed Documents", ""]
-    if guide_path:
-        doc_lines.append(f"- **Resolution Guide**: `{guide_path}`")
-    if analysis_path:
-        doc_lines.append(f"- **Analysis Output**: `{analysis_path}`")
-    if guide_path or analysis_path:
-        doc_lines.append("")
-
-    content = content.rstrip("\n") + "\n\n" + "\n".join(doc_lines)
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    print(f"Executive summary written to {path}", file=sys.stderr)
+    print(f"TODO preview written to {path}", file=sys.stderr)
 

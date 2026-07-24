@@ -11,6 +11,8 @@ GITHUB_API = "https://api.github.com"
 
 CSV_FILENAME = "conforma-violations-report.csv"
 WARNINGS_CSV_FILENAME = "conforma-warnings-report.csv"
+RESOLUTION_GUIDE_FILENAME = "conforma-resolution-guide.md"
+TODO_PREVIEW_FILENAME = "conforma-todo.md"
 
 CSV_PATHS = [
     f"prod/future/build_type_latest/{CSV_FILENAME}",

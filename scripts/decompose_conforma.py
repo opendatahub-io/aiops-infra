@@ -1273,7 +1273,7 @@ class Step9_ExtractGuideRenderers(Step):
                 "render_known_false_alerts", "render_components_table",
                 "render_warnings_section", "render_statistical_breakdown",
                 "render_tooling_health", "render_work_scope", "render_divergence_warning",
-                "write_executive_summary", "format_violation_cell",
+                "write_todo_preview", "format_violation_cell",
             ],
             target_docstring="Resolution guide renderers — pure functions that take data and return markdown.",
         )
@@ -1660,7 +1660,7 @@ class Step13_UpdateTests(Step):
                     "_render_known_false_alerts", "_render_components_table",
                     "_render_warnings_section", "_render_statistical_breakdown",
                     "_render_tooling_health", "_render_work_scope", "_render_divergence_warning",
-                    "_write_executive_summary", "_format_violation_cell",
+                    "_write_todo_preview", "_format_violation_cell",
                 ],
             },
             "violations_coverage": {

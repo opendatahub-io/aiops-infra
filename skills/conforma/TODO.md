@@ -46,7 +46,7 @@ Report date: 2026-06-27T04:27:21Z
 
 Summary: 7 unique violations — 2 fully covered, 1 partially covered, 4 not covered.
 
-the executive summary does a better job 
+the TODO preview does a better job 
 
 16. ~~add link to the rhoai conforma doc - https://docs.google.com/document/d/1LsHzcZ2TAIIc4slqAdMnDBovYa2EzgOD8bWx-QXR8kM/edit?tab=t.0#heading=h.5j6svfi94fr3 -  to the 'context confirmation' table in executive summary, make a note that this doc is for reference only and is superseeded by conforma-* AI skills~~ - done
 
@@ -58,3 +58,8 @@ the executive summary does a better job
 
 20. ~~Add TODO section to executive summary output — put actionable work items (numbered table with checkbox column) at the very top, above Context Confirmation. Rename "Executive Summary" section to "Violations Breakdown". Extract shared helpers (_find_covering_mr, _violation_count, _compute_violation_buckets) to module-level for reuse.~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190). Plan: `skills/conforma-analyze/.plans/add-todo-section-to-executive-summary.md`
 
+21. should the conforma* skill discover the location of location of conforma/scripts directory and set environment variable e.g.: _R (the name that's used currently already by the skill) somehow permanently so each conforoma/scripts command will not have to start with "_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" ? - plan created at /home/wznoinsk/.claude/plans/plan-on-21-from-optimized-muffin.md
+
+22. ~~Remove all "executive summary" terminology — rename to "chat summary" throughout functions, params, CLI flags, context.yaml keys, file names (`executive-summary.md` → `chat-summary.md`), workflow docs, and test classes. Add `RESOLUTION_GUIDE_FILENAME` shared constant for deterministic guide path resolution. Add TODO section as first element of the full resolution guide (submitted to GitHub). Implement canonical-path-first resolution in submit and validate scripts.~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190). Plan: `skills/conforma-analyze/.plans/fix-guide-filename-and-todo-in-full-guide.md`
+
+23. ~~Rename "chat summary" → "TODO preview" to emphasize resolution guide as primary output. Simplify `write_todo_preview()` to contain TODO + metadata + violations breakdown (removed summary metrics, tooling health, detailed documents footer). Rename `conforma-status-and-resolution-guide.md` → `conforma-resolution-guide.md`. Add `TODO_PREVIEW_FILENAME` shared constant. Update all references: functions, params, CLI flags, context.yaml keys, workflow docs, tests.~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190). Plan: `skills/conforma-analyze/.plans/rename-chat-summary-to-todo-preview.md`

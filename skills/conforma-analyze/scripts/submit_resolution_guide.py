@@ -27,10 +27,10 @@ import requests
 import _setup_env  # noqa: F401 -- loads ~/.conforma/.env and adds scripts/ to sys.path
 
 import conforma_context_ops  # noqa: E402
-from conforma_constants import CONFORMA_REPORTER_REPO, GITHUB_API  # noqa: E402
+from conforma_constants import CONFORMA_REPORTER_REPO, GITHUB_API, RESOLUTION_GUIDE_FILENAME  # noqa: E402
 from github_ops import get_token as _get_github_token  # noqa: F401
 
-DEFAULT_FILENAME = "conforma-status-and-resolution-guide.md"
+DEFAULT_FILENAME = RESOLUTION_GUIDE_FILENAME
 
 
 
@@ -115,8 +115,8 @@ def submit_resolution_guide(
 ) -> dict:
     """Submit the resolution guide to the environment-specific directory on GitHub.
 
-    The guide is placed at ``{environment}/conforma-status-and-resolution-guide.md``
-    (e.g. ``stage/conforma-status-and-resolution-guide.md``).
+    The guide is placed at ``{environment}/conforma-resolution-guide.md``
+    (e.g. ``stage/conforma-resolution-guide.md``).
 
     Returns a dict with: url, sha, committed, dry_run
     """
@@ -259,10 +259,14 @@ def main() -> int:
     release = conforma_context_ops.resolve_arg(args, "release", context, "application.release")
 
     guide_file = args.guide_file
-    if guide_file is None and context:
-        ctx_guide = conforma_context_ops.get(run_dir, "steps.resolution_guide.guide_file", None)
-        if ctx_guide:
-            guide_file = str(Path(run_dir) / ctx_guide)
+    if guide_file is None and run_dir:
+        canonical = Path(run_dir) / RESOLUTION_GUIDE_FILENAME
+        if canonical.exists():
+            guide_file = str(canonical)
+        elif context:
+            ctx_guide = conforma_context_ops.get(run_dir, "steps.resolution_guide.guide_file", None)
+            if ctx_guide:
+                guide_file = str(Path(run_dir) / ctx_guide)
     if guide_file is None:
         print("Error: --guide-file is required when no run context is available", file=sys.stderr)
         return 1

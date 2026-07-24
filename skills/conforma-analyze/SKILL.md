@@ -102,7 +102,7 @@ Both files are fetched and analyzed by default:
 - **Violation** = code + component + details. Each distinct failing check is one violation. The "details" are rule-specific (e.g. specific package for sbom rules, nothing extra for hermetic). In the CSV, the `message` field encodes the details — same message on different image digests = same violation, different message = different violation.
 - Each violation corresponds to one exception entry if an exception is needed.
 - **Image occurrences** (CSV rows) include digest-level duplication and are reported as context only ("Source CSV rows" in the Summary table).
-- All executive summary, analysis, and resolution guide metrics MUST use violation counts, not code counts.
+- All TODO, analysis, and resolution guide metrics MUST use violation counts, not code counts.
 - Violation codes (e.g. `hermetic_task.hermetic`) are grouping labels, not counting units.
 - Coverage is binary: each violation either has an exception or does not. There is no "partially covered" category.
 - All counting uses `scripts/conforma_counting.py` — no script may independently compute violation counts.

@@ -2,7 +2,7 @@
 """generate_resolution_guide — Generate a unified Conforma Resolution Guide.
 
 PUBLIC API:
-    generate_resolution_guide(violations_yaml_path, coverage_json_path, reports_dir, catalog_path, release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, tooling_health_path, executive_summary_file, analysis_output_file, end_of_support, confirmation_display, code_freeze_date, upcoming_release_date) -> str  [line 1213]
+    generate_resolution_guide(violations_yaml_path, coverage_json_path, reports_dir, catalog_path, release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, tooling_health_path, todo_file, analysis_output_file, end_of_support, confirmation_display, code_freeze_date, upcoming_release_date) -> str  [line 1213]
     main() -> int  [line 1364]
 
 INTERNAL SECTIONS:
@@ -35,6 +35,8 @@ import analyze_csv_report as analysis  # noqa: E402
 
 from conforma_constants import (  # noqa: E402
     CONFORMA_REPORTER_URL,
+    RESOLUTION_GUIDE_FILENAME,
+    TODO_PREVIEW_FILENAME,
     VERIFY_NEXT_STEP,
 )
 
@@ -54,7 +56,7 @@ from guide_renderers import render_uncataloged_violation as _render_uncataloged_
 from guide_renderers import render_warnings_section as _render_warnings_section  # noqa: F401 — backward compat re-export
 from guide_renderers import render_statistical_breakdown as _render_statistical_breakdown  # noqa: F401 — backward compat re-export
 from guide_renderers import render_tooling_health as _render_tooling_health  # noqa: F401 — backward compat re-export
-from guide_renderers import write_executive_summary as _write_executive_summary  # noqa: F401 — backward compat re-export
+from guide_renderers import write_todo_preview as _write_todo_preview  # noqa: F401 — backward compat re-export
 from guide_renderers import render_todo as _render_todo  # noqa: F401 — backward compat re-export
 
 
@@ -199,7 +201,7 @@ def generate_resolution_guide(
     policy_dir_url: str = "",
     policy_files: list[dict[str, str]] | None = None,
     tooling_health_path: str | None = None,
-    executive_summary_file: str | None = None,
+    todo_file: str | None = None,
     analysis_output_file: str | None = None,
     end_of_support: str = "",
     confirmation_display: str = "",
@@ -208,12 +210,10 @@ def generate_resolution_guide(
 ) -> str:
     """Generate the full resolution guide markdown content.
 
-    When ``executive_summary_file`` is provided, also writes a compact
-    executive summary (metadata header, tooling health warning, key
-    takeaways, summary metrics, and links to the detailed documents) to
-    that path.  The ``analysis_output_file`` path is embedded in the
-    executive summary as a clickable link; pass the path where the
-    analysis markdown was saved (step 6 output).
+    When ``todo_file`` is provided, writes a TODO preview file (action
+    items, metadata header, violations breakdown) for chat display.
+    The full resolution guide (all sections) is always generated as the
+    primary output submitted to GitHub.
     """
     violations_yaml = Path(violations_yaml_path)
     coverage_json = Path(coverage_json_path)
@@ -277,6 +277,7 @@ def generate_resolution_guide(
     todo = _render_todo(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, upcoming_release_date=upcoming_release_date)
 
     sections = [
+        todo,
         metadata_header,
         key_takeaways,
         summary_metrics,
@@ -289,16 +290,12 @@ def generate_resolution_guide(
 
     SECTION_SPACER = "\n&nbsp;\n"
     guide = SECTION_SPACER.join(s for s in sections if s)
-    if executive_summary_file:
-        _write_executive_summary(
-            executive_summary_file,
+    if todo_file:
+        _write_todo_preview(
+            todo_file,
             todo=todo,
             metadata_header=metadata_header,
-            tooling_health=tooling_health,
             key_takeaways=key_takeaways,
-            summary_metrics=summary_metrics,
-            guide_path=None,
-            analysis_path=analysis_output_file,
         )
 
     if analysis_output_file:
@@ -410,16 +407,15 @@ def main() -> int:
     )
     parser.add_argument("--output", default=None, help="Output file path")
     parser.add_argument(
-        "--executive-summary-file",
+        "--todo-file",
         default=None,
-        help="Path to write a compact executive summary (for chat display). "
-        "Includes metadata, key takeaways, summary metrics, and links to detailed documents.",
+        help="Path to write TODO preview file for chat display. "
+        "Contains action items, metadata, and violations breakdown.",
     )
     parser.add_argument(
         "--analysis-output-file",
         default=None,
-        help="Path to the analysis output markdown file (step 6 output). "
-        "Embedded as a link in the executive summary.",
+        help="Path to the analysis output markdown file (step 6 output).",
     )
     args = parser.parse_args()
 
@@ -466,14 +462,14 @@ def main() -> int:
 
     output_file = args.output
     if output_file is None and run_dir:
-        output_file = str(Path(run_dir) / "conforma-status-and-resolution-guide.md")
+        output_file = str(Path(run_dir) / RESOLUTION_GUIDE_FILENAME)
     if not output_file:
         print("Error: --output is required when no run context is available", file=sys.stderr)
         return 1
 
-    executive_summary_file = args.executive_summary_file
-    if executive_summary_file is None and run_dir:
-        executive_summary_file = str(Path(run_dir) / "executive-summary.md")
+    todo_file = args.todo_file
+    if todo_file is None and run_dir:
+        todo_file = str(Path(run_dir) / TODO_PREVIEW_FILENAME)
 
     analysis_output_file = args.analysis_output_file
     if analysis_output_file is None and run_dir:
@@ -576,7 +572,7 @@ def main() -> int:
             policy_dir_url=policy_dir_url,
             policy_files=policy_files,
             tooling_health_path=tooling_health_json,
-            executive_summary_file=executive_summary_file,
+            todo_file=todo_file,
             analysis_output_file=analysis_output_file,
             end_of_support=end_of_support,
             confirmation_display=conforma_context_ops.get(run_dir, "resolve.confirmation_display", "") if context else "",
@@ -592,25 +588,12 @@ def main() -> int:
     output_path.write_text(content, encoding="utf-8")
     print(f"Resolution guide written to {output_path}", file=sys.stderr)
 
-    if executive_summary_file:
-        es_path = Path(executive_summary_file)
-        if es_path.exists():
-            es_content = es_path.read_text(encoding="utf-8")
-            guide_link = f"- **Resolution Guide**: `{output_path}`"
-            if "## Detailed Documents" in es_content and guide_link not in es_content:
-                es_content = es_content.replace(
-                    "## Detailed Documents\n",
-                    f"## Detailed Documents\n\n{guide_link}\n",
-                    1,
-                )
-                es_path.write_text(es_content, encoding="utf-8")
-
     if run_dir:
         step_outputs: dict = {
             "guide_file": output_path.name,
         }
-        if executive_summary_file:
-            step_outputs["executive_summary_file"] = Path(executive_summary_file).name
+        if todo_file:
+            step_outputs["todo_file"] = Path(todo_file).name
         if analysis_output_file:
             step_outputs["analysis_file"] = Path(analysis_output_file).name
         conforma_context_ops.update_step(run_dir, "resolution_guide", "completed", **step_outputs)

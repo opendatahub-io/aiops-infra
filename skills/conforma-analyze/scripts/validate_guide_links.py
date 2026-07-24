@@ -32,6 +32,7 @@ from urllib.parse import urlparse
 
 import conforma_context_ops  # noqa: E402
 import requests
+from conforma_constants import RESOLUTION_GUIDE_FILENAME  # noqa: E402
 from github_ops import get_token as _get_github_token  # noqa: F401
 
 LINK_CHECK_TIMEOUT = 15
@@ -132,7 +133,7 @@ def _auth_headers_for_url(url: str) -> dict[str, str]:
 def _check_single_link(url: str) -> LinkCheckResult:
     """Validate a single external URL with a HEAD request (GET fallback)."""
     headers = _auth_headers_for_url(url)
-    headers["User-Agent"] = "conforma-status-and-resolution-guide-link-checker/1.0"
+    headers["User-Agent"] = "conforma-resolution-guide-link-checker/1.0"
 
     for method in (requests.head, requests.get):
         try:
@@ -209,7 +210,7 @@ def validate_guide_links(
 
 def find_latest_guide(work_dir: str = str(Path.home() / ".conforma")) -> str | None:
     """Find the most recently modified resolution guide in the work directory."""
-    pattern = os.path.join(work_dir, "*", "conforma-status-and-resolution-guide.md")
+    pattern = os.path.join(work_dir, "*", RESOLUTION_GUIDE_FILENAME)
     candidates = glob.glob(pattern)
     if not candidates:
         return None
@@ -250,12 +251,19 @@ def main() -> int:
             return 0
     elif args.guide_file:
         guide_file = args.guide_file
-    elif context:
-        ctx_guide = conforma_context_ops.get(run_dir, "steps.resolution_guide.guide_file", None)
-        if ctx_guide:
-            guide_file = str(Path(run_dir) / ctx_guide)
+    elif run_dir:
+        canonical = Path(run_dir) / RESOLUTION_GUIDE_FILENAME
+        if canonical.exists():
+            guide_file = str(canonical)
+        elif context:
+            ctx_guide = conforma_context_ops.get(run_dir, "steps.resolution_guide.guide_file", None)
+            if ctx_guide:
+                guide_file = str(Path(run_dir) / ctx_guide)
+            else:
+                print(json.dumps({"error": "No guide_file in context (steps.resolution_guide.guide_file)", "all_ok": False}))
+                return 1
         else:
-            print(json.dumps({"error": "No guide_file in context (steps.resolution_guide.guide_file)", "all_ok": False}))
+            print(json.dumps({"error": "No guide found at canonical path and no context available", "all_ok": False}))
             return 1
     else:
         print(json.dumps({"error": "--guide-file or --latest is required when no run context is available", "all_ok": False}))

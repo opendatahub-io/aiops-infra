@@ -141,7 +141,7 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/parse_violations.py" --no-catalog
 ```
 
-6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations"`. **Save the output to a file** — do NOT present the analysis in the chat (the executive summary in step 9 covers the key data; the full analysis is linked as a detailed document):
+6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations"`. **Save the output to a file** — do NOT present the analysis in the chat (the TODO preview in step 9 shows the action items; the full analysis is in the resolution guide):
 
 ```bash
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/analyze_csv_report.py" --format markdown
@@ -159,7 +159,7 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
    - Prioritized remediation recommendations with resolution %
    - **Jira Component ownership** — component names are annotated with their owning Jira Component (e.g. `odh-vllm-rhel9 (vLLM)`)
 
-   **No chat output from this step.** The analysis is saved to the run directory and linked in the executive summary (step 9).
+   **No chat output from this step.** The analysis is saved to the run directory and included in the full resolution guide.
 
 7. **Cross-reference with exceptions, open Merge Requests, open Jira, and Slack**: Use Bash description: `"Cross-reference violations with exceptions, Merge Requests, Jira, Slack"`. After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open Merge Requests (classified as *exception* or *remedy*), open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
 
@@ -178,9 +178,9 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violations_coverage.py"
 ```
 
-   The coverage table is the primary deliverable and is included in the executive summary (step 9). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
+   The coverage table is the primary deliverable and is included in the TODO preview (step 9). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
 
-8. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **executive summary** is presented in the chat — the full guide is linked as a detailed document. See step 9 for the generation command and presentation rules.
+8. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **TODO preview** is presented in the chat — the full guide is submitted to GitHub. See step 9 for the generation command and presentation rules.
 
 9. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide"`. Run the resolution guide generator on the intermediate outputs from steps 3-7. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
 
@@ -188,35 +188,35 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/generate_resolution_guide.py"
 ```
 
-   The script reads all inputs (violations YAML, coverage JSON, reports directory, release, metadata file, tooling health JSON, analysis output file) and output paths (guide file, executive summary file) from `context.yaml` automatically.
+   The script reads all inputs (violations YAML, coverage JSON, reports directory, release, metadata file, tooling health JSON, analysis output file) and output paths (guide file, TODO file) from `context.yaml` automatically.
 
    ---
 
    **⛔ HARD FAILURE RULES FOR STEP 9 — READ THESE BEFORE PROCEEDING:**
 
-   **RULE 1 — EXECUTIVE SUMMARY ONLY (no full guide in chat):**
-   The agent MUST read `executive-summary.md` from the active run directory (printed by the script) with the Read tool and then **copy its ENTIRE content verbatim into the response text**. This file contains the metadata header, tooling health warning, key takeaways, summary metrics, and links to the detailed documents. The agent MUST NOT:
-   - Paste the full resolution guide (`conforma-status-and-resolution-guide.md`) into the chat
+   **RULE 1 — TODO PREVIEW ONLY (no full guide in chat):**
+   The agent MUST read `conforma-todo.md` from the active run directory (printed by the script) with the Read tool and then **copy its ENTIRE content verbatim into the response text**. This file contains the TODO action items, metadata header (context confirmation), and violations breakdown tables. The agent MUST NOT:
+   - Paste the full resolution guide (`conforma-resolution-guide.md`) into the chat
    - Paste the full analysis output (`conforma-analysis.md`) into the chat
-   - Summarize, paraphrase, or abbreviate the executive summary content
-   - Add its own commentary between sections of the executive summary
+   - Summarize, paraphrase, or abbreviate the TODO content
+   - Add its own commentary between sections
    - Create its own tables or summaries instead of the script-generated content
 
-   The executive summary file includes a **Detailed Documents** section with file paths to the full resolution guide and analysis output. These are the user's entry points to the detailed content — they can click to open the files.
+   The full resolution guide and analysis output are saved to the run directory — the user can open them directly for the complete reference.
 
-   Do NOT rely on the Read tool result alone — tool results are agent context and may not be displayed to the user. The executive summary content must appear as literal text in the agent's response. Render as markdown (not in a code block).
+   Do NOT rely on the Read tool result alone — tool results are agent context and may not be displayed to the user. The TODO content must appear as literal text in the agent's response. Render as markdown (not in a code block).
 
    **RULE 2 — ORDERING (present THEN ask):**
-   The executive summary content must appear in the agent's response text BEFORE the AskQuestion call for step 10. Never call AskQuestion in the same tool-call batch that reads the file. The sequence is: (a) read executive summary file → (b) paste its content into response → (c) THEN in a SEPARATE subsequent turn, ask about submission. This ensures the user sees the summary before being asked to act on it.
+   The TODO content must appear in the agent's response text BEFORE the AskQuestion call for step 10. Never call AskQuestion in the same tool-call batch that reads the file. The sequence is: (a) read TODO file → (b) paste its content into response → (c) THEN in a SEPARATE subsequent turn, ask about submission. This ensures the user sees the action items before being asked to submit.
 
    **RULE 3 — MUST PROCEED TO STEP 10:**
-   After rendering the executive summary, the agent MUST immediately proceed to step 10 (submission) in the same response — do NOT stop, wait for user input, or end the turn after presenting the summary. The workflow is not complete until the user has been asked about submission. Stopping after the executive summary without proceeding to step 10 is a hard failure.
+   After rendering the TODO, the agent MUST immediately proceed to step 10 (submission) in the same response — do NOT stop, wait for user input, or end the turn after presenting the TODO. The workflow is not complete until the user has been asked about submission. Stopping after the TODO without proceeding to step 10 is a hard failure.
 
    **Violating any of these rules is a hard failure regardless of model size, context window, or token budget.**
 
    ---
 
-10. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 9)*: After the executive summary has been rendered in the previous response, run the submit script in dry-run mode with Bash description: `"Preview submission of resolution guide (dry run)"`, then use AskQuestion with `question_text` and `question_options` from the dry-run JSON verbatim. Do NOT auto-submit. Only run without `--dry-run` if the user confirms.
+10. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 9)*: After the TODO has been rendered in the previous response, run the submit script in dry-run mode with Bash description: `"Preview submission of resolution guide (dry run)"`, then use AskQuestion with `question_text` and `question_options` from the dry-run JSON verbatim. Do NOT auto-submit. Only run without `--dry-run` if the user confirms.
 
 ```bash
 _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/submit_resolution_guide.py" --dry-run

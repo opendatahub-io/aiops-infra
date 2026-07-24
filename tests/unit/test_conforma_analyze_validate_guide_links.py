@@ -257,12 +257,12 @@ class TestFindLatestGuide:
     def test_finds_latest_by_mtime(self, tmp_path):
         old_dir = tmp_path / "20260601-100000"
         old_dir.mkdir()
-        old_guide = old_dir / "conforma-status-and-resolution-guide.md"
+        old_guide = old_dir / "conforma-resolution-guide.md"
         old_guide.write_text("old", encoding="utf-8")
 
         new_dir = tmp_path / "20260602-100000"
         new_dir.mkdir()
-        new_guide = new_dir / "conforma-status-and-resolution-guide.md"
+        new_guide = new_dir / "conforma-resolution-guide.md"
         new_guide.write_text("new", encoding="utf-8")
 
         result = mod.find_latest_guide(str(tmp_path))
@@ -284,7 +284,7 @@ class TestContextIntegration:
         run_dir = tmp_path / "20260703-120000"
         run_dir.mkdir()
 
-        guide = run_dir / "conforma-status-and-resolution-guide.md"
+        guide = run_dir / "conforma-resolution-guide.md"
         guide.write_text("# Guide\n\nNo links here.", encoding="utf-8")
 
         context = {
@@ -294,7 +294,7 @@ class TestContextIntegration:
             "steps": {
                 "resolution_guide": {
                     "status": "completed",
-                    "guide_file": "conforma-status-and-resolution-guide.md",
+                    "guide_file": "conforma-resolution-guide.md",
                 },
             },
         }

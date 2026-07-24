@@ -1,6 +1,6 @@
 """Tests for conforma-analyze submit_resolution_guide.py.
 
-The guide is submitted to {environment}/conforma-status-and-resolution-guide.md on the
+The guide is submitted to {environment}/conforma-resolution-guide.md on the
 release branch. Legacy guides in prod/future/build_type_latest/ and the repo root are
 cleaned up automatically when --metadata-file is provided.
 """
@@ -21,7 +21,7 @@ import submit_resolution_guide as mod
 @pytest.fixture
 def sample_guide(tmp_path):
     """Create a sample resolution guide file."""
-    guide = tmp_path / "conforma-status-and-resolution-guide.md"
+    guide = tmp_path / "conforma-resolution-guide.md"
     guide.write_text("# Test Guide\n\nSome content.", encoding="utf-8")
     return guide
 
@@ -58,7 +58,7 @@ class TestDryRun:
         assert result["dry_run"] is True
         assert result["committed"] is False
         assert "rhoai-3.5-ea.2" in result["url"]
-        assert result["target_path"] == "prod/conforma-status-and-resolution-guide.md"
+        assert result["target_path"] == "prod/conforma-resolution-guide.md"
 
     def test_dry_run_targets_environment_dir(self, sample_guide):
         result = mod.submit_resolution_guide(
@@ -67,7 +67,7 @@ class TestDryRun:
             environment="prod",
             dry_run=True,
         )
-        assert result["target_path"] == "prod/conforma-status-and-resolution-guide.md"
+        assert result["target_path"] == "prod/conforma-resolution-guide.md"
         assert result["branch"] == "rhoai-3.4"
 
     def test_dry_run_stage_environment(self, sample_guide):
@@ -77,7 +77,7 @@ class TestDryRun:
             environment="stage",
             dry_run=True,
         )
-        assert result["target_path"] == "stage/conforma-status-and-resolution-guide.md"
+        assert result["target_path"] == "stage/conforma-resolution-guide.md"
         assert "stage" in result["url"]
 
 
@@ -116,7 +116,7 @@ class TestCreateNewFile:
         put_resp = MagicMock(status_code=201)
         put_resp.json.return_value = {
             "content": {
-                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/prod/conforma-status-and-resolution-guide.md",
+                "html_url": "https://github.com/test/repo/blob/rhoai-3.5-ea.2/prod/conforma-resolution-guide.md",
                 "sha": "abc123",
             }
         }
@@ -213,7 +213,7 @@ class TestEnvironmentTargetPath:
             environment="prod",
             dry_run=True,
         )
-        assert result["target_path"] == "prod/conforma-status-and-resolution-guide.md"
+        assert result["target_path"] == "prod/conforma-resolution-guide.md"
 
     def test_stage_targets_stage_dir(self, sample_guide):
         result = mod.submit_resolution_guide(
@@ -222,7 +222,7 @@ class TestEnvironmentTargetPath:
             environment="stage",
             dry_run=True,
         )
-        assert result["target_path"] == "stage/conforma-status-and-resolution-guide.md"
+        assert result["target_path"] == "stage/conforma-resolution-guide.md"
 
     def test_no_error_without_metadata(self, sample_guide):
         result = mod.submit_resolution_guide(
@@ -270,7 +270,7 @@ class TestContextIntegration:
         run_dir = tmp_path / "20260703-120000"
         run_dir.mkdir()
 
-        guide = run_dir / "conforma-status-and-resolution-guide.md"
+        guide = run_dir / "conforma-resolution-guide.md"
         guide.write_text("# Guide\n\nContent.", encoding="utf-8")
 
         context = {
@@ -280,7 +280,7 @@ class TestContextIntegration:
             "steps": {
                 "resolution_guide": {
                     "status": "completed",
-                    "guide_file": "conforma-status-and-resolution-guide.md",
+                    "guide_file": "conforma-resolution-guide.md",
                 },
             },
         }
