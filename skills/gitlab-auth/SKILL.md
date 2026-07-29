@@ -23,7 +23,7 @@ echo 'GITLAB_TOKEN=glpat-XXXXX' >> ~/.conforma/.env
 ## Quick Verification
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/gitlab_ops.py" verify-auth
+~/.conforma/bin/conforma_run.sh scripts/gitlab_ops.py verify-auth
 ```
 
 This checks:

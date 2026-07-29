@@ -29,7 +29,7 @@ No manual clone management is needed — just pass `--clone-dir ~/.conforma/konf
 ## Running the Coverage Check
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violations_coverage.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/violations_coverage.py \
   --violations-yaml "$RUNDIR/violations.yaml" \
   --clone-dir ~/.conforma/konflux-release-data \
   --environment prod > "$RUNDIR/coverage.json"

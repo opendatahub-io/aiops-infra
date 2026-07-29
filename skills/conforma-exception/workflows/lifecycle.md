@@ -13,13 +13,13 @@
 **Always run preflight first** before creating any tickets or Merge Requests:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/verify_auth.py"
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/verify_auth.py
 ```
 
 **Component-maturity catalog** (required for RHOAIENG tickets): The Jira Component field is **mandatory** on all RHOAIENG tickets created by this skill. The catalog is auto-cloned by the orchestrator when needed. To set up manually:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" ensure-repo
+~/.conforma/bin/conforma_run.sh scripts/component_catalog_ops.py ensure-repo
 ```
 
 Jira Component values are auto-resolved from the catalog by mapping Konflux component names to their corresponding Jira Component. If auto-resolution fails (component not found in the catalog), ticket creation is **blocked** and the agent must ask the user for the correct Jira Component name, then pass it via `--jira-components`. No RHOAIENG ticket is created without this field.
@@ -50,7 +50,7 @@ cd ~/dev/gitlab/releng/konflux-release-data && git show origin/main:path/to/file
 The `--reconcile TICKET_KEY` flag on `create_jira_ticket.py` enables idempotent re-runs:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_jira_ticket.py" --project PSX \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_jira_ticket.py --project PSX \
   --reconcile PSX-1098 \
   --rule rpm_signature.allowed:9386b48a1a693c5c \
   --components odh-workbench-jupyter-pytorch-rocm-py312-v2-25 \
@@ -79,26 +79,13 @@ Handled deterministically by `create_gitlab_mr.py` → `apply_exception_to_polic
 
 ### Steps
 
-**Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
+**Script path convention**: Every command below uses `~/.conforma/bin/conforma_run.sh` to resolve the aiops-infra repo root and dispatch to the target Python script. Do NOT use bare `python3` paths — always use the wrapper.
 
 0. **Resolve aiops-infra root (REQUIRED before any script)**: Run with Bash description: `"Resolve aiops-infra repository root and create run context"`:
 
 ```bash
-_ROOT="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-[ -z "$_ROOT" ] && _ROOT="$HOME/.local/share/aiops-infra"
-[ -f "$_ROOT/pyproject.toml" ] || { echo "ERROR: aiops-infra repo not found at $_ROOT. Set AIOPS_INFRA_ROOT or clone to ~/.local/share/aiops-infra"; exit 1; }
-_RUNDIR="$HOME/.conforma/$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$_RUNDIR"
-cat > "$_RUNDIR/context.yaml" << EOF
-aiops_infra_root: $_ROOT
-run:
-  created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-  run_dir: ${_RUNDIR/#$HOME/\~}
-steps: {}
-EOF
-ln -sfn "$_RUNDIR" "$HOME/.conforma/.conforma-active"
-echo "aiops_infra_root=$_ROOT"
-echo "run_dir=$_RUNDIR"
+[ -x ~/.conforma/bin/conforma_run.sh ] || { _R="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo $HOME/.local/share/aiops-infra)}"; mkdir -p ~/.conforma/bin; cp "$_R/scripts/conforma_run.sh.tpl" ~/.conforma/bin/conforma_run.sh; chmod +x ~/.conforma/bin/conforma_run.sh; }
+~/.conforma/bin/conforma_run.sh scripts/init_conforma_run.py "<describe_the_request>"
 ```
 
    If the output path does not contain a `pyproject.toml`, stop and instruct the user to set `AIOPS_INFRA_ROOT` or clone the repo to `~/.local/share/aiops-infra`.

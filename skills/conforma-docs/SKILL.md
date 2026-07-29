@@ -94,8 +94,8 @@ Example triggers:
 For general queries, run the search script:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-docs/scripts/search_docs.py" --query "hermetic build"
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-docs/scripts/search_docs.py" --query "rpm signing key" --format json
+~/.conforma/bin/conforma_run.sh skills/conforma-docs/scripts/search_docs.py --query "hermetic build"
+~/.conforma/bin/conforma_run.sh skills/conforma-docs/scripts/search_docs.py --query "rpm signing key" --format json
 ```
 
 The script auto-discovers and indexes content from all `skills/conforma*/` directories:

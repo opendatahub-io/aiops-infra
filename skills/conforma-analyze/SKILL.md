@@ -52,7 +52,7 @@ When presenting violation data — whether standalone or when handing off to the
 **Always run the unified prerequisite check first**:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix
+~/.conforma/bin/conforma_run.sh scripts/verify_conforma_prerequisites.py --fix
 ```
 
 This single command verifies:
@@ -69,7 +69,7 @@ This single command verifies:
 **Component-maturity catalog** (required for Jira Component enrichment): The parse step enriches every component with its owning Jira Component from the component-maturity catalog. This requires VPN and GitLab auth. The parse script will clone/refresh the catalog automatically and fail hard if the catalog is unreachable:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" ensure-repo
+~/.conforma/bin/conforma_run.sh scripts/component_catalog_ops.py ensure-repo
 ```
 
 ## Remote Data Access Policy

@@ -40,7 +40,7 @@ When the user asks about Conforma exception types (e.g. "what are the conforma e
 ### Standalone mode (user-provided details)
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_exception.py \
   --rhoai-version rhoai-3.3 \
   --rule hermetic_task.hermetic \
   --components odh-mlflow-v3-3,odh-another-v3-3 \
@@ -52,7 +52,7 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 ### With existing Jira tickets
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_exception.py \
   --rhoai-version rhoai-3.3 \
   --rule hermetic_task.hermetic \
   --components odh-mlflow-v3-3 \
@@ -67,7 +67,7 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 ### Self-service (auto-detected from rule)
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_exception.py \
   --rhoai-version rhoai-3.4 \
   --rule schedule.weekday_restriction \
   --components rhoai-fbc-fragment-v3-4 \

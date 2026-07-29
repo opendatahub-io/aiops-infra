@@ -24,7 +24,7 @@ If not authenticated, follow the **gitlab-auth** skill.
 2. **Clone the catalog repo** (one-time, updates via `git pull`):
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" ensure-repo
+~/.conforma/bin/conforma_run.sh scripts/component_catalog_ops.py ensure-repo
 ```
 
 This clones `data-hub/component-maturity` to `~/.conforma/component-maturity/`. On subsequent runs it does `git pull --ff-only` to refresh data.
@@ -37,10 +37,10 @@ Map one or more Konflux component names (with version suffixes like `-v3-5-ea-1`
 
 ```bash
 # Single component
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" resolve --component odh-dashboard-v3-5-ea-1
+~/.conforma/bin/conforma_run.sh scripts/component_catalog_ops.py resolve --component odh-dashboard-v3-5-ea-1
 
 # Multiple components
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" resolve --components odh-dashboard-v3-5-ea-1,odh-vllm-cpu-v3-5-ea-1,rhoai-fbc-fragment-v3-5
+~/.conforma/bin/conforma_run.sh scripts/component_catalog_ops.py resolve --components odh-dashboard-v3-5-ea-1,odh-vllm-cpu-v3-5-ea-1,rhoai-fbc-fragment-v3-5
 ```
 
 Output is a JSON dict mapping each Konflux name to its Jira Component (or `null` if unmapped).
@@ -48,7 +48,7 @@ Output is a JSON dict mapping each Konflux name to its Jira Component (or `null`
 ### List all component-to-Jira mappings
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" list
+~/.conforma/bin/conforma_run.sh scripts/component_catalog_ops.py list
 ```
 
 Groups all mapped image names under their Jira Component.
@@ -95,13 +95,13 @@ Scan all RHOAIENG tickets created by conforma skills and verify/fix their Jira C
 
 ```bash
 # Audit: show what would change
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" audit-jira-components
+~/.conforma/bin/conforma_run.sh scripts/component_catalog_ops.py audit-jira-components
 
 # Fix: update Jira tickets with resolved components
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" audit-jira-components --fix
+~/.conforma/bin/conforma_run.sh scripts/component_catalog_ops.py audit-jira-components --fix
 
 # Custom JQL filter
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/component_catalog_ops.py" audit-jira-components \
+~/.conforma/bin/conforma_run.sh scripts/component_catalog_ops.py audit-jira-components \
   --jql 'project = RHOAIENG AND labels = "conforma-exception-ai-skill" AND component = DevOps'
 ```
 

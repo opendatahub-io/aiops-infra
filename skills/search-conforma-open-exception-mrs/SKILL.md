@@ -12,14 +12,14 @@ Search for open Merge Requests in the konflux-release-data GitLab repository tha
 ## Usage
 
 ```
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_mr_ops.py" search-open-mrs --rule <rule>
+~/.conforma/bin/conforma_run.sh scripts/conforma_mr_ops.py search-open-mrs --rule <rule>
 ```
 
 ## Examples
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_mr_ops.py" search-open-mrs --rule hermetic_task.hermetic
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_mr_ops.py" search-open-mrs --rule "rpm_signature.allowed:9386b48a1a693c5c"
+~/.conforma/bin/conforma_run.sh scripts/conforma_mr_ops.py search-open-mrs --rule hermetic_task.hermetic
+~/.conforma/bin/conforma_run.sh scripts/conforma_mr_ops.py search-open-mrs --rule "rpm_signature.allowed:9386b48a1a693c5c"
 ```
 
 ## Prerequisites

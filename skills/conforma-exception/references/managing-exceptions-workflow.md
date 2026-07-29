@@ -65,11 +65,11 @@ This is a two-skill workflow involving `conforma-exception` (this skill) and the
 Lists exceptions from policy files. No violations data needed.
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/manage_exceptions.py" --find-expired \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/manage_exceptions.py --find-expired \
   --environment prod \
   --clone-dir ~/.conforma/konflux-release-data
 
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/manage_exceptions.py" --find-all \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/manage_exceptions.py --find-all \
   --environment prod \
   --clone-dir ~/.conforma/konflux-release-data
 ```
@@ -91,13 +91,13 @@ Output is structured YAML to stdout listing each exception with metadata:
 Cross-references exceptions against violations data to classify each.
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/manage_exceptions.py" --assess-expired \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/manage_exceptions.py --assess-expired \
   --violations-input "$RUN_DIR/conforma-violations.yaml" \
   --environment prod \
   --clone-dir ~/.conforma/konflux-release-data \
   --output "$RUN_DIR/assessed-exceptions.yaml"
 
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/manage_exceptions.py" --assess-all \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/manage_exceptions.py --assess-all \
   --violations-input "$RUN_DIR/conforma-violations.yaml" \
   --environment prod \
   --clone-dir ~/.conforma/konflux-release-data \
@@ -148,7 +148,7 @@ The agent presents the assessment to the user with:
 For modern exceptions (has `componentNames`) classified as `still_needed`, use the standard creation flow which auto-extends via deduplication:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_exception.py \
   --rule <rule> \
   --rhoai-version <version> \
   --components <components> \
@@ -166,7 +166,7 @@ Steps:
 1. **Remove the old unscoped block**:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_gitlab_mr.py" --remove-expired-exception \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_gitlab_mr.py --remove-expired-exception \
   --rule <rule> \
   --effective-until <current-expired-date> \
   --rhoai-version <version> \
@@ -176,7 +176,7 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 2. **Create new scoped exception(s)** per version with the correct `componentNames`, using the standard flow:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_exception.py \
   --rule <rule> \
   --rhoai-version <version> \
   --components <still-violating-component-1>,<still-violating-component-2> \
@@ -203,7 +203,7 @@ For active exceptions (`narrow`), the same steps apply but the new exception kee
 For exceptions classified as `no_longer_needed`, use the removal flag on `create_gitlab_mr.py`:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_gitlab_mr.py" --remove-expired-exception \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_gitlab_mr.py --remove-expired-exception \
   --rule <rule> \
   --effective-until <current-expired-date> \
   --rhoai-version <version> \
@@ -228,7 +228,7 @@ When the user asks to handle expired exceptions (or analyze all exceptions):
 4. **Generate report and action plan**:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/generate_report.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/generate_report.py \
   --assessed-input "$RUN_DIR/assessed-exceptions.yaml" \
   --output "$RUN_DIR/exceptions-report.md" \
   --action-plan-output "$RUN_DIR/action-plan.json"
@@ -258,7 +258,7 @@ Present the markdown report to the user. The action plan JSON contains a sorted 
       - **`extend_and_modernize` / `modernize_and_narrow`**: Create a single consolidated MR that removes the unscoped block (no componentNames) and adds new per-componentName/per-version entries:
 
       ```bash
-      _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_gitlab_mr.py" \
+      ~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_gitlab_mr.py \
         --modernize-expired-exception \
         --rule <rule> \
         --effective-until <old-expired-date> \
@@ -274,7 +274,7 @@ Present the markdown report to the user. The action plan JSON contains a sorted 
       - **`remove`**: Remove the exception block:
 
       ```bash
-      _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_gitlab_mr.py" \
+      ~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_gitlab_mr.py \
         --remove-expired-exception \
         --rule <rule> \
         --effective-until <old-expired-date> \
@@ -286,7 +286,7 @@ Present the markdown report to the user. The action plan JSON contains a sorted 
       - **`extend`** (componentNames-scoped only): Use the standard creation flow with the new effectiveUntil date:
 
       ```bash
-      _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/create_exception.py" \
+      ~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/create_exception.py \
         --rule <rule> \
         --rhoai-version <version> \
         --components <still-violating-components> \

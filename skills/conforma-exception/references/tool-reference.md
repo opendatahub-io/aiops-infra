@@ -19,7 +19,7 @@ fi
 2. **Run the script** (from the skill directory):
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/list_exceptions.py" --clone-dir ~/.conforma/konflux-release-data
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/list_exceptions.py --clone-dir ~/.conforma/konflux-release-data
 ```
 
 3. **Print the output verbatim** — do NOT modify, reformat, or summarize the Markdown. The script produces a deterministic report with consistent table columns across all sections (Rule, Component / Image, RHOAI Version, Effective Until, Reference). RHOAI versions are derived from the actual data (componentName version suffixes like `-v3-4` → `3.4`, or `all` for imageUrl-scoped / unscoped exceptions) — never from YAML comments. All Jira ticket IDs and policy file names are rendered as clickable Markdown links.
@@ -39,21 +39,21 @@ When the user asks about open/pending conforma exception Merge Requests (e.g. "a
 
 ```bash
 # All open conforma exception Merge Requests:
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/search_open_mrs.py"
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/search_open_mrs.py
 
 # Filter by rule code (prefix or full):
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/search_open_mrs.py" --rule rpm_signature
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/search_open_mrs.py" --rule hermetic_task.hermetic
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/search_open_mrs.py --rule rpm_signature
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/search_open_mrs.py --rule hermetic_task.hermetic
 
 # Filter by RHOAI version:
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/search_open_mrs.py" --version rhoai-3.4
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/search_open_mrs.py --version rhoai-3.4
 
 # Combine filters:
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/search_open_mrs.py" --rule rpm_signature --version 3.4
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/search_open_mrs.py --rule rpm_signature --version 3.4
 
 # Output formats (default: text):
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/search_open_mrs.py" --format markdown
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/search_open_mrs.py" --format json
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/search_open_mrs.py --format markdown
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/search_open_mrs.py --format json
 ```
 
 ### Flags
@@ -109,7 +109,7 @@ When creating PSX/OCPEXCEPT tickets, the agent MUST run `discover_team()` during
 Add explicit watchers:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/add_jira_watchers.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/add_jira_watchers.py \
   --tickets PSX-1038,PSX-1039,PSX-1040 \
   --watchers 'Akshay Ghodake,Jane Doe' \
   --dry-run
@@ -118,7 +118,7 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 Auto-discover team and add them:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/add_jira_watchers.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/add_jira_watchers.py \
   --tickets PSX-1040 \
   --auto-discover \
   --dry-run
@@ -127,7 +127,7 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 Combine both — explicit names plus auto-discovered team:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/add_jira_watchers.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/add_jira_watchers.py \
   --tickets PSX-1040 \
   --watchers 'Akshay Ghodake' \
   --auto-discover
@@ -136,7 +136,7 @@ _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut 
 Mixed projects in a single call are supported — the script routes each ticket to the correct mechanism:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-exception/scripts/add_jira_watchers.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-exception/scripts/add_jira_watchers.py \
   --tickets PSX-1040,RHOAIENG-38414 \
   --watchers 'Akshay Ghodake'
 ```

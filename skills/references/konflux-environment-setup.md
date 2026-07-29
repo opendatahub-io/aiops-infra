@@ -20,7 +20,7 @@ The setup requires only two values. Everything else is auto-discovered from the 
 2. **Verify discovery** (optional — happens automatically on load):
 
    ```bash
-   _R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/konflux_tenant_env_discovery.py" --tenant YOUR_TENANT_NAME --human
+   ~/.conforma/bin/conforma_run.sh scripts/konflux_tenant_env_discovery.py --tenant YOUR_TENANT_NAME --human
    ```
 
 3. **If tenant is on multiple clusters**, add `PREFERRED_KONFLUX_CLUSTER` to `~/.conforma/.env`:
@@ -46,7 +46,7 @@ KONFLUX_CLUSTER_DOMAIN=your-cluster-domain
 To debug discovery failures:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/konflux_tenant_env_discovery.py" --tenant $TENANT --human
+~/.conforma/bin/conforma_run.sh scripts/konflux_tenant_env_discovery.py --tenant $TENANT --human
 ```
 
 ## Flow (Agent Behavior on Validation Failures)

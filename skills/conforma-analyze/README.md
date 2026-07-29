@@ -12,7 +12,7 @@ mkdir -p ~/.conforma && touch ~/.conforma/.env   # fill in tokens
 ~/.conforma/bin/slackdump login          # opens browser for Red Hat SSO (auto-installed on first use)
 
 # 2. Verify all prerequisites pass:
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix
+~/.conforma/bin/conforma_run.sh scripts/verify_conforma_prerequisites.py --fix
 
 # 3. Use the skill via AI assistant:
 #    "what's the conforma status for rhoai-3.4?"

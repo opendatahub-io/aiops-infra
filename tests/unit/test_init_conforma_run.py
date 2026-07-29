@@ -108,3 +108,18 @@ class TestInitConformaRun:
         printed_path = Path(captured.out.strip())
         assert printed_path.is_dir()
         assert (printed_path / "context.yaml").is_file()
+
+    def test_installs_wrapper(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setattr("sys.argv", ["init_conforma_run.py", "rhoai-3.5ea2"])
+        fake_root = tmp_path / "repo"
+        tpl = fake_root / "scripts" / "conforma_run.sh.tpl"
+        tpl.parent.mkdir(parents=True)
+        tpl.write_text("#!/bin/bash\necho wrapper\n")
+
+        with patch.object(init_conforma_run, "REPO_ROOT", fake_root):
+            init_conforma_run.main()
+
+        wrapper = tmp_path / "bin" / "conforma_run.sh"
+        assert wrapper.is_file()
+        assert wrapper.read_text() == tpl.read_text()

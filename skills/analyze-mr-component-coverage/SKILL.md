@@ -12,13 +12,13 @@ Analyze which requested components an open Merge Request already covers for a gi
 ## Usage
 
 ```
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_mr_ops.py" analyze-coverage --mr-iid <iid> --rule <rule> --components <comp1,comp2>
+~/.conforma/bin/conforma_run.sh scripts/conforma_mr_ops.py analyze-coverage --mr-iid <iid> --rule <rule> --components <comp1,comp2>
 ```
 
 ## Examples
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_mr_ops.py" analyze-coverage \
+~/.conforma/bin/conforma_run.sh scripts/conforma_mr_ops.py analyze-coverage \
   --mr-iid 123 \
   --rule hermetic_task.hermetic \
   --components odh-dashboard-v3-4,odh-model-registry-v3-4

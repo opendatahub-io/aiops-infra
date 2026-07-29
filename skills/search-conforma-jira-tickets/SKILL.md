@@ -12,14 +12,14 @@ Batch search for open Jira tickets with the `conforma-violation` label across RH
 ## Usage
 
 ```
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_jira_ops.py" search-tickets --rules <rule1,rule2> [--releases rhoai-3.4,rhoai-3.5-ea.1]
+~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ops.py search-tickets --rules <rule1,rule2> [--releases rhoai-3.4,rhoai-3.5-ea.1]
 ```
 
 ## Examples
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_jira_ops.py" search-tickets --rules hermetic_task.hermetic
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/conforma_jira_ops.py" search-tickets \
+~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ops.py search-tickets --rules hermetic_task.hermetic
+~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ops.py search-tickets \
   --rules "rpm_signature.allowed:9386b48a1a693c5c,hermetic_task.hermetic" \
   --releases rhoai-3.4
 ```

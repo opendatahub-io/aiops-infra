@@ -338,6 +338,28 @@ def set_active(run_dir: Path) -> None:
     link.symlink_to(target)
 
 
+def install_wrapper(repo_root: Path) -> bool:
+    """Install or refresh ``~/.conforma/bin/conforma_run.sh`` from the repo template.
+
+    Returns True if the wrapper was installed/updated, False if already current.
+    """
+    template = repo_root / "scripts" / "conforma_run.sh.tpl"
+    if not template.is_file():
+        return False
+
+    bin_dir = discover_work_dir() / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    target = bin_dir / "conforma_run.sh"
+
+    template_content = template.read_bytes()
+    if target.is_file() and target.read_bytes() == template_content:
+        return False
+
+    target.write_bytes(template_content)
+    target.chmod(0o755)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------

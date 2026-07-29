@@ -22,7 +22,7 @@ This skill is part of the conforma suite in [aiops-infra](https://github.com/ope
 **Always run the unified prerequisite check first**:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --fix
+~/.conforma/bin/conforma_run.sh scripts/verify_conforma_prerequisites.py --fix
 ```
 
 Only the `github` check is required for this skill. Other checks (GitLab, Jira, Slack) are not needed.
@@ -36,8 +36,8 @@ When the user asks about reporter status, tooling health, or workflow status:
 0. **Initialize conforma run**: Pass the user's release text to Step 0:
 
 ```bash
-_R="${AIOPS_INFRA_ROOT:-$(python3 -c 'from _repo_root import REPO_ROOT; print(REPO_ROOT)' 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null)}"
-python3 "$_R/scripts/init_conforma_run.py" "<user_release_text>"
+[ -x ~/.conforma/bin/conforma_run.sh ] || { _R="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo $HOME/.local/share/aiops-infra)}"; mkdir -p ~/.conforma/bin; cp "$_R/scripts/conforma_run.sh.tpl" ~/.conforma/bin/conforma_run.sh; chmod +x ~/.conforma/bin/conforma_run.sh; }
+~/.conforma/bin/conforma_run.sh scripts/init_conforma_run.py "<user_release_text>"
 ```
 
 1. **Prerequisites check**: Run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --format markdown`. Only github auth is required -- other failures can be ignored for this skill.
@@ -45,13 +45,13 @@ python3 "$_R/scripts/init_conforma_run.py" "<user_release_text>"
 2. **Resolve release context**:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/resolve_release_context.py"
+~/.conforma/bin/conforma_run.sh scripts/resolve_release_context.py
 ```
 
 3. **Check tooling health**: The script reads release, environment, and output path from `context.yaml` automatically. Do NOT pass `--release` or `--output`:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-tooling-health/scripts/check_tooling_health.py"
+~/.conforma/bin/conforma_run.sh skills/conforma-tooling-health/scripts/check_tooling_health.py
 ```
 
 4. **Present results**: Parse the JSON output and present the tooling health table.

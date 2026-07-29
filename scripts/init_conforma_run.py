@@ -50,6 +50,7 @@ def main() -> int:
 
     conforma_context_ops.create(run_dir, initial)
     conforma_context_ops.set_active(run_dir)
+    conforma_context_ops.install_wrapper(REPO_ROOT)
 
     print(run_dir)
     return 0

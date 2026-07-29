@@ -39,7 +39,7 @@ When the user asks "can X ship?", "is X ready?", "release readiness for X":
 3. **Run readiness check**: The script reads release, environment, and violations input path from `context.yaml` automatically. Do NOT pass `--release` or `--violations-input`:
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py"
+~/.conforma/bin/conforma_run.sh skills/conforma-release-readiness/scripts/check_readiness.py
 ```
 
 4. **Present the verdict** to the user.
@@ -64,11 +64,11 @@ All examples assume the conforma-analyze workflow has already run (which initial
 **"Can rhoai-3.5 ship?"**
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py"
+~/.conforma/bin/conforma_run.sh skills/conforma-release-readiness/scripts/check_readiness.py
 ```
 
 **"Release readiness for 3.4"**
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-release-readiness/scripts/check_readiness.py"
+~/.conforma/bin/conforma_run.sh skills/conforma-release-readiness/scripts/check_readiness.py
 ```

@@ -30,22 +30,22 @@ See [README.md](../README.md) for shared prerequisites. Tekton mode requires:
 
 ```bash
 # By version shortcode (resolves to newest matching PipelineRun):
-python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5 --output /tmp/conforma-handover.json
+~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5 --output /tmp/conforma-handover.json
 
 # By version shortcode with EA suffix:
-python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5ea.2 --output /tmp/conforma-handover.json
+~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5ea.2 --output /tmp/conforma-handover.json
 
 # By policy type (chart):
-python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5 --type chart --output /tmp/conforma-handover.json
+~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5 --type chart --output /tmp/conforma-handover.json
 
 # FBC policy type:
-python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5ea.1 --type fbc --output /tmp/conforma-handover.json
+~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py 3.5ea.1 --type fbc --output /tmp/conforma-handover.json
 
 # By exact PipelineRun name:
-python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py conforma-registry-rhoai-prod-v3-5-c7tjp --output /tmp/conforma-handover.json
+~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py conforma-registry-rhoai-prod-v3-5-c7tjp --output /tmp/conforma-handover.json
 
 # Version from context.yaml (after resolve_release_context.py):
-python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py --output /tmp/conforma-handover.json
+~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py --output /tmp/conforma-handover.json
 ```
 
 ### Arguments
@@ -114,26 +114,13 @@ The raw EC JSON report is written to `/tmp/` (path recorded in `raw_report_path`
 
 When the user asks to fetch a Conforma report:
 
-**Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
+**Script path convention**: Every command below uses `~/.conforma/bin/conforma_run.sh` to resolve the aiops-infra repo root and dispatch to the target Python script. Do NOT use bare `python3` paths — always use the wrapper.
 
 0. **Resolve aiops-infra root (REQUIRED before any script)**: Run with Bash description: `"Resolve aiops-infra repository root and create run context"`:
 
 ```bash
-_ROOT="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-[ -z "$_ROOT" ] && _ROOT="$HOME/.local/share/aiops-infra"
-[ -f "$_ROOT/pyproject.toml" ] || { echo "ERROR: aiops-infra repo not found at $_ROOT. Set AIOPS_INFRA_ROOT or clone to ~/.local/share/aiops-infra"; exit 1; }
-_RUNDIR="$HOME/.conforma/$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$_RUNDIR"
-cat > "$_RUNDIR/context.yaml" << EOF
-aiops_infra_root: $_ROOT
-run:
-  created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-  run_dir: ${_RUNDIR/#$HOME/\~}
-steps: {}
-EOF
-ln -sfn "$_RUNDIR" "$HOME/.conforma/.conforma-active"
-echo "aiops_infra_root=$_ROOT"
-echo "run_dir=$_RUNDIR"
+[ -x ~/.conforma/bin/conforma_run.sh ] || { _R="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo $HOME/.local/share/aiops-infra)}"; mkdir -p ~/.conforma/bin; cp "$_R/scripts/conforma_run.sh.tpl" ~/.conforma/bin/conforma_run.sh; chmod +x ~/.conforma/bin/conforma_run.sh; }
+~/.conforma/bin/conforma_run.sh scripts/init_conforma_run.py "<describe_the_request>"
 ```
 
    If the output path does not contain a `pyproject.toml`, stop and instruct the user to set `AIOPS_INFRA_ROOT` or clone the repo to `~/.local/share/aiops-infra`.
@@ -142,7 +129,7 @@ echo "run_dir=$_RUNDIR"
 
 2. **Run the fetch script**:
    ```bash
-   python3 skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py <version-or-name> --type <registry|chart|fbc> --output /tmp/conforma-handover.json
+   ~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_conforma_tekton_result.py <version-or-name> --type <registry|chart|fbc> --output /tmp/conforma-handover.json
    ```
 
 3. **Check the handover output**: Read the handover JSON. If `report_fetch.status` is `"completed"`, the raw report is at the path in `report_fetch.raw_report_path`. If `"failed"`, report the error from `report_fetch.error`.

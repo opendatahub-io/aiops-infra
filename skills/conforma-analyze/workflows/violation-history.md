@@ -28,13 +28,13 @@ If the user's phrase does not match any alias in the catalog, first run `analyze
 
 ### Steps
 
-**Script path convention**: Every `python3` command below uses `$_R` to reference the aiops-infra repo root. The `$_R` variable is resolved from `context.yaml` at the start of each command. Do NOT remove or modify the `_R="..."` prefix — it ensures scripts are found regardless of the current working directory.
+**Script path convention**: Every command below uses `~/.conforma/bin/conforma_run.sh` to resolve the aiops-infra repo root and dispatch to the target Python script. Do NOT use bare `python3` paths — always use the wrapper.
 
 0. **Initialize conforma run (REQUIRED before any script)**: Run with Bash description: `"Initialize conforma run context for <extracted_release_text>"`:
 
 ```bash
-_R="${AIOPS_INFRA_ROOT:-$(python3 -c 'from _repo_root import REPO_ROOT; print(REPO_ROOT)' 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null)}"
-python3 "$_R/scripts/init_conforma_run.py" "<extracted_release_text>" --set violation_code "<resolved_code>"
+[ -x ~/.conforma/bin/conforma_run.sh ] || { _R="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo $HOME/.local/share/aiops-infra)}"; mkdir -p ~/.conforma/bin; cp "$_R/scripts/conforma_run.sh.tpl" ~/.conforma/bin/conforma_run.sh; chmod +x ~/.conforma/bin/conforma_run.sh; }
+~/.conforma/bin/conforma_run.sh scripts/init_conforma_run.py "<extracted_release_text>" --set violation_code "<resolved_code>"
 ```
 
    This is the **only step where user input appears on the command line**. The `--set violation_code` stores the resolved violation code in context.yaml for use by Step 3. All subsequent steps use fixed commands.
@@ -46,7 +46,7 @@ python3 "$_R/scripts/init_conforma_run.py" "<extracted_release_text>" --set viol
 3. **Run the history script**: The script reads `--release` (from `application.release` or `user_query`), `--code` (from `violation_code`), and `--environment` (from `environment`) from context.yaml automatically.
 
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" --format text
+~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/violation_history.py --format text
 ```
 
    Use `--format text` when presenting results to the user. Use `--format json` when piping output to another tool or for programmatic consumption.
@@ -67,7 +67,7 @@ Step 0: `python3 "$_R/scripts/init_conforma_run.py" "rhoai-3.5-ea.1" --set viola
 
 Step 3:
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" --format text
+~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/violation_history.py --format text
 ```
 
 **"When did rpm signature violations disappear for rhoai-3.4?"** (with `--until-found` for speed)
@@ -76,7 +76,7 @@ Step 0: `python3 "$_R/scripts/init_conforma_run.py" "rhoai-3.4" --set violation_
 
 Step 3:
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" --until-found --format text
+~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/violation_history.py --until-found --format text
 ```
 
 **From a URL with a specific CSV path:**
@@ -87,7 +87,7 @@ Step 0: `python3 "$_R/scripts/init_conforma_run.py" "rhoai-3.5-ea.1" --set viola
 
 Step 3 (with `--csv-path` override for the non-standard CSV location):
 ```bash
-_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/skills/conforma-analyze/scripts/violation_history.py" \
+~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/violation_history.py \
   --csv-path prod/future/build_type_latest/conforma-violations-report.csv \
   --format text
 ```

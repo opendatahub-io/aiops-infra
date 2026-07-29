@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -386,6 +387,60 @@ class TestSetActive:
         ctx.set_active(new)
         link = tmp_path / ctx.ACTIVE_LINK
         assert link.resolve() == new.resolve()
+
+
+# ---------------------------------------------------------------------------
+# install_wrapper
+# ---------------------------------------------------------------------------
+
+
+class TestInstallWrapper:
+    def test_first_install(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        repo = tmp_path / "repo"
+        tpl = repo / "scripts" / "conforma_run.sh.tpl"
+        tpl.parent.mkdir(parents=True)
+        tpl.write_text("#!/bin/bash\necho wrapper\n")
+
+        result = ctx.install_wrapper(repo)
+        assert result is True
+        target = tmp_path / "bin" / "conforma_run.sh"
+        assert target.is_file()
+        assert target.read_text() == tpl.read_text()
+        assert os.access(target, os.X_OK)
+
+    def test_no_op_when_current(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        repo = tmp_path / "repo"
+        tpl = repo / "scripts" / "conforma_run.sh.tpl"
+        tpl.parent.mkdir(parents=True)
+        tpl.write_text("#!/bin/bash\necho wrapper\n")
+
+        ctx.install_wrapper(repo)
+        result = ctx.install_wrapper(repo)
+        assert result is False
+
+    def test_updates_when_stale(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        repo = tmp_path / "repo"
+        tpl = repo / "scripts" / "conforma_run.sh.tpl"
+        tpl.parent.mkdir(parents=True)
+        tpl.write_text("#!/bin/bash\necho v1\n")
+
+        ctx.install_wrapper(repo)
+
+        tpl.write_text("#!/bin/bash\necho v2\n")
+        result = ctx.install_wrapper(repo)
+        assert result is True
+        target = tmp_path / "bin" / "conforma_run.sh"
+        assert "v2" in target.read_text()
+
+    def test_missing_template_returns_false(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        result = ctx.install_wrapper(repo)
+        assert result is False
 
 
 # ---------------------------------------------------------------------------
