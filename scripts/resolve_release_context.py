@@ -488,8 +488,8 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
             "available_versions": available,
             "links": links,
             "confirmation_display": display,
-            "question_text": f"Proceed with release {release_branch} on cluster {cluster_domain} (tenant: {tenant})?",
-            "question_options": ["Yes", "No, change something"],
+            "question_text": f"Are the above details correct for {release_branch}? If not, select 'No' to fix them.",
+            "question_options": ["Yes, continue", "No, something needs to change"],
         }
 
     if len(matches) > 1:

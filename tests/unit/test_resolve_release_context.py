@@ -342,6 +342,26 @@ class TestResolve:
 # ---------------------------------------------------------------------------
 
 
+class TestQuestionText:
+    def test_question_asks_user_to_confirm_details(self, mock_env):
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            result = mod.resolve("3.4")
+
+        assert "question_text" in result
+        assert "correct" in result["question_text"].lower()
+        assert "rhoai-3.4" in result["question_text"]
+
+    def test_question_options_offer_continue_or_change(self, mock_env):
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            result = mod.resolve("3.4")
+
+        assert "question_options" in result
+        options = result["question_options"]
+        assert len(options) == 2
+        assert any("continue" in o.lower() or "yes" in o.lower() for o in options)
+        assert any("change" in o.lower() or "no" in o.lower() for o in options)
+
+
 class TestConfirmationDisplay:
     def test_resolved_contains_all_fields(self, mock_env):
         with patch.object(mod, "list_version_dirs", return_value=["v3.5-ea.1"]):

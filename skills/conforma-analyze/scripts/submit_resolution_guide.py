@@ -135,10 +135,12 @@ def submit_resolution_guide(
             "branch": release,
             "repo": repo,
             "message": commit_message,
+            "local_guide_file": str(guide_path),
             "committed": False,
             "dry_run": True,
             "question_text": f"Submit {target_path} to GitHub ({repo}, branch {release})?",
             "question_options": ["Yes, submit", "No, skip"],
+            "skip_display": f"Skipping submission. The resolution guide is saved locally at [{guide_path.name}]({guide_path}).",
         }
 
     if not _check_branch_exists(repo, release):

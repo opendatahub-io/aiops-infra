@@ -80,6 +80,27 @@ class TestDryRun:
         assert result["target_path"] == "stage/conforma-resolution-guide.md"
         assert "stage" in result["url"]
 
+    def test_dry_run_includes_local_guide_file(self, sample_guide):
+        result = mod.submit_resolution_guide(
+            guide_file=str(sample_guide),
+            release="rhoai-3.5",
+            environment="prod",
+            dry_run=True,
+        )
+        assert "local_guide_file" in result
+        assert result["local_guide_file"] == str(sample_guide)
+
+    def test_dry_run_includes_skip_display_with_link(self, sample_guide):
+        result = mod.submit_resolution_guide(
+            guide_file=str(sample_guide),
+            release="rhoai-3.5",
+            environment="prod",
+            dry_run=True,
+        )
+        assert "skip_display" in result
+        assert sample_guide.name in result["skip_display"]
+        assert f"]({sample_guide})" in result["skip_display"]
+
 
 class TestFileNotFound:
     def test_missing_guide_file(self, tmp_path):

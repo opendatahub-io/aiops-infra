@@ -309,6 +309,36 @@ class TestProductPagesUrl:
         assert mod.PRODUCT_PAGES_URL == "https://productpages.redhat.com/"
 
 
+class TestSourceLinksAreUrls:
+    """All source links rendered in user-facing output must be proper URLs, not local paths."""
+
+    def test_static_source_link_is_github_url(self):
+        assert "https://github.com/" in mod._STATIC_SOURCE_LINK
+        assert "release_dates.yaml" in mod._STATIC_SOURCE_LINK
+
+    def test_release_data_link_is_github_url(self):
+        assert "https://github.com/" in mod._RELEASE_DATA_LINK
+        assert "rhai-release-data.yaml" in mod._RELEASE_DATA_LINK
+
+    def test_static_source_link_is_markdown_link(self):
+        assert mod._STATIC_SOURCE_LINK.startswith("[")
+        assert "](https://" in mod._STATIC_SOURCE_LINK
+
+    def test_release_data_link_is_markdown_link(self):
+        assert mod._RELEASE_DATA_LINK.startswith("[")
+        assert "](https://" in mod._RELEASE_DATA_LINK
+
+    def test_eos_static_source_contains_url(self):
+        with patch.object(mod, "_get_eos_from_remote", return_value=None):
+            _, source = mod.get_eos_date_with_source("rhoai-3.4")
+        assert "https://" in source
+
+    def test_eos_remote_source_contains_url(self):
+        with patch.object(mod, "_get_eos_from_remote", return_value="2099-01-01"):
+            _, source = mod.get_eos_date_with_source("rhoai-3.4")
+        assert "https://" in source
+
+
 # ---------------------------------------------------------------------------
 # resolve_release_context integration: end_of_support in output
 # ---------------------------------------------------------------------------
@@ -625,7 +655,7 @@ class TestResolveReleaseContextEos:
 
         assert "End of Support (RHOAI 3.4)" in result["confirmation_display"]
         assert "2026-08-12" in result["confirmation_display"]
-        assert "based on [release_dates.yaml]" in result["confirmation_display"]
+        assert "[release_dates.yaml]" in result["confirmation_display"]
         assert "Product Pages" in result["confirmation_display"]
 
     def test_unknown_release_shows_unknown_in_display(self, monkeypatch):

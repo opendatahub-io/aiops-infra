@@ -224,7 +224,7 @@ Still prompt for genuinely ambiguous situations (e.g. multiple candidate release
 
    The script reads guide file path, release, environment, and metadata file from `context.yaml` automatically.
 
-   Use the `question_text` and `question_options` from the dry-run JSON output for AskQuestion verbatim. If the user confirms, run without `--dry-run`:
+   Use the `question_text` and `question_options` from the dry-run JSON output for AskQuestion verbatim. If the user declines, render the `skip_display` field from the dry-run JSON verbatim as markdown (it contains a clickable link to the local guide file). If the user confirms, run without `--dry-run`:
 
 ```bash
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/submit_resolution_guide.py

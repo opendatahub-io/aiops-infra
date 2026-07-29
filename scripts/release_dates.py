@@ -65,7 +65,8 @@ _RELEASE_DATA_URL = (
 )
 _RELEASE_DATA_LINK = f"[{_RELEASE_DATA_FILE}]({_RELEASE_DATA_URL})"
 _STATIC_SOURCE_FILE = "release_dates.yaml"
-_STATIC_SOURCE_LINK = f"[{_STATIC_SOURCE_FILE}](scripts/{_STATIC_SOURCE_FILE})"
+_STATIC_SOURCE_URL = f"https://github.com/opendatahub-io/aiops-infra/blob/main/scripts/{_STATIC_SOURCE_FILE}"
+_STATIC_SOURCE_LINK = f"[{_STATIC_SOURCE_FILE}]({_STATIC_SOURCE_URL})"
 
 
 # ---------------------------------------------------------------------------

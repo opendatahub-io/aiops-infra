@@ -4,38 +4,44 @@ AI-powered automation for RHOAI [Conforma](https://conforma.dev/docs/policy/rele
 
 ## Install
 
-```bash
-git clone https://github.com/opendatahub-io/aiops-infra.git
-cd aiops-infra
-pip install -e .   # or: uv sync
-```
+> **Note:** The conforma skills live on the `skill/conforma` branch. The `main` branch does not include them.
 
 Requires **Python 3.11+**. On first run, the skill's prerequisite check will guide you through configuring secrets and authentication.
 
-### Remote installation (skills installed via `claude skill install`)
+### Quick setup (use the skills, no development)
 
-If you install conforma skills remotely into `~/.claude/` while working in a different project, the Python scripts still need access to the aiops-infra repo:
+Use this if you just want to run the conforma skills and don't plan on contributing to them.
 
 ```bash
-git clone https://github.com/opendatahub-io/aiops-infra.git ~/.local/share/aiops-infra
+# Clone the repo — the Python scripts need a local checkout to run
+git clone -b skill/conforma https://github.com/opendatahub-io/aiops-infra.git ~/.local/share/aiops-infra
 cd ~/.local/share/aiops-infra && pip install -e .
+
+# Register the skills globally in Claude Code
+for skill in ~/.local/share/aiops-infra/skills/*/; do
+  ln -sf "$skill" ~/.claude/skills/"$(basename "$skill")"
+done
 ```
 
-Then set the environment variable so workflows can find the repo:
+That's it — the conforma skills are now available in any project. `conforma_run.sh` auto-detects the repo at `~/.local/share/aiops-infra`.
+
+### Development setup (contribute / fix skills)
+
+If you want to modify the skills or their scripts, see [CONTRIBUTING.md](../../CONTRIBUTING.md) for the full developer setup. In short:
 
 ```bash
-export AIOPS_INFRA_ROOT="$HOME/.local/share/aiops-infra"
+git clone https://github.com/opendatahub-io/aiops-infra.git
+cd aiops-infra
+git checkout skill/conforma
+pip install -e ".[dev]"
+pre-commit install
 ```
 
-Or add it to `~/.conforma/.env` for persistence:
-
-```bash
-echo "AIOPS_INFRA_ROOT=$HOME/.local/share/aiops-infra" >> ~/.conforma/.env
-```
+Skills are auto-discovered from the `skills/` directory when working inside the repo.
 
 ## Usage
 
-Open a Cursor chat and ask a conforma-related question. The `conforma` skill is the single entry point -- it routes your intent to the right sub-skill automatically.
+Open a Claude Code session and ask a conforma-related question. The `conforma` skill is the single entry point -- it routes your intent to the right sub-skill automatically.
 
 **Examples:**
 

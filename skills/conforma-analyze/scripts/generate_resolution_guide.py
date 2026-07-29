@@ -272,7 +272,7 @@ def generate_resolution_guide(
 
     metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, confirmation_display=confirmation_display, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations)
     tooling_health = _render_tooling_health(tooling_health_data) if tooling_health_data else ""
-    key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files)
+    key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files, release=release)
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
     todo = _render_todo(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, upcoming_release_date=upcoming_release_date)
 

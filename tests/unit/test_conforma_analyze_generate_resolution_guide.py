@@ -1767,7 +1767,7 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "expire before the upcoming release date (2026-08-15) and not addressed by any open Merge Request" in content
+        assert "violations with expiring exceptions, no open Merge Request" in content
         assert "| # | Violation | Component | Violations | Effective Until in Existing Exception |" in content
         assert "comp-a" in content
         assert "2026-07-01" in content
@@ -1844,7 +1844,7 @@ class TestUpcomingReleaseDate:
         )
 
         uncovered_pos = content.index("violations without exception or open Merge Request")
-        expiring_pos = content.index("expire before the upcoming release date")
+        expiring_pos = content.index("violations with expiring exceptions, no open Merge Request")
         assert uncovered_pos < expiring_pos
 
     def test_zero_counts_when_exceptions_expire_after_release(
@@ -1868,7 +1868,7 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-06-01",
         )
 
-        assert "**0 violations covered by currently active exceptions that expire before the upcoming release date (2026-06-01) and not addressed by any open Merge Request**" in content
+        assert "### TODO #2 — 0 violations with expiring exceptions, no open Merge Request" in content
 
     def test_no_bullet_when_upcoming_date_empty(
         self, tmp_path, sample_violations_yaml, sample_catalog, _coverage_with_expiring_exception
@@ -1914,7 +1914,7 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "**0 violations covered by currently active exceptions that expire before the upcoming release date (2026-08-15) and not addressed by any open Merge Request**" in content
+        assert "### TODO #2 — 0 violations with expiring exceptions, no open Merge Request" in content
 
     def test_metadata_header_includes_upcoming_release_date_in_fallback(self):
         header = render_metadata_header(
@@ -2003,8 +2003,8 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "**0 violations covered by currently active exceptions that expire before the upcoming release date (2026-08-15) and not addressed by any open Merge Request**" in content
-        assert "**1 violations covered by currently active exceptions that expire before the upcoming release date (2026-08-15) — addressed by open Merge Requests extending past the release date**" in content
+        assert "### TODO #2 — 0 violations with expiring exceptions, no open Merge Request" in content
+        assert "### TODO #4 — 1 violations with expiring exceptions, Merge Request extends past release" in content
         assert "[!19385]" in content
 
     def test_expiring_with_mr_insufficient_expiry(
@@ -2072,7 +2072,7 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "**1 violations covered by currently active exceptions that expire before the upcoming release date (2026-08-15) — open Merge Request exists but its proposed exception also expires before the release date**" in content
+        assert "### TODO #3 — 1 violations with expiring exceptions, Merge Request also expires before release" in content
         assert "| Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |" in content
         assert "2026-07-15" in content
         assert "[!19385]" in content
@@ -2180,9 +2180,9 @@ class TestUpcomingReleaseDate:
         )
 
         uncovered_pos = content.index("violations without exception or open Merge Request")
-        no_mr_pos = content.index("not addressed by any open Merge Request")
-        insuf_pos = content.index("proposed exception also expires before the release date")
-        suf_pos = content.index("extending past the release date")
+        no_mr_pos = content.index("expiring exceptions, no open Merge Request")
+        insuf_pos = content.index("Merge Request also expires before release")
+        suf_pos = content.index("Merge Request extends past release")
         assert uncovered_pos < no_mr_pos < insuf_pos < suf_pos
         assert "comp-no-mr" in content
         assert "comp-insuf-mr" in content
@@ -2232,11 +2232,11 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "**0 violations covered by currently active exceptions that expire before the upcoming release date (2026-08-15) and not addressed by any open Merge Request**" in content
-        assert "**0 violations covered by currently active exceptions that expire before the upcoming release date (2026-08-15) — open Merge Request exists but its proposed exception also expires before the release date**" in content
-        assert "**0 violations covered by currently active exceptions that expire before the upcoming release date (2026-08-15) — addressed by open Merge Requests extending past the release date**" in content
-        assert "**1 violations without exception or open Merge Request**" in content
-        assert "**0 violations addressed** by open Merge Requests (not yet merged)" in content
+        assert "### TODO #2 — 0 violations with expiring exceptions, no open Merge Request" in content
+        assert "### TODO #3 — 0 violations with expiring exceptions, Merge Request also expires before release" in content
+        assert "### TODO #4 — 0 violations with expiring exceptions, Merge Request extends past release" in content
+        assert "1 violations without exception or open Merge Request" in content
+        assert "0 violations addressed by open Merge Requests (not yet merged)" in content
 
 
 class TestViolationLinks:
@@ -2873,7 +2873,7 @@ class TestRenderTodo:
         output = render_todo(coverage, result, by_cr)
         assert "**2 actions** required" in output
 
-    def test_todo_table4_omitted(self):
+    def test_todo_section4_omitted(self):
         mr_suf = _mr(200, "https://example.com/200", ["comp-a"], effective_until="2026-09-01")
         coverage = _make_coverage_data(violations=[
             _covered_violation(
@@ -2885,7 +2885,7 @@ class TestRenderTodo:
         result = _make_analysis_result(total_violations=1)
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_todo(coverage, result, by_cr, upcoming_release_date="2026-08-01")
-        assert "table-4" not in output
+        assert "todo-4" not in output
         assert "Extend exception dates" not in output
 
     def test_todo_links_to_anchors(self):
@@ -2897,8 +2897,8 @@ class TestRenderTodo:
         result = _make_analysis_result(total_violations=2)
         by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
         output = render_todo(coverage, result, by_cr)
-        assert "(#table-1)" in output
-        assert "(#table-2)" in output  # no upcoming_release_date → tables 2-4 skipped, has_mr = table 2
+        assert "(#todo-1)" in output
+        assert "(#todo-2)" in output
 
     def test_todo_links_with_upcoming_release_date(self):
         mr = _mr(100, "https://example.com/100", ["comp-b"])
@@ -2909,8 +2909,8 @@ class TestRenderTodo:
         result = _make_analysis_result(total_violations=2)
         by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
         output = render_todo(coverage, result, by_cr, upcoming_release_date="2026-08-01")
-        assert "(#table-1)" in output
-        assert "(#table-5)" in output  # with upcoming_release_date → tables 2-4 present, has_mr = table 5
+        assert "(#todo-1)" in output
+        assert "(#todo-5)" in output
 
 
 # ---------------------------------------------------------------------------
@@ -2945,7 +2945,7 @@ class TestKeyTakeawaysAnchors:
         result = _make_analysis_result(total_violations=1)
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_key_takeaways(coverage, result, by_cr)
-        assert '<a id="table-1"></a>' in output
+        assert '<a id="todo-1"></a>' in output
 
     def test_table_anchors_with_expiring(self):
         coverage = _make_coverage_data(violations=[
@@ -2960,10 +2960,10 @@ class TestKeyTakeawaysAnchors:
         output = render_key_takeaways(
             coverage, result, by_cr, upcoming_release_date="2026-08-01",
         )
-        assert '<a id="table-1"></a>' in output
-        assert '<a id="table-2"></a>' in output
-        assert '<a id="table-3"></a>' in output
-        assert '<a id="table-4"></a>' in output
+        assert '<a id="todo-1"></a>' in output
+        assert '<a id="todo-2"></a>' in output
+        assert '<a id="todo-3"></a>' in output
+        assert '<a id="todo-4"></a>' in output
 
     def test_table5_anchor_present(self):
         mr = _mr(100, "https://example.com/100", ["comp-a"])
@@ -2973,10 +2973,7 @@ class TestKeyTakeawaysAnchors:
         result = _make_analysis_result(total_violations=1)
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_key_takeaways(coverage, result, by_cr)
-        # Table 1 (empty) + Table 5 (with MR) — table numbering depends on
-        # whether upcoming_release_date is set; without it, tables 2-4 are
-        # skipped, so has_mr table is table 2
-        assert '<a id="table-2"></a>' in output
+        assert '<a id="todo-2"></a>' in output
 
     def test_warnings_anchor(self):
         coverage = _make_coverage_data(violations=[
@@ -3009,6 +3006,110 @@ class TestKeyTakeawaysAnchors:
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
             output = render_key_takeaways(coverage, result, by_cr)
         assert '<a id="expiring-exceptions"></a>' in output
+
+
+class TestTodoHelpText:
+    """Each TODO section includes a help text paragraph below the header."""
+
+    def test_todo1_help_text(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert "Try to resolve the issue in code first" in output
+        assert "create a policy exception only if a code fix" in output
+
+    def test_todo2_help_text_includes_version(self):
+        coverage = _make_coverage_data(violations=[
+            _covered_violation(
+                "rule-a", ["comp-a"],
+                expiry_details=[{"component": "comp-a", "effective_until": "2026-07-10"}],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-08-15",
+            release="rhoai-3.5",
+        )
+        assert "expire before the planned release date" in output
+        assert "extend the exception past the release date" in output
+
+    def test_todo3_help_text(self):
+        mr = _mr(100, "https://example.com/100", ["comp-a"], effective_until="2026-07-20")
+        coverage = _make_coverage_data(violations=[
+            _covered_violation(
+                "rule-a", ["comp-a"],
+                expiry_details=[{"component": "comp-a", "effective_until": "2026-07-10"}],
+                open_mrs=[mr],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr, upcoming_release_date="2026-08-15",
+        )
+        assert "proposed effective-until dates also expire before the release" in output
+
+    def test_todo4_help_text(self):
+        mr = _mr(200, "https://example.com/200", ["comp-a"], effective_until="2026-12-31")
+        coverage = _make_coverage_data(violations=[
+            _covered_violation(
+                "rule-a", ["comp-a"],
+                expiry_details=[{"component": "comp-a", "effective_until": "2026-07-10"}],
+                open_mrs=[mr],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr, upcoming_release_date="2026-08-15",
+        )
+        assert "Track and ensure they get merged before the release" in output
+
+    def test_todo5_help_text(self):
+        mr = _mr(100, "https://example.com/100", ["comp-a"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert "Track and ensure they get merged" in output
+        assert "Click each violation for details" in output
+
+
+class TestHorizontalRuleSeparators:
+    """Sections are separated by horizontal rules, not &nbsp; spacers."""
+
+    def test_horizontal_rules_present(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert "\n---\n" in output
+
+    def test_no_nbsp_separators(self):
+        mr = _mr(100, "https://example.com/100", ["comp-a"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
+            _covered_violation(
+                "rule-c", ["comp-c"],
+                expiry_details=[{"component": "comp-c", "effective_until": "2026-07-10"}],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=3)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1, ("rule-c", "comp-c"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr, upcoming_release_date="2026-08-15",
+        )
+        assert "&nbsp;" not in output
 
 
 # ---------------------------------------------------------------------------

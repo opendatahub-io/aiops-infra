@@ -390,28 +390,28 @@ def render_todo(
     no_mr_count = sum(e["violation_count"] for e in buckets["no_mr_entries"])
     if no_mr_count:
         rows.append((
-            f"[**Fix or add exceptions**](#table-{tm['no_mr']}) — no coverage or open MR",
+            f"[**Fix or add exceptions**](#todo-{tm['no_mr']}) — no coverage or open MR",
             no_mr_count,
         ))
 
     expiring_no_mr_count = sum(e["violation_count"] for e in buckets["expiring_no_mr"])
     if expiring_no_mr_count:
         rows.append((
-            f"[**Create MRs**](#table-{tm['expiring_no_mr']}) — exceptions expiring before release, no MR",
+            f"[**Create MRs**](#todo-{tm['expiring_no_mr']}) — exceptions expiring before release, no MR",
             expiring_no_mr_count,
         ))
 
     expiring_insuf_count = sum(e["violation_count"] for e in buckets["expiring_mr_insufficient"])
     if expiring_insuf_count:
         rows.append((
-            f"[**Extend exception dates**](#table-{tm['expiring_mr_insufficient']}) — MR exception expires before release",
+            f"[**Extend exception dates**](#todo-{tm['expiring_mr_insufficient']}) — MR exception expires before release",
             expiring_insuf_count,
         ))
 
     has_mr_count = sum(e["violation_count"] for e in buckets["has_mr_entries"])
     if has_mr_count:
         rows.append((
-            f"[**Track and merge**](#table-{tm['has_mr']}) open MRs",
+            f"[**Track and merge**](#todo-{tm['has_mr']}) open MRs",
             has_mr_count,
         ))
 
@@ -471,6 +471,7 @@ def render_key_takeaways(
     violations_yaml_data: dict | None = None,
     upcoming_release_date: str = "",
     policy_files: list[dict[str, str]] | None = None,
+    release: str = "",
 ) -> str:
     """Render the violations breakdown — exact violation counts, no approximation.
 
@@ -493,6 +494,8 @@ def render_key_takeaways(
     expiring_mr_sufficient = buckets["expiring_mr_sufficient"]
     expiring_soon = buckets["expiring_soon"]
 
+    version_label = release_dates.format_version_label(release) if release else "the upcoming release"
+
     lines = ["## Violations Breakdown", ""]
 
     if tooling_health_data:
@@ -502,7 +505,7 @@ def render_key_takeaways(
         unhealthy_tools = [t for t in tooling_health_data.get("tools", []) if t.get("health", {}).get("status") in ("unhealthy", "error")]
         if unhealthy_tools:
             names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)
-            lines.append(f"- **⚠ WARNING: The violation data in this report may be stale because the {names} workflow is failing.**")
+            lines.append(f"- **WARNING: The violation data in this report may be stale because the {names} workflow is failing.**")
 
     detail_lookup, detail_labels = build_semantic_detail_lookup(violations_yaml_data) if violations_yaml_data else ({}, {})
 
@@ -520,14 +523,20 @@ def render_key_takeaways(
         label = detail_labels.get(base_rule, "items")
         return f"{rule_link} ({', '.join(details[:10])} ... +{len(details) - 10} more {label}s)"
 
-    table_num = 0
+    todo_num = 0
 
-    # Table 1: Violations with no exception and no open Merge Request (highest risk)
-    table_num += 1
-    lines.append(f'<a id="table-{table_num}"></a>')
+    # TODO #1: Violations with no exception and no open Merge Request (highest risk)
+    todo_num += 1
+    lines.append(f'<a id="todo-{todo_num}"></a>')
     lines.append("")
     lines.append(
-        f"- **Table {table_num}.** — **{no_mr_violation_count:,} violations without exception or open Merge Request**:"
+        f"### TODO #{todo_num} — {no_mr_violation_count:,} violations without exception or open Merge Request"
+    )
+    lines.append("")
+    lines.append(
+        "Review each violation — click the violation code to see fix steps and next actions. "
+        "Try to resolve the issue in code first; create a policy exception only if a code fix "
+        "isn't feasible within the release timeline."
     )
     lines.append("")
     lines.append("| # | Violation | Component | Violations |")
@@ -539,19 +548,24 @@ def render_key_takeaways(
     else:
         lines.append("| | No violations | | |")
     lines.append("")
-    lines.append("&nbsp;")
+    lines.append("---")
 
-    # Tables 2-4: Exceptions expiring before the upcoming release date
+    # TODOs 2-4: Exceptions expiring before the upcoming release date
     if upcoming_release_date:
-        # Table 2: Expiring exceptions with no open Merge Request
+        # TODO #2: Expiring exceptions with no open Merge Request
         expiring_no_mr_count = sum(e["violation_count"] for e in expiring_no_mr)
-        table_num += 1
-        lines.append(f'<a id="table-{table_num}"></a>')
+        todo_num += 1
+        lines.append(f'<a id="todo-{todo_num}"></a>')
         lines.append("")
         lines.append(
-            f"- **Table {table_num}.** — **{expiring_no_mr_count:,} violations covered by currently active exceptions "
-            f"that expire before the upcoming release date ({upcoming_release_date}) "
-            f"and not addressed by any open Merge Request**:"
+            f"### TODO #{todo_num} — {expiring_no_mr_count:,} violations with expiring exceptions, no open Merge Request"
+        )
+        lines.append("")
+        lines.append(
+            f"The exceptions below will expire before the planned release date for "
+            f"{version_label} on {upcoming_release_date}. "
+            f"Click each violation for details — try to resolve the underlying issue in code, "
+            f"or create a Merge Request to extend the exception past the release date."
         )
         lines.append("")
         lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception |")
@@ -566,17 +580,22 @@ def render_key_takeaways(
         else:
             lines.append("| | No violations | | | |")
         lines.append("")
-        lines.append("&nbsp;")
+        lines.append("---")
 
-        # Table 3: Expiring exceptions with MR but MR expiry also before release
+        # TODO #3: Expiring exceptions with MR but MR expiry also before release
         expiring_mr_insuf_count = sum(e["violation_count"] for e in expiring_mr_insufficient)
-        table_num += 1
-        lines.append(f'<a id="table-{table_num}"></a>')
+        todo_num += 1
+        lines.append(f'<a id="todo-{todo_num}"></a>')
         lines.append("")
         lines.append(
-            f"- **Table {table_num}.** — **{expiring_mr_insuf_count:,} violations covered by currently active exceptions "
-            f"that expire before the upcoming release date ({upcoming_release_date}) "
-            f"— open Merge Request exists but its proposed exception also expires before the release date**:"
+            f"### TODO #{todo_num} — {expiring_mr_insuf_count:,} violations with expiring exceptions, "
+            f"Merge Request also expires before release"
+        )
+        lines.append("")
+        lines.append(
+            f"Open Merge Requests exist for these violations but their proposed effective-until dates "
+            f"also expire before the release. Review and update the Merge Request to extend past "
+            f"{upcoming_release_date}, or resolve the violation in code. Click each for details."
         )
         lines.append("")
         lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
@@ -593,17 +612,21 @@ def render_key_takeaways(
         else:
             lines.append("| | No violations | | | | | |")
         lines.append("")
-        lines.append("&nbsp;")
+        lines.append("---")
 
-        # Table 4: Expiring exceptions with MR extending past release (lower risk)
+        # TODO #4: Expiring exceptions with MR extending past release (lower risk)
         expiring_mr_suf_count = sum(e["violation_count"] for e in expiring_mr_sufficient)
-        table_num += 1
-        lines.append(f'<a id="table-{table_num}"></a>')
+        todo_num += 1
+        lines.append(f'<a id="todo-{todo_num}"></a>')
         lines.append("")
         lines.append(
-            f"- **Table {table_num}.** — **{expiring_mr_suf_count:,} violations covered by currently active exceptions "
-            f"that expire before the upcoming release date ({upcoming_release_date}) "
-            f"— addressed by open Merge Requests extending past the release date**:"
+            f"### TODO #{todo_num} — {expiring_mr_suf_count:,} violations with expiring exceptions, "
+            f"Merge Request extends past release"
+        )
+        lines.append("")
+        lines.append(
+            "Open Merge Requests already extend these exceptions past the release date. "
+            "Track and ensure they get merged before the release."
         )
         lines.append("")
         lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
@@ -620,14 +643,19 @@ def render_key_takeaways(
         else:
             lines.append("| | No violations | | | | | |")
         lines.append("")
-        lines.append("&nbsp;")
+        lines.append("---")
 
-    # Table 5: Violations with no exception but having an open Merge Request
-    table_num += 1
-    lines.append(f'<a id="table-{table_num}"></a>')
+    # TODO #5: Violations with no exception but having an open Merge Request
+    todo_num += 1
+    lines.append(f'<a id="todo-{todo_num}"></a>')
     lines.append("")
     lines.append(
-        f"- **Table {table_num}.** — **{has_mr_violation_count:,} violations addressed** by open Merge Requests (not yet merged):"
+        f"### TODO #{todo_num} — {has_mr_violation_count:,} violations addressed by open Merge Requests (not yet merged)"
+    )
+    lines.append("")
+    lines.append(
+        "Open Merge Requests address the following violations. "
+        "Track and ensure they get merged. Click each violation for details."
     )
     lines.append("")
     lines.append("| # | Violation | Component | Violations | Merge Request |")
@@ -640,7 +668,7 @@ def render_key_takeaways(
     else:
         lines.append("| | No violations | | | |")
     lines.append("")
-    lines.append("&nbsp;")
+    lines.append("---")
 
     # Coverage summary
     coverage_line = f"- **{covered_violations:,} of {total_violations:,} violations ({coverage_pct:.1f}%) covered** by exceptions"
