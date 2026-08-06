@@ -448,6 +448,50 @@ class TestInstallWrapper:
 # ---------------------------------------------------------------------------
 
 
+class TestValidateCsvConsistency:
+    def test_passes_when_csv_files_match_release(self, tmp_path):
+        run_dir = tmp_path / "run1"
+        ctx.create(run_dir, {
+            "application": {"release": "rhoai-3.5"},
+            "steps": {"fetch": {"csv_files": ["rhoai-3.5.csv"]}},
+        })
+        ctx.validate_csv_consistency(run_dir)
+
+    def test_raises_on_stale_csv_files(self, tmp_path):
+        run_dir = tmp_path / "run1"
+        ctx.create(run_dir, {
+            "application": {"release": "rhoai-3.5"},
+            "steps": {"fetch": {"csv_files": ["rhoai-3.5-ea.1.csv"]}},
+        })
+        with pytest.raises(ValueError, match="Stale csv_files.*rhoai-3.5-ea.1.csv.*rhoai-3.5"):
+            ctx.validate_csv_consistency(run_dir)
+
+    def test_passes_with_warnings_csv(self, tmp_path):
+        run_dir = tmp_path / "run1"
+        ctx.create(run_dir, {
+            "application": {"release": "rhoai-3.5"},
+            "steps": {"fetch": {"csv_files": ["rhoai-3.5.csv", "rhoai-3.5-warnings.csv"]}},
+        })
+        ctx.validate_csv_consistency(run_dir)
+
+    def test_no_op_when_release_missing(self, tmp_path):
+        run_dir = tmp_path / "run1"
+        ctx.create(run_dir, {
+            "steps": {"fetch": {"csv_files": ["anything.csv"]}},
+        })
+        ctx.validate_csv_consistency(run_dir)
+
+    def test_no_op_when_csv_files_missing(self, tmp_path):
+        run_dir = tmp_path / "run1"
+        ctx.create(run_dir, {
+            "application": {"release": "rhoai-3.5"},
+        })
+        ctx.validate_csv_consistency(run_dir)
+
+    def test_no_op_when_context_file_missing(self, tmp_path):
+        ctx.validate_csv_consistency(tmp_path / "nonexistent")
+
+
 class TestCLI:
     def _run_cli(self, *args):
         result = subprocess.run(

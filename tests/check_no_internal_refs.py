@@ -41,7 +41,6 @@ EXCLUDE_PATHS: set[str] = {
     ".git",
     ".venv",
     "tests/check_no_internal_refs.py",
-    "tests/unit/test_no_internal_refs.py",
     ".claude/skills",
     "docs",
 }

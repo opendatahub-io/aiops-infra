@@ -243,7 +243,7 @@ def _format_resolved(
     import release_dates
     from conforma_constants import build_report_url
 
-    eos_text = end_of_support if end_of_support else "Unknown (not in release_dates.yaml)"
+    eos_text = end_of_support if end_of_support else "Unknown (not in rhai-release-data.yaml)"
     version_label = release_dates.format_version_label(release)
     product_pages_url = release_dates.PRODUCT_PAGES_URL
     source_csv_url = build_report_url(release, environment)

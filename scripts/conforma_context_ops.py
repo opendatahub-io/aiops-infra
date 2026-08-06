@@ -201,6 +201,37 @@ def create(run_dir: Path, initial: dict | None = None) -> dict:
     return data
 
 
+def validate_csv_consistency(run_dir: Path) -> None:
+    """Detect stale ``csv_files`` that don't match ``application.release``.
+
+    When a run directory is reused across resolve cycles the fetch step
+    may still reference CSV filenames from a previous release mapping
+    (e.g. ``rhoai-3.5-ea.1.csv`` when the release is now ``rhoai-3.5``).
+    Catch this early instead of letting downstream scripts hit
+    FileNotFoundError on a phantom file.
+
+    Call this from any script that consumes ``steps.fetch.csv_files``
+    before constructing file paths.
+    """
+    path = _context_path(run_dir)
+    if not path.is_file():
+        return
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    release = data.get("application", {}).get("release")
+    csv_files = data.get("steps", {}).get("fetch", {}).get("csv_files")
+    if not release or not csv_files:
+        return
+    for name in csv_files:
+        base = name.removesuffix(".csv").removesuffix("-warnings")
+        if base != release:
+            raise ValueError(
+                f"Stale csv_files in {path}: "
+                f"'{name}' does not match application.release '{release}'. "
+                f"Re-run the fetch step (step 4) to refresh."
+            )
+
+
 def load(run_dir: Path) -> dict:
     """Load and return the run context, with ``~`` expanded in path fields."""
     path = _context_path(run_dir)

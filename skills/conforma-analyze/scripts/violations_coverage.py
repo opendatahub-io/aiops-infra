@@ -970,6 +970,7 @@ def main() -> int:
 
     csv_path = args.csv
     if csv_path is None and context and run_dir:
+        conforma_context_ops.validate_csv_consistency(run_dir)
         csv_files = conforma_context_ops.get(run_dir, "steps.fetch.csv_files", None)
         if csv_files:
             csv_path = str(Path(run_dir) / csv_files[0])

@@ -57,7 +57,6 @@ from guide_renderers import render_warnings_section as _render_warnings_section 
 from guide_renderers import render_statistical_breakdown as _render_statistical_breakdown  # noqa: F401 — backward compat re-export
 from guide_renderers import render_tooling_health as _render_tooling_health  # noqa: F401 — backward compat re-export
 from guide_renderers import write_todo_preview as _write_todo_preview  # noqa: F401 — backward compat re-export
-from guide_renderers import render_todo as _render_todo  # noqa: F401 — backward compat re-export
 
 
 def _load_catalog(catalog_path: Path) -> dict:
@@ -274,10 +273,8 @@ def generate_resolution_guide(
     tooling_health = _render_tooling_health(tooling_health_data) if tooling_health_data else ""
     key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files, release=release)
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
-    todo = _render_todo(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, upcoming_release_date=upcoming_release_date)
 
     sections = [
-        todo,
         metadata_header,
         key_takeaways,
         summary_metrics,
@@ -293,7 +290,6 @@ def generate_resolution_guide(
     if todo_file:
         _write_todo_preview(
             todo_file,
-            todo=todo,
             metadata_header=metadata_header,
             key_takeaways=key_takeaways,
         )

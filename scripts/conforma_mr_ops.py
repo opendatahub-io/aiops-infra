@@ -467,33 +467,115 @@ class _MRCache:
 _mr_cache = _MRCache()
 
 
+def _mr_touches_policy_files(iid: int) -> list[dict] | None:
+    """Fetch an MR's diff and return changes if it touches policy/exception files.
+
+    Uses ``mr.changes()`` (which includes file paths and diff content) and
+    checks whether any changed file matches :data:`EXCEPTION_PATH_MARKERS`.
+    Returns the full changes list if at least one file matches, ``None``
+    otherwise.  On error returns ``None``.
+    """
+    try:
+        project = _get_project()
+        mr = project.mergerequests.get(iid)
+        changes_data = mr.changes()
+        changes = changes_data.get("changes", [])
+        for change in changes:
+            path = change.get("new_path", "")
+            if any(marker in path for marker in EXCEPTION_PATH_MARKERS):
+                return changes
+        return None
+    except Exception:
+        return None
+
+
+def _discover_mrs_by_diff() -> dict[int, dict]:
+    """Discover open MRs that modify policy/exception files by scanning diffs.
+
+    Lists all open MRs in the project, then fetches each MR's changed files
+    in parallel.  Returns a mapping of ``iid -> mr_info`` for MRs whose diff
+    touches at least one file matching :data:`EXCEPTION_PATH_MARKERS`.
+
+    This is the primary discovery mechanism — it finds MRs regardless of
+    their title or description content.
+    """
+    try:
+        project = _get_project()
+        all_mrs = project.mergerequests.list(
+            state="opened",
+            per_page=100,
+            order_by="updated_at",
+            get_all=True,
+        )
+    except Exception:
+        return {}
+
+    mr_info_by_iid: dict[int, dict] = {}
+    for mr in all_mrs:
+        author_val = getattr(mr, "author", None)
+        author_name = ""
+        if isinstance(author_val, dict):
+            author_name = author_val.get("username", "")
+        elif author_val and hasattr(author_val, "username"):
+            author_name = author_val.username
+        mr_info_by_iid[mr.iid] = {
+            "iid": mr.iid,
+            "title": mr.title,
+            "url": mr.web_url,
+            "author": author_name,
+            "created_at": getattr(mr, "created_at", ""),
+            "description": mr.description or "",
+        }
+
+    discovered: dict[int, dict] = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_mr_touches_policy_files, iid): iid for iid in mr_info_by_iid}
+        for future in as_completed(futures):
+            iid = futures[future]
+            try:
+                changes = future.result()
+            except Exception:
+                changes = None
+            if changes is not None:
+                discovered[iid] = mr_info_by_iid[iid]
+                _mr_cache.store(iid, changes)
+
+    return discovered
+
+
 def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
-    """Search for open Merge Requests across all *rules* and prefetch their diffs.
+    """Discover open MRs covering *rules* via diff scanning + text search.
 
     Returns a mapping of ``rule -> list[mr_info]``.  Each ``mr_info`` dict
     carries two extra keys added here:
 
     * ``found_by_text_search`` *(bool)* — the MR was returned by the GitLab
-      text search for this specific rule.
+      text search for this specific rule (legacy; ``False`` for diff-discovered).
     * ``diff_rules`` *(list[str])* — every rule code found in the MR's diff
       (policy/exception files only).  Populated after the diff prefetch.
 
-    **Diff-based cross-indexing**: after prefetching all diffs, each unique
-    MR is scanned once with :func:`_extract_all_rules_from_changes`.  If the
-    diff contains a rule from *rules* that the text search did not return the
-    MR for, the MR is added to that rule's list with
-    ``found_by_text_search=False``.  This ensures MRs are discovered by what
-    they *actually change* in code, not just by what their title/description
-    mentions.
+    **Primary discovery**: lists ALL open MRs and checks which ones modify
+    policy/exception files (paths matching :data:`EXCEPTION_PATH_MARKERS`).
+    This catches MRs regardless of title or description content.
 
-    Rule text-searches run in parallel; diff extraction is sequential after
-    all diffs are fetched.
+    **Supplementary text search**: also runs the title/description search per
+    rule to catch remedy MRs (component-side fixes) that don't touch policy
+    files but mention the rule in their title.
+
+    After both discovery passes, all MR diffs are scanned to extract rule
+    codes and cross-index MRs to the rules they actually cover.
     """
     rule_to_mrs: dict[str, list[dict]] = {}
     all_iids: set[int] = set()
-    # iid -> base mr_info (shared across rules)
     iid_to_info: dict[int, dict] = {}
 
+    # --- Phase 1: Diff-based discovery (primary) ---
+    diff_discovered = _discover_mrs_by_diff()
+    for iid, info in diff_discovered.items():
+        all_iids.add(iid)
+        iid_to_info.setdefault(iid, info)
+
+    # --- Phase 2: Text search (supplementary, catches remedy MRs) ---
     with ThreadPoolExecutor(max_workers=min(len(rules), 4)) as pool:
         futures = {pool.submit(search_open_exception_mrs, r): r for r in rules}
         for future in as_completed(futures):
@@ -507,11 +589,12 @@ def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
                 all_iids.add(mr["iid"])
                 iid_to_info.setdefault(mr["iid"], mr)
 
-    _mr_cache.prefetch(sorted(all_iids))
+    # Prefetch diffs for text-search MRs not already cached by diff discovery
+    uncached = sorted(iid for iid in all_iids if not _mr_cache.has(iid))
+    if uncached:
+        _mr_cache.prefetch(uncached)
 
-    # --- Diff-based cross-indexing ---
-    # For each unique MR, extract all rule codes from the diff, then attach
-    # the MR to any rule it covers that the text search missed.
+    # --- Phase 3: Cross-index all MRs by their actual diff content ---
     rules_set = set(rules)
     for iid in sorted(all_iids):
         changes = _mr_cache.get_changes(iid)
@@ -523,15 +606,11 @@ def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
                 if entry["iid"] == iid:
                     entry["diff_rules"] = diff_rules
 
-        # Add to rules found in the diff but not reached by text search
         existing_iids_per_rule = {
             r: {e["iid"] for e in rule_to_mrs.get(r, [])}
             for r in rules_set
         }
         for diff_rule in diff_rules:
-            # Match on base code (strip suffix after ':') so that
-            # "rpm_signature.allowed:9386b48a" is treated as covering
-            # the base rule "rpm_signature.allowed" when that is requested.
             base = diff_rule.split(":")[0]
             for requested_rule in rules_set:
                 requested_base = requested_rule.split(":")[0]
@@ -541,8 +620,8 @@ def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
                         rule_to_mrs.setdefault(requested_rule, []).append(
                             dict(base_info, found_by_text_search=False, diff_rules=diff_rules)
                         )
+                        existing_iids_per_rule[requested_rule].add(iid)
 
-    # Ensure every rule key exists (even if no MRs found)
     for rule in rules:
         rule_to_mrs.setdefault(rule, [])
 

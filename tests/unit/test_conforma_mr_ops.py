@@ -726,6 +726,165 @@ class TestAnalyzeMrRulesInDiff:
 # ---------------------------------------------------------------------------
 
 
+class TestMrTouchesPolicyFiles:
+    """Tests for _mr_touches_policy_files."""
+
+    def setup_method(self):
+        mod._mr_cache._diffs.clear()
+        mod._thread_local.__dict__.clear()
+
+    @patch("conforma_mr_ops._get_project")
+    def test_returns_changes_when_policy_file_touched(self, mock_get_project):
+        changes = [{"new_path": "config/.../EnterpriseContractPolicy/registry.yaml", "diff": "+rule\n"}]
+        mock_mr = MagicMock()
+        mock_mr.changes.return_value = {"changes": changes}
+        mock_get_project.return_value.mergerequests.get.return_value = mock_mr
+
+        result = mod._mr_touches_policy_files(42)
+        assert result == changes
+
+    @patch("conforma_mr_ops._get_project")
+    def test_returns_changes_when_exceptions_file_touched(self, mock_get_project):
+        changes = [{"new_path": "exceptions/registry-rhoai-prod.yaml", "diff": "+rule\n"}]
+        mock_mr = MagicMock()
+        mock_mr.changes.return_value = {"changes": changes}
+        mock_get_project.return_value.mergerequests.get.return_value = mock_mr
+
+        result = mod._mr_touches_policy_files(42)
+        assert result == changes
+
+    @patch("conforma_mr_ops._get_project")
+    def test_returns_none_when_no_policy_files(self, mock_get_project):
+        changes = [{"new_path": "components/dashboard/Dockerfile", "diff": "+FROM base\n"}]
+        mock_mr = MagicMock()
+        mock_mr.changes.return_value = {"changes": changes}
+        mock_get_project.return_value.mergerequests.get.return_value = mock_mr
+
+        result = mod._mr_touches_policy_files(42)
+        assert result is None
+
+    @patch("conforma_mr_ops._get_project")
+    def test_returns_none_on_api_error(self, mock_get_project):
+        mock_get_project.return_value.mergerequests.get.side_effect = Exception("API error")
+        result = mod._mr_touches_policy_files(42)
+        assert result is None
+
+
+class TestDiscoverMrsByDiff:
+    """Tests for _discover_mrs_by_diff."""
+
+    def setup_method(self):
+        mod._mr_cache._diffs.clear()
+        mod._thread_local.__dict__.clear()
+
+    @patch("conforma_mr_ops._mr_touches_policy_files")
+    @patch("conforma_mr_ops._get_project")
+    def test_discovers_mrs_touching_policy_files(self, mock_get_project, mock_touches):
+        mock_mr1 = MagicMock(iid=10, title="policy MR", web_url="https://gl/!10",
+                             description="", created_at="2026-01-01")
+        mock_mr1.author = {"username": "alice"}
+        mock_mr2 = MagicMock(iid=20, title="code MR", web_url="https://gl/!20",
+                             description="", created_at="2026-01-02")
+        mock_mr2.author = {"username": "bob"}
+        mock_get_project.return_value.mergerequests.list.return_value = [mock_mr1, mock_mr2]
+
+        policy_changes = [{"new_path": "EnterpriseContractPolicy/reg.yaml", "diff": "+rule\n"}]
+        mock_touches.side_effect = lambda iid: policy_changes if iid == 10 else None
+
+        result = mod._discover_mrs_by_diff()
+        assert 10 in result
+        assert 20 not in result
+        assert result[10]["title"] == "policy MR"
+        assert mod._mr_cache.has(10)
+
+    @patch("conforma_mr_ops._get_project")
+    def test_returns_empty_on_list_error(self, mock_get_project):
+        mock_get_project.return_value.mergerequests.list.side_effect = Exception("timeout")
+        result = mod._discover_mrs_by_diff()
+        assert result == {}
+
+    @patch("conforma_mr_ops._mr_touches_policy_files")
+    @patch("conforma_mr_ops._get_project")
+    def test_caches_diffs_for_discovered_mrs(self, mock_get_project, mock_touches):
+        mock_mr = MagicMock(iid=30, title="t", web_url="u", description="", created_at="")
+        mock_mr.author = {"username": ""}
+        mock_get_project.return_value.mergerequests.list.return_value = [mock_mr]
+
+        changes = [{"new_path": "exceptions/file.yaml", "diff": "+data\n"}]
+        mock_touches.return_value = changes
+
+        mod._discover_mrs_by_diff()
+        assert mod._mr_cache.has(30)
+        assert mod._mr_cache.get_changes(30) == changes
+
+
+class TestPrefetchOpenMrsDiffDiscovery:
+    """Tests for diff-first discovery integration in prefetch_open_mrs."""
+
+    def setup_method(self):
+        mod._mr_cache._diffs.clear()
+
+    def test_diff_discovered_mr_matched_to_rule_via_cross_index(self):
+        policy_changes = [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
+            "+          - rpm_signature.allowed:fa296b056c5bb456\n"
+        )}]
+        diff_mr_info = {
+            300: {"iid": 300, "title": "sync signing keys", "url": "https://gl/!300",
+                  "author": "alice", "created_at": "", "description": ""},
+        }
+
+        mod._mr_cache.store(300, policy_changes)
+
+        with (
+            patch("conforma_mr_ops._discover_mrs_by_diff", return_value=diff_mr_info),
+            patch("conforma_mr_ops.search_open_exception_mrs", return_value=[]),
+        ):
+            result = mod.prefetch_open_mrs(["rpm_signature.allowed"])
+
+        assert any(m["iid"] == 300 for m in result["rpm_signature.allowed"])
+        entry = next(m for m in result["rpm_signature.allowed"] if m["iid"] == 300)
+        assert entry["found_by_text_search"] is False
+        assert "rpm_signature.allowed:fa296b056c5bb456" in entry["diff_rules"]
+
+    def test_diff_discovery_finds_mr_invisible_to_text_search(self):
+        policy_changes = [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - comp-a\n"
+        )}]
+        diff_mr_info = {
+            301: {"iid": 301, "title": "unrelated title", "url": "https://gl/!301",
+                  "author": "", "created_at": "", "description": ""},
+        }
+
+        mod._mr_cache.store(301, policy_changes)
+
+        with (
+            patch("conforma_mr_ops._discover_mrs_by_diff", return_value=diff_mr_info),
+            patch("conforma_mr_ops.search_open_exception_mrs", return_value=[]),
+        ):
+            result = mod.prefetch_open_mrs(["hermetic_task.hermetic"])
+
+        assert any(m["iid"] == 301 for m in result["hermetic_task.hermetic"])
+
+    def test_no_duplicate_between_diff_discovery_and_text_search(self):
+        policy_changes = [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
+            "+  - value: hermetic_task.hermetic\n"
+        )}]
+        mr_info = {"iid": 302, "title": "hermetic exception", "url": "", "author": "", "created_at": "", "description": ""}
+
+        mod._mr_cache.store(302, policy_changes)
+
+        with (
+            patch("conforma_mr_ops._discover_mrs_by_diff", return_value={302: mr_info}),
+            patch("conforma_mr_ops.search_open_exception_mrs", return_value=[mr_info]),
+        ):
+            result = mod.prefetch_open_mrs(["hermetic_task.hermetic"])
+
+        iids = [m["iid"] for m in result["hermetic_task.hermetic"]]
+        assert iids.count(302) == 1
+
+
 class TestPrefetchOpenMrsCrossIndex:
     """Verify that prefetch_open_mrs adds diff-discovered MRs to the right rules."""
 
@@ -733,9 +892,6 @@ class TestPrefetchOpenMrsCrossIndex:
         mod._mr_cache._diffs.clear()
 
     def test_cross_index_adds_mr_to_rule_not_found_by_text_search(self):
-        # Text search only finds MR 200 for 'hermetic_task.hermetic'.
-        # But MR 200's diff also covers 'prefetch_dependencies.mode_not_permissive'.
-        # After cross-indexing, MR 200 should appear under both rules.
         mod._mr_cache.store(
             200,
             [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
@@ -746,6 +902,7 @@ class TestPrefetchOpenMrsCrossIndex:
         hermetic_mr = {"iid": 200, "title": "hermetic exception", "url": "https://gl/!200", "author": "", "created_at": "", "description": ""}
 
         with (
+            patch("conforma_mr_ops._discover_mrs_by_diff", return_value={}),
             patch("conforma_mr_ops.search_open_exception_mrs") as mock_search,
             patch("conforma_mr_ops._mr_cache.prefetch"),
         ):
@@ -757,9 +914,7 @@ class TestPrefetchOpenMrsCrossIndex:
             mock_search.side_effect = side_effect
             result = mod.prefetch_open_mrs(["hermetic_task.hermetic", "prefetch_dependencies.mode_not_permissive"])
 
-        # hermetic should be present from text search
         assert any(m["iid"] == 200 for m in result["hermetic_task.hermetic"])
-        # prefetch should be cross-indexed from diff
         assert any(m["iid"] == 200 for m in result["prefetch_dependencies.mode_not_permissive"])
 
     def test_cross_indexed_mr_marked_found_by_text_search_false(self):
@@ -773,6 +928,7 @@ class TestPrefetchOpenMrsCrossIndex:
         hermetic_mr = {"iid": 201, "title": "hermetic exception", "url": "https://gl/!201", "author": "", "created_at": "", "description": ""}
 
         with (
+            patch("conforma_mr_ops._discover_mrs_by_diff", return_value={}),
             patch("conforma_mr_ops.search_open_exception_mrs") as mock_search,
             patch("conforma_mr_ops._mr_cache.prefetch"),
         ):
@@ -792,6 +948,7 @@ class TestPrefetchOpenMrsCrossIndex:
         hermetic_mr = {"iid": 202, "title": "hermetic exception", "url": "", "author": "", "created_at": "", "description": ""}
 
         with (
+            patch("conforma_mr_ops._discover_mrs_by_diff", return_value={}),
             patch("conforma_mr_ops.search_open_exception_mrs") as mock_search,
             patch("conforma_mr_ops._mr_cache.prefetch"),
         ):
@@ -802,8 +959,6 @@ class TestPrefetchOpenMrsCrossIndex:
         assert entry["found_by_text_search"] is True
 
     def test_no_duplicate_mr_after_cross_index(self):
-        # MR 203's text search returns it for both rules AND diff also covers both.
-        # Must not appear twice for the same rule.
         mod._mr_cache.store(
             203,
             [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
@@ -814,6 +969,7 @@ class TestPrefetchOpenMrsCrossIndex:
         mr = {"iid": 203, "title": "multi-rule exception", "url": "", "author": "", "created_at": "", "description": ""}
 
         with (
+            patch("conforma_mr_ops._discover_mrs_by_diff", return_value={}),
             patch("conforma_mr_ops.search_open_exception_mrs") as mock_search,
             patch("conforma_mr_ops._mr_cache.prefetch"),
         ):

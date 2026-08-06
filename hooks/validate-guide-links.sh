@@ -31,15 +31,14 @@ if [ ! -t 0 ]; then
     fi
 fi
 
-# --- Find the most recent resolution guide in ~/.conforma/ ---
-GUIDE=""
-for dir in $(ls -dt "$HOME"/.conforma/20* 2>/dev/null); do
-    candidate="$dir/conforma-resolution-guide.md"
-    if [ -f "$candidate" ]; then
-        GUIDE="$candidate"
-        break
-    fi
-done
+# --- Find the resolution guide for the ACTIVE run only ---
+ACTIVE_DIR="$HOME/.conforma/.conforma-active"
+if [ -L "$ACTIVE_DIR" ] && [ -d "$ACTIVE_DIR" ]; then
+    GUIDE="$ACTIVE_DIR/conforma-resolution-guide.md"
+    [ -f "$GUIDE" ] || GUIDE=""
+else
+    GUIDE=""
+fi
 
 if [ -z "$GUIDE" ]; then
     if [ "$PLATFORM" = "cursor" ]; then

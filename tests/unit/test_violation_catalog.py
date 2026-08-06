@@ -5,6 +5,7 @@ Ensures all entries have required fields, valid enums, and consistent references
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,9 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 CATALOG_PATH = REPO_ROOT / "skills" / "references" / "violation-catalog.yaml"
+
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+from check_no_internal_refs import FORBIDDEN_PATTERNS  # noqa: E402
 
 VALID_TYPES = {"conforma_violation", "operational_issue"}
 VALID_RESOLUTION_PATHS = {"code_fix", "operational", "exception_likely", "mixed"}
@@ -152,20 +156,15 @@ class TestNoDuplicateAliases:
 class TestReferenceURLs:
     """Reference URLs must be public — no private repos or internal URLs."""
 
-    _BLOCKED_PATTERNS = [
-        "redhat-internal.slack.com",
-        "gitlab.cee.redhat.com",
-    ]
-
     def test_no_internal_urls_in_fix_steps(self, catalog):
         violations_with_internal = []
         for entry in catalog["violations"]:
             for step in entry.get("fix_steps", []):
                 ref = step.get("reference", "")
-                for pattern in self._BLOCKED_PATTERNS:
-                    if pattern in ref:
+                for pattern, desc in FORBIDDEN_PATTERNS:
+                    if pattern.search(ref):
                         violations_with_internal.append(
-                            f"'{entry['id']}' fix_step ref contains '{pattern}': {ref}"
+                            f"'{entry['id']}' fix_step ref contains [{desc}]: {ref}"
                         )
         assert not violations_with_internal, (
             f"Internal URLs found in fix_steps (this is a public repo): {violations_with_internal}"
@@ -175,10 +174,10 @@ class TestReferenceURLs:
         alerts_with_internal = []
         for entry in catalog.get("known_false_alerts", []):
             ref = entry.get("reference", "")
-            for pattern in self._BLOCKED_PATTERNS:
-                if pattern in ref:
+            for pattern, desc in FORBIDDEN_PATTERNS:
+                if pattern.search(ref):
                     alerts_with_internal.append(
-                        f"'{entry['id']}' reference contains '{pattern}': {ref}"
+                        f"'{entry['id']}' reference contains [{desc}]: {ref}"
                     )
         assert not alerts_with_internal, (
             f"Internal URLs found in known_false_alerts: {alerts_with_internal}"
@@ -188,10 +187,10 @@ class TestReferenceURLs:
         refs_with_internal = []
         for entry in catalog.get("fallback_references", []):
             ref = entry.get("reference", "")
-            for pattern in self._BLOCKED_PATTERNS:
-                if pattern in ref:
+            for pattern, desc in FORBIDDEN_PATTERNS:
+                if pattern.search(ref):
                     refs_with_internal.append(
-                        f"'{entry.get('code_prefix', '?')}' reference contains '{pattern}': {ref}"
+                        f"'{entry.get('code_prefix', '?')}' reference contains [{desc}]: {ref}"
                     )
         assert not refs_with_internal, (
             f"Internal URLs found in fallback_references: {refs_with_internal}"

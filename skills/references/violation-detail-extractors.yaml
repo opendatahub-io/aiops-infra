@@ -77,6 +77,13 @@ rules:
   builtin.image.signature_check:
     detail_label: null
 
+  tasks.unsupported:
+    detail_label: "task name"
+    extraction:
+      field: "message"
+      pattern: "Task \"([^\"]+)\""
+      group: 1
+
   tasks.required_tasks_found:
     detail_label: "missing task"
     extraction:

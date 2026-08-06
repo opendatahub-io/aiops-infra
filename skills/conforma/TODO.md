@@ -63,3 +63,19 @@ the TODO preview does a better job
 22. ~~Remove all "executive summary" terminology — rename to "chat summary" throughout functions, params, CLI flags, context.yaml keys, file names (`executive-summary.md` → `chat-summary.md`), workflow docs, and test classes. Add `RESOLUTION_GUIDE_FILENAME` shared constant for deterministic guide path resolution. Add TODO section as first element of the full resolution guide (submitted to GitHub). Implement canonical-path-first resolution in submit and validate scripts.~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190). Plan: `skills/conforma-analyze/.plans/fix-guide-filename-and-todo-in-full-guide.md`
 
 23. ~~Rename "chat summary" → "TODO preview" to emphasize resolution guide as primary output. Simplify `write_todo_preview()` to contain TODO + metadata + violations breakdown (removed summary metrics, tooling health, detailed documents footer). Rename `conforma-status-and-resolution-guide.md` → `conforma-resolution-guide.md`. Add `TODO_PREVIEW_FILENAME` shared constant. Update all references: functions, params, CLI flags, context.yaml keys, workflow docs, tests.~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190). Plan: `skills/conforma-analyze/.plans/rename-chat-summary-to-todo-preview.md`
+
+24. ~~remove "search GitLab | search Jira" from the resolution guide sections~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190)
+
+25. ~~rephrase 'Review each violation — click the violation code to see fix steps and next actions.', change to '...to see details and next steps'~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190)
+
+26. ~~remove 'Try to resolve the issue in code first; create a policy exception only if a code fix isn't feasible within the release timeline.' from the top of the todo section~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190)
+
+27. ~~Remove coverage bullet ("X of Y violations covered by exceptions") from TODO section — already shown in Summary table. Turn "N warnings becoming violations" into its own TODO #6 section with a table grouped by (code, component), sorted by days remaining.~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190)
+
+28. start using prompts/ directory (subagents) and delegate individual conforma report steps to smaller models to save on tokens
+
+29. ~~remove "Classification: mixed | Owner: component_team | Effort: high | Requires rebuild: yes"~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190)
+
+30. use agent-eval-harness on the conforma skills*
+
+~~31. Split warnings TODO into two sections and add TODO #0 for tooling health: TODO #0 is now a permanent section showing conforma-reporter workflow health (healthy or unhealthy) with workflow link and latest run info. Warnings split into TODO #6 (before release date, blocks release) and TODO #7 (after release date, informational). Both use `upcoming_release_date` from context.yaml.~~ — done. Jira: [RHAIENG-6190](https://redhat.atlassian.net/browse/RHAIENG-6190)

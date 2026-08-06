@@ -16,6 +16,7 @@ import yaml  # noqa: E402
 from parse_violations import build_semantic_detail_lookup  # noqa: E402
 import analyze_csv_report as analysis  # noqa: E402
 from conforma_constants import (  # noqa: E402
+    CONFORMA_REPORTER_ACTIONS_URL,
     CONFORMA_REPORTER_URL,
     VERIFY_NEXT_STEP,
 )
@@ -104,10 +105,18 @@ def render_metadata_header(
         display_lines = display.split("\n")
         while display_lines and (not display_lines[-1].strip() or display_lines[-1].strip().startswith("*Source:")):
             display_lines.pop()
+        header_end = None
+        for i, dl in enumerate(display_lines):
+            if dl.strip().startswith("|---"):
+                header_end = i + 1
+                break
+        if header_end is not None:
+            display_lines.insert(header_end, f"| **Generated** | {now} |")
         lines.append("\n".join(display_lines))
     else:
         lines.append("| Field | Value |")
         lines.append("|-------|-------|")
+        lines.append(f"| **Generated** | {now} |")
         lines.append(f"| **Release branch** | {release} |")
         if end_of_support:
             version_label = release_dates.format_version_label(release)
@@ -158,7 +167,6 @@ def render_metadata_header(
             " — reference only, superseded by conforma-* AI skills |"
         )
 
-    lines.append(f"| **Generated** | {now} |")
     lines.append(f"| **Source CSV** | [{source_path}]({source_url}) |")
     if source_created_at:
         lines.append(f"| **Source CSV generated** | {source_created_at} |")
@@ -184,7 +192,8 @@ def render_metadata_header(
 def _find_covering_mr(mrs: list[dict], component: str) -> dict | None:
     """Find the first MR in *mrs* whose components list includes *component*."""
     for mr in mrs:
-        if component in mr.get("mr_components", []):
+        mr_comps = mr.get("mr_components", [])
+        if "*" in mr_comps or component in mr_comps:
             return mr
     return None
 
@@ -368,99 +377,41 @@ def _compute_violation_buckets(
     }
 
 
-def render_todo(
-    coverage_data: dict,
-    analysis_result: analysis.AnalysisResult,
-    by_component_rule: dict[tuple[str, str], int],
-    tooling_health_data: dict | None = None,
-    upcoming_release_date: str = "",
-) -> str:
-    """Render a compact TODO table for the top of the TODO preview.
 
-    Each row is auto-discovered from the data — only non-zero categories appear.
-    Rows link to anchor ids in the Violations Breakdown section below.
-    """
-    buckets = _compute_violation_buckets(
-        coverage_data, analysis_result, by_component_rule, upcoming_release_date,
-    )
-    tm = buckets["table_map"]
+def _append_tooling_health_detail(lines: list[str], tooling_health_data: dict) -> None:
+    """Append a compact tooling health summary for the TODO #0 healthy case."""
+    tools = tooling_health_data.get("tools", [])
+    for tool in tools:
+        name = tool.get("name", "unknown")
+        health = tool.get("health", {})
+        status = health.get("status", "unknown")
+        in_progress = health.get("in_progress_run")
+        last_success = health.get("last_success")
 
-    rows: list[tuple[str, int]] = []
-
-    no_mr_count = sum(e["violation_count"] for e in buckets["no_mr_entries"])
-    if no_mr_count:
-        rows.append((
-            f"[**Fix or add exceptions**](#todo-{tm['no_mr']}) — no coverage or open MR",
-            no_mr_count,
-        ))
-
-    expiring_no_mr_count = sum(e["violation_count"] for e in buckets["expiring_no_mr"])
-    if expiring_no_mr_count:
-        rows.append((
-            f"[**Create MRs**](#todo-{tm['expiring_no_mr']}) — exceptions expiring before release, no MR",
-            expiring_no_mr_count,
-        ))
-
-    expiring_insuf_count = sum(e["violation_count"] for e in buckets["expiring_mr_insufficient"])
-    if expiring_insuf_count:
-        rows.append((
-            f"[**Extend exception dates**](#todo-{tm['expiring_mr_insufficient']}) — MR exception expires before release",
-            expiring_insuf_count,
-        ))
-
-    has_mr_count = sum(e["violation_count"] for e in buckets["has_mr_entries"])
-    if has_mr_count:
-        rows.append((
-            f"[**Track and merge**](#todo-{tm['has_mr']}) open MRs",
-            has_mr_count,
-        ))
-
-    if tooling_health_data:
-        unhealthy = [
-            t for t in tooling_health_data.get("tools", [])
-            if t.get("health", {}).get("status") in ("unhealthy", "error")
-        ]
-        if unhealthy:
-            names = ", ".join(t.get("name", "unknown") for t in unhealthy)
-            rows.append((
-                f"[**Investigate tooling**](#tooling-health) — {names} workflow failing, data may be stale",
-                0,
-            ))
-
-    if buckets["expiring_soon"]:
-        count = len(buckets["expiring_soon"])
-        rows.append((
-            f"[**Review expiring exceptions**](#expiring-exceptions) — {count} exception{'s' if count != 1 else ''} expiring within 14 days",
-            0,
-        ))
-
-    if analysis_result.upcoming_violations:
-        count = len(analysis_result.upcoming_violations)
-        rows.append((
-            f"[**Review warnings**](#warnings-becoming-violations) — {count} warning{'s' if count != 1 else ''} becoming violations within 21 days",
-            0,
-        ))
-
-    if not rows:
-        return "## TODO\n\n> No actions required — all violations are covered\n"
-
-    total_violations_needing_attention = no_mr_count + expiring_no_mr_count + expiring_insuf_count + has_mr_count
-    lines = ["## TODO", ""]
-
-    summary_parts = [f"**{len(rows)} action{'s' if len(rows) != 1 else ''}** required"]
-    if total_violations_needing_attention:
-        summary_parts.append(f"{total_violations_needing_attention} violation{'s' if total_violations_needing_attention != 1 else ''} need attention")
-    lines.append(f"> {' — '.join(summary_parts)}")
-    lines.append("")
-
-    lines.append("| # | Action | Violations | Done |")
-    lines.append("|--:|--------|:----------:|:----:|")
-    for i, (action, viol_count) in enumerate(rows, 1):
-        viol_display = str(viol_count) if viol_count else "—"
-        lines.append(f"| {i} | {action} | {viol_display} | [ ] |")
-
-    lines.append("")
-    return "\n".join(lines)
+        if in_progress and last_success:
+            success_url = last_success.get("url", "")
+            success_date = last_success.get("completed_at", "")[:10]
+            progress_url = in_progress.get("url", "")
+            lines.append(
+                f"The [{name} workflow]({CONFORMA_REPORTER_ACTIONS_URL}) "
+                f"last succeeded on {success_date} "
+                f"([run]({success_url})). "
+                f"A [more recent run]({progress_url}) is currently **in progress** "
+                f"— please monitor it for any errors."
+            )
+        elif tool.get("latest_run"):
+            latest = tool["latest_run"]
+            run_url = latest.get("url", "")
+            run_date = latest.get("updated_at", "")[:10]
+            lines.append(
+                f"The [{name} workflow]({CONFORMA_REPORTER_ACTIONS_URL}) "
+                f"is **{status}** — [latest run]({run_url}) succeeded on {run_date}."
+            )
+        else:
+            lines.append(
+                f"The [{name} workflow]({CONFORMA_REPORTER_ACTIONS_URL}) "
+                f"is **{status}**."
+            )
 
 
 def render_key_takeaways(
@@ -496,16 +447,38 @@ def render_key_takeaways(
 
     version_label = release_dates.format_version_label(release) if release else "the upcoming release"
 
-    lines = ["## Violations Breakdown", ""]
+    # Pre-compute warnings split for action counting
+    _upcoming_pre_release: list = []
+    _upcoming_post_release: list = []
+    if analysis_result.upcoming_violations:
+        for w in analysis_result.upcoming_violations:
+            eff = getattr(w, "effective_on", "") or ""
+            eff_date = eff[:10] if eff else ""
+            if upcoming_release_date and eff_date and eff_date <= upcoming_release_date:
+                _upcoming_pre_release.append(w)
+            else:
+                _upcoming_post_release.append(w)
 
-    if tooling_health_data:
-        tooling_line = _tooling_health_executive_line(tooling_health_data)
-        if tooling_line:
-            lines.append(tooling_line)
-        unhealthy_tools = [t for t in tooling_health_data.get("tools", []) if t.get("health", {}).get("status") in ("unhealthy", "error")]
-        if unhealthy_tools:
-            names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)
-            lines.append(f"- **WARNING: The violation data in this report may be stale because the {names} workflow is failing.**")
+    # Summary preamble — count non-empty action categories
+    action_count = sum([
+        no_mr_violation_count > 0,
+        sum(e["violation_count"] for e in expiring_no_mr) > 0,
+        sum(e["violation_count"] for e in expiring_mr_insufficient) > 0,
+        has_mr_violation_count > 0,
+        bool(tooling_health_data and any(
+            t.get("health", {}).get("status") in ("unhealthy", "error")
+            for t in tooling_health_data.get("tools", [])
+        )),
+        bool(expiring_soon),
+        bool(_upcoming_pre_release),
+        bool(_upcoming_post_release),
+    ])
+    lines = ["## TODO", ""]
+
+    if action_count == 0:
+        lines.append("> No TODOs — all violations are covered")
+
+    lines.append("")
 
     detail_lookup, detail_labels = build_semantic_detail_lookup(violations_yaml_data) if violations_yaml_data else ({}, {})
 
@@ -525,18 +498,55 @@ def render_key_takeaways(
 
     todo_num = 0
 
-    # TODO #1: Violations with no exception and no open Merge Request (highest risk)
-    todo_num += 1
-    lines.append(f'<a id="todo-{todo_num}"></a>')
+    # TODO #0: Tooling health — always present for structural consistency
+    unhealthy_tools = [
+        t for t in (tooling_health_data or {}).get("tools", [])
+        if t.get("health", {}).get("status") in ("unhealthy", "error")
+    ]
+    if unhealthy_tools:
+        names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)
+        lines.append(f"### TODO #{todo_num} — {names} workflow is failing")
+        lines.append("")
+        lines.append(
+            f"**The violation data in this report may be stale.** "
+            f"The {names} workflow is failing — the CSV reports this analysis "
+            f"depends on are not being refreshed."
+        )
+        lines.append("")
+        lines.append("**Next steps:**")
+        lines.append("")
+        lines.append(
+            f"1. Go to the [conforma-reporter GitHub Actions workflow]({CONFORMA_REPORTER_ACTIONS_URL})"
+        )
+        lines.append("2. Check the latest failed run for error details")
+        lines.append("3. Common failure causes: expired auth tokens, EC policy timeouts, branch not found")
+        lines.append("4. Fix the issue and re-run the workflow")
+        lines.append("5. Once the workflow succeeds, re-run this analysis to get fresh data")
+        lines.append("")
+        tooling_line = _tooling_health_executive_line(tooling_health_data)
+        if tooling_line:
+            lines.append(tooling_line)
+    else:
+        lines.append(f"### TODO #{todo_num} — Tooling status: healthy")
+        lines.append("")
+        if tooling_health_data:
+            _append_tooling_health_detail(lines, tooling_health_data)
+        else:
+            lines.append(
+                f"The [conforma-reporter workflow]({CONFORMA_REPORTER_ACTIONS_URL}) "
+                f"status is unknown — no tooling health data was collected."
+            )
     lines.append("")
+    lines.append("---")
+
+    # Next TODO: Violations with no exception and no open Merge Request (highest risk)
+    todo_num += 1
     lines.append(
         f"### TODO #{todo_num} — {no_mr_violation_count:,} violations without exception or open Merge Request"
     )
     lines.append("")
     lines.append(
-        "Review each violation — click the violation code to see fix steps and next actions. "
-        "Try to resolve the issue in code first; create a policy exception only if a code fix "
-        "isn't feasible within the release timeline."
+        "Review each violation — click the violation code to see details and next steps."
     )
     lines.append("")
     lines.append("| # | Violation | Component | Violations |")
@@ -555,8 +565,6 @@ def render_key_takeaways(
         # TODO #2: Expiring exceptions with no open Merge Request
         expiring_no_mr_count = sum(e["violation_count"] for e in expiring_no_mr)
         todo_num += 1
-        lines.append(f'<a id="todo-{todo_num}"></a>')
-        lines.append("")
         lines.append(
             f"### TODO #{todo_num} — {expiring_no_mr_count:,} violations with expiring exceptions, no open Merge Request"
         )
@@ -585,8 +593,6 @@ def render_key_takeaways(
         # TODO #3: Expiring exceptions with MR but MR expiry also before release
         expiring_mr_insuf_count = sum(e["violation_count"] for e in expiring_mr_insufficient)
         todo_num += 1
-        lines.append(f'<a id="todo-{todo_num}"></a>')
-        lines.append("")
         lines.append(
             f"### TODO #{todo_num} — {expiring_mr_insuf_count:,} violations with expiring exceptions, "
             f"Merge Request also expires before release"
@@ -617,8 +623,6 @@ def render_key_takeaways(
         # TODO #4: Expiring exceptions with MR extending past release (lower risk)
         expiring_mr_suf_count = sum(e["violation_count"] for e in expiring_mr_sufficient)
         todo_num += 1
-        lines.append(f'<a id="todo-{todo_num}"></a>')
-        lines.append("")
         lines.append(
             f"### TODO #{todo_num} — {expiring_mr_suf_count:,} violations with expiring exceptions, "
             f"Merge Request extends past release"
@@ -647,8 +651,6 @@ def render_key_takeaways(
 
     # TODO #5: Violations with no exception but having an open Merge Request
     todo_num += 1
-    lines.append(f'<a id="todo-{todo_num}"></a>')
-    lines.append("")
     lines.append(
         f"### TODO #{todo_num} — {has_mr_violation_count:,} violations addressed by open Merge Requests (not yet merged)"
     )
@@ -668,26 +670,118 @@ def render_key_takeaways(
     else:
         lines.append("| | No violations | | | |")
     lines.append("")
-    lines.append("---")
 
-    # Coverage summary
-    coverage_line = f"- **{covered_violations:,} of {total_violations:,} violations ({coverage_pct:.1f}%) covered** by exceptions"
-    if policy_files:
-        file_links = " · ".join(f"[{f['name']}]({f['url']})" for f in policy_files)
-        coverage_line += f" in {file_links}"
-    lines.append(coverage_line)
+    # Warnings becoming violations — split by release date
+    if analysis_result.upcoming_violations:
+        grouped: dict[tuple[str, str, str], dict] = {}
+        for w in analysis_result.upcoming_violations:
+            detail = getattr(w, "semantic_detail", "") or ""
+            key = (w.code, detail, w.component_name)
+            if key not in grouped:
+                grouped[key] = {
+                    "count": 0,
+                    "effective_on": w.effective_on,
+                    "days_until_effective": w.days_until_effective,
+                }
+            entry = grouped[key]
+            entry["count"] += 1
+            if w.days_until_effective < entry["days_until_effective"]:
+                entry["days_until_effective"] = w.days_until_effective
+                entry["effective_on"] = w.effective_on
+
+        sorted_entries = sorted(
+            grouped.items(),
+            key=lambda x: (x[1]["days_until_effective"], x[0][0], x[0][1], x[0][2]),
+        )
+
+        pre_release: list[tuple] = []
+        post_release: list[tuple] = []
+        if upcoming_release_date:
+            for item in sorted_entries:
+                eff = item[1]["effective_on"]
+                eff_date = eff[:10] if eff else ""
+                if eff_date and eff_date <= upcoming_release_date:
+                    pre_release.append(item)
+                else:
+                    post_release.append(item)
+        else:
+            post_release = sorted_entries
+
+        # TODO #6: Warnings becoming violations before the release date
+        todo_num += 1
+        pre_count = sum(1 for _ in pre_release)
+        lines.append(
+            f"### TODO #{todo_num} — {pre_count:,} warnings becoming violations before release date"
+        )
+        lines.append("")
+        if upcoming_release_date:
+            lines.append(
+                f"These warnings will become enforced violations **before** the "
+                f"{version_label} release on {upcoming_release_date}. "
+                f"They will block the release if not addressed."
+            )
+        else:
+            lines.append(
+                "No upcoming release date is set — cannot determine which warnings "
+                "will become violations before the release."
+            )
+        lines.append("")
+        lines.append("| # | Warning | Component | Count | Deadline | Days Left |")
+        lines.append("|--:|---------|-----------|:-----:|----------|:---------:|")
+        if pre_release:
+            for row_num, ((code, detail, component), info) in enumerate(pre_release, 1):
+                days = info["days_until_effective"]
+                urgency = "**OVERDUE**" if days == 0 else str(days)
+                warning_cell = f"`{code}`"
+                if detail:
+                    warning_cell += f" ({detail})"
+                lines.append(
+                    f"| {row_num} | {warning_cell} | `{component}` | {info['count']} | {info['effective_on']} | {urgency} |"
+                )
+        else:
+            lines.append("| | No warnings | | | | |")
+        lines.append("")
+        lines.append("---")
+
+        # TODO #7: Warnings becoming violations after the release date (within 21 days)
+        todo_num += 1
+        post_count = sum(1 for _ in post_release)
+        lines.append(
+            f"### TODO #{todo_num} — {post_count:,} warnings becoming violations within 21 days (after release date)"
+        )
+        lines.append("")
+        if upcoming_release_date:
+            lines.append(
+                f"These warnings will become enforced violations **after** the "
+                f"{version_label} release on {upcoming_release_date}. "
+                f"They will not block this release but should be tracked for the next one."
+            )
+        else:
+            lines.append(
+                "All warnings within the 21-day threshold are listed below."
+            )
+        lines.append("")
+        lines.append("| # | Warning | Component | Count | Deadline | Days Left |")
+        lines.append("|--:|---------|-----------|:-----:|----------|:---------:|")
+        if post_release:
+            for row_num, ((code, detail, component), info) in enumerate(post_release, 1):
+                days = info["days_until_effective"]
+                urgency = "**OVERDUE**" if days == 0 else str(days)
+                warning_cell = f"`{code}`"
+                if detail:
+                    warning_cell += f" ({detail})"
+                lines.append(
+                    f"| {row_num} | {warning_cell} | `{component}` | {info['count']} | {info['effective_on']} | {urgency} |"
+                )
+        else:
+            lines.append("| | No warnings | | | | |")
+        lines.append("")
+
+    lines.append("---")
 
     if expiring_soon:
         parts = [f"`{rule}`{detail} (expires {date}, {days}d)" for rule, date, days, detail in expiring_soon]
-        lines.append(f'<a id="expiring-exceptions"></a>')
         lines.append(f"- **Exceptions expiring in next 14 days**: {', '.join(parts)}")
-
-    if analysis_result.upcoming_violations:
-        lines.append(f'<a id="warnings-becoming-violations"></a>')
-        lines.append(
-            f"- **{len(analysis_result.upcoming_violations)} warnings becoming violations** "
-            "within 21 days"
-        )
 
     ec_validation = coverage_data.get("ec_validation", {})
     divergence_count = ec_validation.get("divergence_count", 0)
@@ -866,17 +960,6 @@ def render_resolution_guide(
             f'<a id="{anchor}"></a>'
         )
         lines.append("")
-
-        search_parts = []
-        search_url = v.get("open_mr_search_url", "")
-        if search_url:
-            search_parts.append(f"[search GitLab]({search_url})")
-        jira_search = v.get("open_jira_search_url", "")
-        if jira_search:
-            search_parts.append(f"[search Jira]({jira_search})")
-        if search_parts:
-            lines.append(" | ".join(search_parts))
-            lines.append("")
 
         render_csv_source_fields(lines, v)
         render_divergence_warning(lines, v)
@@ -1162,20 +1245,6 @@ def render_cataloged_violation(lines: list[str], entry: dict, violation: dict) -
         lines.append(f"**Quick context**: {triage_note}")
         lines.append("")
 
-    classification = entry.get("classification", {})
-    resolution_path = classification.get("resolution_path", "unknown")
-    typical_owner = classification.get("typical_owner", "unknown")
-    effort = classification.get("estimated_effort", "unknown")
-    requires_rebuild = classification.get("requires_rebuild", False)
-
-    lines.append(
-        f"**Classification**: {resolution_path} | "
-        f"Owner: {typical_owner} | "
-        f"Effort: {effort} | "
-        f"Requires rebuild: {'yes' if requires_rebuild else 'no'}"
-    )
-    lines.append("")
-
     fix_steps = entry.get("fix_steps", [])
     if fix_steps:
         lines.append("**Resolution:**")
@@ -1365,20 +1434,19 @@ def _tooling_health_executive_line(tooling_health_data: dict) -> str | None:
 def write_todo_preview(
     output_path: str,
     *,
-    todo: str = "",
     metadata_header: str,
     key_takeaways: str,
 ) -> None:
     """Write TODO preview file for chat display.
 
-    Contains the TODO action items, metadata header (context confirmation),
-    and violations breakdown tables. This is the actionable subset shown in
-    agent chat — the full resolution guide (submitted to GitHub) contains
-    all sections including coverage, detailed resolution steps, and stats.
+    Contains the metadata header (context confirmation) and the TODO section
+    with summary preamble and all TODO #N subsections. This is the actionable
+    subset shown in agent chat — the full resolution guide (submitted to
+    GitHub) contains all sections including coverage, detailed resolution
+    steps, and stats.
     """
-    SECTION_SPACER = "\n&nbsp;\n"
-    sections = [todo, metadata_header, key_takeaways]
-    content = SECTION_SPACER.join(s for s in sections if s)
+    sections = [metadata_header, key_takeaways]
+    content = "\n\n".join(s for s in sections if s)
 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)

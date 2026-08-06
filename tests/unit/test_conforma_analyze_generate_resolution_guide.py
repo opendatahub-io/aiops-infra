@@ -16,7 +16,6 @@ from guide_renderers import render_components_table
 from guide_renderers import render_metadata_header
 from guide_renderers import render_coverage_table
 from guide_renderers import render_work_scope
-from guide_renderers import render_todo
 from guide_renderers import render_key_takeaways
 from guide_renderers import write_todo_preview
 from conforma_constants import TODO_PREVIEW_FILENAME
@@ -361,7 +360,6 @@ class TestGenerateResolutionGuide:
         )
 
         assert "Set hermetic=true" in content
-        assert "code_fix" in content
         assert "Exception only if" in content
 
     def test_uncataloged_violation_uses_fallback(
@@ -633,9 +631,9 @@ class TestMergeRequestUrls:
         # Exception MR !19118 appears in the per-component table (has mr_components)
         assert "https://gitlab.test-corp.fake/releng/konflux-release-data/-/merge_requests/19118" in content
         assert "!19118" in content
-        # Remedy MR !555 has no mr_components (by design) — excluded from per-component column
-        # but the search URL containing its context is available
-        assert "https://gitlab.example.com/search?hermetic" in content
+        # Search links are no longer rendered in guide sections
+        assert "[search GitLab]" not in content
+        assert "[search Jira]" not in content
 
 
 class TestPartiallyCoveredViolation:
@@ -1387,8 +1385,8 @@ class TestRenderComponentsTable:
         }
         catalog = {"violations": [], "fallback_references": []}
         out = render_resolution_guide(coverage_data, catalog)
-        assert "[search GitLab](https://gitlab.example.com/search)" in out
-        assert "[search Jira](https://jira.example.com/search)" in out
+        assert "[search GitLab]" not in out
+        assert "[search Jira]" not in out
 
 
 class TestTodoPreviewFile:
@@ -1419,7 +1417,6 @@ class TestTodoPreviewFile:
         assert todo_path.exists()
         content = todo_path.read_text()
         assert "## TODO" in content
-        assert "## Violations Breakdown" in content
         assert "| **Release branch**" in content
 
     def test_todo_preview_not_written_when_flag_omitted(
@@ -2267,9 +2264,9 @@ class TestViolationLinks:
         for rule in ["hermetic_task.hermetic", "sbom_spdx.disallowed_package_attributes"]:
             anchor = mod._violation_anchor(rule)
             link = f"[`{rule}`](#{anchor})"
-            exec_summary_section = content.split("## Violations Breakdown")[1].split("## Summary")[0]
-            assert link in exec_summary_section, (
-                f"Expected anchor link {link} in violations breakdown"
+            todo_section = content.split("\n## TODO\n")[1].split("\n## Summary")[0]
+            assert link in todo_section, (
+                f"Expected anchor link {link} in TODO section"
             )
 
     def test_anchor_links_match_resolution_guide_ids(
@@ -2404,7 +2401,6 @@ class TestCoverageSummaryPolicyFileLinks:
 
         assert "registry-rhoai-stage.yaml" in content
         assert "exceptions/fbc-rhoai-stage.yaml" in content
-        assert "covered** by exceptions in" in content
 
     def test_metadata_header_includes_self_service_file_links(
         self, tmp_path, sample_violations_yaml, sample_catalog,
@@ -2685,6 +2681,21 @@ class TestExtractedHelpers:
     def test_find_covering_mr_empty_list(self):
         assert _find_covering_mr([], "comp-a") is None
 
+    def test_find_covering_mr_global_coverage(self):
+        mrs = [_mr(1, "https://example.com/1", ["*"])]
+        result = _find_covering_mr(mrs, "odh-workbench-jupyter-tensorflow-rocm-py312-v3-5")
+        assert result is not None
+        assert result["iid"] == 1
+
+    def test_find_covering_mr_global_preferred_over_none(self):
+        mrs = [
+            _mr(1, "https://example.com/1", ["comp-x"]),
+            _mr(2, "https://example.com/2", ["*"]),
+        ]
+        result = _find_covering_mr(mrs, "comp-y")
+        assert result is not None
+        assert result["iid"] == 2
+
     def test_violation_count_exact_match(self):
         by_cr = {("hermetic_task.hermetic", "comp-a"): 3}
         assert _violation_count("hermetic_task.hermetic", "comp-a", by_cr) == 3
@@ -2768,166 +2779,274 @@ class TestComputeViolationBuckets:
 
 
 # ---------------------------------------------------------------------------
-# TestRenderTodo
+# TestTodoPreamble — summary preamble in render_key_takeaways()
 # ---------------------------------------------------------------------------
 
-class TestRenderTodo:
-    """Tests for render_todo() — compact TODO table at top of resolution guide."""
+class TestTodoPreamble:
+    """Tests for the TODO section header in render_key_takeaways()."""
 
-    def test_todo_all_buckets_populated(self):
-        mr = _mr(100, "https://example.com/100", ["comp-b"])
-        mr_insuf = _mr(200, "https://example.com/200", ["comp-d"], effective_until="2026-07-01")
-        coverage = _make_coverage_data(violations=[
-            _uncovered_violation("rule-a", ["comp-a"]),
-            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
-            _covered_violation(
-                "rule-c", ["comp-c", "comp-d"],
-                expiry_details=[
-                    {"component": "comp-c", "effective_until": "2026-07-10"},
-                    {"component": "comp-d", "effective_until": "2026-07-15"},
-                ],
-                open_mrs=[mr_insuf],
-            ),
-        ])
-        result = _make_analysis_result(total_violations=5)
-        by_cr = {
-            ("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1,
-            ("rule-c", "comp-c"): 1, ("rule-c", "comp-d"): 1,
-        }
-        output = render_todo(coverage, result, by_cr, upcoming_release_date="2026-08-01")
-        assert "## TODO" in output
-        assert "Fix or add exceptions" in output
-        assert "Track and merge" in output
-        assert "Create MRs" in output
-        assert "Extend exception dates" in output
-
-    def test_todo_empty_buckets_omitted(self):
-        coverage = _make_coverage_data(violations=[
-            _uncovered_violation("rule-a", ["comp-a"]),
-        ])
-        result = _make_analysis_result(total_violations=1)
-        by_cr = {("rule-a", "comp-a"): 1}
-        output = render_todo(coverage, result, by_cr)
-        assert "Fix or add exceptions" in output
-        assert "Create MRs" not in output
-        assert "Extend exception dates" not in output
-        assert "Track and merge" not in output
-
-    def test_todo_no_actions_required(self):
-        coverage = _make_coverage_data(violations=[
-            _covered_violation("rule-a", ["comp-a"], is_permanent=True),
-        ])
-        result = _make_analysis_result(total_violations=0)
-        output = render_todo(coverage, result, {})
-        assert "No actions required" in output
-
-    def test_todo_table_header_format(self):
-        coverage = _make_coverage_data(violations=[
-            _uncovered_violation("rule-a", ["comp-a"]),
-        ])
-        result = _make_analysis_result(total_violations=1)
-        by_cr = {("rule-a", "comp-a"): 1}
-        output = render_todo(coverage, result, by_cr)
-        assert "| # | Action | Violations | Done |" in output
-        assert "|--:|--------|:----------:|:----:|" in output
-
-    def test_todo_violation_counts_accurate(self):
-        coverage = _make_coverage_data(violations=[
-            _uncovered_violation("rule-a", ["comp-a", "comp-b"]),
-        ])
-        result = _make_analysis_result(total_violations=7)
-        by_cr = {("rule-a", "comp-a"): 3, ("rule-a", "comp-b"): 4}
-        output = render_todo(coverage, result, by_cr)
-        assert "| 7 |" in output or "7 violation" in output
-
-    def test_todo_tooling_unhealthy_row(self):
-        coverage = _make_coverage_data()
-        result = _make_analysis_result(total_violations=0)
-        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "unhealthy"}}]}
-        output = render_todo(coverage, result, {}, tooling_health_data=tooling)
-        assert "Investigate tooling" in output
-        assert "conforma-reporter" in output
-
-    def test_todo_tooling_healthy_no_row(self):
-        coverage = _make_coverage_data()
-        result = _make_analysis_result(total_violations=0)
-        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "healthy"}}]}
-        output = render_todo(coverage, result, {}, tooling_health_data=tooling)
-        assert "Investigate tooling" not in output
-
-    def test_todo_warnings_becoming_violations_row(self):
-        coverage = _make_coverage_data()
-        result = _make_analysis_result(total_violations=0, upcoming_violations=["w1", "w2"])
-        output = render_todo(coverage, result, {})
-        assert "Review warnings" in output
-        assert "2 warnings" in output
-
-    def test_todo_summary_line_counts(self):
-        mr = _mr(100, "https://example.com/100", ["comp-b"])
-        coverage = _make_coverage_data(violations=[
-            _uncovered_violation("rule-a", ["comp-a"]),
-            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
-        ])
-        result = _make_analysis_result(total_violations=2)
-        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
-        output = render_todo(coverage, result, by_cr)
-        assert "**2 actions** required" in output
-
-    def test_todo_section4_omitted(self):
-        mr_suf = _mr(200, "https://example.com/200", ["comp-a"], effective_until="2026-09-01")
-        coverage = _make_coverage_data(violations=[
-            _covered_violation(
-                "rule-a", ["comp-a"],
-                expiry_details=[{"component": "comp-a", "effective_until": "2026-07-10"}],
-                open_mrs=[mr_suf],
-            ),
-        ])
-        result = _make_analysis_result(total_violations=1)
-        by_cr = {("rule-a", "comp-a"): 1}
-        output = render_todo(coverage, result, by_cr, upcoming_release_date="2026-08-01")
-        assert "todo-4" not in output
-        assert "Extend exception dates" not in output
-
-    def test_todo_links_to_anchors(self):
-        mr = _mr(100, "https://example.com/100", ["comp-b"])
-        coverage = _make_coverage_data(violations=[
-            _uncovered_violation("rule-a", ["comp-a"]),
-            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
-        ])
-        result = _make_analysis_result(total_violations=2)
-        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
-        output = render_todo(coverage, result, by_cr)
-        assert "(#todo-1)" in output
-        assert "(#todo-2)" in output
-
-    def test_todo_links_with_upcoming_release_date(self):
-        mr = _mr(100, "https://example.com/100", ["comp-b"])
-        coverage = _make_coverage_data(violations=[
-            _uncovered_violation("rule-a", ["comp-a"]),
-            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
-        ])
-        result = _make_analysis_result(total_violations=2)
-        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
-        output = render_todo(coverage, result, by_cr, upcoming_release_date="2026-08-01")
-        assert "(#todo-1)" in output
-        assert "(#todo-5)" in output
-
-
-# ---------------------------------------------------------------------------
-# TestKeyTakeawaysRename
-# ---------------------------------------------------------------------------
-
-class TestKeyTakeawaysRename:
-    """Tests that render_key_takeaways uses the new heading."""
-
-    def test_heading_is_violations_breakdown(self):
+    def test_todo_section_with_violations(self):
         coverage = _make_coverage_data(violations=[
             _uncovered_violation("rule-a", ["comp-a"]),
         ])
         result = _make_analysis_result(total_violations=1)
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_key_takeaways(coverage, result, by_cr)
-        assert output.startswith("## Violations Breakdown")
+        assert "## TODO" in output
+        assert "TODO #1" in output
+
+    def test_todo_section_multiple_actions(self):
+        mr = _mr(100, "https://example.com/100", ["comp-b"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert "TODO #1" in output
+        import re
+        todo_nums = re.findall(r"### TODO #(\d+)", output)
+        assert len(todo_nums) >= 2
+
+    def test_todo_section_no_actions(self):
+        coverage = _make_coverage_data(violations=[
+            _covered_violation("rule-a", ["comp-a"], is_permanent=True),
+        ])
+        result = _make_analysis_result(total_violations=0)
+        output = render_key_takeaways(coverage, result, {})
+        assert "No TODOs" in output
+
+    def test_todo_section_unhealthy_tooling(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "unhealthy"}}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "TODO #0" in output
+        assert "workflow is failing" in output
+
+    def test_todo_section_with_warnings(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        warnings = [
+            analysis.UpcomingViolation(component_name="comp-a", code="warn.a", title="W1", message="msg", effective_on="2026-08-01", days_until_effective=5),
+            analysis.UpcomingViolation(component_name="comp-b", code="warn.b", title="W2", message="msg", effective_on="2026-08-02", days_until_effective=6),
+        ]
+        result = _make_analysis_result(total_violations=1, upcoming_violations=warnings)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert "TODO #1" in output
+        assert "warnings becoming violations" in output
+
+    def test_todo_section_healthy_tooling(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "healthy"}}]}
+        output = render_key_takeaways(coverage, result, by_cr, tooling_health_data=tooling)
+        assert "Tooling status: healthy" in output
+        assert "TODO #1" in output
+
+
+# ---------------------------------------------------------------------------
+# TestKeyTakeawaysToolingTodo
+# ---------------------------------------------------------------------------
+
+class TestKeyTakeawaysToolingTodo:
+    """Tests for the always-present TODO #0 tooling status section."""
+
+    # --- Unhealthy / error tooling ---
+
+    def test_unhealthy_tooling_emits_todo_0_failing(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "unhealthy"}}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "### TODO #0 — conforma-reporter workflow is failing" in output
+
+    def test_error_status_emits_todo_0_failing(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "error"}}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "### TODO #0 — conforma-reporter workflow is failing" in output
+
+    def test_unhealthy_todo_0_includes_actions_link(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "unhealthy"}}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "conforma-reporter GitHub Actions workflow" in output
+        assert "conforma-reporter.yaml" in output
+
+    def test_unhealthy_todo_0_includes_next_steps(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "error"}}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "**Next steps:**" in output
+        assert "Check the latest failed run" in output
+        assert "re-run this analysis" in output
+        assert "Common failure causes:" in output
+
+    def test_unhealthy_todo_0_stale_data_warning(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "unhealthy"}}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "violation data in this report may be stale" in output
+
+    def test_unhealthy_todo_0_includes_executive_line(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{
+            "name": "conforma-reporter",
+            "health": {
+                "status": "unhealthy",
+                "last_success": {"url": "https://github.com/example/run/1", "completed_at": "2026-08-01T10:00:00Z"},
+            },
+            "latest_run": {"url": "https://github.com/example/run/2", "updated_at": "2026-08-05T08:00:00Z"},
+        }]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "Tooling unhealthy" in output
+        assert "last success:" in output
+
+    def test_multiple_unhealthy_tools_joined_in_heading(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [
+            {"name": "conforma-reporter", "health": {"status": "unhealthy"}},
+            {"name": "another-tool", "health": {"status": "error"}},
+        ]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "### TODO #0 — conforma-reporter, another-tool workflow is failing" in output
+
+    # --- Numbering ---
+
+    def test_todo_0_always_present_shifts_subsequent_numbering(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "unhealthy"}}]}
+        output = render_key_takeaways(coverage, result, by_cr, tooling_health_data=tooling)
+        assert "### TODO #0" in output
+        assert "### TODO #1" in output
+        assert "### TODO #2" in output
+
+    def test_healthy_numbering_matches_no_data_numbering(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        healthy_tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "healthy"}}]}
+        out_healthy = render_key_takeaways(coverage, result, by_cr, tooling_health_data=healthy_tooling)
+        out_no_data = render_key_takeaways(coverage, result, by_cr)
+        import re
+        nums_healthy = re.findall(r"### TODO #(\d+)", out_healthy)
+        nums_no_data = re.findall(r"### TODO #(\d+)", out_no_data)
+        assert nums_healthy == nums_no_data
+
+    # --- Healthy tooling ---
+
+    def test_healthy_tooling_shows_todo_0_healthy(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "healthy"},
+                              "latest_run": {"url": "https://gh/run/1", "updated_at": "2026-08-05"}}]}
+        output = render_key_takeaways(coverage, result, by_cr, tooling_health_data=tooling)
+        assert "### TODO #0 — Tooling status: healthy" in output
+        assert "is **healthy**" in output
+        assert "### TODO #1" in output
+
+    def test_healthy_todo_0_includes_workflow_link(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "healthy"},
+                              "latest_run": {"url": "https://gh/run/1", "updated_at": "2026-08-05"}}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "conforma-reporter workflow](" in output
+        assert "conforma-reporter.yaml" in output
+
+    def test_healthy_todo_0_shows_latest_run_info(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "healthy"},
+                              "latest_run": {"url": "https://gh/run/1", "updated_at": "2026-08-05T04:00:00Z"}}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "[latest run](https://gh/run/1)" in output
+        assert "2026-08-05" in output
+
+    def test_healthy_todo_0_no_executive_line(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "healthy"},
+                              "latest_run": {"url": "https://gh/run/1", "updated_at": "2026-08-05"}}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "Tooling unhealthy" not in output
+
+    # --- In-progress tooling ---
+
+    def test_in_progress_tooling_shows_last_success_and_monitor(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {
+            "status": "in_progress",
+            "last_success": {"url": "https://gh/run/1", "completed_at": "2026-08-05T04:00:00Z"},
+            "in_progress_run": {"url": "https://gh/run/2", "created_at": "2026-08-05T12:37:00Z"},
+        }}]}
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+        assert "last succeeded on 2026-08-05" in output
+        assert "[run](https://gh/run/1)" in output
+        assert "[more recent run](https://gh/run/2)" in output
+        assert "in progress" in output
+        assert "monitor" in output
+
+    # --- No tooling data ---
+
+    def test_no_tooling_data_shows_todo_0_healthy(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert "### TODO #0 — Tooling status: healthy" in output
+        assert "status is unknown" in output
+        assert "### TODO #1" in output
+
+    def test_none_tooling_data_shows_todo_0_healthy(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=None)
+        assert "### TODO #0 — Tooling status: healthy" in output
+        assert "status is unknown" in output
+
+
+# ---------------------------------------------------------------------------
+# TestKeyTakeawaysHeading
+# ---------------------------------------------------------------------------
+
+class TestKeyTakeawaysHeading:
+    """Tests that render_key_takeaways uses the correct heading."""
+
+    def test_heading_is_todo(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert output.startswith("## TODO")
+        assert "## Violations Breakdown" not in output
         assert "## Executive Summary" not in output
 
 
@@ -2945,7 +3064,7 @@ class TestKeyTakeawaysAnchors:
         result = _make_analysis_result(total_violations=1)
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_key_takeaways(coverage, result, by_cr)
-        assert '<a id="todo-1"></a>' in output
+        assert "### TODO #1" in output
 
     def test_table_anchors_with_expiring(self):
         coverage = _make_coverage_data(violations=[
@@ -2960,10 +3079,10 @@ class TestKeyTakeawaysAnchors:
         output = render_key_takeaways(
             coverage, result, by_cr, upcoming_release_date="2026-08-01",
         )
-        assert '<a id="todo-1"></a>' in output
-        assert '<a id="todo-2"></a>' in output
-        assert '<a id="todo-3"></a>' in output
-        assert '<a id="todo-4"></a>' in output
+        assert "### TODO #1" in output
+        assert "### TODO #2" in output
+        assert "### TODO #3" in output
+        assert "### TODO #4" in output
 
     def test_table5_anchor_present(self):
         mr = _mr(100, "https://example.com/100", ["comp-a"])
@@ -2973,18 +3092,74 @@ class TestKeyTakeawaysAnchors:
         result = _make_analysis_result(total_violations=1)
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_key_takeaways(coverage, result, by_cr)
-        assert '<a id="todo-2"></a>' in output
+        assert "### TODO #2" in output
 
-    def test_warnings_anchor(self):
+    def test_warnings_todo_section_split_by_release_date(self):
         coverage = _make_coverage_data(violations=[
             _uncovered_violation("rule-a", ["comp-a"]),
         ])
-        result = _make_analysis_result(total_violations=1, upcoming_violations=["w1"])
+        warnings = [
+            analysis.UpcomingViolation(component_name="comp-a", code="warn.x", title="WX", message="msg", effective_on="2026-08-01", days_until_effective=5),
+            analysis.UpcomingViolation(component_name="comp-b", code="warn.y", title="WY", message="msg", effective_on="2026-08-20", days_until_effective=15),
+        ]
+        result = _make_analysis_result(total_violations=1, upcoming_violations=warnings)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr, upcoming_release_date="2026-08-10")
+        assert "warnings becoming violations before release date" in output
+        assert "warnings becoming violations within 21 days (after release date)" in output
+        assert "will block the release" in output
+        assert "will not block this release" in output
+        pre_pos = output.index("before release date")
+        post_pos = output.index("after release date")
+        assert pre_pos < post_pos
+        # warn.x (2026-08-01) is before release date 2026-08-10
+        pre_section = output[pre_pos:post_pos]
+        assert "`warn.x`" in pre_section
+        # warn.y (2026-08-20) is after release date 2026-08-10
+        post_section = output[post_pos:]
+        assert "`warn.y`" in post_section
+
+    def test_warnings_todo_no_release_date_all_in_post(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        warnings = [
+            analysis.UpcomingViolation(component_name="comp-a", code="warn.x", title="WX", message="msg", effective_on="2026-08-01", days_until_effective=5),
+        ]
+        result = _make_analysis_result(total_violations=1, upcoming_violations=warnings)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr, upcoming_release_date="")
+        assert "0 warnings becoming violations before release date" in output
+        assert "1 warnings becoming violations within 21 days (after release date)" in output
+
+    def test_warnings_todo_table_grouped_and_sorted(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        warnings = [
+            analysis.UpcomingViolation(component_name="comp-b", code="warn.late", title="WL", message="msg", effective_on="2026-08-10", days_until_effective=10),
+            analysis.UpcomingViolation(component_name="comp-a", code="warn.urgent", title="WU", message="msg", effective_on="2026-07-31", days_until_effective=0),
+            analysis.UpcomingViolation(component_name="comp-a", code="warn.late", title="WL", message="msg", effective_on="2026-08-10", days_until_effective=10),
+        ]
+        result = _make_analysis_result(total_violations=1, upcoming_violations=warnings)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(coverage, result, by_cr, upcoming_release_date="2026-08-15")
+        assert "3 warnings becoming violations before release date" in output
+        assert "**OVERDUE**" in output
+        urgent_pos = output.index("warn.urgent")
+        late_pos = output.index("warn.late")
+        assert urgent_pos < late_pos
+
+    def test_no_warnings_no_todo_section(self):
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+        ])
+        result = _make_analysis_result(total_violations=1, upcoming_violations=[])
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_key_takeaways(coverage, result, by_cr)
-        assert '<a id="warnings-becoming-violations"></a>' in output
+        assert "warnings becoming violations" not in output
 
-    def test_expiring_exceptions_anchor(self):
+    def test_expiring_exceptions_line(self):
         from datetime import datetime, timezone
         from unittest.mock import patch
 
@@ -3005,7 +3180,7 @@ class TestKeyTakeawaysAnchors:
             mock_dt.fromisoformat = datetime.fromisoformat
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
             output = render_key_takeaways(coverage, result, by_cr)
-        assert '<a id="expiring-exceptions"></a>' in output
+        assert "Exceptions expiring in next 14 days" in output
 
 
 class TestTodoHelpText:
@@ -3018,8 +3193,8 @@ class TestTodoHelpText:
         result = _make_analysis_result(total_violations=1)
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_key_takeaways(coverage, result, by_cr)
-        assert "Try to resolve the issue in code first" in output
-        assert "create a policy exception only if a code fix" in output
+        assert "click the violation code to see details and next steps" in output
+        assert "Try to resolve the issue in code first" not in output
 
     def test_todo2_help_text_includes_version(self):
         coverage = _make_coverage_data(violations=[
@@ -3117,34 +3292,22 @@ class TestHorizontalRuleSeparators:
 # ---------------------------------------------------------------------------
 
 class TestTodoPreviewContent:
-    """Tests that write_todo_preview places TODO first and handles edge cases."""
+    """Tests that write_todo_preview orders metadata before TODO."""
 
-    def test_todo_section_appears_first(self, tmp_path):
+    def test_metadata_appears_before_todo(self, tmp_path):
         out_path = str(tmp_path / "todo.md")
         write_todo_preview(
             out_path,
-            todo="## TODO\n\n> **1 action** required\n",
             metadata_header="# Header\n",
-            key_takeaways="## Violations Breakdown\n",
+            key_takeaways="## TODO\n\n### TODO #1 — 1 violation\n",
         )
         content = Path(out_path).read_text()
-        todo_pos = content.index("## TODO")
         header_pos = content.index("# Header")
-        breakdown_pos = content.index("## Violations Breakdown")
-        assert todo_pos < header_pos < breakdown_pos
+        todo_pos = content.index("## TODO")
+        assert header_pos < todo_pos
 
-    def test_todo_section_empty_string_omitted(self, tmp_path):
-        out_path = str(tmp_path / "todo.md")
-        write_todo_preview(
-            out_path,
-            todo="",
-            metadata_header="# Header\n",
-            key_takeaways="## Violations Breakdown\n",
-        )
-        content = Path(out_path).read_text()
-        assert content.startswith("# Header")
-
-    def test_todo_anchors_resolve(self, tmp_path):
+    def test_todo_anchors_resolve_within_key_takeaways(self, tmp_path):
+        import re
         mr = _mr(100, "https://example.com/100", ["comp-b"])
         coverage = _make_coverage_data(violations=[
             _uncovered_violation("rule-a", ["comp-a"]),
@@ -3152,15 +3315,8 @@ class TestTodoPreviewContent:
         ])
         result = _make_analysis_result(total_violations=2)
         by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
-        todo = render_todo(coverage, result, by_cr)
-        key_takeaways = render_key_takeaways(coverage, result, by_cr)
-
-        import re
-        links = re.findall(r'\(#([\w-]+)\)', todo)
-        combined = todo + key_takeaways
-        for anchor_id in links:
-            assert f'<a id="{anchor_id}"></a>' in combined, (
-                f"TODO links to #{anchor_id} but no matching anchor found"
-            )
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert "### TODO #1" in output
+        assert "### TODO #2" in output
 
 

@@ -195,7 +195,7 @@ Still prompt for genuinely ambiguous situations (e.g. multiple candidate release
    **⛔ HARD FAILURE RULES FOR STEP 9 — READ THESE BEFORE PROCEEDING:**
 
    **RULE 1 — TODO PREVIEW ONLY (no full guide in chat):**
-   The agent MUST read `conforma-todo.md` from the active run directory (printed by the script) with the Read tool and then **copy its ENTIRE content verbatim into the response text**. This file contains the TODO action items, metadata header (context confirmation), and violations breakdown tables. The agent MUST NOT:
+   The agent MUST read `conforma-todo.md` from the active run directory (printed by the script) with the Read tool and then **copy its ENTIRE content verbatim into the response text**. This file contains the metadata header (context confirmation) and the TODO section with summary preamble and all TODO #N subsections. The agent MUST NOT:
    - Paste the full resolution guide (`conforma-resolution-guide.md`) into the chat
    - Paste the full analysis output (`conforma-analysis.md`) into the chat
    - Summarize, paraphrase, or abbreviate the TODO content

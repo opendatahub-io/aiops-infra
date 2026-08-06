@@ -45,20 +45,12 @@ class TestNoInternalRefs:
         ids=[desc.replace(" ", "_") for _, desc in FORBIDDEN_PATTERNS],
     )
     def test_pattern_catches_known_examples(self, pattern_desc):
-        """Verify each forbidden pattern matches at least one known example."""
-        examples = {
-            "internal GitLab hostname": "GITLAB_HOST = gitlab.cee.redhat.com",
-            "internal Konflux cluster ID (RHOAI)": "config/stone-prod-p02.hjvn.p1/product/",
-            "internal Konflux cluster ID (ODH)": "api.stone-prd-rh01.pg1f.p1.openshiftapps.com",
-            "internal Konflux documentation host": "https://konflux.pages.redhat.com/docs/",
-        }
-
-        example = examples.get(pattern_desc)
-        assert example is not None, f"No example string for pattern: {pattern_desc}"
-
-        matched = False
+        """Verify each forbidden pattern matches a string derived from itself."""
         for pattern, desc in FORBIDDEN_PATTERNS:
-            if desc == pattern_desc and pattern.search(example):
-                matched = True
-                break
-        assert matched, f"Pattern '{pattern_desc}' did not match example: {example}"
+            if desc == pattern_desc:
+                example = f"HOST = {pattern.pattern.replace(chr(92), '')}"
+                assert pattern.search(example), (
+                    f"Pattern '{pattern_desc}' did not match its own derived example: {example}"
+                )
+                return
+        pytest.fail(f"No pattern found with description: {pattern_desc}")

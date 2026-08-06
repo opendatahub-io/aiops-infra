@@ -6,3 +6,7 @@ tmp/
 *.egg-info/
 .env
 graphify-out/
+
+eval/
+eval.md
+eval.yaml

@@ -70,6 +70,7 @@ class UpcomingViolation:
     effective_on: str
     days_until_effective: int
     release: str = ""
+    semantic_detail: str = ""
 
 
 @dataclass
@@ -133,6 +134,8 @@ def load_warnings_csv(
     reference_date: datetime | None = None,
 ) -> list[UpcomingViolation]:
     """Load warnings from a CSV file, returning those enforced within the threshold."""
+    from parse_violations import extract_semantic_detail, extract_full_violation_code
+
     now = reference_date or datetime.now(timezone.utc)
     cutoff = now + timedelta(days=threshold_days)
     records = []
@@ -150,16 +153,23 @@ def load_warnings_csv(
             if effective_dt > cutoff:
                 continue
 
+            code = (row.get("code") or "").strip()
+            message = (row.get("message") or "").strip()
+            description = (row.get("description") or "").strip()
+            full_violation_code = extract_full_violation_code(description, code, message)
+            semantic_detail = extract_semantic_detail(code, message, full_violation_code)
+
             days_remaining = max((effective_dt - now).days, 0)
             records.append(
                 UpcomingViolation(
                     component_name=(row.get("component_name") or "").strip(),
-                    code=(row.get("code") or "").strip(),
+                    code=code,
                     title=(row.get("title") or "").strip(),
-                    message=(row.get("message") or "").strip(),
+                    message=message,
                     effective_on=effective_on,
                     days_until_effective=days_remaining,
                     release=release or csv_path.stem.removesuffix("-warnings"),
+                    semantic_detail=semantic_detail,
                 )
             )
     return records

@@ -2,11 +2,8 @@
 """Shared RHOAI release dates lookup.
 
 Single source of truth for RHOAI release end-of-support (EOS) dates across
-all conforma skills.
-
-Static dates are loaded from scripts/release_dates.yaml.
-Future: plug in a dynamic backend via _fetch_dynamic() — e.g. the Red Hat
-Product Lifecycle API — without changing any callers.
+all conforma skills. All dates are fetched from rhai-release-data.yaml in
+the rhods-devops-infra repository (canonical upstream source).
 
 Public API
 ----------
@@ -39,7 +36,6 @@ import json
 import re
 import sys
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Optional
 
 try:
@@ -52,7 +48,6 @@ except ImportError:
 # Constants
 # ---------------------------------------------------------------------------
 
-_YAML_PATH = Path(__file__).resolve().parent / "release_dates.yaml"
 _EOS_BUFFER_DAYS = 7
 PRODUCT_PAGES_URL = "https://productpages.redhat.com/"
 
@@ -64,34 +59,6 @@ _RELEASE_DATA_URL = (
     f"https://github.com/{_RELEASE_DATA_REPO}/blob/{_RELEASE_DATA_BRANCH}/{_RELEASE_DATA_PATH}"
 )
 _RELEASE_DATA_LINK = f"[{_RELEASE_DATA_FILE}]({_RELEASE_DATA_URL})"
-_STATIC_SOURCE_FILE = "release_dates.yaml"
-_STATIC_SOURCE_URL = f"https://github.com/opendatahub-io/aiops-infra/blob/main/scripts/{_STATIC_SOURCE_FILE}"
-_STATIC_SOURCE_LINK = f"[{_STATIC_SOURCE_FILE}]({_STATIC_SOURCE_URL})"
-
-
-# ---------------------------------------------------------------------------
-# Static data source
-# ---------------------------------------------------------------------------
-
-
-def _load_static() -> dict[str, str]:
-    """Load release → support_end mapping from YAML. Returns {} on any failure."""
-    if _yaml is None:
-        return {}
-    try:
-        with open(_YAML_PATH) as fh:
-            data = _yaml.safe_load(fh) or {}
-        releases = data.get("releases", {})
-        return {
-            k: str(v["support_end"])
-            for k, v in releases.items()
-            if isinstance(v, dict) and "support_end" in v
-        }
-    except Exception:
-        return {}
-
-
-_STATIC_DATES: dict[str, str] = _load_static()
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +163,7 @@ def get_upcoming_release_date(release: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Dynamic fetching — stub for future implementation
+# EOS fetching from rhai-release-data.yaml
 # ---------------------------------------------------------------------------
 
 
@@ -241,24 +208,21 @@ def format_version_label(release: str) -> str:
 def get_eos_date(release: str) -> Optional[str]:
     """Return the raw end-of-support date (YYYY-MM-DD) for a release.
 
-    Checks rhai-release-data.yaml first; falls back to static release_dates.yaml.
-    Returns None when the release is not found in either source.
+    Fetches from rhai-release-data.yaml (canonical upstream source).
+    Returns None when the release is not found.
     """
-    return _get_eos_from_remote(release) or _STATIC_DATES.get(release)
+    return _get_eos_from_remote(release)
 
 
 def get_eos_date_with_source(release: str) -> tuple[Optional[str], str]:
     """Return ``(date, source_link)`` for the end-of-support date.
 
-    Tries rhai-release-data.yaml first, falls back to release_dates.yaml.
-    The source_link is a markdown link to the source file.
+    Fetches from rhai-release-data.yaml. The source_link is a markdown link
+    to the source file.
     """
-    remote = _get_eos_from_remote(release)
-    if remote:
-        return remote, _RELEASE_DATA_LINK
-    static = _STATIC_DATES.get(release)
-    if static:
-        return static, _STATIC_SOURCE_LINK
+    date = _get_eos_from_remote(release)
+    if date:
+        return date, _RELEASE_DATA_LINK
     return None, ""
 
 
@@ -361,7 +325,7 @@ def resolve_effective_until_dates(rhoai_versions: list[str]) -> dict[str, dict]:
         if effective_until:
             results[ver] = {
                 "effectiveUntil": effective_until,
-                "source": "release_dates_yaml",
+                "source": "rhai-release-data",
                 "note": f"End-of-support date + {_EOS_BUFFER_DAYS} day buffer",
             }
         else:
@@ -419,16 +383,26 @@ def validate_effective_until_date(version: str, provided_date: str) -> dict:
 
 def list_all() -> list[dict]:
     """Return all known releases with their EOS and effectiveUntil dates."""
+    data = _fetch_release_data()
+    if data is None:
+        return []
     rows = []
-    for release, eos in sorted(_STATIC_DATES.items()):
+    for entry in data.get("supported", []):
+        if not isinstance(entry, dict):
+            continue
+        version = str(entry.get("version", ""))
+        if not version:
+            continue
+        release = f"rhoai-{version}"
+        eos = _get_eos_from_remote(release)
         rows.append({
             "release": release,
             "end_of_support": eos,
             "effective_until": get_effective_until(release),
             "upcoming_release_date": get_upcoming_release_date(release),
-            "source": "static",
+            "source": "rhai-release-data",
         })
-    return rows
+    return sorted(rows, key=lambda r: r["release"])
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +438,7 @@ def main() -> int:
         "end_of_support": eos,
         "effective_until": get_effective_until(args.release),
         "upcoming_release_date": get_upcoming_release_date(args.release),
-        "source": "static",
+        "source": "rhai-release-data",
     }, indent=2))
     return 0
 

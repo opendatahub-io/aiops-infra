@@ -402,7 +402,7 @@ def consolidate(
 
     version_specs.sort(key=lambda s: s["version"])
 
-    # Step 2b: Validate effectiveUntil dates against release_dates.yaml (expects EOS + 7d buffer)
+    # Step 2b: Validate effectiveUntil dates against rhai-release-data.yaml (expects EOS + 7d buffer)
     from preflight_check import validate_effective_until_date
 
     date_corrections: list[dict] = []
