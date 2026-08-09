@@ -8,7 +8,8 @@
 #
 # Stdout: newline-separated list of step keys that transitioned to "merged" this run.
 # Stderr: progress messages.
-# Side-effect: updates pipeline_state.json (status → "merged" or "closed").
+# Side-effect: updates pipeline_state.json (status → "merged"; or "pending" when
+#              closed without merging so the orchestrator re-raises on the next run).
 
 set -euo pipefail
 
@@ -70,9 +71,13 @@ for STEP_KEY in $STEP_KEYS; do
     TMP=$(mktemp)
     NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     jq --arg k "$STEP_KEY" --arg ts "$NOW" \
-      '.steps[$k].status = "closed" | .last_status_change_at = $ts' \
+      '.steps[$k].status = "pending" | .steps[$k].pr_url = null | .steps[$k].mr_url = null | .last_status_change_at = $ts' \
       "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
-    echo "[check] $STEP_KEY: marked closed (PR/MR was closed without merging)" >&2
+    echo "[check] $STEP_KEY: PR/MR was closed without merging — reset to pending for re-raise" >&2
+    if [[ -n "${JIRA_URL:-}" ]]; then
+      uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+        --comment "[step:${STEP_KEY}] PR/MR was closed without merging (${URL}). Step reset to pending — a new PR/MR will be raised on the next run." || true
+    fi
   else
     echo "[check] $STEP_KEY: still open/draft — no change" >&2
   fi

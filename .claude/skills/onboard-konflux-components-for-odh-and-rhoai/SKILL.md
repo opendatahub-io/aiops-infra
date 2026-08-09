@@ -584,7 +584,7 @@ Set `NEW_PRS_RAISED="true"` in Step 8 immediately after recording any new PR/MR 
 
 ```bash
 ALL_DONE=$(jq -r '
-  [.steps | to_entries[] | select(.value.status != "skipped")] |
+  [.steps | to_entries[] | select(.value.status != "skipped" and .value.status != "closed")] |
   all(.value.status == "done" or .value.status == "merged")
 ' "$PIPELINE_STATE")
 ```
