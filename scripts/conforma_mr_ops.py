@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+from pathlib import Path
 import threading
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -99,7 +100,10 @@ def image_url_covers_component(image_url: str, component_name: str) -> bool:
     return _extract_image_base(image_url) == _extract_component_base(component_name)
 
 
-def _extract_all_rules_from_changes(changes: list[dict]) -> set[str]:
+def _extract_all_rules_from_changes(
+    changes: list[dict],
+    relevant_policy_files: list[str] | None = None,
+) -> set[str]:
     """Extract every conforma rule code added in an MR's diff.
 
     Scans only policy/exception file hunks (paths matching
@@ -111,14 +115,20 @@ def _extract_all_rules_from_changes(changes: list[dict]) -> set[str]:
     Only **added** lines (``+`` prefix) are considered, so rules that were
     already present in the file (context lines) are not counted as new.
 
+    When *relevant_policy_files* is provided, only files whose basename
+    matches are considered.
+
     Returns a set of rule code strings, e.g.::
 
         {"hermetic_task.hermetic", "rpm_signature.allowed:9386b48a1a693c5c"}
     """
+    relevant_basenames = {Path(f).name for f in relevant_policy_files} if relevant_policy_files else None
     rules: set[str] = set()
     for change in changes:
         path = change.get("new_path", "")
         if not any(marker in path for marker in EXCEPTION_PATH_MARKERS):
+            continue
+        if relevant_basenames and Path(path).name not in relevant_basenames:
             continue
         diff = change.get("diff", "")
         for m in _RULE_VALUE_RE.finditer(diff):
@@ -543,7 +553,10 @@ def _discover_mrs_by_diff() -> dict[int, dict]:
     return discovered
 
 
-def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
+def prefetch_open_mrs(
+    rules: list[str],
+    relevant_policy_files: list[str] | None = None,
+) -> dict[str, list[dict]]:
     """Discover open MRs covering *rules* via diff scanning + text search.
 
     Returns a mapping of ``rule -> list[mr_info]``.  Each ``mr_info`` dict
@@ -564,6 +577,10 @@ def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
 
     After both discovery passes, all MR diffs are scanned to extract rule
     codes and cross-index MRs to the rules they actually cover.
+
+    When *relevant_policy_files* is provided, only diffs touching files
+    whose basename matches are considered for rule extraction.  This
+    prevents cross-product false positives in shared repos.
     """
     rule_to_mrs: dict[str, list[dict]] = {}
     all_iids: set[int] = set()
@@ -598,7 +615,7 @@ def prefetch_open_mrs(rules: list[str]) -> dict[str, list[dict]]:
     rules_set = set(rules)
     for iid in sorted(all_iids):
         changes = _mr_cache.get_changes(iid)
-        diff_rules = sorted(_extract_all_rules_from_changes(changes))
+        diff_rules = sorted(_extract_all_rules_from_changes(changes, relevant_policy_files))
 
         # Stamp diff_rules onto every existing entry for this iid
         for rule_list in rule_to_mrs.values():
@@ -677,6 +694,7 @@ def analyze_mr_component_coverage(
     requested_components: list[str],
     mr_description: str = "",
     aliases: dict[str, set[str]] | None = None,
+    relevant_policy_files: list[str] | None = None,
 ) -> dict:
     """Analyze which requested components an open Merge Request already covers.
 
@@ -688,6 +706,12 @@ def analyze_mr_component_coverage(
 
     Each result includes ``mr_type`` (``"exception"`` or ``"remedy"``)
     determined by :func:`classify_mr_type` from the diff file paths.
+
+    When *relevant_policy_files* is provided, only diff hunks whose file
+    basename matches one of the given policy file names are considered.
+    This prevents cross-product false positives in shared repos like
+    konflux-release-data where MRs for other products may contain the
+    same rule codes.
 
     Uses ``_mr_cache`` if the diff was prefetched; otherwise fetches on demand.
     """
@@ -732,10 +756,14 @@ def analyze_mr_component_coverage(
     title_mentions_rule = rule_base.replace("_", " ") in mr_text or rule_base in mr_text
     result_base["title_mentions_rule"] = title_mentions_rule
 
+    relevant_basenames = {Path(f).name for f in relevant_policy_files} if relevant_policy_files else None
+
     mr_effective_until: str | None = None
     for change in changes:
         path = change.get("new_path", "")
         if any(marker in path for marker in EXCEPTION_PATH_MARKERS):
+            if relevant_basenames and Path(path).name not in relevant_basenames:
+                continue
             diff_components.extend(_parse_components_from_diff(
             change.get("diff", ""), rule, requested_components=requested_components,
         ))
@@ -792,6 +820,7 @@ def main() -> None:
     p_analyze.add_argument("--mr-iid", type=int, required=True)
     p_analyze.add_argument("--rule", required=True)
     p_analyze.add_argument("--components", required=True)
+    p_analyze.add_argument("--policy-files", help="Comma-separated policy file basenames to restrict MR diff matching")
 
     args = parser.parse_args()
 
@@ -799,10 +828,12 @@ def main() -> None:
         result = search_open_exception_mrs(args.rule)
     elif args.command == "analyze-coverage":
         components = [c.strip() for c in args.components.split(",")]
+        pf = [f.strip() for f in args.policy_files.split(",")] if args.policy_files else None
         result = analyze_mr_component_coverage(
             mr_iid=args.mr_iid,
             rule=args.rule,
             requested_components=components,
+            relevant_policy_files=pf,
         )
     else:
         parser.print_help()

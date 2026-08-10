@@ -517,7 +517,7 @@ def check_violations_coverage(
     def _fetch_mrs():
         t0 = time.monotonic()
         _log(f"  [Merge Requests] Searching GitLab for {len(all_rules)} rules...")
-        result = conforma_mr_ops.prefetch_open_mrs(all_rules)
+        result = conforma_mr_ops.prefetch_open_mrs(all_rules, relevant_policy_files=policy_files)
         total_mrs = sum(len(v) for v in result.values())
         _log(f"  [Merge Requests] Done — {total_mrs} open Merge Request(s) found ({time.monotonic() - t0:.1f}s)")
         return "mrs", result

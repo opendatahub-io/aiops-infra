@@ -468,6 +468,7 @@ def check_existing_exception_gate(
             requested_components=components,
             mr_description=mr_info.get("description", ""),
             aliases=aliases,
+            relevant_policy_files=policy_files,
         )
         merged = {**mr_info, **coverage}
         merged.pop("description", None)
