@@ -29,7 +29,8 @@
           "description": "Unique component name starting with 'odh-', using only lowercase letters, numbers, and hyphens (must not end with '-rhel9')",
           "pattern": "^odh-[a-z0-9]+(-[a-z0-9]+)*$",
           "not": { "pattern": "-rhel9$" },
-          "minLength": 5
+          "minLength": 5,
+          "maxLength": 51
         },
         "repo_url": {
           "type": "string",
