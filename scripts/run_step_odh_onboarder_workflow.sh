@@ -63,6 +63,7 @@ REPO_BRANCH=$(grep -m1    'repo_branch:'   "$YAML_FILE" | awk '{print $2}')
 BUILD_TYPE=$(grep -m1     'build_type:'    "$YAML_FILE" | awk '{print $2}' 2>/dev/null || echo "CI")
 VERSION=$(grep -m1        'odh_release_tag:' "$YAML_FILE" | awk '{print $2}' 2>/dev/null || echo "")
 PRODUCT_CONTEXT=$(grep -m1 'product_context:' "$YAML_FILE" | awk '{print $2}' 2>/dev/null || echo "ODH")
+CONTEXT_PATH=$(grep -m1   'context_path:'  "$YAML_FILE" | awk '{print $2}' 2>/dev/null || echo "")
 
 REPO_NAME="${REPO_URL##*/}"; REPO_NAME="${REPO_NAME%.git}"
 COMPONENT="$REPO_NAME"
@@ -86,6 +87,7 @@ echo "Triggering odh-konflux-onboarder workflow for component: $COMPONENT"
 echo "OKC_URL     : $OKC_URL"
 echo "Build type  : $BUILD_TYPE"
 echo "Branch      : $REPO_BRANCH"
+[[ -n "$CONTEXT_PATH" ]] && echo "Path context: $CONTEXT_PATH"
 
 # Build workflow inputs
 WORKFLOW_INPUTS=(
@@ -94,6 +96,7 @@ WORKFLOW_INPUTS=(
   "--input" "build_type=$BUILD_TYPE"
 )
 [[ -n "$VERSION" ]] && WORKFLOW_INPUTS+=("--input" "version=$VERSION")
+[[ -n "$CONTEXT_PATH" ]] && WORKFLOW_INPUTS+=("--input" "path_context=$CONTEXT_PATH")
 
 # Trigger (up to 3 attempts)
 RUN_ID=""

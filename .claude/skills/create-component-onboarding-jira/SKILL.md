@@ -155,6 +155,25 @@ _Execute only when `product_context == ODH` and `build_type == Release`. Skip en
 → Store in `odh_release_tag`. Must be non-empty.
   Re-ask if empty.
 
+**Q2.6 — Tied RHOAI version (ODH only)**
+
+_Execute only when `product_context == ODH`. Skip entirely for RHOAI._
+
+> Which RHOAI version is this ODH component tied to?
+> This is used to set the Jira Target Version field for release tracking.
+> Format: `x.y`, `x.y.0`, `x.y-eaN`, `x.y-ea-N`, `x.y-ea.N`, `x.y.0-eaN`, `x.y.0-ea-N`, or `x.y.0-ea.N`
+> Examples: `3.4`, `3.4.0`, `3.4-ea2`, `3.4-ea-2`, `3.4-ea.2`, `3.4.0-ea2`, `3.4.0-ea-2`, `3.4.0-ea.2`
+
+→ Validate against the regex: `^\d+\.\d+(?:\.0)?(?:-ea[-.]?\d+)?$`
+  Re-ask if the input does not match, showing the valid examples above.
+
+Apply the same canonical transformation as Q2a:
+- Extract `VERSION_X` = first integer, `VERSION_Y` = second integer, `VERSION_N` = EA number (after `-ea`, `-ea-`, or `-ea.`), or empty if no EA suffix
+- If `VERSION_N` is non-empty: `tied_rhoai_version = "<VERSION_X>.<VERSION_Y>-ea-<VERSION_N>"` (e.g. `3.4-ea-2`)
+- Otherwise: `tied_rhoai_version = "<VERSION_X>.<VERSION_Y>"` (e.g. `3.4`)
+
+→ Store in `tied_rhoai_version`.
+
 _If `product_context == RHOAI`:_
 
 **Q2a — Target RHOAI version**
@@ -361,6 +380,7 @@ Component onboarding details collected:
   product_context              : <value>
   build_type / architectures   : <value>
   odh_release_tag              : <value or N/A>   # only shown for ODH Release
+  tied_rhoai_version           : <value or N/A>   # only shown for ODH
   target_rhoai_version         : <value or N/A>   # only shown for RHOAI
   component_name               : <value>
   release_category             : <value or N/A>   # only shown for RHOAI
@@ -634,6 +654,14 @@ if [[ "$product_context" == "RHOAI" ]]; then
     --short-description "$short_description"
     --architectures "$(IFS=,; echo "${architectures[*]}")"
   )
+fi
+
+# Target version: RHOAI uses target_rhoai_version; ODH uses tied_rhoai_version
+# (ODH CI and Release alike — the tied RHOAI version was collected in Q2.6)
+if [[ "$product_context" == "RHOAI" ]]; then
+  UPDATE_JIRA_ARGS+=(--target-version "$target_rhoai_version")
+elif [[ "$product_context" == "ODH" ]]; then
+  UPDATE_JIRA_ARGS+=(--target-version "$tied_rhoai_version")
 fi
 
 uv run --script scripts/update_onboarding_jira.py "$JIRA_URL" "${UPDATE_JIRA_ARGS[@]}"

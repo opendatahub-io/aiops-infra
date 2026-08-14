@@ -39,6 +39,16 @@ def main():
     p.add_argument("--dockerfile-path", required=True)
     p.add_argument("--short-description", default="")
     p.add_argument("--architectures", default="")
+    p.add_argument(
+        "--target-version",
+        default="",
+        help=(
+            "Version name to set as Target Version (customfield_10855) on the Jira issue. "
+            "For RHOAI pass target_rhoai_version (e.g. '3.5' or '3.5-ea-1'). "
+            "For ODH Release pass odh_release_tag (e.g. '2.21.0'). "
+            "Omit for ODH CI builds where no fixed version applies."
+        ),
+    )
     args = p.parse_args()
 
     email = os.environ.get("JIRA_USER_EMAIL", "")
@@ -146,9 +156,9 @@ def main():
     else:
         print("  No known description table found — skipping table update.")
 
-    # --- Set Target Version (RHOAI only) ---
-    if args.product_context == "RHOAI":
-        target_version_name = args.repo_branch
+    # --- Set Target Version (both products when --target-version is provided) ---
+    if args.target_version:
+        target_version_name = args.target_version
         try:
             _, project_versions = jira_request(
                 f"{jira_server}/rest/api/2/project/{jira_id.split('-')[0]}/versions",
