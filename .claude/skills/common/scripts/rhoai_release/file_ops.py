@@ -216,6 +216,47 @@ def create_rpa_files(
             )
             logger.debug("Fixed product_version to %r in %s", base_ver, f.name)
 
+        # Handle charts files: add version tags to mapping.defaults.tags for Y stream (non-EA)
+        is_charts_file = "charts-prod.yaml" in f.name or "charts-stage.yaml" in f.name
+        # Check only the target version (new_version), not is_ea flag (which considers both source and target)
+        # This ensures EA→Y stream transitions (e.g., 3.5-ea.1 → 3.5) correctly add the tags
+        target_is_ea = "-ea-" in new_version_dash
+        if is_charts_file and not target_is_ea:
+            # For Y stream releases, replace tags using regex to preserve YAML formatting
+            # Three required tags:
+            # 1. vX.Y (e.g., v3.5)
+            # 2. vX.Y.0-{{ release_timestamp }} (template placeholder)
+            # 3. vX.Y.0 (e.g., v3.5.0)
+            version_base = new_version_dash.replace('-', '.')  # e.g., "3.5"
+
+            # Pattern to match the tags section (preserving indentation)
+            # Matches from "tags:" to just before "pushSourceContainer:"
+            # This handles both 2-tag and 3-tag cases
+            tags_pattern = re.compile(
+                r'(        tags:\n)'  # Capture "tags:" with its indentation
+                r'(          -[^\n]+\n){1,3}'  # Match 1-3 existing tag lines
+                r'(?=        pushSourceContainer:)',  # Look ahead to next field
+                re.MULTILINE
+            )
+
+            # Build the replacement with all three tags (quoted for YAML compatibility)
+            replacement = (
+                f'        tags:\n'
+                f'          - "v{version_base}"\n'
+                f'          - "v{version_base}.0-{{{{ release_timestamp }}}}"\n'
+                f'          - "v{version_base}.0"\n'
+            )
+
+            # Replace tags section
+            new_raw = tags_pattern.sub(replacement, raw)
+
+            if new_raw != raw:
+                raw = new_raw
+                logger.debug("Updated tags to v%s, v%s.0-{{ release_timestamp }}, v%s.0 in %s",
+                           version_base, version_base, version_base, f.name)
+            else:
+                logger.warning("Could not find tags pattern in %s to update", f.name)
+
         f.write_text(raw, encoding="utf-8")
     logger.info("Created %d RPA files under %s", len(copied), rpa_base)
 

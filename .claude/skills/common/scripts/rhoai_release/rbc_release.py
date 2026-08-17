@@ -818,6 +818,51 @@ def update_csv_patch(mapping, skip_for_ea_train):
         f.write(content)
 
 
+def update_config_trustyai_build(new_major, new_minor, new_version_with_prefix):
+    """
+    Update config/trustyai-pig-build-config.yaml:
+    - #!productVersion= uses x.y.0 format only (no EA suffix)
+    - #!scmRevision= uses the full target version (with EA suffix if applicable)
+
+    For both Y-stream and EA releases, the productVersion should be x.y.0 (e.g., 3.5.0), never with EA suffix.
+    The scmRevision should match the target branch/version exactly (e.g., rhoai-3.5 or rhoai-3.5-ea.1).
+    """
+    config_path = "config/trustyai-pig-build-config.yaml"
+    if not os.path.exists(config_path):
+        print(f"Skipping {config_path}: file not found")
+        return False
+
+    with open(config_path, encoding="utf-8", newline="") as f:
+        content = f.read()
+
+    # Target productVersion format: x.y.0 (no EA suffix)
+    target_product_version = f"{new_major}.{new_minor}.0"
+    # Target scmRevision: full version with rhoai- prefix (includes EA if applicable)
+    target_scm_revision = new_version_with_prefix
+
+    original = content
+
+    # Replace #!productVersion= line with x.y.0 format (strip any EA suffixes)
+    pattern_product = r"^#!productVersion=.*$"
+    replacement_product = f"#!productVersion={target_product_version}"
+    content = re.sub(pattern_product, replacement_product, content, flags=re.MULTILINE)
+
+    # Replace #!scmRevision= line with the target version
+    pattern_scm = r"^#!scmRevision=.*$"
+    replacement_scm = f"#!scmRevision={target_scm_revision}"
+    content = re.sub(pattern_scm, replacement_scm, content, flags=re.MULTILINE)
+
+    if content == original:
+        print(f"No changes needed in {config_path} (already {target_product_version} / {target_scm_revision})")
+        return False
+
+    with open(config_path, "w", encoding="utf-8", newline="") as f:
+        f.write(content)
+
+    print(f"Updated {config_path}: #!productVersion={target_product_version}, #!scmRevision={target_scm_revision}")
+    return True
+
+
 # ---------------- GIT ---------------- #
 
 
@@ -1131,12 +1176,16 @@ def main():
     tekton_final = update_tekton_files(mapping, tekton_paths)
     update_bundle_patch(mapping)
     update_csv_patch(mapping, skip_for_ea_train=skip_csv_same_train_ea)
+    config_updated = update_config_trustyai_build(new_major, new_minor, logical_latest)
 
     stage_paths = list(tekton_final)
     if os.path.isfile(BUNDLE_PATCH):
         stage_paths.append(BUNDLE_PATCH)
     if not skip_csv_same_train_ea and os.path.isfile(CSV_PATCH):
         stage_paths.append(CSV_PATCH)
+    config_path = "config/trustyai-pig-build-config.yaml"
+    if config_updated and os.path.isfile(config_path):
+        stage_paths.append(config_path)
     stage_paths = list(dict.fromkeys(stage_paths))
 
     if dry:
