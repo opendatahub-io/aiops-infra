@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RHOAI Release Onboarding</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --surface2: #1c2128;
+      --border:   #30363d;
+      --border2:  #21262d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #ee0000;
+      --blue:     #58a6ff;
+      --green:    #3fb950;
+      --red:      #f85149;
+      --yellow:   #d29922;
+      --purple:   #bc8cff;
+      --cyan:     #39d353;
+      --rhat:     #ee0000;
+      font-size: 14px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Header ───────────────────────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #1a0000 0%, #2a0000 40%, #1c0505 100%);
+      border-bottom: 1px solid #4a0000;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 60px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 16px rgba(238,0,0,0.15);
+    }
+    .header-logo {
+      width: 32px; height: 32px;
+      background: var(--rhat);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 16px; color: #fff;
+      flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: #fff;
+    }
+    header .subtitle {
+      font-size: 12px;
+      color: #ff9999;
+      margin-left: 2px;
+    }
+    .header-badge {
+      margin-left: auto;
+      background: rgba(238,0,0,0.15);
+      border: 1px solid #4a0000;
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: 11px;
+      color: #ff9999;
+      font-weight: 500;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    .page {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 0;
+      min-height: calc(100vh - 60px);
+    }
+
+    /* ── Sidebar (config panel) ───────────────────────────────────────────── */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      position: sticky;
+      top: 60px;
+      height: calc(100vh - 60px);
+      overflow-y: auto;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 13px; font-weight: 500; color: var(--text); }
+    .form-group .hint { font-size: 11px; color: var(--muted); }
+
+    input[type="text"] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      padding: 8px 11px;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+    input[type="text"]:focus { border-color: var(--blue); }
+    input[type="text"]::placeholder { color: var(--muted); }
+    input[type="text"].error { border-color: var(--red); }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .toggle-label { font-size: 13px; font-weight: 500; color: var(--text); }
+    .toggle-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* Toggle switch */
+    .switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0;
+      background: var(--border);
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 3px; top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .switch input:checked + .slider { background: var(--blue); }
+    .switch input:checked + .slider::before { transform: translateX(20px); }
+    .switch input:disabled + .slider { opacity: 0.4; cursor: not-allowed; }
+
+    .divider { height: 1px; background: var(--border); }
+
+    /* Run button */
+    .run-btn {
+      background: linear-gradient(135deg, #cc0000 0%, #ee0000 100%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 11px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: opacity 0.15s, transform 0.1s;
+      box-shadow: 0 2px 12px rgba(238,0,0,0.3);
+    }
+    .run-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+    .run-btn:active:not(:disabled) { transform: translateY(0); }
+    .run-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* Stop button */
+    .stop-btn {
+      background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 11px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: opacity 0.15s, transform 0.1s;
+      box-shadow: 0 2px 12px rgba(220,38,38,0.3);
+    }
+    .stop-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+    .stop-btn:active:not(:disabled) { transform: translateY(0); }
+    .stop-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* History list */
+    .history-list { display: flex; flex-direction: column; gap: 6px; }
+    .history-item {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .history-item:hover { border-color: var(--border); }
+    .history-item.active { border-color: var(--blue); }
+    .history-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .history-dot.success { background: var(--green); }
+    .history-dot.partial { background: var(--yellow); }
+    .history-dot.failed  { background: var(--red); }
+    .history-dot.running { background: var(--blue); animation: pulse 1.2s ease-in-out infinite; }
+    .history-dot.pending   { background: var(--muted); }
+    .history-dot.cancelled { background: var(--yellow); }
+
+    /* ── Main content ─────────────────────────────────────────────────────── */
+    .main {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      min-width: 0;
+    }
+
+    /* ── Welcome state ────────────────────────────────────────────────────── */
+    .welcome {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 16px;
+      color: var(--muted);
+      text-align: center;
+      padding: 60px 0;
+    }
+    .welcome-icon {
+      width: 72px; height: 72px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px;
+    }
+    .welcome h2 { font-size: 20px; color: var(--text); font-weight: 600; }
+    .welcome p { font-size: 14px; max-width: 400px; }
+
+    /* ── Pipeline header ──────────────────────────────────────────────────── */
+    .pipeline-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .pipeline-title { font-size: 15px; font-weight: 600; }
+    .pipeline-meta  { font-size: 12px; color: var(--muted); }
+    .pipeline-status-badge {
+      margin-left: auto;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-running { background: rgba(88,166,255,0.15); color: var(--blue);   border: 1px solid rgba(88,166,255,0.3); }
+    .badge-success { background: rgba(63,185,80,0.15);  color: var(--green);  border: 1px solid rgba(63,185,80,0.3); }
+    .badge-partial { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); }
+    .badge-failed  { background: rgba(248,81,73,0.15);  color: var(--red);    border: 1px solid rgba(248,81,73,0.3); }
+    .badge-pending   { background: rgba(139,148,158,0.1); color: var(--muted);  border: 1px solid var(--border2); }
+    .badge-cancelled { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); }
+
+    /* ── Step cards ───────────────────────────────────────────────────────── */
+    .steps-container { display: flex; flex-direction: column; gap: 12px; }
+
+    .step-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .step-card.running { border-color: var(--blue); }
+    .step-card.success { border-color: rgba(63,185,80,0.4); }
+    .step-card.failed  { border-color: rgba(248,81,73,0.4); }
+    .step-card.skipped   { opacity: 0.5; }
+    .step-card.cancelled { border-color: rgba(210,153,34,0.4); opacity: 0.6; }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 18px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .step-header:hover { background: rgba(255,255,255,0.02); }
+
+    /* Status icon */
+    .step-icon {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-size: 18px;
+    }
+    .step-icon.pending { background: var(--surface2); border: 2px solid var(--border); color: var(--muted); }
+    .step-icon.running { background: rgba(88,166,255,0.15); border: 2px solid var(--blue); }
+    .step-icon.success { background: rgba(63,185,80,0.15);  border: 2px solid var(--green); color: var(--green); }
+    .step-icon.failed  { background: rgba(248,81,73,0.15);  border: 2px solid var(--red);   color: var(--red); }
+    .step-icon.skipped   { background: var(--surface2); border: 2px solid var(--border); color: var(--muted); }
+    .step-icon.cancelled { background: rgba(210,153,34,0.15); border: 2px solid var(--yellow); color: var(--yellow); }
+
+    .step-info { flex: 1; min-width: 0; }
+    .step-num  { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .step-name { font-size: 14px; font-weight: 600; }
+    .step-desc { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .step-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .step-chevron { color: var(--muted); transition: transform 0.2s; font-size: 12px; }
+    .step-card.open .step-chevron { transform: rotate(180deg); }
+
+    /* Link badges inside step header */
+    .link-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: opacity 0.15s;
+    }
+    .link-badge:hover { opacity: 0.8; text-decoration: none; }
+    .link-badge.pr { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+    .link-badge.mr { background: rgba(238,0,0,0.15); color: #ff8080; border: 1px solid rgba(238,0,0,0.3); }
+
+    /* Log panel */
+    .log-panel {
+      display: none;
+      border-top: 1px solid var(--border);
+    }
+    .step-card.open .log-panel { display: block; }
+
+    .log-toolbar {
+      display: flex;
+      align-items: center;
+      padding: 8px 18px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border2);
+      gap: 8px;
+    }
+    .log-toolbar-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; flex: 1; }
+
+    .icon-btn {
+      background: none;
+      border: 1px solid var(--border2);
+      border-radius: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 3px 8px;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .icon-btn:hover { border-color: var(--border); color: var(--text); }
+    .icon-btn.copied { color: var(--green); border-color: var(--green); }
+
+    .log-body {
+      background: #0d1117;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      overflow-y: auto;
+      max-height: 420px;
+      padding: 12px 18px;
+      scroll-behavior: smooth;
+    }
+
+    .log-line { white-space: pre-wrap; word-break: break-word; }
+    .log-line.info    { color: #c9d1d9; }
+    .log-line.success-line { color: var(--green); }
+    .log-line.error   { color: var(--red); }
+    .log-line.warning { color: var(--yellow); }
+    .log-line.debug   { color: var(--muted); }
+    .log-line.link    { color: var(--blue); }
+    .log-empty { color: var(--muted); font-style: italic; }
+
+    /* ── Results card ─────────────────────────────────────────────────────── */
+    .results-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .results-header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .results-header.success { background: linear-gradient(135deg, rgba(63,185,80,0.08)  0%, transparent 60%); border-bottom: 1px solid rgba(63,185,80,0.2); }
+    .results-header.partial { background: linear-gradient(135deg, rgba(210,153,34,0.08) 0%, transparent 60%); border-bottom: 1px solid rgba(210,153,34,0.2); }
+    .results-header.failed  { background: linear-gradient(135deg, rgba(248,81,73,0.08)  0%, transparent 60%); border-bottom: 1px solid rgba(248,81,73,0.2); }
+
+    .results-icon { font-size: 28px; }
+    .results-title { font-size: 16px; font-weight: 700; }
+    .results-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .results-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+
+    .link-card {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .link-card-icon { font-size: 22px; flex-shrink: 0; }
+    .link-card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+    .link-card-url   { font-size: 13px; word-break: break-all; margin-top: 2px; }
+    .link-card-url a { color: var(--blue); }
+    .link-card-actions { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+
+    .btn-open {
+      background: var(--blue);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex; align-items: center; gap: 4px;
+      transition: opacity 0.15s;
+    }
+    .btn-open:hover { opacity: 0.85; text-decoration: none; color: #000; }
+
+    /* ── Spinner SVG ──────────────────────────────────────────────────────── */
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2.5px solid rgba(88,166,255,0.3);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Animations ───────────────────────────────────────────────────────── */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; } to { opacity: 1; }
+    }
+
+    /* ── Progress bar ─────────────────────────────────────────────────────── */
+    .progress-bar-wrap {
+      height: 3px;
+      background: var(--surface2);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #ee0000, var(--blue));
+      border-radius: 3px;
+      transition: width 0.5s ease;
+    }
+
+    /* ── Connector line between steps ─────────────────────────────────────── */
+    .step-connector {
+      display: flex;
+      align-items: center;
+      padding: 0 18px;
+      gap: 14px;
+      height: 20px;
+    }
+    .connector-line { flex: 1; height: 1px; }
+    .connector-line.done { background: var(--green); }
+    .connector-line.active { background: var(--blue); animation: pulse 1.2s ease-in-out infinite; }
+    .connector-line.idle { background: var(--border); }
+    .connector-dot { width: 36px; height: 1px; flex-shrink: 0; }
+
+    /* ── Dry run banner ───────────────────────────────────────────────────── */
+    .dry-run-banner {
+      background: rgba(210,153,34,0.1);
+      border: 1px solid rgba(210,153,34,0.3);
+      border-radius: 8px;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--yellow);
+    }
+
+    /* ── Scrollbar ────────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+    /* ── Responsive ───────────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-logo">RH</div>
+  <div>
+    <h1>RHOAI Release Onboarding</h1>
+    <div class="subtitle">Konflux Release Data Automation</div>
+  </div>
+  <div class="header-badge">v1.0</div>
+</header>
+
+<div class="page">
+
+  <!-- ── Sidebar ────────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div>
+      <div class="panel-title">Configuration</div>
+    </div>
+
+    <!-- Version inputs -->
+    <div class="form-group">
+      <label for="prev-ver">Previous Version</label>
+      <input type="text" id="prev-ver" placeholder="e.g. rhoai-3.4" autocomplete="off" />
+      <span class="hint">Format: rhoai-X.Y or rhoai-X.Y.ea.N</span>
+    </div>
+
+    <div class="form-group">
+      <label for="new-ver">New Version</label>
+      <input type="text" id="new-ver" placeholder="e.g. rhoai-3.5" autocomplete="off" />
+      <span class="hint">Format: rhoai-X.Y or rhoai-X.Y.ea.N</span>
+    </div>
+
+    <div class="form-group">
+      <label for="repo-dir">Clone Directory</label>
+      <input type="text" id="repo-dir" value="konflux-release-data" autocomplete="off" />
+      <span class="hint">Local path for the cloned repo</span>
+    </div>
+
+    <!-- Dry run toggle -->
+    <div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Dry Run</div>
+          <div class="toggle-desc">Show diff only — no commit or push</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="dry-run" checked />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Step toggles -->
+    <div>
+      <div class="panel-title" style="margin-bottom:10px">Pipeline Steps</div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">RBC Release</div>
+            <div class="toggle-desc">Release-branch — GitHub Build-Config</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="step-toggle-0" checked />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">RBC Main Onboard</div>
+            <div class="toggle-desc">Main-branch catalog + Tekton — GitHub</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="step-toggle-1" checked />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Konflux Onboard</div>
+            <div class="toggle-desc">Clone, edit, push MR — GitLab</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="step-toggle-2" checked />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Run / Stop buttons -->
+    <button class="run-btn" id="run-btn" onclick="startPipeline()">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0zm0 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM6.5 5.75l4 2.5-4 2.5V5.75z"/>
+      </svg>
+      Run Pipeline
+    </button>
+    <button class="stop-btn" id="stop-btn" onclick="stopPipeline()" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0zm0 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM5.5 5.5h5v5h-5z"/>
+      </svg>
+      <span class="stop-label">Stop Pipeline</span>
+    </button>
+
+    <div class="divider"></div>
+
+    <!-- Run history -->
+    <div>
+      <div class="panel-title" style="margin-bottom:10px">Run History</div>
+      <div class="history-list" id="history-list">
+        <div style="font-size:12px;color:var(--muted)">No runs yet</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main content ──────────────────────────────────────────────────── -->
+  <main class="main" id="main-content">
+
+    <!-- Welcome splash (shown when no run is selected) -->
+    <div class="welcome" id="welcome">
+      <div class="welcome-icon">🚀</div>
+      <h2>Ready to Onboard</h2>
+      <p>Fill in the version details on the left and click <strong>Run Pipeline</strong> to start the RHOAI release onboarding automation.</p>
+      <p style="margin-top:8px;font-size:12px">The pipeline runs three steps: GitHub Build-Config release branch → GitHub Build-Config main branch → Konflux Release Data GitLab MR.</p>
+    </div>
+
+    <!-- Pipeline view (hidden until a run starts) -->
+    <div id="pipeline-view" style="display:none;display:flex;flex-direction:column;gap:16px;">
+
+      <!-- Pipeline header bar -->
+      <div class="pipeline-header" id="pipeline-header">
+        <div>
+          <div class="pipeline-title" id="ph-title">Running pipeline…</div>
+          <div class="pipeline-meta" id="ph-meta"></div>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
+          <div style="width:140px">
+            <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar" style="width:0%"></div></div>
+          </div>
+          <span class="pipeline-status-badge badge-running" id="pipeline-badge">Running</span>
+        </div>
+      </div>
+
+      <!-- Dry run notice -->
+      <div class="dry-run-banner" id="dry-run-banner" style="display:none">
+        ⚠️ <strong>Dry Run Mode</strong> — Changes will be shown but not committed or pushed.
+      </div>
+
+      <!-- Step cards -->
+      <div class="steps-container" id="steps-container"></div>
+
+      <!-- Results card (shown on completion) -->
+      <div id="results-area"></div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+/* ── State ─────────────────────────────────────────────────────────────────── */
+let currentJobId = null;
+let eventSource  = null;
+let history      = [];   // [{id, prev, new, status}]
+let stepLogs     = {};   // step_idx -> [lines]
+let stepLinks    = {};   // step_idx -> {pr_url, mr_url}
+let stepCount    = 0;
+let doneSteps    = 0;
+
+/* ── Utility ─────────────────────────────────────────────────────────────── */
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function classifyLine(line) {
+  const l = line.toLowerCase();
+  if (l.includes('[error]') || l.startsWith('error:') || l.startsWith('fatal:') || l.startsWith('traceback') || l.includes('exception'))
+    return 'error';
+  if (l.includes('[warning]') || l.startsWith('warning:'))
+    return 'warning';
+  if (l.includes('[info]') || l.startsWith('info:'))
+    return 'info';
+  if (l.includes('[debug]'))
+    return 'debug';
+  if (l.includes('http://') || l.includes('https://'))
+    return 'link';
+  if (l.includes('success') || l.includes('pushed') || l.includes('created') || l.includes('✓') || l.includes('done'))
+    return 'success-line';
+  return 'info';
+}
+
+function linkifyLine(line) {
+  const urlRe = /(https?:\/\/[^\s]+)/g;
+  return esc(line).replace(urlRe, u =>
+    `<a href="${u.replace(/&amp;/g,'&')}" target="_blank" rel="noopener">${u}</a>`
+  );
+}
+
+function formatTime(d) {
+  return d.toLocaleTimeString('en-US', { hour12: false });
+}
+
+/* ── Button helpers ───────────────────────────────────────────────────────── */
+function resetButtons() {
+  document.getElementById('run-btn').style.display = 'flex';
+  document.getElementById('run-btn').disabled = false;
+  const stopBtn = document.getElementById('stop-btn');
+  stopBtn.style.display = 'none';
+  stopBtn.disabled = false;
+  const label = stopBtn.querySelector('.stop-label');
+  if (label) label.textContent = 'Stop Pipeline';
+  [0, 1, 2].forEach(i => document.getElementById(`step-toggle-${i}`).disabled = false);
+}
+
+async function stopPipeline() {
+  if (!currentJobId) return;
+  const btn = document.getElementById('stop-btn');
+  btn.disabled = true;
+  const label = btn.querySelector('.stop-label');
+  if (label) label.textContent = 'Stopping…';
+  try {
+    await fetch(`/api/stop/${currentJobId}`, { method: 'POST' });
+  } catch (e) {
+    console.error('Stop error:', e);
+  }
+}
+
+/* ── Start pipeline ───────────────────────────────────────────────────────── */
+async function startPipeline() {
+  const prev    = document.getElementById('prev-ver').value.trim();
+  const newVer  = document.getElementById('new-ver').value.trim();
+  const repoDir = document.getElementById('repo-dir').value.trim() || 'konflux-release-data';
+  const dryRun  = document.getElementById('dry-run').checked;
+  const enabledSteps = [
+    document.getElementById('step-toggle-0').checked,
+    document.getElementById('step-toggle-1').checked,
+    document.getElementById('step-toggle-2').checked,
+  ];
+
+  // Validate
+  let valid = true;
+  ['prev-ver','new-ver'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el.value.trim()) { el.classList.add('error'); valid = false; }
+    else el.classList.remove('error');
+  });
+  if (!enabledSteps.some(Boolean)) {
+    alert('At least one pipeline step must be enabled.');
+    return;
+  }
+  if (!valid) return;
+
+  // Reset UI
+  currentJobId = null;
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  stepLogs  = {};
+  stepLinks = {};
+  stepCount = 0;
+  doneSteps = 0;
+
+  document.getElementById('welcome').style.display = 'none';
+  const pv = document.getElementById('pipeline-view');
+  pv.style.display = 'flex';
+  document.getElementById('steps-container').innerHTML = '';
+  document.getElementById('results-area').innerHTML    = '';
+  document.getElementById('ph-title').textContent = `${prev} → ${newVer}`;
+  document.getElementById('ph-meta').textContent  = `Started at ${formatTime(new Date())}`;
+  document.getElementById('pipeline-badge').className = 'pipeline-status-badge badge-running';
+  document.getElementById('pipeline-badge').textContent = 'Running';
+  document.getElementById('progress-bar').style.width = '0%';
+  document.getElementById('dry-run-banner').style.display = dryRun ? 'flex' : 'none';
+
+  document.getElementById('run-btn').style.display = 'none';
+  document.getElementById('stop-btn').style.display = 'flex';
+  document.getElementById('stop-btn').disabled = false;
+  [0, 1, 2].forEach(i => document.getElementById(`step-toggle-${i}`).disabled = true);
+
+  // POST to API
+  let jobId;
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ previous_version: prev, new_version: newVer, dry_run: dryRun, repo_dir: repoDir, enabled_steps: enabledSteps }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert('Failed to start pipeline: ' + (err.detail || res.statusText));
+      resetButtons();
+      return;
+    }
+    const data = await res.json();
+    jobId = data.job_id;
+  } catch (e) {
+    alert('Network error: ' + e.message);
+    resetButtons();
+    return;
+  }
+
+  currentJobId = jobId;
+  addHistory(jobId, prev, newVer, 'running');
+  connectSSE(jobId);
+}
+
+/* ── SSE connection ───────────────────────────────────────────────────────── */
+function connectSSE(jobId) {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource(`/api/events/${jobId}`);
+
+  eventSource.onmessage = function(e) {
+    if (!e.data) return;
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    handleEvent(msg, jobId);
+  };
+
+  eventSource.onerror = function() {
+    // Auto-reconnect after a brief pause
+    eventSource.close();
+    setTimeout(() => {
+      if (currentJobId === jobId) connectSSE(jobId);
+    }, 2000);
+  };
+}
+
+/* ── Event handler ────────────────────────────────────────────────────────── */
+function handleEvent(msg, jobId) {
+  switch (msg.type) {
+    case 'snapshot':
+      handleSnapshot(msg.job);
+      break;
+    case 'pipeline_start':
+      stepCount = msg.count || 3;
+      initStepCards(stepCount);
+      if (msg.enabled_steps) {
+        msg.enabled_steps.forEach((en, i) => {
+          if (!en) setStepStatus(i, 'skipped');
+        });
+      }
+      break;
+    case 'steps_ready':
+      stepCount = msg.count || 3;
+      initStepCards(stepCount);
+      break;
+    case 'step_start':
+      setStepStatus(msg.step, 'running');
+      break;
+    case 'log':
+      appendLog(msg.step, msg.line);
+      if (msg.pr_url) setStepLink(msg.step, 'pr', msg.pr_url);
+      if (msg.mr_url) setStepLink(msg.step, 'mr', msg.mr_url);
+      break;
+    case 'step_end':
+      setStepStatus(msg.step, msg.status);
+      if (msg.pr_url) setStepLink(msg.step, 'pr', msg.pr_url);
+      if (msg.mr_url) setStepLink(msg.step, 'mr', msg.mr_url);
+      doneSteps++;
+      updateProgress();
+      break;
+    case 'step_skip':
+      setStepStatus(msg.step, 'skipped');
+      doneSteps++;
+      updateProgress();
+      break;
+    case 'pipeline_end':
+      onPipelineEnd(msg);
+      updateHistory(jobId, msg.status);
+      break;
+    case 'done':
+      eventSource && eventSource.close();
+      resetButtons();
+      break;
+  }
+}
+
+/* ── Snapshot (reconnect) ────────────────────────────────────────────────── */
+function handleSnapshot(job) {
+  if (!job) return;
+  if (!job.steps || job.steps.length === 0) return;
+
+  stepCount = job.steps.length;
+  if (!document.getElementById('step-card-0')) {
+    initStepCards(stepCount);
+  }
+
+  job.steps.forEach((s, i) => {
+    setStepStatus(i, s.status);
+    (s.logs || []).forEach(l => appendLog(i, l));
+    if (s.pr_url) setStepLink(i, 'pr', s.pr_url);
+    if (s.mr_url) setStepLink(i, 'mr', s.mr_url);
+  });
+
+  doneSteps = job.steps.filter(s => ['success','failed','skipped','cancelled'].includes(s.status)).length;
+  updateProgress();
+
+  if (['success', 'partial', 'failed', 'cancelled'].includes(job.status)) {
+    onPipelineEnd({ status: job.status, pr_url: job.pr_url, mr_url: job.mr_url });
+  }
+}
+
+/* ── Build step cards ─────────────────────────────────────────────────────── */
+const STEP_NAMES = [
+  ['RBC Release', 'Release-branch automation — GitHub RHOAI-Build-Config'],
+  ['RBC Main Onboard', 'Main-branch catalog + Tekton onboarding — GitHub'],
+  ['Konflux Onboard', 'Clone, edit, commit, push and open MR — GitLab'],
+];
+
+function initStepCards(count) {
+  const c = document.getElementById('steps-container');
+  c.innerHTML = '';
+  for (let i = 0; i < count; i++) {
+    stepLogs[i]  = stepLogs[i]  || [];
+    stepLinks[i] = stepLinks[i] || {};
+    const [name, desc] = STEP_NAMES[i] || [`Step ${i+1}`, ''];
+
+    // Connector between cards
+    if (i > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'step-connector';
+      conn.id = `connector-${i}`;
+      conn.innerHTML = `
+        <div style="width:36px;flex-shrink:0"></div>
+        <div class="connector-line idle" id="conn-line-${i}" style="flex:1"></div>`;
+      c.appendChild(conn);
+    }
+
+    const card = document.createElement('div');
+    card.className = 'step-card';
+    card.id = `step-card-${i}`;
+    card.innerHTML = `
+      <div class="step-header" onclick="toggleLog(${i})">
+        <div class="step-icon pending" id="step-icon-${i}">
+          ${pendingIcon()}
+        </div>
+        <div class="step-info">
+          <div class="step-num">Step ${i+1}</div>
+          <div class="step-name">${esc(name)}</div>
+          <div class="step-desc">${esc(desc)}</div>
+        </div>
+        <div class="step-right" id="step-right-${i}">
+          <span class="step-chevron" id="chevron-${i}">▼</span>
+        </div>
+      </div>
+      <div class="log-panel" id="log-panel-${i}">
+        <div class="log-toolbar">
+          <span class="log-toolbar-title">Output Log</span>
+          <button class="icon-btn" onclick="scrollToBottom(${i});event.stopPropagation()">
+            ↓ Bottom
+          </button>
+          <button class="icon-btn" id="copy-btn-${i}" onclick="copyLog(${i});event.stopPropagation()">
+            📋 Copy
+          </button>
+          <button class="icon-btn" onclick="clearLog(${i});event.stopPropagation()">
+            🗑 Clear
+          </button>
+        </div>
+        <div class="log-body" id="log-body-${i}">
+          <span class="log-empty">Waiting to start…</span>
+        </div>
+      </div>`;
+    c.appendChild(card);
+  }
+}
+
+/* ── Step status ──────────────────────────────────────────────────────────── */
+function setStepStatus(idx, status) {
+  const card = document.getElementById(`step-card-${idx}`);
+  const icon = document.getElementById(`step-icon-${idx}`);
+  const connLine = document.getElementById(`conn-line-${idx}`);
+  if (!card || !icon) return;
+
+  card.className = `step-card ${status}`;
+  icon.className = `step-icon ${status}`;
+  icon.innerHTML = iconForStatus(status);
+
+  // Update connector above this card
+  if (connLine) {
+    if (status === 'success') connLine.className = 'connector-line done';
+    else if (status === 'running') connLine.className = 'connector-line active';
+    else connLine.className = 'connector-line idle';
+  }
+
+  // Auto-open running step
+  if (status === 'running') {
+    openLog(idx);
+  }
+  // Auto-open failed step
+  if (status === 'failed') {
+    openLog(idx);
+  }
+}
+
+function iconForStatus(status) {
+  switch (status) {
+    case 'pending':   return pendingIcon();
+    case 'running':   return `<div class="spinner" style="width:20px;height:20px"></div>`;
+    case 'success':   return successIcon();
+    case 'failed':    return failedIcon();
+    case 'skipped':   return skippedIcon();
+    case 'cancelled': return cancelledIcon();
+    default:          return pendingIcon();
+  }
+}
+
+function pendingIcon() {
+  return `<svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/>
+  </svg>`;
+}
+function successIcon() {
+  return `<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+    <circle cx="10" cy="10" r="9" fill="rgba(63,185,80,0.15)" stroke="#3fb950" stroke-width="1.5"/>
+    <path d="M6 10l3 3 5-6" stroke="#3fb950" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+function failedIcon() {
+  return `<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+    <circle cx="10" cy="10" r="9" fill="rgba(248,81,73,0.15)" stroke="#f85149" stroke-width="1.5"/>
+    <path d="M7 7l6 6M13 7l-6 6" stroke="#f85149" stroke-width="2" stroke-linecap="round"/>
+  </svg>`;
+}
+function skippedIcon() {
+  return `<svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <path d="M7 9h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>`;
+}
+function cancelledIcon() {
+  return `<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+    <circle cx="10" cy="10" r="9" fill="rgba(210,153,34,0.15)" stroke="#d29922" stroke-width="1.5"/>
+    <rect x="7" y="7" width="6" height="6" rx="1" fill="#d29922"/>
+  </svg>`;
+}
+
+/* ── Log management ───────────────────────────────────────────────────────── */
+function appendLog(idx, line) {
+  if (typeof idx !== 'number') return;
+  stepLogs[idx] = stepLogs[idx] || [];
+  stepLogs[idx].push(line);
+
+  const body = document.getElementById(`log-body-${idx}`);
+  if (!body) return;
+
+  // Remove the "waiting" placeholder
+  const empty = body.querySelector('.log-empty');
+  if (empty) empty.remove();
+
+  const cls = classifyLine(line);
+  const div = document.createElement('div');
+  div.className = `log-line ${cls}`;
+  div.innerHTML = linkifyLine(line || '\u00a0');
+  body.appendChild(div);
+
+  // Auto-scroll if already near bottom
+  if (body.scrollHeight - body.scrollTop - body.clientHeight < 80) {
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+function openLog(idx) {
+  const card = document.getElementById(`step-card-${idx}`);
+  if (card && !card.classList.contains('open')) {
+    card.classList.add('open');
+  }
+}
+
+function toggleLog(idx) {
+  const card = document.getElementById(`step-card-${idx}`);
+  if (card) card.classList.toggle('open');
+}
+
+function scrollToBottom(idx) {
+  const body = document.getElementById(`log-body-${idx}`);
+  if (body) body.scrollTop = body.scrollHeight;
+}
+
+function copyLog(idx) {
+  const lines = (stepLogs[idx] || []).join('\n');
+  navigator.clipboard.writeText(lines).then(() => {
+    const btn = document.getElementById(`copy-btn-${idx}`);
+    if (btn) {
+      btn.classList.add('copied');
+      btn.textContent = '✓ Copied';
+      setTimeout(() => { btn.classList.remove('copied'); btn.textContent = '📋 Copy'; }, 2000);
+    }
+  });
+}
+
+function clearLog(idx) {
+  const body = document.getElementById(`log-body-${idx}`);
+  if (body) {
+    body.innerHTML = '<span class="log-empty">Log cleared.</span>';
+    stepLogs[idx] = [];
+  }
+}
+
+/* ── Link badges in step header ───────────────────────────────────────────── */
+function setStepLink(idx, kind, url) {
+  stepLinks[idx] = stepLinks[idx] || {};
+  if (stepLinks[idx][kind] === url) return;  // already set
+  stepLinks[idx][kind] = url;
+
+  const right = document.getElementById(`step-right-${idx}`);
+  if (!right) return;
+
+  const existingId = `link-badge-${idx}-${kind}`;
+  if (document.getElementById(existingId)) return;  // already rendered
+
+  const label = kind === 'pr' ? '↗ PR' : '↗ MR';
+  const cls   = kind === 'pr' ? 'pr' : 'mr';
+  const icon  = kind === 'pr' ? '🐙' : '🦊';
+
+  const chevron = document.getElementById(`chevron-${idx}`);
+  const badge = document.createElement('a');
+  badge.id = existingId;
+  badge.className = `link-badge ${cls}`;
+  badge.href = url;
+  badge.target = '_blank';
+  badge.rel = 'noopener';
+  badge.innerHTML = `${icon} ${label}`;
+  badge.onclick = e => e.stopPropagation();
+  right.insertBefore(badge, chevron);
+}
+
+/* ── Progress bar ─────────────────────────────────────────────────────────── */
+function updateProgress() {
+  if (!stepCount) return;
+  const pct = Math.round((doneSteps / stepCount) * 100);
+  document.getElementById('progress-bar').style.width = pct + '%';
+}
+
+/* ── Pipeline end ─────────────────────────────────────────────────────────── */
+function onPipelineEnd(msg) {
+  const badge = document.getElementById('pipeline-badge');
+  if (msg.status === 'success') {
+    badge.className = 'pipeline-status-badge badge-success';
+    badge.textContent = 'Success';
+  } else if (msg.status === 'partial') {
+    badge.className = 'pipeline-status-badge badge-partial';
+    badge.textContent = 'Partial';
+  } else if (msg.status === 'cancelled') {
+    badge.className = 'pipeline-status-badge badge-cancelled';
+    badge.textContent = 'Cancelled';
+  } else {
+    badge.className = 'pipeline-status-badge badge-failed';
+    badge.textContent = 'Failed';
+  }
+  document.getElementById('progress-bar').style.width = '100%';
+
+  renderResults(msg);
+}
+
+function renderResults(msg) {
+  const area = document.getElementById('results-area');
+
+  const prUrl = msg.pr_url || getFirstLink('pr');
+  const mrUrl = msg.mr_url || getFirstLink('mr');
+
+  const isSuccess   = msg.status === 'success';
+  const isPartial   = msg.status === 'partial';
+  const isCancelled = msg.status === 'cancelled';
+
+  let headerCls, icon, titleText, subText;
+  if (isSuccess) {
+    headerCls = 'success';
+    icon      = '🎉';
+    titleText = 'Pipeline completed successfully!';
+    subText   = 'All enabled steps passed. Review the PR and MR links below.';
+  } else if (isCancelled) {
+    headerCls = 'partial';
+    icon      = '🛑';
+    titleText = 'Pipeline was stopped';
+    subText   = 'The pipeline was cancelled by the user. Remaining steps were not executed.';
+  } else if (isPartial) {
+    headerCls = 'partial';
+    icon      = '⚠️';
+    titleText = 'Pipeline finished with failures';
+    subText   = 'Some steps failed but the pipeline continued. Check the red step logs above.';
+  } else {
+    headerCls = 'failed';
+    icon      = '❌';
+    titleText = 'All steps failed';
+    subText   = 'No steps succeeded. Check the logs above for details.';
+  }
+
+  let linksHtml = '';
+  if (prUrl) linksHtml += linkCardHtml('🐙', 'GitHub Pull Request', prUrl);
+  if (mrUrl) linksHtml += linkCardHtml('🦊', 'GitLab Merge Request', mrUrl);
+  if (!prUrl && !mrUrl) {
+    linksHtml = `<div style="color:var(--muted);font-size:13px">No PR or MR links were detected in the output.</div>`;
+  }
+
+  area.innerHTML = `
+    <div class="results-card">
+      <div class="results-header ${headerCls}">
+        <div class="results-icon">${icon}</div>
+        <div>
+          <div class="results-title">${titleText}</div>
+          <div class="results-sub">${subText}</div>
+        </div>
+      </div>
+      <div class="results-body">${linksHtml}</div>
+    </div>`;
+}
+
+function linkCardHtml(icon, label, url) {
+  return `
+    <div class="link-card">
+      <div class="link-card-icon">${icon}</div>
+      <div style="flex:1;min-width:0">
+        <div class="link-card-label">${label}</div>
+        <div class="link-card-url"><a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a></div>
+      </div>
+      <div class="link-card-actions">
+        <button class="icon-btn" onclick="navigator.clipboard.writeText('${url.replace(/'/g,"\\'")}').then(()=>{this.textContent='✓ Copied';setTimeout(()=>this.textContent='📋 Copy',2000)})">📋 Copy</button>
+        <a class="btn-open" href="${esc(url)}" target="_blank" rel="noopener">Open ↗</a>
+      </div>
+    </div>`;
+}
+
+function getFirstLink(kind) {
+  for (const links of Object.values(stepLinks)) {
+    if (links[kind]) return links[kind];
+  }
+  return null;
+}
+
+/* ── History ──────────────────────────────────────────────────────────────── */
+function addHistory(id, prev, newVer, status) {
+  history.unshift({ id, prev, newVer, status });
+  renderHistory();
+}
+
+function updateHistory(id, status) {
+  const item = history.find(h => h.id === id);
+  if (item) { item.status = status; renderHistory(); }
+}
+
+function renderHistory() {
+  const el = document.getElementById('history-list');
+  if (!history.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted)">No runs yet</div>';
+    return;
+  }
+  el.innerHTML = history.slice(0, 8).map(h => `
+    <div class="history-item ${h.id === currentJobId ? 'active' : ''}" onclick="loadJob('${h.id}')">
+      <div class="history-dot ${h.status}"></div>
+      <div style="min-width:0">
+        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.prev)} → ${esc(h.newVer)}</div>
+        <div style="color:var(--muted);font-size:11px">${h.status}</div>
+      </div>
+    </div>`).join('');
+}
+
+async function loadJob(id) {
+  if (id === currentJobId) return;
+  // Disconnect current SSE
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  stepLogs  = {};
+  stepLinks = {};
+  stepCount = 0;
+  doneSteps = 0;
+
+  currentJobId = id;
+  renderHistory();
+
+  // Fetch current state
+  try {
+    const res = await fetch(`/api/status/${id}`);
+    if (!res.ok) return;
+    const job = await res.json();
+
+    document.getElementById('welcome').style.display = 'none';
+    const pv = document.getElementById('pipeline-view');
+    pv.style.display = 'flex';
+    document.getElementById('steps-container').innerHTML = '';
+    document.getElementById('results-area').innerHTML = '';
+    document.getElementById('ph-title').textContent = `${job.previous_version} → ${job.new_version}`;
+    document.getElementById('ph-meta').textContent  = `Job: ${id.slice(0,8)}…`;
+    document.getElementById('dry-run-banner').style.display = job.dry_run ? 'flex' : 'none';
+
+    if (job.steps && job.steps.length) {
+      stepCount = job.steps.length;
+      initStepCards(stepCount);
+      job.steps.forEach((s, i) => {
+        setStepStatus(i, s.status);
+        (s.logs || []).forEach(l => appendLog(i, l));
+        if (s.pr_url) setStepLink(i, 'pr', s.pr_url);
+        if (s.mr_url) setStepLink(i, 'mr', s.mr_url);
+      });
+      doneSteps = job.steps.filter(s => ['success','failed','skipped','cancelled'].includes(s.status)).length;
+      updateProgress();
+    }
+
+    const badge = document.getElementById('pipeline-badge');
+    if (job.status === 'success') {
+      badge.className = 'pipeline-status-badge badge-success'; badge.textContent = 'Success';
+      renderResults({ status: 'success', pr_url: job.pr_url, mr_url: job.mr_url });
+    } else if (job.status === 'cancelled') {
+      badge.className = 'pipeline-status-badge badge-cancelled'; badge.textContent = 'Cancelled';
+      renderResults({ status: 'cancelled', pr_url: job.pr_url, mr_url: job.mr_url });
+    } else if (job.status === 'partial') {
+      badge.className = 'pipeline-status-badge badge-partial'; badge.textContent = 'Partial';
+      renderResults({ status: 'partial', pr_url: job.pr_url, mr_url: job.mr_url });
+    } else if (job.status === 'failed') {
+      badge.className = 'pipeline-status-badge badge-failed'; badge.textContent = 'Failed';
+      renderResults({ status: 'failed', pr_url: job.pr_url, mr_url: job.mr_url });
+    } else if (job.status === 'running') {
+      badge.className = 'pipeline-status-badge badge-running'; badge.textContent = 'Running';
+      connectSSE(id);
+    }
+  } catch (e) {
+    console.error('loadJob error:', e);
+  }
+}
+
+/* ── Clear validation error on input ─────────────────────────────────────── */
+['prev-ver','new-ver'].forEach(id => {
+  document.getElementById(id).addEventListener('input', function() {
+    this.classList.remove('error');
+  });
+});
+
+/* ── Allow Enter key to trigger run ──────────────────────────────────────── */
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) startPipeline();
+});
+</script>
+</body>
+</html>
