@@ -64,24 +64,30 @@ else
   KONFLUX_NAMESPACE="open-data-hub-tenant"
 fi
 
-# Derive KONFLUX_COMPONENT_NAME
+# Build list of Component CR names to delete
+CR_NAMES=()
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   [[ -z "$TARGET_RHOAI_VERSION" ]] && {
     echo "ERROR: target_rhoai_version required for RHOAI but missing." >&2; exit 1
   }
   if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
-    KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-ea-${BASH_REMATCH[3]}"
+    CR_NAMES+=("${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-ea-${BASH_REMATCH[3]}")
   elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
-    KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+    CR_NAMES+=("${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}")
   else
     echo "ERROR: Cannot parse target_rhoai_version '${TARGET_RHOAI_VERSION}'." >&2; exit 1
   fi
 else
-  if [[ "$COMPONENT_NAME" == *-ci ]]; then
-    KONFLUX_COMPONENT_NAME="$COMPONENT_NAME"
-  else
-    KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-ci"
-  fi
+  # ODH: builds uses -ci suffix, release uses bare name
+  BUILDS_NAME=$( [[ "$COMPONENT_NAME" == *-ci ]] && echo "$COMPONENT_NAME" || echo "${COMPONENT_NAME}-ci" )
+  RELEASE_NAME="${COMPONENT_NAME%-ci}"
+
+  case "$ODH_APPLICATIONS" in
+    builds)  CR_NAMES+=("$BUILDS_NAME") ;;
+    release) CR_NAMES+=("$RELEASE_NAME") ;;
+    both)    CR_NAMES+=("$BUILDS_NAME" "$RELEASE_NAME") ;;
+    *) echo "ERROR: Invalid odh_applications value '${ODH_APPLICATIONS}'. Use builds, release, or both." >&2; exit 1 ;;
+  esac
 fi
 
 # Log in to the cluster
@@ -89,21 +95,36 @@ bash "$SCRIPTS_DIR/login_to_konflux_cluster.sh" "$CLUSTER_INSTANCE" || {
   echo "ERROR: Could not log in to the $CLUSTER_INSTANCE Konflux cluster." >&2; exit 1
 }
 
-# Check if the Component CR exists
-if ! oc get component "$KONFLUX_COMPONENT_NAME" -n "$KONFLUX_NAMESPACE" &>/dev/null 2>&1; then
-  echo "Component CR '${KONFLUX_COMPONENT_NAME}' not found in namespace '${KONFLUX_NAMESPACE}' — already removed."
+# Check which CRs actually exist on the cluster
+FOUND_CRS=()
+for cr in "${CR_NAMES[@]}"; do
+  if oc get component "$cr" -n "$KONFLUX_NAMESPACE" &>/dev/null 2>&1; then
+    FOUND_CRS+=("$cr")
+  else
+    echo "Component CR '$cr' not found — already removed."
+  fi
+done
+
+if [[ ${#FOUND_CRS[@]} -eq 0 ]]; then
+  echo "All targeted Component CRs already removed from namespace '${KONFLUX_NAMESPACE}'."
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --add-label "offboard-component-cr-removed" \
-    --comment "${DRY_RUN_PREFIX}Component CR '${KONFLUX_COMPONENT_NAME}' already absent from namespace '${KONFLUX_NAMESPACE}'. No action needed." || true
+    --comment "${DRY_RUN_PREFIX}Component CRs (${CR_NAMES[*]}) already absent from namespace '${KONFLUX_NAMESPACE}'. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
     --state "$PIPELINE_STATE" --step remove_component_cr --status done
   exit 2
 fi
 
-# Find associated ImageRepository CRs
-IMAGE_REPOS=$(oc get imagerepository -n "$KONFLUX_NAMESPACE" -o json 2>/dev/null | \
-  jq -r --arg comp "$KONFLUX_COMPONENT_NAME" \
-    '.items[] | select(.metadata.labels["appstudio.openshift.io/component"] == $comp) | .metadata.name' 2>/dev/null || true)
+# Collect ImageRepository CRs for all found components
+declare -A IMAGE_REPOS_MAP
+ALL_IMAGE_REPOS=""
+for cr in "${FOUND_CRS[@]}"; do
+  repos=$(oc get imagerepository -n "$KONFLUX_NAMESPACE" -o json 2>/dev/null | \
+    jq -r --arg comp "$cr" \
+      '.items[] | select(.metadata.labels["appstudio.openshift.io/component"] == $comp) | .metadata.name' 2>/dev/null || true)
+  IMAGE_REPOS_MAP["$cr"]="$repos"
+  [[ -n "$repos" ]] && ALL_IMAGE_REPOS="${ALL_IMAGE_REPOS}${repos}"$'\n'
+done
 
 echo ""
 echo "================================================================"
@@ -112,22 +133,26 @@ echo "================================================================"
 echo ""
 echo "  Namespace  : $KONFLUX_NAMESPACE"
 echo "  Cluster    : $CLUSTER_INSTANCE"
-echo "  Component  : $KONFLUX_COMPONENT_NAME"
-echo ""
-
-if [[ -n "$IMAGE_REPOS" ]]; then
-  echo "  ImageRepository CRs to annotate (skip-repository-deletion=true):"
-  while IFS= read -r repo; do
-    echo "    - $repo"
-  done <<< "$IMAGE_REPOS"
-else
-  echo "  No ImageRepository CRs found for this component."
+if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
+  echo "  Application: $ODH_APPLICATIONS"
 fi
-
 echo ""
+for cr in "${FOUND_CRS[@]}"; do
+  echo "  Component  : $cr"
+  if [[ -n "${IMAGE_REPOS_MAP[$cr]:-}" ]]; then
+    echo "    ImageRepository CRs to annotate (skip-repository-deletion=true):"
+    while IFS= read -r repo; do
+      [[ -n "$repo" ]] && echo "      - $repo"
+    done <<< "${IMAGE_REPOS_MAP[$cr]}"
+  else
+    echo "    No ImageRepository CRs found."
+  fi
+  echo ""
+done
+
 echo "  This will:"
 echo "    1. Annotate ImageRepository CRs to preserve Quay images"
-echo "    2. DELETE the Component CR (also removes Repository CR, PaC webhooks)"
+echo "    2. DELETE the Component CR(s) (also removes Repository CR, PaC webhooks)"
 echo ""
 echo "================================================================"
 
@@ -140,50 +165,55 @@ if [[ "$CONFIRM" != "true" ]]; then
 fi
 
 if [[ -n "$DRY_RUN_PREFIX" ]]; then
-  echo "[DRY RUN] Skipping oc annotate and oc delete — would have deleted Component CR '${KONFLUX_COMPONENT_NAME}'."
+  echo "[DRY RUN] Skipping oc annotate and oc delete — would have deleted: ${FOUND_CRS[*]}"
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --add-label "offboard-component-cr-removed" \
-    --comment "${DRY_RUN_PREFIX}[step:remove_component_cr] Would delete Component CR '${KONFLUX_COMPONENT_NAME}' from namespace '${KONFLUX_NAMESPACE}'. Skipped in dry-run mode." || true
+    --comment "${DRY_RUN_PREFIX}[step:remove_component_cr] Would delete Component CRs (${FOUND_CRS[*]}) from namespace '${KONFLUX_NAMESPACE}'. Skipped in dry-run mode." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
     --state "$PIPELINE_STATE" --step remove_component_cr --status done
-  echo "COMPONENT_CR_DELETED=${KONFLUX_COMPONENT_NAME} (dry-run)"
+  echo "COMPONENT_CR_DELETED=${FOUND_CRS[*]} (dry-run)"
   exit 0
 fi
 
-# Annotate ImageRepository CRs to preserve Quay images
-if [[ -n "$IMAGE_REPOS" ]]; then
-  echo "Annotating ImageRepository CRs with skip-repository-deletion=true..."
-  while IFS= read -r repo; do
-    oc annotate imagerepository "$repo" -n "$KONFLUX_NAMESPACE" \
-      image-controller.appstudio.redhat.com/skip-repository-deletion="true" \
-      --overwrite || {
-      echo "ERROR: Failed to annotate ImageRepository '$repo'." >&2; exit 1
-    }
-    echo "  Annotated: $repo"
-  done <<< "$IMAGE_REPOS"
-fi
+# Annotate and delete each Component CR
+DELETED_CRS=()
+for cr in "${FOUND_CRS[@]}"; do
+  # Annotate ImageRepository CRs to preserve Quay images
+  if [[ -n "${IMAGE_REPOS_MAP[$cr]:-}" ]]; then
+    echo "Annotating ImageRepository CRs for '$cr'..."
+    while IFS= read -r repo; do
+      [[ -z "$repo" ]] && continue
+      oc annotate imagerepository "$repo" -n "$KONFLUX_NAMESPACE" \
+        image-controller.appstudio.redhat.com/skip-repository-deletion="true" \
+        --overwrite || {
+        echo "ERROR: Failed to annotate ImageRepository '$repo'." >&2; exit 1
+      }
+      echo "  Annotated: $repo"
+    done <<< "${IMAGE_REPOS_MAP[$cr]}"
+  fi
 
-# Delete the Component CR
-echo "Deleting Component CR '${KONFLUX_COMPONENT_NAME}'..."
-oc delete component "$KONFLUX_COMPONENT_NAME" -n "$KONFLUX_NAMESPACE" || {
-  echo "ERROR: Failed to delete Component CR '${KONFLUX_COMPONENT_NAME}'." >&2; exit 1
-}
+  echo "Deleting Component CR '$cr'..."
+  oc delete component "$cr" -n "$KONFLUX_NAMESPACE" || {
+    echo "ERROR: Failed to delete Component CR '$cr'." >&2; exit 1
+  }
 
-# Verify deletion
-sleep 2
-if oc get component "$KONFLUX_COMPONENT_NAME" -n "$KONFLUX_NAMESPACE" &>/dev/null 2>&1; then
-  echo "ERROR: Component CR '${KONFLUX_COMPONENT_NAME}' still exists after deletion." >&2; exit 1
-fi
+  sleep 2
+  if oc get component "$cr" -n "$KONFLUX_NAMESPACE" &>/dev/null 2>&1; then
+    echo "ERROR: Component CR '$cr' still exists after deletion." >&2; exit 1
+  fi
 
-echo "Component CR '${KONFLUX_COMPONENT_NAME}' deleted successfully."
+  echo "Component CR '$cr' deleted successfully."
+  DELETED_CRS+=("$cr")
+done
 
 uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "offboard-component-cr-removed" \
-  --comment "[step:remove_component_cr] Component CR '${KONFLUX_COMPONENT_NAME}' deleted from namespace '${KONFLUX_NAMESPACE}'.
+  --comment "[step:remove_component_cr] Component CRs deleted from namespace '${KONFLUX_NAMESPACE}':
+$(printf '  - %s\n' "${DELETED_CRS[@]}")
 
 ImageRepository CRs annotated with skip-repository-deletion=true to preserve Quay images." || true
 
 bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
   --state "$PIPELINE_STATE" --step remove_component_cr --status done
 
-echo "COMPONENT_CR_DELETED=${KONFLUX_COMPONENT_NAME}"
+echo "COMPONENT_CR_DELETED=${DELETED_CRS[*]}"

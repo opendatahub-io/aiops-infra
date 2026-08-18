@@ -37,6 +37,8 @@ COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}')
 IS_OPERATOR=$(grep -m1    'is_operator:'    "$YAML_FILE" | awk '{print $2}')
 REPO_URL=$(grep -m1       'repo_url:'       "$YAML_FILE" | awk '{print $2}')
 TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}' | tr -d '"' || true)
+ODH_APPLICATIONS=$(grep -m1 'odh_applications:' "$YAML_FILE" | awk '{print $2}' | tr -d '"' | tr '[:upper:]' '[:lower:]' || true)
+[[ -z "$ODH_APPLICATIONS" ]] && ODH_APPLICATIONS="both"
 
 for _field in COMPONENT_NAME REPO_URL; do
   [[ -z "${!_field}" ]] && {
@@ -88,3 +90,4 @@ printf 'QUAY_ORG=%q\n'          "$QUAY_ORG"
 printf 'QUAY_VISIBILITY=%q\n'   "$QUAY_VISIBILITY"
 printf 'QUAY_REPO_URI=%q\n'     "$QUAY_REPO_URI"
 printf 'TARGET_RHOAI_VERSION=%q\n' "${TARGET_RHOAI_VERSION:-}"
+printf 'ODH_APPLICATIONS=%q\n'    "$ODH_APPLICATIONS"
