@@ -135,7 +135,7 @@ else
     if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
       jq '
         .steps |= with_entries(
-          if .key == "remove_pull_pipelines"
+          if (.key == "remove_pull_pipelines" or .key == "remove_product_listing")
              and .value.status == "pending"
           then .value.status = "skipped"
           else .
