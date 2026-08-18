@@ -27,6 +27,11 @@ WORKDIR="${WORKDIR:-$(pwd)/${JIRA_ID}}"
 PIPELINE_STATE="${PIPELINE_STATE:-${WORKDIR}/pipeline_state.json}"
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+DRY_RUN_PREFIX=""
+if [[ "${OFFBOARD_DRY_RUN:-false}" == "true" ]]; then
+  DRY_RUN_PREFIX="[DRY RUN] "
+fi
+
 [[ ! -f "$PIPELINE_STATE" ]] && {
   echo "ERROR: pipeline_state.json not found at $PIPELINE_STATE" >&2; exit 1
 }
@@ -74,7 +79,7 @@ if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
     echo "PipelineRun '${PIPELINERUN_FILE}' not found on branch '${SRC_BRANCH}' — already removed."
     uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
       --add-label "offboard-okc-pr-merged" \
-      --comment "Push PipelineRun '${PIPELINERUN_FILE}' already absent from rhoai-konflux-central. No action needed." || true
+      --comment "${DRY_RUN_PREFIX}Push PipelineRun '${PIPELINERUN_FILE}' already absent from rhoai-konflux-central. No action needed." || true
     bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
       --state "$PIPELINE_STATE" --step remove_okc --status done
     exit 2
@@ -95,7 +100,7 @@ if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   TARGET_FILE="$TEKTON_DIR/$PIPELINERUN_FILE"
   [[ -f "$TARGET_FILE" ]] && rm "$TARGET_FILE"
   FILES_CHANGED="pipelineruns/$REPO_NAME/.tekton/$PIPELINERUN_FILE"
-  COMMIT_MSG="Remove ${COMPONENT_NAME}-${VERSION_VAR} push PipelineRun (offboarding)"
+  COMMIT_MSG="${DRY_RUN_PREFIX}Remove ${COMPONENT_NAME}-${VERSION_VAR} push PipelineRun (offboarding)"
   PR_TARGET="$SRC_BRANCH"
 
 else
@@ -125,7 +130,7 @@ else
     echo "PipelineRun files for '${COMPONENT_NAME}' not found in odh-konflux-central — already removed."
     uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
       --add-label "offboard-okc-pr-merged" \
-      --comment "PipelineRun files for '${COMPONENT_NAME}' already absent from odh-konflux-central. No action needed." || true
+      --comment "${DRY_RUN_PREFIX}PipelineRun files for '${COMPONENT_NAME}' already absent from odh-konflux-central. No action needed." || true
     bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
       --state "$PIPELINE_STATE" --step remove_okc --status done
     exit 2
@@ -147,7 +152,7 @@ else
   PR_FILE="$CLONE_DIR/pipelineruns/$REPO_NAME/$PR_YAML"
   [[ -f "$PUSH_FILE" ]] && { rm "$PUSH_FILE"; FILES_CHANGED="pipelineruns/$REPO_NAME/$PUSH_YAML"; }
   [[ -f "$PR_FILE" ]] && { rm "$PR_FILE"; FILES_CHANGED="$FILES_CHANGED pipelineruns/$REPO_NAME/$PR_YAML"; }
-  COMMIT_MSG="Remove ${COMPONENT_NAME} PipelineRuns (offboarding)"
+  COMMIT_MSG="${DRY_RUN_PREFIX}Remove ${COMPONENT_NAME} PipelineRuns (offboarding)"
   PR_TARGET="main"
 fi
 
@@ -178,7 +183,7 @@ done
 
 uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "offboard-okc-pr-raised" \
-  --comment "[step:remove_okc] GitHub PR raised to remove '${COMPONENT_NAME}' PipelineRuns.
+  --comment "${DRY_RUN_PREFIX}[step:remove_okc] GitHub PR raised to remove '${COMPONENT_NAME}' PipelineRuns.
 
 PR URL: ${PR_URL}" || true
 

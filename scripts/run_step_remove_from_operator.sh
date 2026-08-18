@@ -28,6 +28,11 @@ WORKDIR="${WORKDIR:-$(pwd)/${JIRA_ID}}"
 PIPELINE_STATE="${PIPELINE_STATE:-${WORKDIR}/pipeline_state.json}"
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+DRY_RUN_PREFIX=""
+if [[ "${OFFBOARD_DRY_RUN:-false}" == "true" ]]; then
+  DRY_RUN_PREFIX="[DRY RUN] "
+fi
+
 [[ ! -f "$PIPELINE_STATE" ]] && {
   echo "ERROR: pipeline_state.json not found at $PIPELINE_STATE" >&2; exit 1
 }
@@ -51,7 +56,7 @@ if [[ "$IS_OPERATOR" != "true" ]]; then
   echo "is_operator=false — skipping operator manifest removal."
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --add-label "offboard-operator-not-needed" \
-    --comment "Skipping operator manifest removal for '$COMPONENT_NAME' (is_operator=false)." || true
+    --comment "${DRY_RUN_PREFIX}Skipping operator manifest removal for '$COMPONENT_NAME' (is_operator=false)." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
     --state "$PIPELINE_STATE" --step remove_operator --status skipped
   exit 2
@@ -88,7 +93,7 @@ if ! grep -qF "$COMPONENT_NAME" "$MANIFESTS_CONFIG" 2>/dev/null; then
   echo "Entry '${COMPONENT_NAME}' not found in manifests-config.yaml — already removed."
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --add-label "offboard-operator-pr-merged" \
-    --comment "Operator manifests entry '${COMPONENT_NAME}' already absent from ${ODH_OPERATOR_PATH}. No action needed." || true
+    --comment "${DRY_RUN_PREFIX}Operator manifests entry '${COMPONENT_NAME}' already absent from ${ODH_OPERATOR_PATH}. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
     --state "$PIPELINE_STATE" --step remove_operator --status done
   exit 2
@@ -114,7 +119,7 @@ for attempt in 1 2 3; do
     --src-branch  "$DEST_BRANCH" \
     --dest-url    "$ODH_OPERATOR_URL" \
     --dest-branch "$OPERATOR_TARGET_BRANCH" \
-    --title       "Remove ${COMPONENT_NAME} from operator manifests (offboarding)" \
+    --title       "${DRY_RUN_PREFIX}Remove ${COMPONENT_NAME} from operator manifests (offboarding)" \
     --description "Removes '${COMPONENT_NAME}' entry from build/manifests-config.yaml.
 
 Jira: ${JIRA_URL}" 2>/dev/null) && break
@@ -126,7 +131,7 @@ done
 
 uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "offboard-operator-pr-raised" \
-  --comment "[step:remove_operator] GitHub PR raised to remove '${COMPONENT_NAME}' from operator manifests.
+  --comment "${DRY_RUN_PREFIX}[step:remove_operator] GitHub PR raised to remove '${COMPONENT_NAME}' from operator manifests.
 
 PR URL: ${PR_URL}" || true
 

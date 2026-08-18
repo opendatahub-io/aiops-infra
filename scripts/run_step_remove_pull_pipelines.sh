@@ -24,6 +24,11 @@ WORKDIR="${WORKDIR:-$(pwd)/${JIRA_ID}}"
 PIPELINE_STATE="${PIPELINE_STATE:-${WORKDIR}/pipeline_state.json}"
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+DRY_RUN_PREFIX=""
+if [[ "${OFFBOARD_DRY_RUN:-false}" == "true" ]]; then
+  DRY_RUN_PREFIX="[DRY RUN] "
+fi
+
 [[ ! -f "$PIPELINE_STATE" ]] && {
   echo "ERROR: pipeline_state.json not found at $PIPELINE_STATE" >&2; exit 1
 }
@@ -58,7 +63,7 @@ if [[ "$HTTP_STATUS" != "200" ]]; then
   echo "Pull-request PipelineRun '${PIPELINERUN_FILE}' not found on main — already removed."
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --add-label "offboard-pull-pipelines-pr-merged" \
-    --comment "Pull-request PipelineRun '${PIPELINERUN_FILE}' already absent from rhoai-konflux-central. No action needed." || true
+    --comment "${DRY_RUN_PREFIX}Pull-request PipelineRun '${PIPELINERUN_FILE}' already absent from rhoai-konflux-central. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
     --state "$PIPELINE_STATE" --step remove_pull_pipelines --status done
   exit 2
@@ -94,7 +99,7 @@ for attempt in 1 2 3; do
     --src-branch  "$DEST_BRANCH" \
     --dest-url    "$RKC_URL" \
     --dest-branch "main" \
-    --title       "Remove ${COMPONENT_NAME} pull-request PipelineRun (offboarding)" \
+    --title       "${DRY_RUN_PREFIX}Remove ${COMPONENT_NAME} pull-request PipelineRun (offboarding)" \
     --description "Removes pull-request PipelineRun YAML for '${COMPONENT_NAME}'.
 
 Jira: ${JIRA_URL}" 2>/dev/null) && break
@@ -106,7 +111,7 @@ done
 
 uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "offboard-pull-pipelines-pr-raised" \
-  --comment "[step:remove_pull_pipelines] GitHub PR raised to remove '${COMPONENT_NAME}' pull-request PipelineRun.
+  --comment "${DRY_RUN_PREFIX}[step:remove_pull_pipelines] GitHub PR raised to remove '${COMPONENT_NAME}' pull-request PipelineRun.
 
 PR URL: ${PR_URL}" || true
 

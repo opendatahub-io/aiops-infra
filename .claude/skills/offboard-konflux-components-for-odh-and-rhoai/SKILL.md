@@ -44,6 +44,19 @@ executes pending steps, and posts a summary of status changes only.
 
 **VPN must be active** before running — required for the KRD step (GitLab on gitlab.cee.redhat.com).
 
+## Dry Run
+
+Set `OFFBOARD_DRY_RUN=true` to test the full pipeline end-to-end. All PRs/MRs are
+created with "[DRY RUN]" in the title, Jira comments are prefixed with "[DRY RUN]",
+and the Component CR deletion step is skipped (prints what it would do).
+
+```bash
+export OFFBOARD_DRY_RUN=true
+/offboard-konflux-components-for-odh-and-rhoai <test-jira-url>
+```
+
+Clean up after testing: close the dry-run PRs/MRs and delete their branches.
+
 ## Implementation
 
 ---

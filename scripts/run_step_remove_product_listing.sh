@@ -28,6 +28,11 @@ WORKDIR="${WORKDIR:-$(pwd)/${JIRA_ID}}"
 PIPELINE_STATE="${PIPELINE_STATE:-${WORKDIR}/pipeline_state.json}"
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+DRY_RUN_PREFIX=""
+if [[ "${OFFBOARD_DRY_RUN:-false}" == "true" ]]; then
+  DRY_RUN_PREFIX="[DRY RUN] "
+fi
+
 [[ ! -f "$PIPELINE_STATE" ]] && {
   echo "ERROR: pipeline_state.json not found at $PIPELINE_STATE" >&2; exit 1
 }
@@ -81,7 +86,7 @@ if [[ -z "$ENTRY_TO_REMOVE" ]]; then
   echo "Product listing entry for '${COMPONENT_NAME}' not found in pyxis-repo-configs — already removed."
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --add-label "offboard-product-listing-done" \
-    --comment "Product listing entry for '${COMPONENT_NAME}' already absent from pyxis-repo-configs. No action needed." || true
+    --comment "${DRY_RUN_PREFIX}Product listing entry for '${COMPONENT_NAME}' already absent from pyxis-repo-configs. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
     --state "$PIPELINE_STATE" --step remove_product_listing --status done
   exit 2
@@ -131,7 +136,7 @@ for attempt in 1 2 3; do
     --src-branch  "$DEST_BRANCH" \
     --dest-url    "$PYXIS_URL" \
     --dest-branch main \
-    --title       "Remove ${COMPONENT_NAME} from RHOAI product listing (offboarding)" \
+    --title       "${DRY_RUN_PREFIX}Remove ${COMPONENT_NAME} from RHOAI product listing (offboarding)" \
     --description "Removes \`${ENTRY_TO_REMOVE}\` from \`product-listings/rhoai/rhoai.yaml\`.
 
 Component: ${COMPONENT_NAME}
@@ -144,7 +149,7 @@ done
 
 uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "offboard-product-listing-mr-raised" \
-  --comment "[step:remove_product_listing] GitLab MR raised to remove '${COMPONENT_NAME}' from RHOAI product listing.
+  --comment "${DRY_RUN_PREFIX}[step:remove_product_listing] GitLab MR raised to remove '${COMPONENT_NAME}' from RHOAI product listing.
 
 MR URL: ${MR_URL}
 Entry: ${ENTRY_TO_REMOVE}" || true

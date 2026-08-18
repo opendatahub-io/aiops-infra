@@ -32,6 +32,11 @@ WORKDIR="${WORKDIR:-$(pwd)/${JIRA_ID}}"
 PIPELINE_STATE="${PIPELINE_STATE:-${WORKDIR}/pipeline_state.json}"
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+DRY_RUN_PREFIX=""
+if [[ "${OFFBOARD_DRY_RUN:-false}" == "true" ]]; then
+  DRY_RUN_PREFIX="[DRY RUN] "
+fi
+
 [[ ! -f "$PIPELINE_STATE" ]] && {
   echo "ERROR: pipeline_state.json not found at $PIPELINE_STATE" >&2; exit 1
 }
@@ -89,7 +94,7 @@ if ! oc get component "$KONFLUX_COMPONENT_NAME" -n "$KONFLUX_NAMESPACE" &>/dev/n
   echo "Component CR '${KONFLUX_COMPONENT_NAME}' not found in namespace '${KONFLUX_NAMESPACE}' — already removed."
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --add-label "offboard-component-cr-removed" \
-    --comment "Component CR '${KONFLUX_COMPONENT_NAME}' already absent from namespace '${KONFLUX_NAMESPACE}'. No action needed." || true
+    --comment "${DRY_RUN_PREFIX}Component CR '${KONFLUX_COMPONENT_NAME}' already absent from namespace '${KONFLUX_NAMESPACE}'. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
     --state "$PIPELINE_STATE" --step remove_component_cr --status done
   exit 2
@@ -131,6 +136,17 @@ if [[ "$CONFIRM" != "true" ]]; then
   echo "Pass --confirm to execute, or re-run the skill and confirm when prompted."
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
     --state "$PIPELINE_STATE" --step remove_component_cr --status awaiting_confirmation
+  exit 0
+fi
+
+if [[ -n "$DRY_RUN_PREFIX" ]]; then
+  echo "[DRY RUN] Skipping oc annotate and oc delete — would have deleted Component CR '${KONFLUX_COMPONENT_NAME}'."
+  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+    --add-label "offboard-component-cr-removed" \
+    --comment "${DRY_RUN_PREFIX}[step:remove_component_cr] Would delete Component CR '${KONFLUX_COMPONENT_NAME}' from namespace '${KONFLUX_NAMESPACE}'. Skipped in dry-run mode." || true
+  bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
+    --state "$PIPELINE_STATE" --step remove_component_cr --status done
+  echo "COMPONENT_CR_DELETED=${KONFLUX_COMPONENT_NAME} (dry-run)"
   exit 0
 fi
 

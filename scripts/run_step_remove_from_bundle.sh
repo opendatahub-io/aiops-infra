@@ -24,6 +24,11 @@ WORKDIR="${WORKDIR:-$(pwd)/${JIRA_ID}}"
 PIPELINE_STATE="${PIPELINE_STATE:-${WORKDIR}/pipeline_state.json}"
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+DRY_RUN_PREFIX=""
+if [[ "${OFFBOARD_DRY_RUN:-false}" == "true" ]]; then
+  DRY_RUN_PREFIX="[DRY RUN] "
+fi
+
 [[ ! -f "$PIPELINE_STATE" ]] && {
   echo "ERROR: pipeline_state.json not found at $PIPELINE_STATE" >&2; exit 1
 }
@@ -119,7 +124,7 @@ if [[ "$CHANGES_MADE" == "false" ]]; then
   echo "Component '${COMPONENT_NAME}' not found in bundle — already removed."
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --add-label "offboard-bundle-pr-merged" \
-    --comment "Component '${COMPONENT_NAME}' already absent from bundle-patch.yaml. No action needed." || true
+    --comment "${DRY_RUN_PREFIX}Component '${COMPONENT_NAME}' already absent from bundle-patch.yaml. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
     --state "$PIPELINE_STATE" --step remove_bundle --status done
   exit 2
@@ -138,7 +143,7 @@ for attempt in 1 2 3; do
     --src-branch  "$DEST_BRANCH" \
     --dest-url    "$BC_URL" \
     --dest-branch "$SRC_BRANCH" \
-    --title       "Remove ${COMPONENT_NAME} from bundle relatedImages (offboarding)" \
+    --title       "${DRY_RUN_PREFIX}Remove ${COMPONENT_NAME} from bundle relatedImages (offboarding)" \
     --description "Removes relatedImages entry for '${COMPONENT_NAME}' from bundle/bundle-patch.yaml.
 
 Jira: ${JIRA_URL}" 2>/dev/null) && break
@@ -150,7 +155,7 @@ done
 
 uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
   --add-label "offboard-bundle-pr-raised" \
-  --comment "[step:remove_bundle] GitHub PR raised to remove '${COMPONENT_NAME}' from bundle relatedImages.
+  --comment "${DRY_RUN_PREFIX}[step:remove_bundle] GitHub PR raised to remove '${COMPONENT_NAME}' from bundle relatedImages.
 
 PR URL: ${PR_URL}" || true
 
