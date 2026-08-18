@@ -19,9 +19,10 @@ Orchestrates the complete component offboarding pipeline (idempotent re-run mode
 5. `remove-from-bundle` — GitHub PR to remove relatedImages + build-config entries
 6. `remove-from-operator` — GitHub PR to remove operator manifests **(if is_operator=true)**
 7. `remove-product-listing` — GitLab MR to remove from pyxis-repo-configs product listing **(RHOAI only)**
+8. `remove-component-cr` — Delete Konflux Component CR from OpenShift cluster **(after all other steps are done; requires confirmation)**
 
-**Key difference from onboarding:** All offboarding steps are independent — no `depends_on`
-chains. A single run can raise all PRs/MRs simultaneously.
+Steps 2–7 are independent and can run in parallel. Step 8 depends on all of them
+being done/merged and requires human confirmation before executing.
 
 **Re-run model:** invoke this skill any number of times for the same Jira URL.
 Each run checks Jira labels and PR/MR API status to determine what's already done,
@@ -196,7 +197,7 @@ UNBLOCKED_STEPS=$(jq -r '
   select(.value.status == "pending") |
   select(
     .value.depends_on | all(. as $dep |
-      $steps[$dep].status == "merged" or $steps[$dep].status == "done"
+      $steps[$dep].status == "merged" or $steps[$dep].status == "done" or $steps[$dep].status == "skipped"
     )
   ) | .key
 ' "$PIPELINE_STATE")
@@ -295,6 +296,33 @@ EXIT_CODE=$?
 - Exit 2: already removed. Nothing further needed.
 - Exit 1: hard failure. Print `$OUTPUT` and stop.
 
+### Step 7g: remove-component-cr (step key: `remove_component_cr`)
+
+**Execute if** `remove_component_cr` is in `UNBLOCKED_STEPS`. This step has `depends_on`
+all other removal steps — it only unblocks when everything else is `done` or `merged`.
+
+**This step requires human confirmation.** First run without `--confirm` to show what
+will be deleted. Display the output to the user and ask them to confirm. Only if they
+confirm, re-run with `--confirm`.
+
+```bash
+# First: show what will be deleted
+OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_remove_component_cr.sh" --jira-url "$JIRA_URL")
+EXIT_CODE=$?
+```
+
+- Exit 0 (without --confirm): prints confirmation summary. **Show this to the user and ask
+  "Do you want to proceed with deleting the Component CR?"**. If they confirm:
+
+```bash
+OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_remove_component_cr.sh" --jira-url "$JIRA_URL" --confirm)
+EXIT_CODE=$?
+```
+
+- Exit 0 (with --confirm): Component CR deleted.
+- Exit 2: already removed. Nothing further needed.
+- Exit 1: hard failure. Print `$OUTPUT` and stop.
+
 **CRITICAL — Exit 1 handling:** On exit 1, print the output, post a Jira comment, and
 **immediately stop**. Do not print a final summary, do not check remaining steps.
 The wrapper scripts are self-contained; editing scripts mid-run is strictly forbidden.
@@ -386,6 +414,7 @@ PRs / MRs:
   remove_bundle         : <steps.remove_bundle.status> — <steps.remove_bundle.pr_url or "not yet raised">
   remove_operator       : <steps.remove_operator.status>
   remove_product_listing: <steps.remove_product_listing.status or "N/A (ODH)">
+  remove_component_cr   : <steps.remove_component_cr.status>
 
 Newly merged this run : <NEWLY_MERGED or "none">
 State file            : $PIPELINE_STATE

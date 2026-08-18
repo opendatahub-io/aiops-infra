@@ -47,8 +47,6 @@ eval "$(bash "$SCRIPTS_DIR/parse_offboarding_details.sh" \
   --jira-id     "$JIRA_ID" \
   --scripts-dir "$SCRIPTS_DIR")"
 
-REPO_BRANCH=$(grep -m1 'repo_branch:' "$YAML_FILE" | awk '{print $2}' 2>/dev/null || echo "main")
-
 if [[ "$IS_OPERATOR" != "true" ]]; then
   echo "is_operator=false — skipping operator manifest removal."
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
@@ -63,8 +61,9 @@ eval "$(bash "$SCRIPTS_DIR/resolve_operator_url.sh" \
   --product-context "$PRODUCT_CONTEXT")"
 echo "ODH_OPERATOR_URL  : $ODH_OPERATOR_URL"
 
-if [[ "$PRODUCT_CONTEXT" == "RHOAI" && -n "$REPO_BRANCH" ]]; then
-  OPERATOR_TARGET_BRANCH="$REPO_BRANCH"
+if [[ "$PRODUCT_CONTEXT" == "RHOAI" && -n "$TARGET_RHOAI_VERSION" ]]; then
+  eval "$(bash "$SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION")"
+  OPERATOR_TARGET_BRANCH="$BRANCH_NAME"
 else
   OPERATOR_TARGET_BRANCH="main"
 fi

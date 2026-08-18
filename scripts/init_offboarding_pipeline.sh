@@ -110,6 +110,11 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "depends_on": [],
       "label_raised": "offboard-product-listing-mr-raised",
       "label_done": "offboard-product-listing-done"
+    },
+    "remove_component_cr": {
+      "status": "pending",
+      "depends_on": ["remove_krd", "remove_okc", "remove_pull_pipelines", "remove_bundle", "remove_operator", "remove_product_listing"],
+      "label_done": "offboard-component-cr-removed"
     }
   }
 }
@@ -135,7 +140,7 @@ else
     if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
       jq '
         .steps |= with_entries(
-          if .key == "remove_pull_pipelines"
+          if (.key == "remove_pull_pipelines" or .key == "remove_product_listing")
              and .value.status == "pending"
           then .value.status = "skipped"
           else .
