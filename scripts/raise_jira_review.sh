@@ -44,16 +44,10 @@ if [[ -z "$PRODUCT_CONTEXT" ]]; then
 fi
 
 IS_OP=$(jq -r '.is_operator // "false"' "$PIPELINE_STATE")
-PIPELINE_TYPE=$(jq -r '.pipeline_type // "onboarding"' "$PIPELINE_STATE")
 
-if [[ "$PIPELINE_TYPE" == "offboarding" ]]; then
-  REVIEW_LABEL="offboarding-in-review"
-else
-  REVIEW_LABEL="onboarding-in-review"
-fi
 
 uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
-  --add-label "$REVIEW_LABEL" \
+  --add-label "onboarding-in-review" \
   --status "Review"
 
 echo "[raise_jira_review] Jira transitioned to Review with PR/MR summary."

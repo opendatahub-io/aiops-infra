@@ -54,7 +54,6 @@ OFFBOARD_STEPS_ODH = [
     ("remove_okc",             "Remove push PipelineRun",               "pr_url"),
     ("remove_bundle",          "Remove from bundle",                    "pr_url"),
     ("remove_operator",        "Remove from operator manifests",        "pr_url"),
-    ("remove_component_cr",    "Delete Component CR from cluster",      None),
 ]
 
 OFFBOARD_STEPS_RHOAI = [
@@ -65,7 +64,6 @@ OFFBOARD_STEPS_RHOAI = [
     ("remove_bundle",          "Remove from bundle & build-config",     "pr_url"),
     ("remove_operator",        "Remove from operator manifests",        "pr_url"),
     ("remove_product_listing", "Remove from RHOAI product listing",     "mr_url"),
-    ("remove_component_cr",    "Delete Component CR from cluster",      None),
 ]
 
 # Which steps are "blocking" (i.e. have a PR/MR that must merge to progress).
