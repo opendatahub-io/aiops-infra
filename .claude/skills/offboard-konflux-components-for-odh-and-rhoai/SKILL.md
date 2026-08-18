@@ -197,7 +197,7 @@ UNBLOCKED_STEPS=$(jq -r '
   select(.value.status == "pending") |
   select(
     .value.depends_on | all(. as $dep |
-      $steps[$dep].status == "merged" or $steps[$dep].status == "done"
+      $steps[$dep].status == "merged" or $steps[$dep].status == "done" or $steps[$dep].status == "skipped"
     )
   ) | .key
 ' "$PIPELINE_STATE")
