@@ -120,8 +120,9 @@ else
 fi
 
 echo ""
-echo "  This will DELETE the Component CR from the cluster."
-echo "  Quay images will be preserved via the annotation."
+echo "  This will:"
+echo "    1. Annotate ImageRepository CRs to preserve Quay images"
+echo "    2. DELETE the Component CR (also removes Repository CR, PaC webhooks)"
 echo ""
 echo "================================================================"
 
