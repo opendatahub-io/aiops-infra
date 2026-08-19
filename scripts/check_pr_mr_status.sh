@@ -70,9 +70,9 @@ for STEP_KEY in $STEP_KEYS; do
     TMP=$(mktemp)
     NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     jq --arg k "$STEP_KEY" --arg ts "$NOW" \
-      '.steps[$k].status = "closed" | .last_status_change_at = $ts' \
+      '.steps[$k].status = "pending" | .steps[$k].pr_url = null | .steps[$k].mr_url = null | .last_status_change_at = $ts' \
       "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
-    echo "[check] $STEP_KEY: marked closed (PR/MR was closed without merging)" >&2
+    echo "[check] $STEP_KEY: PR/MR closed without merging — reset to pending (will re-raise on next run)" >&2
   else
     echo "[check] $STEP_KEY: still open/draft — no change" >&2
   fi
