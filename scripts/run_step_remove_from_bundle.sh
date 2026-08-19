@@ -107,6 +107,48 @@ fi
 
 FILES_CHANGED="bundle/bundle-patch.yaml"
 
+# Remove Dockerfile git-label ARGs and LABEL entries
+BUNDLE_DOCKERFILE="$CLONE_DIR/bundle/Dockerfile"
+if [[ -f "$BUNDLE_DOCKERFILE" ]]; then
+  GIT_URL_LABEL="$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:upper:]_')_GIT_URL"
+  GIT_COMMIT_LABEL="$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:upper:]_')_GIT_COMMIT"
+
+  DOCKERFILE_CHANGED=false
+
+  # Remove ARG declarations
+  if grep -q "^ARG ${GIT_URL_LABEL}=" "$BUNDLE_DOCKERFILE" 2>/dev/null; then
+    sed -i '' "/^ARG ${GIT_URL_LABEL}=/d" "$BUNDLE_DOCKERFILE"
+    sed -i '' "/^ARG ${GIT_COMMIT_LABEL}=/d" "$BUNDLE_DOCKERFILE"
+    DOCKERFILE_CHANGED=true
+  fi
+
+  # Remove LABEL entries (component.git.url and component.git.commit lines)
+  if grep -q "${COMPONENT_NAME}\.git\.url=" "$BUNDLE_DOCKERFILE" 2>/dev/null; then
+    sed -i '' "/${COMPONENT_NAME}\.git\.url=/d" "$BUNDLE_DOCKERFILE"
+    sed -i '' "/${COMPONENT_NAME}\.git\.commit=/d" "$BUNDLE_DOCKERFILE"
+    DOCKERFILE_CHANGED=true
+  fi
+
+  if [[ "$DOCKERFILE_CHANGED" == "true" ]]; then
+    FILES_CHANGED="$FILES_CHANGED bundle/Dockerfile"
+    CHANGES_MADE=true
+  fi
+fi
+
+# Remove bundle_build_args.map entries
+BUNDLE_ARGS_MAP="$CLONE_DIR/bundle/bundle_build_args.map"
+if [[ -f "$BUNDLE_ARGS_MAP" ]]; then
+  GIT_URL_LABEL="$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:upper:]_')_GIT_URL"
+  GIT_COMMIT_LABEL="$(echo "$COMPONENT_NAME" | tr '[:lower:]-' '[:upper:]_')_GIT_COMMIT"
+
+  if grep -q "^${GIT_URL_LABEL}=" "$BUNDLE_ARGS_MAP" 2>/dev/null; then
+    sed -i '' "/^${GIT_URL_LABEL}=/d" "$BUNDLE_ARGS_MAP"
+    sed -i '' "/^${GIT_COMMIT_LABEL}=/d" "$BUNDLE_ARGS_MAP"
+    FILES_CHANGED="$FILES_CHANGED bundle/bundle_build_args.map"
+    CHANGES_MADE=true
+  fi
+fi
+
 # RHOAI: also remove from config/build-config.yaml
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   BC_CONFIG="$CLONE_DIR/config/build-config.yaml"
