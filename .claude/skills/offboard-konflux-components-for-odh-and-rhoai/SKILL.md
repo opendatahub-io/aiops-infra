@@ -156,11 +156,12 @@ After parsing, update the state for product-context-specific skip logic:
 
 ```bash
 bash "$SCRIPTS_DIR/init_offboarding_pipeline.sh" \
-  --jira-url         "$JIRA_URL" \
-  --workdir-override "$WORKDIR" \
-  --product-context  "$PRODUCT_CONTEXT" \
-  --component-name   "$COMPONENT_NAME" \
-  --is-operator      "$IS_OPERATOR" \
+  --jira-url          "$JIRA_URL" \
+  --workdir-override  "$WORKDIR" \
+  --product-context   "$PRODUCT_CONTEXT" \
+  --component-name    "$COMPONENT_NAME" \
+  --is-operator       "$IS_OPERATOR" \
+  --fully-deprecated  "$FULLY_DEPRECATED" \
   > /dev/null
 ```
 

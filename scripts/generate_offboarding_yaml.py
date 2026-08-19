@@ -18,6 +18,7 @@ def main():
     p.add_argument("--build-type", choices=["CI", "Release"], help="ODH only")
     p.add_argument("--target-rhoai-version", help="RHOAI only")
     p.add_argument("--is-operator", action="store_true", default=False)
+    p.add_argument("--fully-deprecated", action="store_true", default=False)
     args = p.parse_args()
 
     product = args.product_context
@@ -38,6 +39,7 @@ def main():
         lines.append(f"  target_rhoai_version: {args.target_rhoai_version}")
 
     lines.append(f"  is_operator: {str(args.is_operator).lower()}")
+    lines.append(f"  fully_deprecated: {str(args.fully_deprecated).lower()}")
 
     with open(args.output, "w") as f:
         f.write("\n".join(lines) + "\n")

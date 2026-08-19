@@ -47,10 +47,21 @@ fi
 YAML_FILE="$WORKDIR/component_offboarding_details.yaml"
 [[ ! -f "$YAML_FILE" ]] && { echo "ERROR: $YAML_FILE not found" >&2; exit 1; }
 
-COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}')
-[[ -z "$COMPONENT_NAME" ]] && {
-  echo "ERROR: component_name missing from YAML." >&2; exit 1
-}
+eval "$(bash "$SCRIPTS_DIR/parse_offboarding_details.sh" \
+  --workdir     "$WORKDIR" \
+  --jira-id     "$JIRA_ID" \
+  --scripts-dir "$SCRIPTS_DIR")"
+
+if [[ "$FULLY_DEPRECATED" != "true" ]]; then
+  echo "fully_deprecated is not set — skipping product listing removal."
+  echo "Product listing is shared across all supported versions. Only remove when the component is not needed in any version."
+  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+    --add-label "offboard-product-listing-skipped" \
+    --comment "${DRY_RUN_PREFIX}Skipping product listing removal for '$COMPONENT_NAME' — fully_deprecated is not set. Product listing entries are shared across all supported versions." || true
+  bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
+    --state "$PIPELINE_STATE" --step remove_product_listing --status skipped
+  exit 2
+fi
 
 # Product listing entries use the rhoai registry path
 PRODUCT_LISTING_ENTRY="registry.access.redhat.com/rhoai/${COMPONENT_NAME}-rhel9"

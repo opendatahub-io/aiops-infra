@@ -159,6 +159,14 @@ Transform the validated input to canonical form and store in `target_rhoai_versi
 → Convert: `yes` → `true`, `no` → `false`.
 → Store in `is_operator` (boolean).
 
+**Q6 — Fully deprecated**
+> Is this component fully deprecated — not needed in ANY currently supported RHOAI/ODH version, including older releases? (yes / no)
+> If yes, shared infrastructure (e.g. product listing entries) will also be removed.
+> If unsure, answer no — you can always change this later.
+
+→ Convert: `yes` → `true`, `no` → `false`.
+→ Store in `fully_deprecated` (boolean). Default `false`.
+
 ---
 
 ## Step 4: Show collected values and confirm
@@ -174,6 +182,7 @@ Component offboarding details collected:
   component_name           : <value>
   repo_url                 : <value>
   is_operator              : <value>
+  fully_deprecated         : <value>
 
 Proceed? (yes / no / edit)
 ```
@@ -203,6 +212,7 @@ if [[ "$product_context" == "RHOAI" ]]; then
 fi
 
 [[ "$is_operator" == "true" ]] && YAML_ARGS+=(--is-operator)
+[[ "$fully_deprecated" == "true" ]] && YAML_ARGS+=(--fully-deprecated)
 
 uv run --script scripts/generate_offboarding_yaml.py "${YAML_ARGS[@]}"
 ```
