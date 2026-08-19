@@ -19,10 +19,11 @@ Orchestrates the complete component offboarding pipeline (idempotent re-run mode
 5. `remove-from-bundle` — GitHub PR to remove relatedImages + build-config entries
 6. `remove-from-operator` — GitHub PR to remove operator manifests **(if is_operator=true)**
 7. `remove-product-listing` — GitLab MR to remove from pyxis-repo-configs product listing **(RHOAI only)**
-8. `remove-component-cr` — Delete Konflux Component CR from OpenShift cluster **(after all other steps are done; requires confirmation)**
+8. `sync-component-tekton` — GitHub PR(s) to remove stale PipelineRun files from the component repo's `.tekton/` **(after OKC/pull-pipeline PRs are merged)**
+9. `remove-component-cr` — Delete Konflux Component CR from OpenShift cluster **(after all other steps are done; requires confirmation)**
 
-Steps 2–7 are independent and can run in parallel. Step 8 depends on all of them
-being done/merged and requires human confirmation before executing.
+Steps 2–7 are independent and can run in parallel. Step 8 depends on steps 3–4
+being merged. Step 9 depends on all prior steps and requires human confirmation.
 
 **Re-run model:** invoke this skill any number of times for the same Jira URL.
 Each run checks Jira labels and PR/MR API status to determine what's already done,
@@ -310,7 +311,26 @@ EXIT_CODE=$?
 - Exit 2: already removed. Nothing further needed.
 - Exit 1: hard failure. Print `$OUTPUT` and stop.
 
-### Step 7g: remove-component-cr (step key: `remove_component_cr`)
+### Step 7h: sync-component-tekton (step key: `sync_component_tekton`)
+
+**Execute if** `sync_component_tekton` is in `UNBLOCKED_STEPS`. This step has `depends_on`
+`remove_okc` and `remove_pull_pipelines` — it only unblocks when both are `done`/`merged`/`skipped`.
+
+The sync-pipelineruns workflow only copies files (`cp -rf`) from konflux-central to
+the component repo — it never deletes. After OKC/pull-pipeline PRs merge, the stale
+PipelineRun files remain in the component repo's `.tekton/`. This step raises PR(s)
+to the component repo to remove them.
+
+```bash
+OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_sync_component_tekton.sh" --jira-url "$JIRA_URL")
+EXIT_CODE=$?
+```
+
+- Exit 0: PR(s) raised. Set `NEW_PRS_RAISED="true"`.
+- Exit 2: already clean. Nothing further needed.
+- Exit 1: hard failure. Print `$OUTPUT` and stop.
+
+### Step 7i: remove-component-cr (step key: `remove_component_cr`)
 
 **Execute if** `remove_component_cr` is in `UNBLOCKED_STEPS`. This step has `depends_on`
 all other removal steps — it only unblocks when everything else is `done` or `merged`.
@@ -427,7 +447,8 @@ PRs / MRs:
   remove_pull_pipelines : <steps.remove_pull_pipelines.status or "N/A (ODH)">
   remove_bundle         : <steps.remove_bundle.status> — <steps.remove_bundle.pr_url or "not yet raised">
   remove_operator       : <steps.remove_operator.status>
-  remove_product_listing: <steps.remove_product_listing.status or "N/A (ODH)">
+  remove_product_listing   : <steps.remove_product_listing.status or "N/A (ODH)">
+  sync_component_tekton : <steps.sync_component_tekton.status> — <steps.sync_component_tekton.pr_url or "not yet raised">
   remove_component_cr   : <steps.remove_component_cr.status>
 
 Newly merged this run : <NEWLY_MERGED or "none">
@@ -453,4 +474,5 @@ Re-run this skill after PRs/MRs are merged to advance the pipeline.
 | Bundle PR fails | 7d | Verify GITHUB_TOKEN push access to build-config repo |
 | Operator PR fails | 7e | Verify GITHUB_TOKEN push access to operator repo |
 | Product listing MR fails | 7f | Check VPN; GITLAB_TOKEN needs write_repository scope |
+| Tekton cleanup PR fails | 7h | Verify GITHUB_TOKEN push access to the component repo |
 | State lost / fresh checkout | Any | Re-run; pipeline state rebuilt from Jira labels |

@@ -119,9 +119,16 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "label_raised": "offboard-product-listing-mr-raised",
       "label_done": "offboard-product-listing-done"
     },
+    "sync_component_tekton": {
+      "status": "pending",
+      "pr_url": "",
+      "depends_on": ["remove_okc", "remove_pull_pipelines"],
+      "label_raised": "offboard-sync-tekton-pr-raised",
+      "label_done": "offboard-sync-tekton-done"
+    },
     "remove_component_cr": {
       "status": "pending",
-      "depends_on": ["remove_krd", "remove_okc", "remove_pull_pipelines", "remove_bundle", "remove_operator", "remove_product_listing"],
+      "depends_on": ["remove_krd", "remove_okc", "remove_pull_pipelines", "remove_bundle", "remove_operator", "remove_product_listing", "sync_component_tekton"],
       "label_done": "offboard-component-cr-removed"
     }
   }
