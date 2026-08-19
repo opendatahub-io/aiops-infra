@@ -129,11 +129,16 @@ _If `product_context == RHOAI`:_
 
 **Q2a — Target RHOAI version**
 > What is the target RHOAI version being offboarded?
-> Format: `x.y` or `x.y-ea-N`
-> Examples: `3.4`, `3.4-ea-2`
+> Format: `x.y`, `x.y.0`, `x.y-eaN`, `x.y-ea-N`, `x.y-ea.N`, `x.y.0-eaN`, `x.y.0-ea-N`, or `x.y.0-ea.N`
+> Examples: `3.4`, `3.4.0`, `3.4-ea2`, `3.4-ea-2`, `3.4-ea.2`, `3.4.0-ea2`, `3.4.0-ea-2`, `3.4.0-ea.2`
 
-→ Validate against regex: `^\d+\.\d+(-ea-\d+)?$`
-→ Transform to canonical form and store in `target_rhoai_version`.
+→ Validate against regex: `^\d+\.\d+(?:\.0)?(?:-?ea[-.]?\d+)?$`
+  Re-ask if the input does not match, showing the valid examples above.
+
+Transform the validated input to canonical form and store in `target_rhoai_version`:
+- Extract `VERSION_X` = first integer, `VERSION_Y` = second integer, `VERSION_N` = EA number (after `-ea`, `-ea-`, or `-ea.`), or empty if no EA suffix
+- If `VERSION_N` is non-empty: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>-ea-<VERSION_N>"` (e.g. `3.4-ea-2`)
+- Otherwise: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>"` (e.g. `3.4`)
 
 **Q3 — Component name**
 > What is the component name?
