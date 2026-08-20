@@ -115,14 +115,15 @@ if [[ ${#FOUND_CRS[@]} -eq 0 ]]; then
   exit 2
 fi
 
-# Collect ImageRepository CRs for all found components
-declare -A IMAGE_REPOS_MAP
+# Collect ImageRepository CRs for all found components (bash 3.2 compatible)
+IMAGE_REPOS_DIR=$(mktemp -d)
+trap 'rm -rf "$IMAGE_REPOS_DIR"' EXIT
 ALL_IMAGE_REPOS=""
 for cr in "${FOUND_CRS[@]}"; do
   repos=$(oc get imagerepository -n "$KONFLUX_NAMESPACE" -o json 2>/dev/null | \
     jq -r --arg comp "$cr" \
       '.items[] | select(.metadata.labels["appstudio.openshift.io/component"] == $comp) | .metadata.name' 2>/dev/null || true)
-  IMAGE_REPOS_MAP["$cr"]="$repos"
+  echo "$repos" > "$IMAGE_REPOS_DIR/$cr"
   [[ -n "$repos" ]] && ALL_IMAGE_REPOS="${ALL_IMAGE_REPOS}${repos}"$'\n'
 done
 
@@ -133,17 +134,21 @@ echo "================================================================"
 echo ""
 echo "  Namespace  : $KONFLUX_NAMESPACE"
 echo "  Cluster    : $CLUSTER_INSTANCE"
-if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
+if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+  eval "$(bash "$SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION")"
+  echo "  Application: rhoai-${VERSION_VAR}"
+else
   echo "  Application: $ODH_APPLICATIONS"
 fi
 echo ""
 for cr in "${FOUND_CRS[@]}"; do
   echo "  Component  : $cr"
-  if [[ -n "${IMAGE_REPOS_MAP[$cr]:-}" ]]; then
+  cr_repos=$(cat "$IMAGE_REPOS_DIR/$cr" 2>/dev/null || true)
+  if [[ -n "$cr_repos" ]]; then
     echo "    ImageRepository CRs to annotate (skip-repository-deletion=true):"
     while IFS= read -r repo; do
       [[ -n "$repo" ]] && echo "      - $repo"
-    done <<< "${IMAGE_REPOS_MAP[$cr]}"
+    done <<< "$cr_repos"
   else
     echo "    No ImageRepository CRs found."
   fi
@@ -179,7 +184,8 @@ fi
 DELETED_CRS=()
 for cr in "${FOUND_CRS[@]}"; do
   # Annotate ImageRepository CRs to preserve Quay images
-  if [[ -n "${IMAGE_REPOS_MAP[$cr]:-}" ]]; then
+  cr_repos=$(cat "$IMAGE_REPOS_DIR/$cr" 2>/dev/null || true)
+  if [[ -n "$cr_repos" ]]; then
     echo "Annotating ImageRepository CRs for '$cr'..."
     while IFS= read -r repo; do
       [[ -z "$repo" ]] && continue
@@ -189,7 +195,7 @@ for cr in "${FOUND_CRS[@]}"; do
         echo "ERROR: Failed to annotate ImageRepository '$repo'." >&2; exit 1
       }
       echo "  Annotated: $repo"
-    done <<< "${IMAGE_REPOS_MAP[$cr]}"
+    done <<< "$cr_repos"
   fi
 
   echo "Deleting Component CR '$cr'..."

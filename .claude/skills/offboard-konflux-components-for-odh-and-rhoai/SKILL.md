@@ -40,10 +40,10 @@ executes pending steps, and posts a summary of status changes only.
 **Jira:** `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
 **GitLab (VPN required):** `GITLAB_USER`, `GITLAB_TOKEN` (api + write_repository scope)
 **GitHub:** `GITHUB_USER`, `GITHUB_TOKEN` (repo scope)
-**OpenShift:** `EXT_OC_TOKEN` (external cluster), `INT_OC_TOKEN` (internal cluster) — each only if needed
+**OpenShift:** Handled automatically — the skill prompts for `oc login --web` if no valid session exists
 **Tools:** `uv`, `git`, `oc`, `skopeo`, `yamllint`, `jq`, `kustomize` (or `kubectl`)
 
-**VPN must be active** before running — required for the KRD step (GitLab on gitlab.cee.redhat.com).
+**VPN:** Checked automatically at startup — the skill verifies connectivity to gitlab.cee.redhat.com.
 
 ## Dry Run
 
@@ -93,6 +93,8 @@ echo "Jira URL : $JIRA_URL"
 
 ## Step 1: Check Prerequisites
 
+### Step 1a: Tools and credentials
+
 ```bash
 bash "$SCRIPTS_DIR/check_prerequisites.sh" \
   --env "JIRA_USER_EMAIL JIRA_API_TOKEN GITLAB_USER GITLAB_TOKEN GITHUB_USER GITHUB_TOKEN" \
@@ -100,6 +102,52 @@ bash "$SCRIPTS_DIR/check_prerequisites.sh" \
 
 [[ -x "${HOME}/.local/bin/kustomize" ]] && export PATH="${HOME}/.local/bin:${PATH}"
 ```
+
+### Step 1b: VPN connectivity
+
+```bash
+bash "$SCRIPTS_DIR/check_prerequisites.sh" --vpn
+```
+
+On exit 1: tell the user to connect to the Red Hat VPN and re-run. Stop.
+
+### Step 1c: OpenShift cluster login
+
+Determine the cluster from the Jira (RHOAI → `internal`, ODH → `external`).
+The product context is not yet parsed at this point, so check both or default to
+`internal` (most common). If the validate step has already run and we can read the
+YAML, derive it from `product_context`. Otherwise, default to `internal`.
+
+```bash
+OC_CLUSTER="internal"
+bash "$SCRIPTS_DIR/check_prerequisites.sh" --oc-login "$OC_CLUSTER"
+OC_EXIT=$?
+```
+
+On exit 0: already authenticated — continue.
+
+On exit 2 (`OC_LOGIN_NEEDED`): the user needs to log in interactively.
+Tell the user:
+
+> You need to log in to the OpenShift cluster. Please run this command:
+> ```
+> ! oc login --web <OC_API_SERVER>
+> ```
+> This will open a browser for authentication.
+
+**Wait for the user to confirm they have logged in.** Then capture the token:
+
+```bash
+export <OC_TOKEN_VAR>=$(oc whoami -t)
+```
+
+Verify the login succeeded:
+
+```bash
+bash "$SCRIPTS_DIR/check_prerequisites.sh" --oc-login "$OC_CLUSTER"
+```
+
+On failure again: stop with an error.
 
 ---
 
