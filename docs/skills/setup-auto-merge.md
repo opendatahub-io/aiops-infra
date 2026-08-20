@@ -23,12 +23,29 @@ it to the auto-merge configuration in `rhods-devops-infra`.
 ### upstream-source-map.yaml entry
 
 ```yaml
-- upstream: <repo_url>
-  midstream: https://github.com/red-hat-data-services/<repo_name>
-  branch_mappings:
-    - upstream: main
-      midstream: rhoai-<version>
+- name: <repo_name>
+  automerge: 'yes'
+  ignore-files: .tekton/*
+  src:
+    url: <upstream_repo_url>.git
+    branch: main
+  dest:
+    url: <midstream_repo_url>.git
+    branch: main
 ```
+
+### main-release-source-map.yaml entry
+
+```yaml
+- name: <repo_name>
+  automerge: 'yes'
+  repo-url: <midstream_repo_url>.git
+  ignore-files: .tekton/*
+```
+
+`ignore-files: .tekton/*` keeps Tekton/PAC pipelines local to each side of the
+mapping (ODH CI stays upstream; RHDS pull pipelines stay on `main`, not release
+branches).
 
 ## PR raised
 
@@ -36,7 +53,7 @@ it to the auto-merge configuration in `rhods-devops-infra`.
 |-------|-------|
 | Target repo | `red-hat-data-services/rhods-devops-infra` |
 | Target branch | `main` |
-| Title | `setup auto-merge for <component_name>` |
+| Title | `Configure auto-merge for <component_name>` |
 
 ## Jira update
 
