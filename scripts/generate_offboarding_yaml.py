@@ -35,7 +35,8 @@ def main():
         if not args.target_rhoai_version:
             print("ERROR: --target-rhoai-version is required for RHOAI", file=sys.stderr)
             sys.exit(1)
-        lines.append(f"  target_rhoai_version: {args.target_rhoai_version}")
+        # Quote so plain x.y versions (e.g. 3.4) parse as strings, not floats.
+        lines.append(f'  target_rhoai_version: "{args.target_rhoai_version}"')
 
     lines.append(f"  is_operator: {str(args.is_operator).lower()}")
 
