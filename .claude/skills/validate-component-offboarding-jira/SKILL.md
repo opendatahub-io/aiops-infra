@@ -73,7 +73,7 @@ echo "Working directory: $WORKDIR"
 ### Step 3: Fetch Jira issue details
 
 ```bash
-(cd "$WORKDIR" && uv run --script "$SCRIPTS_DIR/fetch_jira_details.py" "$JIRA_URL")
+(cd "$WORKDIR" && uv run --script "$SCRIPTS_DIR/fetch_offboarding_jira_details.py" "$JIRA_URL")
 ```
 
 On success: `component_offboarding_details.json` is created in $WORKDIR.

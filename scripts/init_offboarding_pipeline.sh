@@ -8,7 +8,6 @@ WORKDIR_OVERRIDE=""
 PRODUCT_CONTEXT=""
 COMPONENT_NAME=""
 IS_OPERATOR="false"
-FULLY_DEPRECATED="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -17,7 +16,6 @@ while [[ $# -gt 0 ]]; do
     --product-context)  PRODUCT_CONTEXT="$2";  shift 2 ;;
     --component-name)   COMPONENT_NAME="$2";   shift 2 ;;
     --is-operator)      IS_OPERATOR="$2";      shift 2 ;;
-    --fully-deprecated) FULLY_DEPRECATED="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -57,12 +55,6 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
   OP_STATUS="pending"
   if [[ "$IS_OPERATOR" != "true" ]]; then
     OP_STATUS="skipped"
-  fi
-
-  # Product listing: only for RHOAI AND only when fully deprecated
-  PL_STATUS="skipped"
-  if [[ "$PRODUCT_CONTEXT" == "RHOAI" && "$FULLY_DEPRECATED" == "true" ]]; then
-    PL_STATUS="pending"
   fi
 
   cat > "$PIPELINE_STATE" <<EOF
@@ -112,13 +104,6 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "label_raised": "offboard-operator-pr-raised",
       "label_done": "offboard-operator-pr-merged"
     },
-    "remove_product_listing": {
-      "status": "${PL_STATUS}",
-      "mr_url": "",
-      "depends_on": [],
-      "label_raised": "offboard-product-listing-mr-raised",
-      "label_done": "offboard-product-listing-done"
-    },
     "sync_component_tekton": {
       "status": "pending",
       "pr_url": "",
@@ -128,7 +113,7 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     },
     "remove_component_cr": {
       "status": "pending",
-      "depends_on": ["remove_krd", "remove_okc", "remove_pull_pipelines", "remove_bundle", "remove_operator", "remove_product_listing", "sync_component_tekton"],
+      "depends_on": ["remove_krd", "remove_okc", "remove_pull_pipelines", "remove_bundle", "remove_operator", "sync_component_tekton"],
       "label_done": "offboard-component-cr-removed"
     }
   }
@@ -155,7 +140,7 @@ else
     if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
       jq '
         .steps |= with_entries(
-          if (.key == "remove_pull_pipelines" or .key == "remove_product_listing")
+          if .key == "remove_pull_pipelines"
              and .value.status == "pending"
           then .value.status = "skipped"
           else .

@@ -18,12 +18,11 @@ Orchestrates the complete component offboarding pipeline (idempotent re-run mode
 4. `remove-pull-pipelines` — GitHub PR to remove pull-request PipelineRun **(RHOAI only)**
 5. `remove-from-bundle` — GitHub PR to remove relatedImages + build-config entries
 6. `remove-from-operator` — GitHub PR to remove operator manifests **(if is_operator=true)**
-7. `remove-product-listing` — GitLab MR to remove from pyxis-repo-configs product listing **(RHOAI only)**
-8. `sync-component-tekton` — GitHub PR(s) to remove stale PipelineRun files from the component repo's `.tekton/` **(after OKC/pull-pipeline PRs are merged)**
-9. `remove-component-cr` — Delete Konflux Component CR from OpenShift cluster **(after all other steps are done; requires confirmation)**
+7. `sync-component-tekton` — GitHub PR(s) to remove stale PipelineRun files from the component repo's `.tekton/` **(after OKC/pull-pipeline PRs are merged)**
+8. `remove-component-cr` — Delete Konflux Component CR from OpenShift cluster **(after all other steps are done; requires confirmation)**
 
-Steps 2–7 are independent and can run in parallel. Step 8 depends on steps 3–4
-being merged. Step 9 depends on all prior steps and requires human confirmation.
+Steps 2–6 are independent and can run in parallel. Step 7 depends on steps 3–4
+being merged. Step 8 depends on all prior steps and requires human confirmation.
 
 **Re-run model:** invoke this skill any number of times for the same Jira URL.
 Each run checks Jira labels and PR/MR API status to determine what's already done,
@@ -149,6 +148,19 @@ bash "$SCRIPTS_DIR/check_prerequisites.sh" --oc-login "$OC_CLUSTER"
 
 On failure again: stop with an error.
 
+### Step 1d: Set active oc project
+
+Once login is confirmed (whether it was already authenticated or completed interactively),
+always switch the active project to the RHOAI tenant namespace so subsequent `oc` commands
+default to it:
+
+```bash
+oc project rhoai-tenant
+```
+
+If this fails (e.g. the namespace is not visible on the current cluster), print a warning
+and continue — the removal steps still target their namespace explicitly with `-n`.
+
 ---
 
 ## Step 2: Set Up Working Directory and Initialize State
@@ -210,7 +222,6 @@ bash "$SCRIPTS_DIR/init_offboarding_pipeline.sh" \
   --product-context   "$PRODUCT_CONTEXT" \
   --component-name    "$COMPONENT_NAME" \
   --is-operator       "$IS_OPERATOR" \
-  --fully-deprecated  "$FULLY_DEPRECATED" \
   > /dev/null
 ```
 
@@ -344,21 +355,6 @@ EXIT_CODE=$?
 - Exit 2: skipped (is_operator=false) or already removed. Nothing further needed.
 - Exit 1: hard failure. Print `$OUTPUT` and stop.
 
-### Step 7f: remove-product-listing (step key: `remove_product_listing`, RHOAI only)
-
-**Execute if** `remove_product_listing` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
-
-> **VPN must be active.**
-
-```bash
-OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_remove_product_listing.sh" --jira-url "$JIRA_URL")
-EXIT_CODE=$?
-```
-
-- Exit 0: MR raised. Set `NEW_PRS_RAISED="true"`.
-- Exit 2: already removed. Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
-
 ### Step 7h: sync-component-tekton (step key: `sync_component_tekton`)
 
 **Execute if** `sync_component_tekton` is in `UNBLOCKED_STEPS`. This step has `depends_on`
@@ -422,7 +418,7 @@ SOMETHING_CHANGED="false"
 [[ "${NEW_PRS_RAISED:-false}" == "true" ]] && SOMETHING_CHANGED="true"
 
 if [[ "$SOMETHING_CHANGED" == "true" ]]; then
-  PENDING_COMMENT=$(uv run --script "$SCRIPTS_DIR/build_progress_summary.py" \
+  PENDING_COMMENT=$(uv run --script "$SCRIPTS_DIR/build_offboarding_progress_summary.py" \
     --state           "$PIPELINE_STATE" \
     --component-name  "$COMPONENT_NAME" \
     --product-context "$PRODUCT_CONTEXT" \
@@ -451,7 +447,7 @@ ALL_DONE=$(jq -r '
 **If `ALL_DONE == "true"`:**
 
 ```bash
-FULL_COMMENT=$(uv run --script "$SCRIPTS_DIR/build_progress_summary.py" \
+FULL_COMMENT=$(uv run --script "$SCRIPTS_DIR/build_offboarding_progress_summary.py" \
   --state           "$PIPELINE_STATE" \
   --component-name  "$COMPONENT_NAME" \
   --product-context "$PRODUCT_CONTEXT" \
@@ -495,7 +491,6 @@ PRs / MRs:
   remove_pull_pipelines : <steps.remove_pull_pipelines.status or "N/A (ODH)">
   remove_bundle         : <steps.remove_bundle.status> — <steps.remove_bundle.pr_url or "not yet raised">
   remove_operator       : <steps.remove_operator.status>
-  remove_product_listing   : <steps.remove_product_listing.status or "N/A (ODH)">
   sync_component_tekton : <steps.sync_component_tekton.status> — <steps.sync_component_tekton.pr_url or "not yet raised">
   remove_component_cr   : <steps.remove_component_cr.status>
 
@@ -521,6 +516,5 @@ Re-run this skill after PRs/MRs are merged to advance the pipeline.
 | Pull pipelines PR fails | 7c | Check GITHUB_TOKEN push access to rhoai-konflux-central |
 | Bundle PR fails | 7d | Verify GITHUB_TOKEN push access to build-config repo |
 | Operator PR fails | 7e | Verify GITHUB_TOKEN push access to operator repo |
-| Product listing MR fails | 7f | Check VPN; GITLAB_TOKEN needs write_repository scope |
 | Tekton cleanup PR fails | 7h | Verify GITHUB_TOKEN push access to the component repo |
 | State lost / fresh checkout | Any | Re-run; pipeline state rebuilt from Jira labels |

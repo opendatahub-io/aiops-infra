@@ -46,11 +46,6 @@
         "is_operator": {
           "type": "boolean",
           "description": "Whether the component is an operator or controller; controls whether operator manifest removal step runs"
-        },
-        "fully_deprecated": {
-          "type": "boolean",
-          "description": "Set to true ONLY when the component is fully deprecated and not needed in ANY supported version (including older releases). When true, shared infrastructure like product listing entries will also be removed. Default false.",
-          "default": false
         }
       },
       "allOf": [
