@@ -2,7 +2,7 @@
 # Parse a canonical RHOAI version string (x.y or x.y-ea-n) and export all derived variables.
 #
 # Usage:
-#   eval "$(bash parse_rhoai_version.sh --version "3.4" [--component "my-comp"])"
+#   eval "$(bash parse_rhoai_version.sh --version "3.4" [--component "my-comp"] [--release-category "Beta"])"
 #
 # Exports (via eval):
 #   VERSION_X, VERSION_Y, VERSION_N (empty for non-ea)
@@ -11,17 +11,21 @@
 #   BRANCH_NAME         (e.g. rhoai-3.4 or rhoai-3.4-ea.2)
 #   RHOAI_MINOR_VERSION (e.g. 3.4.0 or 3.4.0-ea.2)
 #   CONTENT_STREAM_TAG  (e.g. v3.4 or v3.4-ea.2)
-#   REPOSITORY_NAME     (only when --component is provided: rhoai/<comp>-rhel9)
+#   REPOSITORY_NAME     (only when --component is provided:
+#                         rhoai/<comp>-rhel9  for GA/Tech Preview
+#                         rhoai-beta/<comp>-rhel9  for Beta/DevPreview)
 
 set -euo pipefail
 
 TARGET_RHOAI_VERSION=""
 COMPONENT_NAME=""
+RELEASE_CATEGORY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --version)   TARGET_RHOAI_VERSION="$2"; shift 2 ;;
-    --component) COMPONENT_NAME="$2";       shift 2 ;;
+    --version)          TARGET_RHOAI_VERSION="$2"; shift 2 ;;
+    --component)        COMPONENT_NAME="$2";        shift 2 ;;
+    --release-category) RELEASE_CATEGORY="$2";      shift 2 ;;
     *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -62,6 +66,8 @@ printf 'RHOAI_MINOR_VERSION=%q\n' "$RHOAI_MINOR_VERSION"
 printf 'CONTENT_STREAM_TAG=%q\n'  "$CONTENT_STREAM_TAG"
 
 if [[ -n "$COMPONENT_NAME" ]]; then
-  REPOSITORY_NAME="rhoai/${COMPONENT_NAME}-rhel9"
+  PRODUCT_LINE="rhoai"
+  [[ "$RELEASE_CATEGORY" == "Beta" ]] && PRODUCT_LINE="rhoai-beta"
+  REPOSITORY_NAME="${PRODUCT_LINE}/${COMPONENT_NAME}-rhel9"
   printf 'REPOSITORY_NAME=%q\n' "$REPOSITORY_NAME"
 fi

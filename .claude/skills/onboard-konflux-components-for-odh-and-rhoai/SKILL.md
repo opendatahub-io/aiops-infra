@@ -19,6 +19,7 @@ Orchestrates the complete component onboarding pipeline (idempotent re-run model
 5. `add-component-to-odh-konflux-central` **(ODH)** / `add-component-to-rhoai-konflux-central` + `create-pull-pipelines-in-rhoai-konflux-central` **(RHOAI; after krd merges)**
 6. `run-odh-konflux-onboarder-workflow` — triggered once krd+okc are both merged **(ODH only)**
 7. `integrate-component-with-bundle` — GitHub PR **(ODH: after onboarder_workflow; RHOAI: after okc merges)**
+7b. `krd-release-plan` (`krd_rpa`) — GitLab MR to ReleasePlanAdmission **(RHOAI only; after okc merges, alongside bundle)**
 8. `integrate-component-with-odh-operator` — GitHub PR **(after bundle merges; if is_operator=true)**
 9. `update-rhoai-product-listing` — GitLab MR, triggered after delivery-repo merges **(RHOAI only)**
 10. `setup-auto-merge` — GitHub PR to rhods-devops-infra **(RHOAI only)**
@@ -192,6 +193,26 @@ ERROR in Step 4 (Parse Component Details): Could not parse YAML or derive PRODUC
 
 ---
 
+## Step 4b: Ensure Template Clone Link
+
+Ensure the Jira has a "clones" link to the product-specific onboarding template
+(covers tickets created outside the `create-component-onboarding-jira` skill):
+
+```bash
+if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
+  TEMPLATE_ID="RHOAIENG-35683"
+else
+  TEMPLATE_ID="RHOAIENG-17225"
+fi
+
+uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  --link-clones "$TEMPLATE_ID" || true
+```
+
+Non-fatal — if the link already exists or cannot be created, continue.
+
+---
+
 ## Step 5: Sync State from Jira Labels
 
 Reconstruct `pipeline_state.json` from Jira labels (durable even after a fresh checkout)
@@ -307,9 +328,7 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: the script has already updated `pipeline_state.json` (status `mr_raised`, MR URL recorded, label `quay-mr-raised` added). Extract `MR_URL` from the last line of `$OUTPUT` for logging. Set `NEW_PRS_RAISED="true"`.
-- Exit 2: the script has already updated `pipeline_state.json` (status `done`, label `quay-mr-merged` added). Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop. `pipeline_state.json` is unchanged; next CI run retries.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8b: create-rhoai-delivery-repo (step key: `delivery_repo`, RHOAI only)
 
@@ -322,9 +341,7 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `mr_raised`, MR URL recorded, label `delivery-repo-mr-raised` added). Extract `MR_URL` from last line of `$OUTPUT` for logging. Set `NEW_PRS_RAISED="true"`.
-- Exit 2: delivery repo already exists. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8c: onboard-component-to-konflux-release-data (step key: `krd`)
 
@@ -337,9 +354,7 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `mr_raised`, MR URL recorded, label `krd-mr-raised` added). Extract `MR_URL` from last line of `$OUTPUT` for logging. Set `NEW_PRS_RAISED="true"`.
-- Exit 2: component already exists on cluster. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8d: add-component-to-*-konflux-central (step key: `okc`)
 
@@ -357,9 +372,7 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `pr_raised`, PR URL recorded, label added). Extract `PR_URL` from last line of `$OUTPUT`. Set `NEW_PRS_RAISED="true"`.
-- Exit 2: PipelineRun already exists. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8e: create-pull-pipelines-in-rhoai-konflux-central (step key: `pull_pipelines`, RHOAI only)
 
@@ -370,9 +383,7 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `pr_raised`, PR URL recorded, label `rkc-pull-pr-raised` added). Set `NEW_PRS_RAISED="true"`.
-- Exit 2: PipelineRun already exists. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8f: integrate-component-with-bundle (step key: `bundle`)
 
@@ -383,9 +394,7 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `pr_raised`, PR URL recorded, label `bundle-pr-raised` added). Set `NEW_PRS_RAISED="true"`.
-- Exit 2: entry already present. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8g: integrate-component-with-odh-operator (step key: `operator`)
 
@@ -396,11 +405,24 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `pr_raised`, PR URL recorded, label `operator-pr-raised` added). Set `NEW_PRS_RAISED="true"`.
-- Exit 2: `is_operator=false` (skipped) or entry already present. Script updated `pipeline_state.json`. Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
-### Step 8h: update-rhoai-product-listing (step key: `product_listing`, RHOAI only)
+### Step 8h: krd-release-plan (step key: `krd_rpa`, RHOAI only)
+
+**Execute if** `krd_rpa` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
+
+The `depends_on: ["okc"]` check in Step 7 ensures this runs alongside build-config (`bundle`) after okc merges.
+
+> **VPN needed.**
+
+```bash
+OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_krd_rpa.sh" --jira-url "$JIRA_URL")
+EXIT_CODE=$?
+```
+
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
+
+### Step 8i: update-rhoai-product-listing (step key: `product_listing`, RHOAI only)
 
 **Execute if** `product_listing` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
 
@@ -411,11 +433,9 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `mr_raised`, MR URL recorded, label `product-listing-mr-raised` added). Set `NEW_PRS_RAISED="true"`.
-- Exit 2: entry already exists. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
-### Step 8i: setup-auto-merge (step key: `auto_merge`, RHOAI only)
+### Step 8j: setup-auto-merge (step key: `auto_merge`, RHOAI only)
 
 **Execute if** `auto_merge` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
 
@@ -424,11 +444,9 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `pr_raised`, PR URL recorded, label `auto-merge-pr-raised` added). Set `NEW_PRS_RAISED="true"`.
-- Exit 2: entries already exist. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
-### Step 8j: enable-renovate-on-rhoai-component-repo (step key: `renovate`, RHOAI only)
+### Step 8k: enable-renovate-on-rhoai-component-repo (step key: `renovate`, RHOAI only)
 
 **Execute if** `renovate` is in `UNBLOCKED_STEPS` and `PRODUCT_CONTEXT == "RHOAI"`.
 
@@ -437,9 +455,7 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: script updated `pipeline_state.json` (status `pr_raised`, PR URL recorded, label `renovate-pr-raised` added). Set `NEW_PRS_RAISED="true"`.
-- Exit 2: entry already exists. Script updated `pipeline_state.json` (status `done`). Nothing further needed.
-- Exit 1: hard failure. Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ---
 
@@ -460,8 +476,7 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: the script has already updated `pipeline_state.json` (status `pr_raised`, Tekton PR URL recorded, label `tekton-pr-raised` added). Extract `PR_URL` from last line of `$OUTPUT`. Set `NEW_PRS_RAISED="true"`.
-- Exit 1: hard failure (workflow dispatch failed, 422, or timeout). Print `$OUTPUT` and stop.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 9b: sync-rhoai-renovate-configs (step key: `renovate_sync`, RHOAI only)
 
@@ -474,8 +489,7 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
-- Exit 0: the script has already updated `pipeline_state.json` (status `done`, labels `renovate-sync-done` added). No URL is produced. Set `NEW_PRS_RAISED="true"` (so Step 11 posts the final Jira comment).
-- Exit 1: workflow failed, cancelled, or timed out. Print `$OUTPUT` and stop. `pipeline_state.json` is unchanged; next CI run re-triggers.
+Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"` (no URL produced).
 
 ---
 
@@ -544,7 +558,7 @@ Set `NEW_PRS_RAISED="true"` in Step 8 immediately after recording any new PR/MR 
 
 ## Step 12: Resolve or Keep in Review
 
-**Check if all applicable steps are done:**
+**Check if all applicable steps are done by reading `$PIPELINE_STATE` with `jq`:**
 
 ```bash
 ALL_DONE=$(jq -r '
@@ -606,6 +620,7 @@ PRs / MRs:
   pull_pipelines  : <steps.pull_pipelines.status or "N/A (ODH)">
   operator        : <steps.operator.status>
   bundle          : <steps.bundle.status>
+  krd_rpa         : <steps.krd_rpa.status or "N/A (ODH)"> — <steps.krd_rpa.mr_url or "not yet raised">
   delivery_repo   : <steps.delivery_repo.status or "N/A (ODH)">
   product_listing : <steps.product_listing.status or "N/A (ODH)">
   auto_merge      : <steps.auto_merge.status or "N/A (ODH)">
@@ -623,26 +638,4 @@ Re-run this skill after PRs/MRs are merged to advance the pipeline.
 
 ## Error Reference
 
-| Error | Step | Remediation |
-|-------|------|-------------|
-| Credential not set | 1 | `export <VAR>=<value>` per prerequisites list |
-| Tool not installed | 1 | Install per Step 1 guidance |
-| `kustomize` not found | 1 | Run `install.sh` (creates kubectl-backed shim) |
-| YAML not attached to Jira | 3 | Run `/create-component-onboarding-jira <jira-url>` first |
-| YAML fails schema validation | 3 | Fix YAML, re-upload to Jira, re-run skill |
-| VPN not active | 4, 8b, 8g, 8h | Activate Red Hat VPN; re-run (idempotent) |
-| Quay MR fails 3× | 8a | Check VPN and `GITLAB_TOKEN` `api` scope |
-| Delivery repo MR fails 3× | 8b | Check VPN and GITLAB_TOKEN `write_repository` scope |
-| KRD MR fails | 8c | Check VPN; `GITLAB_TOKEN` needs `write_repository` scope |
-| OKC/RKC PR fails | 8d | Verify `GITHUB_TOKEN` `repo` scope and push access |
-| Pull pipelines PR fails 3× | 8e | Check GITHUB_TOKEN push access to rhoai-konflux-central |
-| Operator PR fails | 8f | Verify `GITHUB_TOKEN` push access to `opendatahub-operator` |
-| Bundle PR fails | 8g | Verify `GITHUB_TOKEN` push access to `ODH-Build-Config` |
-| Product listing MR fails | 8h | Check VPN; delivery_repo must be merged first |
-| Onboarder workflow 422 | 9a | krd or okc not yet merged — check their status and re-run |
-| Auto-merge PR fails 3× | 8i | Check GITHUB_TOKEN push access to rhods-devops-infra |
-| Renovate PR fails 3× | 8j | Check GITHUB_TOKEN push access to rhoai-konflux-central |
-| Renovate sync workflow 403 | 9b | GITHUB_TOKEN needs `actions:write` scope |
-| Jira `--status "Resolved"` fails | 13 | Check available Jira transitions |
-| State lost / fresh checkout | Any | Re-run; Step 5 restores state from Jira labels |
-| PR/MR still not detected merged | 6 | Check if URL in pipeline_state.json is correct; verify API connectivity |
+Common failures: credential not set → export the var; tool missing → install per Step 1; YAML missing → run `/create-component-onboarding-jira` first; YAML invalid → fix, re-upload, re-run; VPN down → activate VPN, re-run. GitLab MR failures → check VPN + `GITLAB_TOKEN` scopes (`api`, `write_repository`). GitHub PR failures → check `GITHUB_TOKEN` `repo` scope and push access. Onboarder workflow 422 → krd/okc not yet merged. Build verify timeout/failure → check PAC config or build URL. State lost → re-run; Step 5 restores from Jira labels.

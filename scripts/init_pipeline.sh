@@ -78,8 +78,12 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
     BUNDLE_DEPENDS_ON='["okc"]'
   fi
 
+  # krd_rpa (RHOAI-only) runs alongside build-config / bundle — after okc merges
+  KRD_RPA_DEPENDS_ON='["okc"]'
+
   # operator depends on bundle (both products)
   OPERATOR_DEPENDS_ON='["bundle"]'
+
 
   SKIP_RHOAI_ONLY="pending"
   SKIP_ODH_ONLY="pending"
@@ -119,6 +123,13 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "depends_on": ${KRD_DEPENDS_ON},
       "label_raised": "krd-mr-raised",
       "label_done": "krd-mr-merged"
+    },
+    "krd_rpa": {
+      "status": "${SKIP_RHOAI_ONLY}",
+      "mr_url": "",
+      "depends_on": ${KRD_RPA_DEPENDS_ON},
+      "label_raised": "krd-rpa-mr-raised",
+      "label_done": "krd-rpa-mr-merged"
     },
     "okc": {
       "status": "pending",
@@ -187,7 +198,7 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "depends_on": ["krd", "okc"],
       "label_raised": "tekton-pr-raised",
       "label_done": "tekton-pr-merged"
-    }
+    },
   }
 }
 EOF
@@ -215,7 +226,7 @@ else
     if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
       jq '
         .steps |= with_entries(
-          if .key == ("pull_pipelines","delivery_repo","product_listing","auto_merge","renovate","renovate_sync")
+          if .key == ("pull_pipelines","delivery_repo","product_listing","auto_merge","renovate","renovate_sync","krd_rpa")
              and .value.status == "pending"
           then .value.status = "skipped"
           else .
@@ -307,6 +318,18 @@ else
       jq '.steps.bundle.depends_on = ((.steps.bundle.depends_on // []) + ["okc"] | unique)' \
         "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
       echo "  bundle.depends_on: added okc (RHOAI prerequisite)" >&2
+    fi
+  fi
+
+  # krd_rpa: add "okc" if missing (RHOAI only — same gate as bundle / build-config)
+  if [[ "$CURRENT_PC" == "RHOAI" ]]; then
+    if jq -e '.steps.krd_rpa' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      if ! jq -e '.steps.krd_rpa.depends_on | index("okc") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+        TMP=$(mktemp)
+        jq '.steps.krd_rpa.depends_on = ((.steps.krd_rpa.depends_on // []) + ["okc"] | unique)' \
+          "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+        echo "  krd_rpa.depends_on: added okc (RHOAI prerequisite — with build-config)" >&2
+      fi
     fi
   fi
 

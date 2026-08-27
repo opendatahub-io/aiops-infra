@@ -195,38 +195,51 @@ def cmd_trigger(args, token: str) -> None:
     # Record time just before dispatch (with 5 s buffer for clock skew)
     before_dt = datetime.now(timezone.utc) - timedelta(seconds=5)
 
+    dispatch_url = f"https://api.github.com/repos/{owner}/{repo_name}/actions/workflows/{target_workflow.id}/dispatches"
     try:
-        target_workflow.create_dispatch(ref=ref, inputs=inputs_dict)
-    except GithubException as exc:
-        if exc.status == 422:
-            print(f"ERROR: Workflow dispatch failed (HTTP 422).", file=sys.stderr)
-            data = getattr(exc, "data", {}) or {}
-            msg = data.get("message", "")
-            if "inputs" in str(msg).lower() or "inputs" in str(data).lower():
-                print(
-                    "  The workflow rejected the provided inputs. This often means a\n"
-                    "  'type: choice' input value is not in the allowed options list.\n"
-                    "  Ensure the component is listed in the workflow's options before dispatching.",
-                    file=sys.stderr,
-                )
-            else:
-                print(f"  Details: {data}", file=sys.stderr)
-        elif exc.status == 403:
+        resp = requests.post(
+            dispatch_url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"token {token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json={"ref": ref, "inputs": inputs_dict},
+            timeout=30,
+        )
+    except Exception as exc:
+        print(f"ERROR: Unexpected error dispatching workflow: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if resp.status_code == 422:
+        data = resp.json() if resp.content else {}
+        msg = data.get("message", "")
+        print(f"ERROR: Workflow dispatch failed (HTTP 422).", file=sys.stderr)
+        if "inputs" in msg.lower():
             print(
-                "ERROR: Permission denied dispatching workflow (HTTP 403).\n"
-                "  GITHUB_TOKEN needs 'actions:write' scope (or the legacy 'workflow' scope).",
-                file=sys.stderr,
-            )
-        elif exc.status == 404:
-            print(
-                f"ERROR: Workflow not found or ref '{ref}' does not exist (HTTP 404).",
+                f"  {msg}\n"
+                "  An unexpected or invalid input was provided. Check that all inputs\n"
+                "  are declared in the workflow's on.workflow_dispatch.inputs section.",
                 file=sys.stderr,
             )
         else:
-            print(f"ERROR: Failed to dispatch workflow: {exc}", file=sys.stderr)
+            print(f"  Details: {data}", file=sys.stderr)
         sys.exit(1)
-    except Exception as exc:
-        print(f"ERROR: Unexpected error dispatching workflow: {exc}", file=sys.stderr)
+    elif resp.status_code == 403:
+        print(
+            "ERROR: Permission denied dispatching workflow (HTTP 403).\n"
+            "  GITHUB_TOKEN needs 'actions:write' scope (or the legacy 'workflow' scope).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    elif resp.status_code == 404:
+        print(
+            f"ERROR: Workflow not found or ref '{ref}' does not exist (HTTP 404).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    elif resp.status_code != 204:
+        print(f"ERROR: Unexpected HTTP {resp.status_code} from dispatch API: {resp.text}", file=sys.stderr)
         sys.exit(1)
 
     print("Workflow dispatched. Waiting for run to appear...", file=sys.stderr)

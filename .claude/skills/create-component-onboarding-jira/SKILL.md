@@ -516,11 +516,21 @@ Two paths depending on whether a Jira URL was provided.
 > `update_jira_issue.py --attach` already deletes any existing attachment with the same
 > filename before uploading, so no explicit pre-delete step is needed.
 
+Select the template to clone-link based on `product_context`:
+```bash
+if [[ "$product_context" == "ODH" ]]; then
+  TEMPLATE_ID="RHOAIENG-35683"
+else
+  TEMPLATE_ID="RHOAIENG-17225"
+fi
+```
+
 ```bash
 uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --attach "$YAML_PATH" \
   --add-label "yaml-attached" \
   --link-related "$PARENT_FEATURE_ID" \
+  --link-clones "$TEMPLATE_ID" \
   --comment "component_onboarding_details.yaml has been generated and attached to this ticket.
 
 Component: <component_name>

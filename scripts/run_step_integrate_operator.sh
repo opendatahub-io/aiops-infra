@@ -107,12 +107,15 @@ fi
 # Append manifests entry
 uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-operator-component \
   "$MANIFESTS_CONFIG" \
-  --component-name          "$COMPONENT_NAME" \
-  --repo-url                "$REPO_URL" \
-  --repo-branch             "$REPO_BRANCH" \
-  ${OPERATOR_MANIFEST_SRC_PATH:+--manifest-src-path  "$OPERATOR_MANIFEST_SRC_PATH"} \
-  ${OPERATOR_MANIFEST_DEST_PATH:+--manifest-dest-path "$OPERATOR_MANIFEST_DEST_PATH"} || {
+  --component-name "$COMPONENT_NAME" \
+  --src  "$OPERATOR_MANIFEST_SRC_PATH" \
+  --dest "$OPERATOR_MANIFEST_DEST_PATH" || {
   echo "ERROR: Could not append to build/manifests-config.yaml." >&2; exit 1
+}
+
+# Verify the entry was written
+grep -q "^  ${COMPONENT_NAME}:" "$MANIFESTS_CONFIG" || {
+  echo "ERROR: $COMPONENT_NAME not found in manifests-config.yaml after insert." >&2; exit 1
 }
 
 # Commit and push

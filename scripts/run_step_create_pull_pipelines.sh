@@ -160,7 +160,7 @@ metadata:
     pipelinesascode.tekton.dev/on-target-branch: '[{{target_branch}}]'
   labels:
     appstudio.openshift.io/application: automation
-    appstudio.openshift.io/component: ${COMPONENT_NAME}
+    appstudio.openshift.io/component: pull-request-pipelines-${COMPONENT_NAME}
     pipelines.appstudio.openshift.io/type: build
   name: ${COMPONENT_NAME}-on-pull-request-{{pull_request_number}}
   namespace: rhoai-tenant
@@ -171,7 +171,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/rhoai/${COMPONENT_NAME}-rhel9:pr-{{pull_request_number}}-{{revision}}
+    value: quay.io/rhoai/pull-request-pipelines:${COMPONENT_NAME}-{{revision}}
   - name: dockerfile
     value: ${DOCKERFILE_PATH}
   - name: path-context

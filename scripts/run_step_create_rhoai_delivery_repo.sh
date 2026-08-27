@@ -64,9 +64,10 @@ RELEASE_CATEGORY=$(grep -m1 'release_category:' "$YAML_FILE" \
 [[ -z "$RELEASE_CATEGORY" ]]  && RELEASE_CATEGORY="Generally Available"
 
 eval "$(bash "$SCRIPTS_DIR/parse_rhoai_version.sh" \
-  --version   "$TARGET_RHOAI_VERSION" \
-  --component "$COMPONENT_NAME")"
-# Sets: CONTENT_STREAM_TAG, REPOSITORY_NAME, and other version vars
+  --version          "$TARGET_RHOAI_VERSION" \
+  --component        "$COMPONENT_NAME" \
+  --release-category "$RELEASE_CATEGORY")"
+# Sets: CONTENT_STREAM_TAG, REPOSITORY_NAME (rhoai-beta/ prefix for Beta), and other version vars
 
 DISPLAY_NAME=$(echo "$COMPONENT_NAME" | tr '-' ' ' \
   | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1' \
@@ -79,11 +80,18 @@ echo "PYXIS_URL resolved to: $PYXIS_URL"
 PYXIS_PATH=$(echo "$PYXIS_URL" | sed 's|https://gitlab.cee.redhat.com/||;s|\.git$||')
 PYXIS_PATH_ENCODED=$(echo "$PYXIS_PATH" | sed 's|/|%2F|g')
 
+# All release categories (GA, Tech Preview, Beta) use the same product YAML.
+# The release_category distinction is encoded *inside* the YAML entry (via
+# release_categories and the rhoai-beta/ repository name prefix), not via
+# separate directory trees.
+PRODUCT_YAML_PATH="products/rhoai/rhoai.yaml"
+PRODUCT_YAML_PATH_ENCODED=$(echo "$PRODUCT_YAML_PATH" | sed 's|/|%2F|g')
+
 # Fast-path: check if repo already exists via GitLab API
 RHOAI_YAML_TMPFILE=$(mktemp)
 HTTP_STATUS=$(curl -sk -w "%{http_code}" \
   -H "Authorization: Bearer $GITLAB_TOKEN" \
-  "https://gitlab.cee.redhat.com/api/v4/projects/${PYXIS_PATH_ENCODED}/repository/files/products%2Frhoai%2Frhoai.yaml/raw?ref=main" \
+  "https://gitlab.cee.redhat.com/api/v4/projects/${PYXIS_PATH_ENCODED}/repository/files/${PRODUCT_YAML_PATH_ENCODED}/raw?ref=main" \
   -o "$RHOAI_YAML_TMPFILE" 2>/dev/null || echo "000")
 
 if [[ "$HTTP_STATUS" == "200" ]]; then
@@ -107,16 +115,16 @@ PLAYPEN_OUTPUT=$(GITLAB_SSL_VERIFY=false bash "$SCRIPTS_DIR/setup_gitlab_playpen
   --dest-url "$PYXIS_URL" \
   --src-branch main \
   --dest-branch "$JIRA_ID" \
-  --sparse-files "products/rhoai/rhoai.yaml") || {
+  --sparse-files "$PRODUCT_YAML_PATH") || {
   echo "ERROR: Playpen setup for pyxis-repo-configs failed. Check VPN and GITLAB_TOKEN scope." >&2; exit 1
 }
 CLONE_DIR=$(echo "$PLAYPEN_OUTPUT" | head -1)
 DEST_BRANCH=$(echo "$PLAYPEN_OUTPUT" | tail -1)
 
 # Modify YAML
-RHOAI_YAML="$CLONE_DIR/products/rhoai/rhoai.yaml"
+RHOAI_YAML="$CLONE_DIR/${PRODUCT_YAML_PATH}"
 [[ ! -f "$RHOAI_YAML" ]] && {
-  echo "ERROR: products/rhoai/rhoai.yaml not found in $CLONE_DIR" >&2; exit 1
+  echo "ERROR: ${PRODUCT_YAML_PATH} not found in $CLONE_DIR" >&2; exit 1
 }
 
 RESULT=$(uv run --script "$SCRIPTS_DIR/append_delivery_repo_entry.py" \
@@ -132,10 +140,10 @@ echo "$RESULT"
 # Commit and push
 bash "$SCRIPTS_DIR/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
-  --files     "products/rhoai/rhoai.yaml" \
+  --files     "$PRODUCT_YAML_PATH" \
   --message   "Add ${REPOSITORY_NAME} delivery repository for ${COMPONENT_NAME}
 
-Adds a new repository entry to products/rhoai/rhoai.yaml:
+Adds a new repository entry to ${PRODUCT_YAML_PATH}:
   repository: ${REPOSITORY_NAME}
   content_stream_tags: ['${CONTENT_STREAM_TAG}']
 
@@ -151,7 +159,7 @@ for attempt in 1 2 3; do
     --dest-url    "$PYXIS_URL" \
     --dest-branch main \
     --title       "Add ${REPOSITORY_NAME} delivery repository for ${COMPONENT_NAME}" \
-    --description "Adds a new delivery repository entry to \`products/rhoai/rhoai.yaml\`.
+    --description "Adds a new delivery repository entry to \`${PRODUCT_YAML_PATH}\`.
 
 | Field | Value |
 |-------|-------|
@@ -160,7 +168,7 @@ for attempt in 1 2 3; do
 | \`component_name\` | \`${COMPONENT_NAME}\` |
 | \`target_rhoai_version\` | \`${TARGET_RHOAI_VERSION}\` |
 
-**File changed:** \`products/rhoai/rhoai.yaml\`
+**File changed:** \`${PRODUCT_YAML_PATH}\`
 **Jira:** ${JIRA_URL}" 2>/dev/null) && break
   [[ "$attempt" -eq 3 ]] && {
     echo "ERROR: Could not create MR after 3 attempts." >&2; exit 1
@@ -174,7 +182,7 @@ uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
 
 MR URL: ${MR_URL}
 
-File changed: products/rhoai/rhoai.yaml
+File changed: ${PRODUCT_YAML_PATH}
 Repository: ${REPOSITORY_NAME}
 Content stream tag: ${CONTENT_STREAM_TAG}
 

@@ -27,7 +27,7 @@ included in the ODH or RHOAI bundle.
 | File | Change |
 |------|--------|
 | `bundle/bundle-patch.yaml` | Appends a `relatedImages` entry with the component's registry image reference |
-| `config/build-config.yaml` | Appends a `repo_mappings` entry linking the component's source repo to its build image |
+| `config/build-config.yaml` | Adds the component's image name to `config.replacements[0].repo_mappings` |
 | `bundle/Dockerfile` | Appends `ARG <COMPONENT_NAME>_IMAGE` and `LABEL <component_name>-image` entries |
 
 ### bundle-patch.yaml entry (both products)
@@ -43,8 +43,7 @@ included in the ODH or RHOAI bundle.
 
 ```yaml
 repo_mappings:
-  - source_repo: <repo_url>
-    build_image: <component_name>
+  rhoai/<component_name>-rhel9: rhoai/<component_name>-rhel9
 ```
 
 ## PR raised

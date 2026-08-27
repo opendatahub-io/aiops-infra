@@ -17,10 +17,10 @@ Derives:
 Modifies the Dockerfile in place (idempotent):
   1. Appends ARG <GIT_URL_LABEL>= and ARG <GIT_COMMIT_LABEL>= after the last
      existing ARG declaration.
-  2. Inserts <component>.git.url="${GIT_URL_LABEL}" and
-     <component>.git.commit="${GIT_COMMIT_LABEL}" after the last existing
-     .git.url= / .git.commit= LABEL entry, adding a continuation backslash
-     to the previously-last entry when needed.
+  2. Appends <component>.git.url="${GIT_URL_LABEL}" and
+     <component>.git.commit="${GIT_COMMIT_LABEL}" at the end of the LABEL
+     block that contains existing .git.url= / .git.commit= entries, adding
+     a continuation backslash to the previously-last entry.
 
 Outputs (stdout, for eval):
   GIT_URL_LABEL=<value>
@@ -66,19 +66,23 @@ def update_label_entries(lines: list[str], component: str, url_label: str, commi
     url_value = f"${{{url_label}}}"
     commit_value = f"${{{commit_label}}}"
 
-    last_label_idx = None
+    label_block_start = None
     label_indent = "    "
     for i, line in enumerate(lines):
         if ".git.url=" in line or ".git.commit=" in line:
-            last_label_idx = i
+            label_block_start = i
             label_indent = line[: len(line) - len(line.lstrip())]
 
-    if last_label_idx is not None:
-        stripped = lines[last_label_idx].rstrip()
-        if not stripped.endswith("\\"):
-            lines[last_label_idx] = stripped + " \\\n"
-        lines.insert(last_label_idx + 1, f'{label_indent}{component}.git.url="{url_value}" \\\n')
-        lines.insert(last_label_idx + 2, f'{label_indent}{component}.git.commit="{commit_value}"\n')
+    if label_block_start is not None:
+        # Walk forward to find the end of this LABEL block (last continued line).
+        end = label_block_start
+        while end + 1 < len(lines) and lines[end].rstrip().endswith("\\"):
+            end += 1
+
+        stripped = lines[end].rstrip()
+        lines[end] = stripped + " \\\n"
+        lines.insert(end + 1, f'{label_indent}{component}.git.url="{url_value}" \\\n')
+        lines.insert(end + 2, f'{label_indent}{component}.git.commit="{commit_value}"\n')
     else:
         lines.append(f'    {component}.git.url="{url_value}" \\\n')
         lines.append(f'    {component}.git.commit="{commit_value}"\n')
@@ -100,7 +104,7 @@ def main():
     url_label, commit_label = derive_label_vars(args.component_name)
 
     lines = path.read_text().splitlines(keepends=True)
-    lines, arg_changed   = update_arg_declarations(lines, url_label, commit_label)
+    lines, arg_changed = update_arg_declarations(lines, url_label, commit_label)
     lines, label_changed = update_label_entries(lines, args.component_name, url_label, commit_label)
 
     if arg_changed or label_changed:
