@@ -61,8 +61,28 @@ eval "$(bash "$SCRIPTS_DIR/resolve_bc_url.sh" \
 echo "BC_URL : $BC_URL"
 
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
-  eval "$(bash "$SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION")"
+  _VERSION_OUTPUT=$(bash "$SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION" 2>&1) || {
+    echo "ERROR: Could not parse target_rhoai_version '${TARGET_RHOAI_VERSION}'."
+    echo "$_VERSION_OUTPUT"
+    exit 1
+  }
+  eval "$_VERSION_OUTPUT"
 fi
+
+# ── Konflux build verification (prerequisite for bundle) ──────────────────────
+# Verify at least one push build succeeded before adding to build config.
+# The || { } guard prevents set -e from killing the script before we can print
+# the captured output and a meaningful error message.
+BV_OUTPUT=$(bash "$SCRIPTS_DIR/verify_build.sh" \
+  --jira-url        "$JIRA_URL" \
+  --component-name  "$COMPONENT_NAME" \
+  --product-context "$PRODUCT_CONTEXT" \
+  --version-var     "${VERSION_VAR:-}" 2>&1) || {
+  echo "$BV_OUTPUT"
+  echo "ERROR: Bundle integration blocked — Konflux build verification failed. See details above."
+  exit 1
+}
+echo "$BV_OUTPUT"
 
 # Resolve related image
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
@@ -114,11 +134,16 @@ if grep -qF "$RELATED_IMAGE_NAME" "$BUNDLE_PATCH" 2>/dev/null; then
 fi
 
 # Update bundle-patch.yaml — add relatedImages entry
-uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-array-entry \
-  "$BUNDLE_PATCH" \
-  --array-key "patch.relatedImages" \
-  --name      "$RELATED_IMAGE_NAME" \
-  --value     "$RELATED_IMAGE_VALUE" || {
+APPEND_ARGS=(
+  "$BUNDLE_PATCH"
+  --array-key patch.relatedImages
+  --name      "$RELATED_IMAGE_NAME"
+  --value     "$RELATED_IMAGE_VALUE"
+)
+if [[ "$PRODUCT_CONTEXT" != "RHOAI" ]]; then
+  APPEND_ARGS+=(--component "$COMPONENT_NAME")
+fi
+uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-array-entry "${APPEND_ARGS[@]}" || {
   echo "ERROR: Could not update bundle-patch.yaml." >&2; exit 1
 }
 
@@ -139,8 +164,7 @@ if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   if [[ -f "$BC_CONFIG" ]] && ! grep -qF "$COMPONENT_NAME" "$BC_CONFIG" 2>/dev/null; then
     uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-build-config-component \
       "$BC_CONFIG" \
-      --component-name "$COMPONENT_NAME" \
-      --version-var    "${VERSION_VAR:-}" \
+      --component-name "${QUAY_ORG}/${COMPONENT_NAME}-rhel9" \
       --repo-url       "$REPO_URL" \
       --repo-branch    "$REPO_BRANCH" 2>/dev/null || true
     FILES_CHANGED="$FILES_CHANGED config/build-config.yaml"

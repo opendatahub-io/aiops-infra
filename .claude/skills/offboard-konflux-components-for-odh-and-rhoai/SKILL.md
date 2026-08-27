@@ -95,7 +95,7 @@ echo "Jira URL : $JIRA_URL"
 ### Step 1a: Tools and credentials
 
 ```bash
-bash "$SCRIPTS_DIR/check_prerequisites.sh" \
+bash "$SCRIPTS_DIR/check_offboarding_prerequisites.sh" \
   --env "JIRA_USER_EMAIL JIRA_API_TOKEN GITLAB_USER GITLAB_TOKEN GITHUB_USER GITHUB_TOKEN" \
   --tools "uv git oc skopeo yamllint jq kustomize"
 
@@ -105,7 +105,7 @@ bash "$SCRIPTS_DIR/check_prerequisites.sh" \
 ### Step 1b: VPN connectivity
 
 ```bash
-bash "$SCRIPTS_DIR/check_prerequisites.sh" --vpn
+bash "$SCRIPTS_DIR/check_offboarding_prerequisites.sh" --vpn
 ```
 
 On exit 1: tell the user to connect to the Red Hat VPN and re-run. Stop.
@@ -119,7 +119,7 @@ YAML, derive it from `product_context`. Otherwise, default to `internal`.
 
 ```bash
 OC_CLUSTER="internal"
-bash "$SCRIPTS_DIR/check_prerequisites.sh" --oc-login "$OC_CLUSTER"
+bash "$SCRIPTS_DIR/check_offboarding_prerequisites.sh" --oc-login "$OC_CLUSTER"
 OC_EXIT=$?
 ```
 
@@ -143,7 +143,7 @@ export <OC_TOKEN_VAR>=$(oc whoami -t)
 Verify the login succeeded:
 
 ```bash
-bash "$SCRIPTS_DIR/check_prerequisites.sh" --oc-login "$OC_CLUSTER"
+bash "$SCRIPTS_DIR/check_offboarding_prerequisites.sh" --oc-login "$OC_CLUSTER"
 ```
 
 On failure again: stop with an error.
@@ -235,7 +235,7 @@ For all steps in `pr_raised` or `mr_raised` state, query the GitHub/GitLab API a
 update `pipeline_state.json`:
 
 ```bash
-NEWLY_MERGED=$(bash "$SCRIPTS_DIR/check_pr_mr_status.sh" \
+NEWLY_MERGED=$(bash "$SCRIPTS_DIR/check_offboarding_pr_mr_status.sh" \
   --state      "$PIPELINE_STATE" \
   --scripts-dir "$SCRIPTS_DIR")
 ```
@@ -250,7 +250,7 @@ for MERGED_KEY in $NEWLY_MERGED; do
   [[ -n "$DONE_LABEL" ]]   && LABEL_ARGS+=("--add-label"    "$DONE_LABEL")
   [[ -n "$RAISED_LABEL" ]] && LABEL_ARGS+=("--remove-label" "$RAISED_LABEL")
   if [[ "${#LABEL_ARGS[@]}" -gt 0 ]]; then
-    uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+    uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
       "${LABEL_ARGS[@]}" || true
   fi
 done
@@ -425,7 +425,7 @@ if [[ "$SOMETHING_CHANGED" == "true" ]]; then
     --mode            "pending-only")
 
   if [[ -n "$PENDING_COMMENT" ]]; then
-    uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+    uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
       --comment "$PENDING_COMMENT" || true
   fi
 fi
@@ -453,7 +453,7 @@ FULL_COMMENT=$(uv run --script "$SCRIPTS_DIR/build_offboarding_progress_summary.
   --product-context "$PRODUCT_CONTEXT" \
   --mode            "full")
 
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --comment   "$FULL_COMMENT" \
   --add-label "component-offboarding-completed" \
   --status    "Resolved"
@@ -466,7 +466,7 @@ echo "[orchestrator] All steps complete — Jira resolved with component-offboar
 Transition Jira to "Review":
 
 ```bash
-bash "$SCRIPTS_DIR/raise_jira_review.sh" \
+bash "$SCRIPTS_DIR/raise_offboarding_jira_review.sh" \
   --workdir         "$WORKDIR" \
   --jira-url        "$JIRA_URL" \
   --scripts-dir     "$SCRIPTS_DIR" \

@@ -9,13 +9,13 @@ Update an existing Jira issue, or clone a template issue and update the clone.
 
 --- Updating an existing issue ---
 
-  update_jira_issue.py <jira_url> [options]
+  update_offboarding_jira.py <jira_url> [options]
 
 At least one action flag must be provided.
 
 --- Cloning a template issue ---
 
-  update_jira_issue.py new --clone-from SOURCE_ID [options]
+  update_offboarding_jira.py new --clone-from SOURCE_ID [options]
 
 Clones SOURCE_ID, prints the new issue URL to stdout, then applies any additional
 action flags to the newly created issue.
@@ -29,7 +29,6 @@ Options:
   --clone-from SOURCE_ID        Clone SOURCE_ID to create a new issue (only valid when jira_url is "new")
   --set-title TITLE             Set the issue summary/title
   --link-related JIRA_ID        Add a "relates to" link between this issue and JIRA_ID
-  --link-clones JIRA_ID         Add a "clones" link (this issue clones JIRA_ID)
   --set-reporter-to-current     Set the reporter to the currently authenticated user
   --add-label LABEL             Add a label (existing labels are preserved)
   --remove-label LABEL          Remove a label (no-op if not present)
@@ -43,11 +42,11 @@ Exit codes:
 
 Examples:
   # Attach a file (replaces any existing attachment with the same name)
-  update_jira_issue.py https://redhat.atlassian.net/browse/RHOAIENG-1234 \\
+  update_offboarding_jira.py https://redhat.atlassian.net/browse/RHOAIENG-1234 \\
       --attach ./component_onboarding_details.yaml
 
   # Clone a template, set a new title, add a related link, set reporter
-  NEW_URL=$(update_jira_issue.py new \\
+  NEW_URL=$(update_offboarding_jira.py new \\
       --clone-from RHOAIENG-35683 \\
       --set-title "Onboard my-component to Konflux CI" \\
       --remove-label template \\
@@ -55,13 +54,13 @@ Examples:
       --set-reporter-to-current)
 
   # Attach and post comment in one call
-  update_jira_issue.py https://redhat.atlassian.net/browse/RHOAIENG-1234 \\
+  update_offboarding_jira.py https://redhat.atlassian.net/browse/RHOAIENG-1234 \\
       --attach ./component_onboarding_details.yaml \\
       --add-label yaml-attached \\
       --comment "YAML attached and ready for validation."
 
   # Post a comment and transition status
-  update_jira_issue.py https://redhat.atlassian.net/browse/RHOAIENG-1234 \\
+  update_offboarding_jira.py https://redhat.atlassian.net/browse/RHOAIENG-1234 \\
       --comment "Validation passed. Ready for onboarding." \\
       --status "In Progress"
 """
@@ -163,6 +162,16 @@ def set_title(jira: JIRA, issue, title: str) -> None:
         sys.exit(1)
 
 
+def set_description(jira: JIRA, issue, description: str) -> None:
+    """Update the issue description (plain text, converted to ADF by Jira Cloud)."""
+    try:
+        issue.update(fields={"description": description})
+        print(f"  Description updated ({len(description)} chars)", file=sys.stderr)
+    except JIRAError as e:
+        print(f"ERROR: Failed to set description: {getattr(e, 'text', e)}", file=sys.stderr)
+        sys.exit(1)
+
+
 def link_related(jira: JIRA, issue, related_id: str) -> None:
     """Add a 'relates to' link between issue and related_id."""
     related_key = extract_issue_id(related_id)
@@ -180,23 +189,6 @@ def link_related(jira: JIRA, issue, related_id: str) -> None:
         file=sys.stderr,
     )
     sys.exit(1)
-
-
-def link_clones(jira: JIRA, issue, source_id: str) -> None:
-    """Add a 'clones' link — issue clones source_id."""
-    source_key = extract_issue_id(source_id)
-    for link_type in ["Cloners", "cloners", "Clone", "clone"]:
-        try:
-            jira.create_issue_link(link_type, issue.key, source_key)
-            print(f"  Cloner link set: '{issue.key}' clones '{source_key}'", file=sys.stderr)
-            return
-        except JIRAError:
-            continue
-    print(
-        f"  WARN: Could not set 'Cloners' link between {issue.key} and {source_key} "
-        "-- link type not found.",
-        file=sys.stderr,
-    )
 
 
 def set_reporter_to_current(jira: JIRA, issue) -> None:
@@ -355,14 +347,14 @@ def main() -> None:
         help="Set the issue summary/title",
     )
     parser.add_argument(
+        "--set-description",
+        metavar="TEXT",
+        help="Set the issue description (plain text)",
+    )
+    parser.add_argument(
         "--link-related",
         metavar="JIRA_ID",
         help='Add a "relates to" link between this issue and JIRA_ID',
-    )
-    parser.add_argument(
-        "--link-clones",
-        metavar="JIRA_ID",
-        help='Add a "clones" link (this issue clones JIRA_ID)',
     )
     parser.add_argument(
         "--set-reporter-to-current",
@@ -405,8 +397,9 @@ def main() -> None:
         parser.error('--clone-from can only be used when jira_url is "new"')
 
     action_flags = [
-        args.set_title, args.link_related, args.link_clones, args.set_reporter_to_current,
-        args.add_label, args.remove_label, args.comment, args.status, args.attach,
+        args.set_title, args.set_description, args.link_related,
+        args.set_reporter_to_current, args.add_label, args.remove_label,
+        args.comment, args.status, args.attach,
     ]
     if not clone_mode and not any(action_flags):
         parser.error(
@@ -433,6 +426,8 @@ def main() -> None:
     # Apply all requested operations (order: structural changes first, then labels/links, then comment)
     if args.set_title:
         set_title(jira, issue, args.set_title)
+    if args.set_description:
+        set_description(jira, issue, args.set_description)
     if args.attach:
         attach_file(jira, issue, Path(args.attach))
     if args.add_label:
@@ -441,8 +436,6 @@ def main() -> None:
         remove_label(jira, issue, args.remove_label)
     if args.link_related:
         link_related(jira, issue, args.link_related)
-    if args.link_clones:
-        link_clones(jira, issue, args.link_clones)
     if args.set_reporter_to_current:
         set_reporter_to_current(jira, issue)
     if args.comment:

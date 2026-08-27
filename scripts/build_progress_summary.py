@@ -36,36 +36,17 @@ STEPS_ODH = [
 STEPS_RHOAI = [
     ("validate",          "Validate Jira",                          None),
     ("quay",              "Create Quay repo",                       "mr_url"),
+    ("delivery_repo",     "Create RHOAI delivery repo",             "mr_url"),
     ("krd",               "Onboard to Konflux release data",        "mr_url"),
     ("okc",               "Add to RHOAI Konflux central",           "pr_url"),
     ("pull_pipelines",    "Add pull pipelines (RHOAI Konflux)",     "pr_url"),
-    ("operator",          "Integrate with ODH Operator",            "pr_url"),
     ("bundle",            "Integrate with bundle",                  "pr_url"),
-    ("delivery_repo",     "Create RHOAI delivery repo",             "mr_url"),
-    ("product_listing",   "Update RHOAI product listing",          "mr_url"),
+    ("krd_rpa",           "Add to KRD release plan",                "mr_url"),
+    ("operator",          "Integrate with ODH Operator",            "pr_url"),
+    ("product_listing",   "Update RHOAI product listing",           "mr_url"),
     ("auto_merge",        "Setup auto-merge",                       "pr_url"),
     ("renovate",          "Enable Renovate",                        "pr_url"),
     ("renovate_sync",     "Sync Renovate configs (workflow)",       "run_url"),
-]
-
-OFFBOARD_STEPS_ODH = [
-    ("validate",               "Validate Jira",                         None),
-    ("remove_krd",             "Remove from Konflux release data",      "mr_url"),
-    ("remove_okc",             "Remove push PipelineRun",               "pr_url"),
-    ("remove_bundle",          "Remove from bundle",                    "pr_url"),
-    ("remove_operator",        "Remove from operator manifests",        "pr_url"),
-    ("remove_component_cr",    "Delete Component CR from cluster",      None),
-]
-
-OFFBOARD_STEPS_RHOAI = [
-    ("validate",               "Validate Jira",                         None),
-    ("remove_krd",             "Remove from Konflux release data",      "mr_url"),
-    ("remove_okc",             "Remove push PipelineRun",               "pr_url"),
-    ("remove_pull_pipelines",  "Remove pull PipelineRun",               "pr_url"),
-    ("remove_bundle",          "Remove from bundle & build-config",     "pr_url"),
-    ("remove_operator",        "Remove from operator manifests",        "pr_url"),
-    ("remove_product_listing", "Remove from RHOAI product listing",     "mr_url"),
-    ("remove_component_cr",    "Delete Component CR from cluster",      None),
 ]
 
 # Which steps are "blocking" (i.e. have a PR/MR that must merge to progress).
@@ -76,20 +57,12 @@ _DEPENDENCY_ODH: dict[str, str] = {
 }
 _DEPENDENCY_RHOAI: dict[str, str] = {
     "delivery_repo": "product_listing",
+    "okc":           "bundle + krd_rpa",
     "renovate":      "renovate_sync",
 }
-_OFFBOARD_DEPENDENCY: dict[str, str] = {}
 
 
-def _steps_for(product_context: str, pipeline_type: str) -> list[tuple]:
-    if pipeline_type == "offboarding":
-        return OFFBOARD_STEPS_RHOAI if product_context == "RHOAI" else OFFBOARD_STEPS_ODH
-    return STEPS_RHOAI if product_context == "RHOAI" else STEPS_ODH
-
-
-def _dependency_map(product_context: str, pipeline_type: str = "onboarding") -> dict[str, str]:
-    if pipeline_type == "offboarding":
-        return _OFFBOARD_DEPENDENCY
+def _dependency_map(product_context: str) -> dict[str, str]:
     if product_context == "RHOAI":
         return _DEPENDENCY_RHOAI
     return _DEPENDENCY_ODH
@@ -125,13 +98,10 @@ def _all_done(steps: dict) -> bool:
 
 
 def build_full_summary(state: dict, component_name: str, product_context: str) -> str:
-    pipeline_type = state.get("pipeline_type", "onboarding")
-    steps_def = _steps_for(product_context, pipeline_type)
+    steps_def = STEPS_RHOAI if product_context == "RHOAI" else STEPS_ODH
     steps = state.get("steps", {})
 
-    action = "Offboarding" if pipeline_type == "offboarding" else "Onboarding"
-    suffix = "Completed" if _all_done(steps) else "Progress"
-    heading = f"Component {action} - {suffix}"
+    heading = "Component Onboarding - Completed" if _all_done(steps) else "Component Onboarding - Progress"
     lines = [
         f"h2. {heading}: {{{{{component_name}}}}}",
         "",
@@ -149,7 +119,7 @@ def build_full_summary(state: dict, component_name: str, product_context: str) -
 
     lines.append("")
 
-    dep_map = _dependency_map(product_context, pipeline_type)
+    dep_map = _dependency_map(product_context)
     pending_deps = []
     for dep_step, next_label in dep_map.items():
         step = steps.get(dep_step, {})
@@ -173,9 +143,8 @@ def build_changes_summary(
     if not newly_merged:
         return ""
 
-    pipeline_type = state.get("pipeline_type", "onboarding")
     steps = state.get("steps", {})
-    steps_def = _steps_for(product_context, pipeline_type)
+    steps_def = STEPS_RHOAI if product_context == "RHOAI" else STEPS_ODH
     label_map = {k: label for k, label, _ in steps_def}
     url_field_map = {k: uf for k, _, uf in steps_def}
 
@@ -192,7 +161,7 @@ def build_changes_summary(
         label = label_map.get(key, key)
         url_field = url_field_map.get(key)
         url_str = url_cell(step, url_field)
-        dep_map = _dependency_map(product_context, pipeline_type)
+        dep_map = _dependency_map(product_context)
         next_action = dep_map.get(key, "—")
         lines.append(f"|{label}|{url_str}|✅ merged|{next_action}|")
 
@@ -206,8 +175,7 @@ def build_pending_summary(
     product_context: str,
     assignee: str,
 ) -> str:
-    pipeline_type = state.get("pipeline_type", "onboarding")
-    steps_def = _steps_for(product_context, pipeline_type)
+    steps_def = STEPS_RHOAI if product_context == "RHOAI" else STEPS_ODH
     steps = state.get("steps", {})
 
     pending_rows = []
@@ -217,7 +185,7 @@ def build_pending_summary(
         if status not in ("pr_raised", "mr_raised"):
             continue
         url_str = url_cell(step, url_field)
-        dep_map = _dependency_map(product_context, pipeline_type)
+        dep_map = _dependency_map(product_context)
         next_action = dep_map.get(key, "—")
         pending_rows.append(f"|{label}|{url_str}|{next_action}|")
 

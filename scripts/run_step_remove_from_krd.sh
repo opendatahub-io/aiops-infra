@@ -108,7 +108,7 @@ if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
   [[ ! -f "$ODH_YAML" ]] && { echo "ERROR: $TARGET_YAML not found." >&2; exit 1; }
 
   if grep -q "name: $KONFLUX_COMPONENT_NAME" "$ODH_YAML" 2>/dev/null; then
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" remove-yaml-doc \
+    uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-yaml-doc \
       "$ODH_YAML" --name "$KONFLUX_COMPONENT_NAME" || {
       echo "ERROR: Could not remove $KONFLUX_COMPONENT_NAME from $TARGET_YAML." >&2; exit 1
     }
@@ -132,7 +132,7 @@ elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   # Remove from ProjectDevelopmentStream YAML
   PDS_FILE="$CLONE_DIR/tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/${VERSION_NAME}/ProjectDevelopmentStream-${VERSION_NAME}.yaml"
   if [[ -f "$PDS_FILE" ]] && grep -q "name: ${COMPONENT_NAME}-{{.versionName}}" "$PDS_FILE" 2>/dev/null; then
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" remove-multidoc-list-item \
+    uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-multidoc-list-item \
       "$PDS_FILE" \
       --doc-kind "ProjectDevelopmentStreamTemplate" \
       --array-key "spec.resources" \
@@ -143,7 +143,7 @@ elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   # Remove from RPA stage
   RPA_STAGE="$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-${RPA_VAR}-components-stage.yaml"
   if [[ -f "$RPA_STAGE" ]] && grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_STAGE" 2>/dev/null; then
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" remove-rpa-component \
+    uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-rpa-component \
       "$RPA_STAGE" \
       --array-key "spec.data.mapping.components" \
       --name "${COMPONENT_NAME}-${RPA_VAR}" || true
@@ -153,7 +153,7 @@ elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   # Remove from RPA prod
   RPA_PROD="$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-${RPA_VAR}-components-prod.yaml"
   if [[ -f "$RPA_PROD" ]] && grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_PROD" 2>/dev/null; then
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" remove-rpa-component \
+    uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-rpa-component \
       "$RPA_PROD" \
       --array-key "spec.data.mapping.components" \
       --name "${COMPONENT_NAME}-${RPA_VAR}" || true
@@ -163,7 +163,7 @@ elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   # Remove from automation/resources.yaml
   AUTOMATION_FILE="$CLONE_DIR/tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/automation/resources.yaml"
   if [[ -f "$AUTOMATION_FILE" ]] && grep -q "name: pull-request-pipelines-${COMPONENT_NAME}" "$AUTOMATION_FILE" 2>/dev/null; then
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" remove-yaml-doc \
+    uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-yaml-doc \
       "$AUTOMATION_FILE" --name "pull-request-pipelines-${COMPONENT_NAME}" || true
     CHANGES_MADE=true
   fi
@@ -171,7 +171,7 @@ fi
 
 if [[ "$CHANGES_MADE" == "false" ]]; then
   echo "Component '${KONFLUX_COMPONENT_NAME}' not found in konflux-release-data — already removed."
-  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
     --add-label "offboard-krd-mr-merged" \
     --comment "${DRY_RUN_PREFIX}Component '${KONFLUX_COMPONENT_NAME}' already absent from konflux-release-data. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
@@ -222,7 +222,7 @@ Jira: ${JIRA_URL}" 2>/dev/null) && break
   sleep 5
 done
 
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboard-krd-mr-raised" \
   --comment "${DRY_RUN_PREFIX}[step:remove_krd] GitLab MR raised to remove '${KONFLUX_COMPONENT_NAME}' from konflux-release-data.
 

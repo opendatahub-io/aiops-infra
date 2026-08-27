@@ -67,7 +67,7 @@ PRODUCT_CONTEXT=$(grep -m1 'product_context:' "$YAML_FILE" | awk '{print $2}' 2>
 REPO_NAME="${REPO_URL##*/}"; REPO_NAME="${REPO_NAME%.git}"
 COMPONENT="$REPO_NAME"
 
-BUILD_TYPE_LOWER=$(echo "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')
+BUILD_TYPE_LOWER="${BUILD_TYPE,,}"
 if [[ "$BUILD_TYPE_LOWER" == "ci" ]]; then
   BUILD_TYPE="CI"
 elif [[ "$BUILD_TYPE_LOWER" == "release" ]]; then
@@ -90,7 +90,6 @@ echo "Branch      : $REPO_BRANCH"
 # Build workflow inputs
 WORKFLOW_INPUTS=(
   "--input" "component=$COMPONENT"
-  "--input" "repo_url=$REPO_URL"
   "--input" "pr_target_branch=$REPO_BRANCH"
   "--input" "build_type=$BUILD_TYPE"
 )

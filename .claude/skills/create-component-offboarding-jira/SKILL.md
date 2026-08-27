@@ -49,12 +49,12 @@ Set `JIRA_ID` to the last path segment of `JIRA_URL` (e.g. `RHOAIENG-1234`), or 
 
 **Tool check:**
 ```bash
-bash "scripts/check_prerequisites.sh" --tools "uv jq"
+bash "scripts/check_offboarding_prerequisites.sh" --tools "uv jq"
 ```
 
 **Jira credentials check (always required):**
 ```bash
-bash "scripts/check_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
+bash "scripts/check_offboarding_prerequisites.sh" --env "JIRA_USER_EMAIL JIRA_API_TOKEN"
 ```
 
 ---
@@ -238,7 +238,7 @@ On failure: display errors, ask user to correct, or stop.
 ### Path A — Jira URL was provided
 
 ```bash
-uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_offboarding_jira.py "$JIRA_URL" \
   --attach "$YAML_PATH" \
   --add-label "offboarding-yaml-attached" \
   --link-related "$PARENT_FEATURE_ID" \
@@ -263,7 +263,7 @@ Continue to Step 7c.
 ```bash
 TEMPLATE_ID="RHOAIENG-32534"
 
-NEW_JIRA_URL=$(uv run --script scripts/update_jira_issue.py "new" \
+NEW_JIRA_URL=$(uv run --script scripts/update_offboarding_jira.py "new" \
   --clone-from "$TEMPLATE_ID" \
   --remove-label "template" \
   --link-related "$PARENT_FEATURE_ID" \
@@ -280,7 +280,7 @@ echo "New Jira created: $NEW_JIRA_URL"
 #### Step 7b-2: Attach YAML to the new Jira
 
 ```bash
-uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_offboarding_jira.py "$JIRA_URL" \
   --attach "$YAML_PATH" \
   --add-label "offboarding-yaml-attached" \
   --comment "component_offboarding_details.yaml has been generated and attached to this ticket.
@@ -304,7 +304,7 @@ Continue to Step 7c.
 Update the Jira summary to include the component name:
 
 ```bash
-uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
+uv run --script scripts/update_offboarding_jira.py "$JIRA_URL" \
   --summary "[Offboarding] Konflux Offboarding ${component_name} (${product_context})"
 ```
 

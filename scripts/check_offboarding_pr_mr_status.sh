@@ -3,7 +3,7 @@
 # Updates pipeline_state.json in place and prints newly-merged step keys to stdout.
 #
 # Usage:
-#   NEWLY_MERGED=$(bash check_pr_mr_status.sh \
+#   NEWLY_MERGED=$(bash check_offboarding_pr_mr_status.sh \
 #     --state <pipeline_state.json> --scripts-dir <dir>)
 #
 # Stdout: newline-separated list of step keys that transitioned to "merged" this run.
@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 for _arg in PIPELINE_STATE SCRIPTS_DIR; do
-  [[ -z "${!_arg}" ]] && { echo "ERROR: --${_arg,,} is required (use underscores as hyphens)" >&2; exit 1; }
+  [[ -z "${!_arg}" ]] && { echo "ERROR: --$(echo "$_arg" | tr '[:upper:]' '[:lower:]') is required (use underscores as hyphens)" >&2; exit 1; }
 done
 
 [[ -f "$PIPELINE_STATE" ]] || { echo "ERROR: $PIPELINE_STATE not found" >&2; exit 1; }
@@ -54,7 +54,7 @@ for STEP_KEY in $STEP_KEYS; do
       --mr-url "$URL" --check-only 2>/dev/null || true)
   fi
 
-  STATE=$(echo "$RESULT" | grep -oP 'state=\K\S+' || true)
+  STATE=$(echo "$RESULT" | sed -n 's/.*state=\([^ ]*\).*/\1/p' | head -1)
 
   echo "[check] $STEP_KEY: state=$STATE" >&2
 
@@ -70,9 +70,9 @@ for STEP_KEY in $STEP_KEYS; do
     TMP=$(mktemp)
     NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     jq --arg k "$STEP_KEY" --arg ts "$NOW" \
-      '.steps[$k].status = "closed" | .last_status_change_at = $ts' \
+      '.steps[$k].status = "pending" | .steps[$k].pr_url = null | .steps[$k].mr_url = null | .last_status_change_at = $ts' \
       "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
-    echo "[check] $STEP_KEY: marked closed (PR/MR was closed without merging)" >&2
+    echo "[check] $STEP_KEY: PR/MR closed without merging — reset to pending (will re-raise on next run)" >&2
   else
     echo "[check] $STEP_KEY: still open/draft — no change" >&2
   fi

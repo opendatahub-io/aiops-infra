@@ -16,7 +16,7 @@ OVERRIDE_URL=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --product-context) PRODUCT_CONTEXT=$(echo "$2" | tr '[:lower:]' '[:upper:]'); shift 2 ;;
+    --product-context) PRODUCT_CONTEXT="${2^^}"; shift 2 ;;
     --override)        OVERRIDE_URL="$2";        shift 2 ;;
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
   esac

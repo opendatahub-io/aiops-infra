@@ -61,7 +61,7 @@ HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
 
 if [[ "$HTTP_STATUS" != "200" ]]; then
   echo "Pull-request PipelineRun '${PIPELINERUN_FILE}' not found on main — already removed."
-  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
     --add-label "offboard-pull-pipelines-pr-merged" \
     --comment "${DRY_RUN_PREFIX}Pull-request PipelineRun '${PIPELINERUN_FILE}' already absent from rhoai-konflux-central. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
@@ -109,7 +109,7 @@ Jira: ${JIRA_URL}" 2>/dev/null) && break
   sleep 5
 done
 
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboard-pull-pipelines-pr-raised" \
   --comment "${DRY_RUN_PREFIX}[step:remove_pull_pipelines] GitHub PR raised to remove '${COMPONENT_NAME}' pull-request PipelineRun.
 

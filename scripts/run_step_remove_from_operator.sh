@@ -54,7 +54,7 @@ eval "$(bash "$SCRIPTS_DIR/parse_offboarding_details.sh" \
 
 if [[ "$IS_OPERATOR" != "true" ]]; then
   echo "is_operator=false — skipping operator manifest removal."
-  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
     --add-label "offboard-operator-not-needed" \
     --comment "${DRY_RUN_PREFIX}Skipping operator manifest removal for '$COMPONENT_NAME' (is_operator=false)." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
@@ -91,7 +91,7 @@ MANIFESTS_CONFIG="$CLONE_DIR/build/manifests-config.yaml"
 
 if ! grep -qF "$COMPONENT_NAME" "$MANIFESTS_CONFIG" 2>/dev/null; then
   echo "Entry '${COMPONENT_NAME}' not found in manifests-config.yaml — already removed."
-  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
     --add-label "offboard-operator-pr-merged" \
     --comment "${DRY_RUN_PREFIX}Operator manifests entry '${COMPONENT_NAME}' already absent from ${ODH_OPERATOR_PATH}. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
@@ -99,7 +99,7 @@ if ! grep -qF "$COMPONENT_NAME" "$MANIFESTS_CONFIG" 2>/dev/null; then
   exit 2
 fi
 
-uv run --script "$SCRIPTS_DIR/edit_yaml.py" remove-map-key \
+uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-map-key \
   "$MANIFESTS_CONFIG" \
   --map-key "map" \
   --name "$COMPONENT_NAME" || {
@@ -129,7 +129,7 @@ Jira: ${JIRA_URL}" 2>/dev/null) && break
   sleep 5
 done
 
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboard-operator-pr-raised" \
   --comment "${DRY_RUN_PREFIX}[step:remove_operator] GitHub PR raised to remove '${COMPONENT_NAME}' from operator manifests.
 

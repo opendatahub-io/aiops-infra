@@ -98,7 +98,7 @@ CHANGES_MADE=false
 
 # Remove relatedImages entry
 if grep -qF "$RELATED_IMAGE_NAME" "$BUNDLE_PATCH" 2>/dev/null; then
-  uv run --script "$SCRIPTS_DIR/edit_yaml.py" remove-array-entry \
+  uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-array-entry \
     "$BUNDLE_PATCH" \
     --array-key "patch.relatedImages" \
     --name      "$RELATED_IMAGE_NAME" || true
@@ -154,7 +154,7 @@ if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   BC_CONFIG="$CLONE_DIR/config/build-config.yaml"
   REPO_MAPPING_KEY="rhoai/${COMPONENT_NAME}-rhel9"
   if [[ -f "$BC_CONFIG" ]] && grep -qF "$REPO_MAPPING_KEY" "$BC_CONFIG" 2>/dev/null; then
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" remove-build-config-component \
+    uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-build-config-component \
       "$BC_CONFIG" \
       --key "$REPO_MAPPING_KEY" 2>/dev/null || true
     FILES_CHANGED="$FILES_CHANGED config/build-config.yaml"
@@ -164,7 +164,7 @@ fi
 
 if [[ "$CHANGES_MADE" == "false" ]]; then
   echo "Component '${COMPONENT_NAME}' not found in bundle — already removed."
-  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
     --add-label "offboard-bundle-pr-merged" \
     --comment "${DRY_RUN_PREFIX}Component '${COMPONENT_NAME}' already absent from bundle-patch.yaml. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
@@ -195,7 +195,7 @@ Jira: ${JIRA_URL}" 2>/dev/null) && break
   sleep 5
 done
 
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboard-bundle-pr-raised" \
   --comment "${DRY_RUN_PREFIX}[step:remove_bundle] GitHub PR raised to remove '${COMPONENT_NAME}' from bundle relatedImages.
 

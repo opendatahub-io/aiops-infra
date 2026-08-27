@@ -107,7 +107,7 @@ done
 
 if [[ ${#FOUND_CRS[@]} -eq 0 ]]; then
   echo "All targeted Component CRs already removed from namespace '${KONFLUX_NAMESPACE}'."
-  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
     --add-label "offboard-component-cr-removed" \
     --comment "${DRY_RUN_PREFIX}Component CRs (${CR_NAMES[*]}) already absent from namespace '${KONFLUX_NAMESPACE}'. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
@@ -171,7 +171,7 @@ fi
 
 if [[ -n "$DRY_RUN_PREFIX" ]]; then
   echo "[DRY RUN] Skipping oc annotate and oc delete — would have deleted: ${FOUND_CRS[*]}"
-  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
     --add-label "offboard-component-cr-removed" \
     --comment "${DRY_RUN_PREFIX}[step:remove_component_cr] Would delete Component CRs (${FOUND_CRS[*]}) from namespace '${KONFLUX_NAMESPACE}'. Skipped in dry-run mode." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
@@ -212,7 +212,7 @@ for cr in "${FOUND_CRS[@]}"; do
   DELETED_CRS+=("$cr")
 done
 
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboard-component-cr-removed" \
   --comment "[step:remove_component_cr] Component CRs deleted from namespace '${KONFLUX_NAMESPACE}':
 $(printf '  - %s\n' "${DELETED_CRS[@]}")

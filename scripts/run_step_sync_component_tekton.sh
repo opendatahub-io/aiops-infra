@@ -301,7 +301,7 @@ fi
 # If no PRs were raised, everything is already clean
 if [[ -z "$PR_URLS_RAISED" ]]; then
   echo "No stale PipelineRun files found in component repo — already clean."
-  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+  uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
     --add-label "offboard-sync-tekton-done" \
     --comment "${DRY_RUN_PREFIX}Component repo .tekton/ is already clean — no stale PipelineRun files found for '${COMPONENT_NAME}'. No action needed." || true
   bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
@@ -312,7 +312,7 @@ fi
 # Record first PR URL in state; put all URLs in the Jira comment
 FIRST_PR_URL=$(echo "$PR_URLS_RAISED" | awk '{print $1}')
 
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboard-sync-tekton-pr-raised" \
   --comment "${DRY_RUN_PREFIX}[step:sync_component_tekton] PR(s) raised to remove stale PipelineRun files from component repo .tekton/:
 

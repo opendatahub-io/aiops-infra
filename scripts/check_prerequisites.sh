@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
-# Usage: check_prerequisites.sh [--env "VAR1 VAR2"] [--tools "tool1 tool2"] [--vpn] [--oc-login internal|external]
+# Usage: check_prerequisites.sh [--env "VAR1 VAR2"] [--tools "tool1 tool2"]
 # Exits 0 if all prerequisites are satisfied; exits 1 with a clear message on first failure.
-# Exit 2 for --oc-login when interactive login is needed (outputs OC_LOGIN_NEEDED=<cluster>).
 set -euo pipefail
 
 ENV_VARS=()
 TOOLS=()
-CHECK_VPN="false"
-OC_LOGIN_CLUSTER=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --env)      read -ra ENV_VARS  <<< "$2"; shift 2 ;;
-    --tools)    read -ra TOOLS <<< "$2"; shift 2 ;;
-    --vpn)      CHECK_VPN="true"; shift ;;
-    --oc-login) OC_LOGIN_CLUSTER="$2"; shift 2 ;;
+    --env)   read -ra ENV_VARS  <<< "$2"; shift 2 ;;
+    --tools) read -ra TOOLS <<< "$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -72,62 +67,5 @@ for tool in "${TOOLS[@]+"${TOOLS[@]}"}"; do
     exit 1
   fi
 done
-
-# ── VPN check ──────────────────────────────────────────────────────────────────
-if [[ "$CHECK_VPN" == "true" ]]; then
-  if curl -sf --connect-timeout 5 --max-time 10 "https://gitlab.cee.redhat.com" -o /dev/null 2>/dev/null; then
-    echo "VPN: connected"
-  else
-    echo "ERROR: VPN does not appear to be active (cannot reach gitlab.cee.redhat.com)." >&2
-    echo "  Connect to the Red Hat VPN and re-run." >&2
-    exit 1
-  fi
-fi
-
-# ── OC login check ────────────────────────────────────────────────────────────
-if [[ -n "$OC_LOGIN_CLUSTER" ]]; then
-  EXTERNAL_API="https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com:6443"
-  INTERNAL_API="https://api.stone-prod-p02.hjvn.p1.openshiftapps.com:6443"
-
-  case "$OC_LOGIN_CLUSTER" in
-    external) OC_API_SERVER="$EXTERNAL_API"; OC_TOKEN_VAR="EXT_OC_TOKEN" ;;
-    internal) OC_API_SERVER="$INTERNAL_API"; OC_TOKEN_VAR="INT_OC_TOKEN" ;;
-    *) echo "ERROR: --oc-login must be 'external' or 'internal'." >&2; exit 1 ;;
-  esac
-
-  OC_LOGGED_IN="false"
-
-  # Try existing kubeconfig context
-  if oc config get-contexts &>/dev/null 2>&1; then
-    while IFS= read -r ctx; do
-      cluster_server=$(oc config view --minify --context "$ctx" \
-        -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)
-      cluster_server="${cluster_server%/}"
-      if [[ "$cluster_server" == "${OC_API_SERVER%/}" ]]; then
-        oc config use-context "$ctx" >/dev/null 2>&1 || true
-        if oc whoami &>/dev/null 2>&1; then
-          echo "OC: already authenticated as $(oc whoami) on $OC_LOGIN_CLUSTER cluster"
-          OC_LOGGED_IN="true"
-        fi
-        break
-      fi
-    done < <(oc config get-contexts -o name 2>/dev/null || true)
-  fi
-
-  # Try token env var
-  if [[ "$OC_LOGGED_IN" == "false" ]] && [[ -n "${!OC_TOKEN_VAR:-}" ]]; then
-    if oc login --server="$OC_API_SERVER" --token="${!OC_TOKEN_VAR}" &>/dev/null 2>&1; then
-      echo "OC: logged in via $OC_TOKEN_VAR as $(oc whoami) on $OC_LOGIN_CLUSTER cluster"
-      OC_LOGGED_IN="true"
-    fi
-  fi
-
-  if [[ "$OC_LOGGED_IN" == "false" ]]; then
-    echo "OC_LOGIN_NEEDED=$OC_LOGIN_CLUSTER"
-    echo "OC_API_SERVER=$OC_API_SERVER"
-    echo "OC_TOKEN_VAR=$OC_TOKEN_VAR"
-    exit 2
-  fi
-fi
 
 echo "Prerequisites OK"

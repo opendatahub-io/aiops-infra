@@ -80,7 +80,7 @@ On success: `component_offboarding_details.json` is created in $WORKDIR.
 On failure (exit code 1): display stderr, attempt best-effort Jira update, then stop:
 
 ```bash
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboarding-validation-failed" \
   --remove-label "offboarding-validation-successful" \
   --comment "Offboarding validation failed at Step 1 (Fetch Jira Details).
@@ -100,7 +100,7 @@ On success: `component_offboarding_details.yaml` is created in $WORKDIR.
 On failure: display stderr, update Jira, then stop:
 
 ```bash
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboarding-validation-failed" \
   --remove-label "offboarding-validation-successful" \
   --comment "Offboarding validation failed at Step 2 (Download Attachment).
@@ -122,7 +122,7 @@ On success (exit 0): print "Validation passed."
 On failure (exit 1): capture stderr as `<validation_errors>`, display, update Jira, then stop:
 
 ```bash
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboarding-validation-failed" \
   --remove-label "offboarding-validation-successful" \
   --comment "Offboarding validation failed at Step 3 (Schema Validation).
@@ -145,7 +145,7 @@ ALREADY_VALIDATED=$(jq -r '[.fields.labels[] | select(. == "offboarding-validati
 If `ALREADY_VALIDATED == "true"`, skip comment — just update labels and status:
 
 ```bash
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboarding-validation-successful" \
   --remove-label "offboarding-validation-failed" \
   --status "In Progress"
@@ -154,7 +154,7 @@ uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
 Otherwise, post success comment:
 
 ```bash
-uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
   --add-label "offboarding-validation-successful" \
   --remove-label "offboarding-validation-failed" \
   --comment "Offboarding validation passed for <issue_id>.
