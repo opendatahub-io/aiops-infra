@@ -1,9 +1,12 @@
-# ODH / RHOAI Component Onboarding Skills
+# ODH / RHOAI Component Onboarding and Offboarding Skills
 
 This directory documents the individual Claude Code skills that automate component
-onboarding onto the Konflux CI/CD platform. Each skill doc focuses on **what changes
-are made and where** — prerequisites, credentials, and tool setup are not repeated
-per skill.
+onboarding onto — and offboarding from — the Konflux CI/CD platform. Each skill doc
+focuses on **what changes are made and where** — prerequisites, credentials, and
+tool setup are not repeated per skill.
+
+**How to run the offboarding skills** (install, credentials, create-Jira,
+re-run loop, dry-run): [offboarding.md](offboarding.md).
 
 ## Pipeline overview
 
@@ -48,6 +51,27 @@ left off. Steps execute when all their dependencies are met (merged/done).
 |-------|---------|
 | [add-rhoai-dockerfile-labels](add-rhoai-dockerfile-labels.md) | Ensure mandatory OCI labels are present in the component Dockerfile |
 | [onboard-konflux-components-for-odh-and-rhoai](onboard-konflux-components-for-odh-and-rhoai.md) | Master orchestrator — runs all pipeline steps above |
+
+## Offboarding pipeline
+
+The master orchestrator [`/offboard-konflux-components-for-odh-and-rhoai`](offboard-konflux-components-for-odh-and-rhoai.md)
+coordinates the steps below. Steps are idempotent — re-running the orchestrator
+picks up where it left off. KRD / OKC / pull-pipelines / bundle / operator run in
+parallel; tekton cleanup and Component CR deletion wait on their dependencies.
+
+| Step | Skill | Target | Blocked by |
+|------|-------|--------|------------|
+| 0 | [create-component-offboarding-jira](create-component-offboarding-jira.md) | Jira (new ticket + YAML) | — |
+| — | [validate-component-offboarding-jira](validate-component-offboarding-jira.md) | Jira (pre-flight check) | — |
+| 1 | remove-from-krd | `konflux-release-data` GitLab MR | — |
+| 2 | remove-from-okc | ODH/RHOAI Konflux Central GitHub PR | — |
+| 3 | remove-pull-pipelines | RHOAI Konflux Central GitHub PR *(RHOAI only)* | — |
+| 4 | remove-from-bundle | ODH/RHOAI Build-Config GitHub PR | — |
+| 5 | remove-from-operator | odh-operator / rhods-operator GitHub PR *(operators only)* | — |
+| 6 | sync-component-tekton | Component repo GitHub PR(s) | okc + pull_pipelines merged |
+| 7 | remove-component-cr | OpenShift `Component` CR *(confirmation required)* | all prior steps |
+
+Quay repositories and RHOAI product-listing entries are **not** removed.
 
 ## Key repositories
 
