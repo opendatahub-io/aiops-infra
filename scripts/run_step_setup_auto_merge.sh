@@ -110,6 +110,7 @@ if ! grep -qF "name: ${REPO_NAME}" "$USM_FILE"; then
   cat >> "$USM_FILE" <<EOF
 - name: ${REPO_NAME}
   automerge: 'yes'
+  ignore-files: .tekton/*
   src:
     url: ${UPSTREAM_REPO_URL}.git
     branch: main
@@ -130,6 +131,7 @@ if ! grep -qF "name: ${REPO_NAME}" "$MRSM_FILE"; then
 - name: ${REPO_NAME}
   automerge: 'yes'
   repo-url: ${REPO_URL}.git
+  ignore-files: .tekton/*
 EOF
   grep -qF "name: ${REPO_NAME}" "$MRSM_FILE" || {
     echo "ERROR: Verification failed for main-release-source-map.yaml." >&2; exit 1
