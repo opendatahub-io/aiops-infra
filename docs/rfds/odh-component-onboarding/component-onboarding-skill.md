@@ -104,7 +104,7 @@ This skill is **independent** and intended for component teams, not DevOps. It:
 3. For RHOAI, validates that the Dockerfile pins all `FROM` images with `@sha256` digests.
 4. Generates a validated `component_onboarding_details.yaml` against a JSON Schema.
 5. When no Jira URL is provided, automatically clones the product-specific onboarding template (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) and creates a new ticket.
-6. Attaches the YAML to the Jira ticket, sets the `yaml-attached` label, and links the parent feature.
+6. Attaches the YAML to the Jira ticket, sets the `yaml-attached` and `disable-automated-onboarding` labels, and links the parent feature.
 
 ```
 /create-component-onboarding-jira [<jira-url>]
@@ -115,7 +115,7 @@ This skill is **independent** and intended for component teams, not DevOps. It:
 | No URL | Clones `RHOAIENG-35683`, creates ticket, attaches YAML | Clones `RHOAIENG-17225`, creates ticket, attaches YAML |
 | With URL | Attaches YAML to existing ticket | Attaches YAML to existing ticket |
 
-The YAML attachment is the **contract** between the component team and the automation. Once attached and the Jira label `yaml-attached` is set, the ticket is picked up automatically on the next CI run.
+The YAML attachment is the **contract** between the component team and the automation. The skill also sets `disable-automated-onboarding` on new tickets and on existing tickets it updates, so the DevOps onboarding guardian can review the change before scheduled CI picks it up. After review, the guardian removes that label and the ticket is eligible on the next CI run.
 
 #### YAML Schema (`component_onboarding_details.yaml`)
 
@@ -199,6 +199,7 @@ Each grandchild pipeline receives the `JIRA_URL` for its specific issue and runs
 - Project: `RHOAIENG` (or `RHODS`)
 - Status: not in any terminal state (Resolved, Closed, Done, Cancelled, etc.)
 - Label: `component-onboarding`
+- Label not present: `disable-automated-onboarding`
 - Cloned from: `RHOAIENG-17225` or `RHOAIENG-35683`
 
 If no issues match, a no-op child pipeline is emitted and the run exits cleanly.
@@ -265,7 +266,7 @@ The wrapper maintains `<JIRA_ID>/pipeline_state.json` in the CI working director
 
 | Milestone | Jira Status | Labels |
 |-----------|-------------|--------|
-| YAML attached by component team | *(unchanged)* | `yaml-attached` added |
+| YAML attached by component team | *(unchanged)* | `yaml-attached` and `disable-automated-onboarding` added |
 | CI picks up ticket, YAML validated | In Progress | — |
 | All PRs/MRs raised | Review | `onboarding-in-review` added |
 | Quay MR merged | Review | `quay-mr-raised` removed |

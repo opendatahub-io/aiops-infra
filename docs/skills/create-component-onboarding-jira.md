@@ -31,7 +31,7 @@ A YAML file that drives every downstream onboarding skill. Key fields:
 |--------|--------|
 | New ticket (no URL given) | Clones `RHOAIENG-35683` (ODH) or `RHOAIENG-17225` (RHOAI); links to the parent feature; sets reporter to current user |
 | Attachment | Uploads `component_onboarding_details.yaml` to the ticket |
-| Label added | `yaml-attached`, `component-onboarding` |
+| Label added | `yaml-attached`, `component-onboarding`, `disable-automated-onboarding` (new tickets and existing tickets updated by this skill) |
 | Comment | Summary of component, repo, branch, operator flag |
 | Description table | Populated with component name, repo, branch, Dockerfile, architectures |
 

@@ -6,7 +6,7 @@
 """Apply all onboarding-specific Jira metadata updates:
   - Strip template tokens from title, insert component name
   - Replace description table first data row with actual values
-  - Add component-onboarding label
+  - Add component-onboarding, devops-onboarding, and disable-automated-onboarding labels
 
 Works for both ODH and RHOAI, and for both existing and newly-created Jira tickets.
 """
@@ -186,7 +186,8 @@ def main():
         print("  Component already present: DevOps")
 
     # --- Add labels ---
-    labels_to_add = ["component-onboarding", "devops-onboarding"]
+    # disable-automated-onboarding first so CI cannot pick the ticket up between API calls.
+    labels_to_add = ["disable-automated-onboarding", "component-onboarding", "devops-onboarding"]
     for label in labels_to_add:
         if label not in current_labels:
             try:

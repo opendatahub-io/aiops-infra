@@ -34,6 +34,9 @@ The Jira URL is **optional**. Without it, the skill automatically creates a new 
 cloning the product-specific onboarding template, then attaches the YAML and updates the
 ticket. Providing a URL skips template cloning and attaches directly to the given ticket.
 
+Both paths apply the `disable-automated-onboarding` label so the DevOps onboarding
+guardian can review the new or changed ticket before scheduled automation picks it up.
+
 | Invocation | ODH | RHOAI |
 |---|---|---|
 | No URL | Clones `RHOAIENG-35683`, attaches YAML, updates ticket | Clones `RHOAIENG-17225`, attaches YAML, updates ticket |
@@ -523,6 +526,19 @@ else
 fi
 ```
 
+Pause automation **before** attaching YAML so an existing ticket already in the CI
+queue cannot be picked up mid-update:
+
+```bash
+uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
+  --add-label "disable-automated-onboarding"
+```
+
+On exit 1: display stderr and stop with:
+```
+ERROR in Step 7 (Pause automation): Could not add disable-automated-onboarding. See details above. Aborting.
+```
+
 ```bash
 uv run --script scripts/update_jira_issue.py "$JIRA_URL" \
   --attach "$YAML_PATH" \
@@ -536,7 +552,7 @@ Product: <product_context>
 Repo: <repo_url> @ <repo_branch>
 Operator: <is_operator>
 
-This ticket is ready for onboarding automation. Run /validate-component-onboarding-jira to verify."
+This ticket is ready for onboarding automation. The DevOps onboarding guardian will review it next, after which the pipeline can run. Run /validate-component-onboarding-jira to verify."
 ```
 
 On exit 1: display stderr and stop with:
@@ -566,6 +582,7 @@ fi
 NEW_JIRA_URL=$(uv run --script scripts/update_jira_issue.py "new" \
   --clone-from "$TEMPLATE_ID" \
   --remove-label "template" \
+  --add-label "disable-automated-onboarding" \
   --link-related "$PARENT_FEATURE_ID" \
   --set-reporter-to-current)
 ```
@@ -596,7 +613,7 @@ Product: <product_context>
 Repo: <repo_url> @ <repo_branch>
 Operator: <is_operator>
 
-This ticket is ready for onboarding automation. Run /validate-component-onboarding-jira to verify."
+This ticket is ready for onboarding automation. The DevOps onboarding guardian will review it next, after which the pipeline can run. Run /validate-component-onboarding-jira to verify."
 ```
 
 On exit 1: display stderr and stop with:
@@ -654,7 +671,7 @@ Done.
   Jira                               — <JIRA_ID> (<JIRA_URL>)
                                        (created from template <TEMPLATE_ID>, or provided by user)
   Parent feature link                — <PARENT_FEATURE_ID> (relates to)
-  Jira attachment                    — uploaded (label: yaml-attached)
+  Jira attachment                    — uploaded (labels: yaml-attached, disable-automated-onboarding)
   Jira comment                       — posted
 
   Output file: $YAML_PATH
