@@ -19,7 +19,7 @@ dependencies = [
 packages = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4", "pre-commit>=3.7", "responses>=0.25"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4", "pre-commit>=3.7", "responses>=0.25", "jsonschema>=4.23"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import json
 
-import pytest
-import yaml
-
 import conforma_context_ops
 import conforma_mr_ops
 import conforma_policy_ops
+import pytest
 import violations_coverage as mod
-from coverage_status_ops import determine_status_and_next_steps
-from coverage_status_ops import extract_exception_expiry
-from coverage_status_ops import load_report_metadata
-from coverage_status_ops import build_search_urls
-from coverage_status_ops import map_gate_status
+import yaml
+from coverage_status_ops import (
+    build_search_urls,
+    determine_status_and_next_steps,
+    extract_exception_expiry,
+    load_report_metadata,
+    map_gate_status,
+)
 
 
 class TestBuildSearchUrls:
@@ -65,7 +66,7 @@ class TestRenderViolationsMarkdownTable:
         results = [self._make_row()]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         md = mod._render_violations_markdown_table(results, summary)
-        header_line = [l for l in md.splitlines() if l.startswith("| #")][0]
+        header_line = next(l for l in md.splitlines() if l.startswith("| #"))
         assert header_line.count("|") == 7  # 6 columns = 7 pipe chars
 
     def test_column_headers(self):
@@ -238,11 +239,11 @@ class TestGateStatusMapping:
             map_gate_status({"status": "totally_new_status"}, "test.rule", [], [])
 
     def test_permanent_maps_to_fully_covered(self):
-        cov, label = map_gate_status({"status": "permanent"}, "test.rule", [], [])
+        cov, _label = map_gate_status({"status": "permanent"}, "test.rule", [], [])
         assert cov == "fully_covered"
 
     def test_passed_maps_to_not_covered(self):
-        cov, label = map_gate_status({"status": "passed"}, "test.rule", [], [])
+        cov, _label = map_gate_status({"status": "passed"}, "test.rule", [], [])
         assert cov == "not_covered"
 
 
@@ -541,7 +542,7 @@ class TestEcCoverageForRule:
     def test_none_covered_by_ec(self):
         ec_viols = {"comp-a": {"rule.x"}, "comp-b": {"rule.x"}}
         ec_succ = {"comp-a": set(), "comp-b": set()}
-        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+        covered, uncovered, coverage, _label, divergences = mod._ec_coverage_for_rule(
             "rule.x",
             ["comp-a", "comp-b"],
             ec_viols,
@@ -570,7 +571,7 @@ class TestEcCoverageForRule:
     def test_component_missing_from_ec_treated_as_uncovered(self):
         ec_viols = {"comp-a": set()}
         ec_succ = {"comp-a": {"rule.x"}}
-        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+        covered, uncovered, _coverage, _label, _divergences = mod._ec_coverage_for_rule(
             "rule.x",
             ["comp-a", "comp-b"],
             ec_viols,
@@ -582,7 +583,7 @@ class TestEcCoverageForRule:
     def test_divergence_when_not_in_violations_or_successes(self):
         ec_viols = {"comp-a": set(), "comp-b": set()}
         ec_succ = {"comp-a": {"rule.x"}, "comp-b": set()}
-        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+        covered, uncovered, _coverage, _label, divergences = mod._ec_coverage_for_rule(
             "rule.x",
             ["comp-a", "comp-b"],
             ec_viols,
@@ -598,7 +599,7 @@ class TestEcCoverageForRule:
 
     def test_no_successes_falls_back_to_two_way(self):
         ec_viols = {"comp-a": set(), "comp-b": {"rule.x"}}
-        covered, uncovered, coverage, label, divergences = mod._ec_coverage_for_rule(
+        covered, uncovered, _coverage, _label, divergences = mod._ec_coverage_for_rule(
             "rule.x",
             ["comp-a", "comp-b"],
             ec_viols,
@@ -698,10 +699,10 @@ class TestOutputFlag:
                 },
             },
         )
-        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.2.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
         conforma_context_ops.set_active(run_dir)
-        (run_dir / "dummy.csv").write_text("header\n")
+        (run_dir / "rhoai-3.5-ea.2.csv").write_text("header\n")
         (run_dir / "dummy.yaml").write_text("violation_data: {}\n")
 
         monkeypatch.setattr(
@@ -744,10 +745,10 @@ class TestOutputFlag:
                 },
             },
         )
-        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.2.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
         conforma_context_ops.set_active(run_dir)
-        (run_dir / "dummy.csv").write_text("header\n")
+        (run_dir / "rhoai-3.5-ea.2.csv").write_text("header\n")
         (run_dir / "dummy.yaml").write_text("violation_data: {}\n")
 
         monkeypatch.setattr(
@@ -1091,10 +1092,10 @@ class TestSelfServiceCoverageMerge:
                 },
             },
         )
-        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.1.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
         conforma_context_ops.set_active(run_dir)
-        (run_dir / "dummy.csv").write_text("header\n")
+        (run_dir / "rhoai-3.5-ea.1.csv").write_text("header\n")
         (run_dir / "dummy.yaml").write_text("violation_data: {}\n")
 
         monkeypatch.setattr(

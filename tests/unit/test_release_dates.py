@@ -5,9 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-
 import release_dates as mod
-
 
 _REMOTE_EOS_FIXTURE = {
     "supported": [
@@ -101,14 +99,22 @@ class TestGetUpcomingReleaseDateWithSource:
         mod._release_data_cache = None
 
     def test_returns_date_and_link(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [{
-                "version": "3.5",
-                "products": {"rhoai": {
-                    "milestones": [{"type": "ga", "date": "2026-08-20", "version": "3.5"}],
-                }},
-            }],
-        }):
+        with patch.object(
+            mod,
+            "_fetch_release_data",
+            return_value={
+                "supported": [
+                    {
+                        "version": "3.5",
+                        "products": {
+                            "rhoai": {
+                                "milestones": [{"type": "ga", "date": "2026-08-20", "version": "3.5"}],
+                            }
+                        },
+                    }
+                ],
+            },
+        ):
             date, source = mod.get_upcoming_release_date_with_source("rhoai-3.5")
         assert date == "2026-08-20"
         assert "rhai-release-data.yaml" in source
@@ -134,19 +140,27 @@ class TestGetEosFromRemote:
         mod._release_data_cache = None
 
     def test_returns_date_when_field_exists(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [
-                {"version": "3.5", "support": {"end_of_support": "2027-01-05"}, "products": {"rhoai": {}}},
-            ],
-        }):
+        with patch.object(
+            mod,
+            "_fetch_release_data",
+            return_value={
+                "supported": [
+                    {"version": "3.5", "support": {"end_of_support": "2027-01-05"}, "products": {"rhoai": {}}},
+                ],
+            },
+        ):
             assert mod._get_eos_from_remote("rhoai-3.5") == "2027-01-05"
 
     def test_returns_none_when_field_missing(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [
-                {"version": "3.5", "support": {"phase": "maintenance"}, "products": {"rhoai": {}}},
-            ],
-        }):
+        with patch.object(
+            mod,
+            "_fetch_release_data",
+            return_value={
+                "supported": [
+                    {"version": "3.5", "support": {"phase": "maintenance"}, "products": {"rhoai": {}}},
+                ],
+            },
+        ):
             assert mod._get_eos_from_remote("rhoai-3.5") is None
 
     def test_returns_none_when_fetch_fails(self):
@@ -154,19 +168,27 @@ class TestGetEosFromRemote:
             assert mod._get_eos_from_remote("rhoai-3.5") is None
 
     def test_returns_none_when_version_not_found(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [
-                {"version": "3.4", "support": {"end_of_support": "2026-08-12"}, "products": {"rhoai": {}}},
-            ],
-        }):
+        with patch.object(
+            mod,
+            "_fetch_release_data",
+            return_value={
+                "supported": [
+                    {"version": "3.4", "support": {"end_of_support": "2026-08-12"}, "products": {"rhoai": {}}},
+                ],
+            },
+        ):
             assert mod._get_eos_from_remote("rhoai-3.5") is None
 
     def test_ea_release_maps_to_base_version(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [
-                {"version": "3.5", "support": {"end_of_support": "2027-01-05"}, "products": {"rhoai": {}}},
-            ],
-        }):
+        with patch.object(
+            mod,
+            "_fetch_release_data",
+            return_value={
+                "supported": [
+                    {"version": "3.5", "support": {"end_of_support": "2027-01-05"}, "products": {"rhoai": {}}},
+                ],
+            },
+        ):
             assert mod._get_eos_from_remote("rhoai-3.5-ea.2") == "2027-01-05"
 
 
@@ -451,45 +473,57 @@ class TestReleaseMilestoneType:
 
 
 _RHOAI_MILESTONES_FIXTURE = {
-    "supported": [{
-        "version": "3.5",
-        "products": {"rhoai": {
-            "milestones": [
-                {"type": "ea1", "date": "2026-06-15", "version": "3.5"},
-                {"type": "ea2", "date": "2026-07-16", "version": "3.5"},
-                {"type": "ga", "date": "2026-08-20", "version": "3.5"},
-                {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
-            ],
-        }},
-    }],
+    "supported": [
+        {
+            "version": "3.5",
+            "products": {
+                "rhoai": {
+                    "milestones": [
+                        {"type": "ea1", "date": "2026-06-15", "version": "3.5"},
+                        {"type": "ea2", "date": "2026-07-16", "version": "3.5"},
+                        {"type": "ga", "date": "2026-08-20", "version": "3.5"},
+                        {"type": "ga_code_freeze", "date": "2026-07-24", "version": "3.5"},
+                    ],
+                }
+            },
+        }
+    ],
 }
 
 _RHOAI_36_MILESTONES_FIXTURE = {
-    "supported": [{
-        "version": "3.6",
-        "products": {"rhoai": {
-            "milestones": [
-                {"type": "ea1", "date": "2026-09-01", "version": "3.6"},
-                {"type": "ea2", "date": "2026-10-01", "version": "3.6"},
-                {"type": "ga", "date": "2026-11-01", "version": "3.6"},
-                {"type": "ea1_code_freeze", "date": "2026-08-15", "version": "3.6"},
-                {"type": "ea2_code_freeze", "date": "2026-09-15", "version": "3.6"},
-                {"type": "ga_code_freeze", "date": "2026-10-15", "version": "3.6"},
-            ],
-        }},
-    }],
+    "supported": [
+        {
+            "version": "3.6",
+            "products": {
+                "rhoai": {
+                    "milestones": [
+                        {"type": "ea1", "date": "2026-09-01", "version": "3.6"},
+                        {"type": "ea2", "date": "2026-10-01", "version": "3.6"},
+                        {"type": "ga", "date": "2026-11-01", "version": "3.6"},
+                        {"type": "ea1_code_freeze", "date": "2026-08-15", "version": "3.6"},
+                        {"type": "ea2_code_freeze", "date": "2026-09-15", "version": "3.6"},
+                        {"type": "ga_code_freeze", "date": "2026-10-15", "version": "3.6"},
+                    ],
+                }
+            },
+        }
+    ],
 }
 
 _RHOAI_OLD_MILESTONES_FIXTURE = {
-    "supported": [{
-        "version": "3.3",
-        "products": {"rhoai": {
-            "milestones": [
-                {"type": "ga", "date": "2026-04-01", "version": "3.3"},
-                {"type": "code_freeze", "date": "2026-03-15", "version": "3.3"},
-            ],
-        }},
-    }],
+    "supported": [
+        {
+            "version": "3.3",
+            "products": {
+                "rhoai": {
+                    "milestones": [
+                        {"type": "ga", "date": "2026-04-01", "version": "3.3"},
+                        {"type": "code_freeze", "date": "2026-03-15", "version": "3.3"},
+                    ],
+                }
+            },
+        }
+    ],
 }
 
 
@@ -521,22 +555,34 @@ class TestGetUpcomingReleaseDate:
             assert mod.get_upcoming_release_date("rhoai-3.5") is None
 
     def test_returns_none_when_no_milestones(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [
-                {"version": "3.5", "products": {"rhoai": {}}},
-            ],
-        }):
+        with patch.object(
+            mod,
+            "_fetch_release_data",
+            return_value={
+                "supported": [
+                    {"version": "3.5", "products": {"rhoai": {}}},
+                ],
+            },
+        ):
             assert mod.get_upcoming_release_date("rhoai-3.5") is None
 
     def test_returns_none_when_milestone_type_not_found(self):
-        with patch.object(mod, "_fetch_release_data", return_value={
-            "supported": [{
-                "version": "3.5",
-                "products": {"rhoai": {
-                    "milestones": [{"type": "ea1", "date": "2026-06-15", "version": "3.5"}],
-                }},
-            }],
-        }):
+        with patch.object(
+            mod,
+            "_fetch_release_data",
+            return_value={
+                "supported": [
+                    {
+                        "version": "3.5",
+                        "products": {
+                            "rhoai": {
+                                "milestones": [{"type": "ea1", "date": "2026-06-15", "version": "3.5"}],
+                            }
+                        },
+                    }
+                ],
+            },
+        ):
             assert mod.get_upcoming_release_date("rhoai-3.5") is None
 
     def test_returns_none_when_supported_list_empty(self):
@@ -581,12 +627,16 @@ class TestGetCodeFreezeDate:
 
     def test_returns_none_when_milestone_absent(self):
         fixture = {
-            "supported": [{
-                "version": "3.5",
-                "products": {"rhoai": {
-                    "milestones": [{"type": "ga", "date": "2026-08-20", "version": "3.5"}],
-                }},
-            }],
+            "supported": [
+                {
+                    "version": "3.5",
+                    "products": {
+                        "rhoai": {
+                            "milestones": [{"type": "ga", "date": "2026-08-20", "version": "3.5"}],
+                        }
+                    },
+                }
+            ],
         }
         with patch.object(mod, "_fetch_release_data", return_value=fixture):
             assert mod.get_code_freeze_date("rhoai-3.5") is None
@@ -638,6 +688,7 @@ class TestFetchReleaseData:
 
     def test_github_ops_not_importable_returns_none(self):
         import builtins
+
         original_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):
@@ -667,8 +718,10 @@ class TestListAllUpcomingReleaseDate:
         mod._release_data_cache = None
 
     def test_each_row_has_upcoming_release_date_field(self):
-        with patch.object(mod, "_fetch_release_data", return_value=_REMOTE_EOS_FIXTURE), \
-             patch.object(mod, "get_upcoming_release_date", return_value=None):
+        with (
+            patch.object(mod, "_fetch_release_data", return_value=_REMOTE_EOS_FIXTURE),
+            patch.object(mod, "get_upcoming_release_date", return_value=None),
+        ):
             for row in mod.list_all():
                 assert "upcoming_release_date" in row
 
@@ -696,8 +749,14 @@ class TestResolveReleaseContextEos:
         monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")
         monkeypatch.setenv("GITLAB_TOKEN", "fake")
 
-        with patch.object(ctx, "list_version_dirs", return_value=["v3.4"]), \
-             patch.object(mod, "_fetch_release_data", return_value=_REMOTE_EOS_FIXTURE):
+        with (
+            patch.object(ctx, "list_version_dirs", return_value=["v3.4"]),
+            patch.object(
+                ctx.release_dates,
+                "get_eos_date_with_source",
+                return_value=("2026-08-12", "[rhai-release-data.yaml](https://example.invalid)"),
+            ),
+        ):
             result = ctx.resolve("rhoai-3.4")
 
         assert result["status"] == "resolved"
@@ -712,8 +771,14 @@ class TestResolveReleaseContextEos:
         monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")
         monkeypatch.setenv("GITLAB_TOKEN", "fake")
 
-        with patch.object(ctx, "list_version_dirs", return_value=["v3.4"]), \
-             patch.object(mod, "_fetch_release_data", return_value=_REMOTE_EOS_FIXTURE):
+        with (
+            patch.object(ctx, "list_version_dirs", return_value=["v3.4"]),
+            patch.object(
+                ctx.release_dates,
+                "get_eos_date_with_source",
+                return_value=("2026-08-12", "[rhai-release-data.yaml](https://example.invalid)"),
+            ),
+        ):
             result = ctx.resolve("rhoai-3.4")
 
         assert "End of Support (RHOAI 3.4)" in result["confirmation_display"]
@@ -730,8 +795,10 @@ class TestResolveReleaseContextEos:
         monkeypatch.setenv("GITLAB_HOST", "gitlab.corp.internal")
         monkeypatch.setenv("GITLAB_TOKEN", "fake")
 
-        with patch.object(ctx, "list_version_dirs", return_value=["v9.9"]), \
-             patch.object(mod, "_fetch_release_data", return_value=_REMOTE_EOS_FIXTURE):
+        with (
+            patch.object(ctx, "list_version_dirs", return_value=["v9.9"]),
+            patch.object(mod, "_fetch_release_data", return_value=_REMOTE_EOS_FIXTURE),
+        ):
             result = ctx.resolve("9.9")
 
         assert result["status"] == "resolved"

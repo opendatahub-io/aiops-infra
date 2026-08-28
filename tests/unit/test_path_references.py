@@ -14,10 +14,11 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from check_path_references import (  # noqa: E402
+from check_path_references import (
     COMMAND_PATH_PATTERN,
     MARKDOWN_LINK_PATTERN,
     _find_correct_path,
+    _is_excluded,
     _strip_fragment,
     scan_repo,
 )
@@ -158,3 +159,11 @@ class TestFindCorrectPath:
     def test_returns_none_for_nonexistent_script(self):
         result = _find_correct_path("does_not_exist_anywhere.py")
         assert result is None
+
+
+class TestIsExcluded:
+    def test_skips_nested_plans_directories(self):
+        assert _is_excluded("skills/conforma-analyze/.plans/add-todo-section-to-executive-summary.md")
+
+    def test_does_not_skip_skill_docs(self):
+        assert not _is_excluded("skills/conforma-analyze/SKILL.md")

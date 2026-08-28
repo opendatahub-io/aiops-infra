@@ -31,9 +31,7 @@ from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-COMMAND_PATH_PATTERN = re.compile(
-    r"(?:python3|bash)\s+((?:scripts|skills)/[^\s\\\"'`]+\.(?:py|sh))"
-)
+COMMAND_PATH_PATTERN = re.compile(r"(?:python3|bash)\s+((?:scripts|skills)/[^\s\\\"'`]+\.(?:py|sh))")
 
 MARKDOWN_LINK_PATTERN = re.compile(r"\]\(([^)]+)\)")
 
@@ -78,6 +76,7 @@ def _get_tracked_files() -> list[str]:
         text=True,
         timeout=30,
         cwd=REPO_ROOT,
+        check=False,
     )
     if result.returncode != 0:
         return []
@@ -86,6 +85,8 @@ def _get_tracked_files() -> list[str]:
 
 def _is_excluded(rel_path: str, extra: set[str] | None = None) -> bool:
     parts = Path(rel_path).parts
+    if ".plans" in parts:
+        return True
     all_excludes = EXCLUDE_PATHS | (extra or set())
     for exc in all_excludes:
         exc_parts = Path(exc).parts
@@ -112,9 +113,7 @@ def _strip_fragment(href: str) -> str:
     return href
 
 
-def scan_command_paths(
-    filepath: Path, allowlist: set[str]
-) -> list[Finding]:
+def scan_command_paths(filepath: Path, allowlist: set[str]) -> list[Finding]:
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -133,15 +132,11 @@ def scan_command_paths(
                 continue
             script_name = Path(ref_path).name
             suggestion = _find_correct_path(script_name)
-            findings.append(
-                Finding(line_no, "command_path", ref_path, suggestion)
-            )
+            findings.append(Finding(line_no, "command_path", ref_path, suggestion))
     return findings
 
 
-def scan_markdown_links(
-    filepath: Path, allowlist: set[str]
-) -> list[Finding]:
+def scan_markdown_links(filepath: Path, allowlist: set[str]) -> list[Finding]:
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError:
