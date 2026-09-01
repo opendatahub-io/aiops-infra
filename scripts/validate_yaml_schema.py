@@ -34,8 +34,8 @@ import json
 import sys
 from pathlib import Path
 
-import yaml
 import jsonschema
+import yaml
 from jsonschema import Draft202012Validator
 
 
@@ -100,7 +100,20 @@ def format_error(error: jsonschema.ValidationError) -> str:
         label = field_path if field_path.startswith("inputs") else f"inputs.{field_path}"
     else:
         label = "inputs"
-    return f"  - {label}: {error.message}"
+
+    message = error.message
+    if error.validator == "not":
+        description = None
+        node = error
+        while node is not None and not description:
+            schema = getattr(node, "schema", None)
+            if isinstance(schema, dict):
+                description = schema.get("description")
+            node = getattr(node, "parent", None)
+        if description:
+            message = f"{error.instance!r} is invalid. {description}"
+
+    return f"  - {label}: {message}"
 
 
 def main() -> None:

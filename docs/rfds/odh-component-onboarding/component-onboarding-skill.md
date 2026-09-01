@@ -124,7 +124,7 @@ All fields live under an `inputs:` top-level key. Required fields:
 | Field | Type | ODH | RHOAI | Notes |
 |-------|------|-----|-------|-------|
 | `product_context` | string | ✓ | ✓ | `ODH` or `RHOAI` |
-| `component_name` | string | ✓ | ✓ | Must match `^odh-[a-z0-9]+(-[a-z0-9]+)*$` |
+| `component_name` | string | ✓ | ✓ | Must match `^odh-[a-z0-9]+(-[a-z0-9]+)*$`, max 51 characters, and must not end with `-rhel9` or a version-like suffix (`-v2`, `-3-4`, `-v3-4`, `-v3-5-ea-1`) |
 | `repo_url` | string | ✓ | ✓ | `https://github.com/...` |
 | `repo_branch` | string | ✓ | ✓ | RHOAI: auto-derived from `target_rhoai_version` |
 | `context_path` | string | ✓ | ✓ | Docker build context (use `./` for root) |
