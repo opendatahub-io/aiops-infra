@@ -698,11 +698,11 @@ class TestOutputFlag:
                 },
             },
         )
-        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
-        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.2.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
         conforma_context_ops.set_active(run_dir)
-        (run_dir / "dummy.csv").write_text("header\n")
-        (run_dir / "dummy.yaml").write_text("violation_data: {}\n")
+        (run_dir / "rhoai-3.5-ea.2.csv").write_text("header\n")
+        (run_dir / "violations.yaml").write_text("violation_data: {}\n")
 
         monkeypatch.setattr(
             "sys.argv",
@@ -744,11 +744,11 @@ class TestOutputFlag:
                 },
             },
         )
-        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
-        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.2.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
         conforma_context_ops.set_active(run_dir)
-        (run_dir / "dummy.csv").write_text("header\n")
-        (run_dir / "dummy.yaml").write_text("violation_data: {}\n")
+        (run_dir / "rhoai-3.5-ea.2.csv").write_text("header\n")
+        (run_dir / "violations.yaml").write_text("violation_data: {}\n")
 
         monkeypatch.setattr(
             "sys.argv",
@@ -1091,11 +1091,11 @@ class TestSelfServiceCoverageMerge:
                 },
             },
         )
-        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["dummy.csv"])
-        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="dummy.yaml")
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.5-ea.1.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
         conforma_context_ops.set_active(run_dir)
-        (run_dir / "dummy.csv").write_text("header\n")
-        (run_dir / "dummy.yaml").write_text("violation_data: {}\n")
+        (run_dir / "rhoai-3.5-ea.1.csv").write_text("header\n")
+        (run_dir / "violations.yaml").write_text("violation_data: {}\n")
 
         monkeypatch.setattr(
             "sys.argv",
