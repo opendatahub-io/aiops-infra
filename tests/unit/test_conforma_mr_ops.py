@@ -980,8 +980,82 @@ class TestPrefetchOpenMrsCrossIndex:
         assert hermetic_iids.count(203) == 1
 
 
+class TestExtractEffectiveUntilByComponent:
+    """Tests for extract_effective_until_by_component (per-component dates)."""
+
+    def test_extracts_dates_for_multiple_component_blocks(self):
+        """Multiple exception blocks with different components and dates."""
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - odh-mlmd-grpc-server-v3-6-ea-1\n"
+            "+              - odh-openvino-model-server-v3-6-ea-1\n"
+            "+            effectiveUntil: \"2026-09-30T00:00:00Z\"\n"
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - odh-mlmd-grpc-server-v3-6-ea-2\n"
+            "+              - odh-openvino-model-server-v3-6-ea-2\n"
+            "+            effectiveUntil: \"2026-10-21T00:00:00Z\"\n"
+        )
+        result = mod.extract_effective_until_by_component(diff, "hermetic_task.hermetic")
+        assert result == {
+            "odh-mlmd-grpc-server-v3-6-ea-1": "2026-09-30",
+            "odh-openvino-model-server-v3-6-ea-1": "2026-09-30",
+            "odh-mlmd-grpc-server-v3-6-ea-2": "2026-10-21",
+            "odh-openvino-model-server-v3-6-ea-2": "2026-10-21",
+        }
+
+    def test_returns_empty_dict_when_no_component_names(self):
+        """Global exception (no componentNames) is not included in result."""
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            effectiveUntil: \"2026-08-01T00:00:00Z\"\n"
+        )
+        result = mod.extract_effective_until_by_component(diff, "hermetic_task.hermetic")
+        assert result == {}
+
+    def test_returns_empty_dict_when_no_effective_until(self):
+        """Component-scoped exception without effectiveUntil."""
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - comp-a\n"
+        )
+        result = mod.extract_effective_until_by_component(diff, "hermetic_task.hermetic")
+        assert result == {}
+
+    def test_image_url_scoped_exception_with_requested_components(self):
+        """imageUrl-scoped exception resolved to matching components."""
+        diff = (
+            "+          - value: rpm_signature.allowed:8a3872bf3228467c\n"
+            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
+            "+            imageUrl: quay.io/rhoai/odh-vllm-cpu-rhel9\n"
+        )
+        result = mod.extract_effective_until_by_component(
+            diff,
+            "rpm_signature.allowed",
+            requested_components=["odh-vllm-cpu-v3-6-ea-2", "odh-dashboard-v3-4"],
+        )
+        assert result == {"odh-vllm-cpu-v3-6-ea-2": "2026-12-31"}
+
+    def test_multiple_rules_only_returns_requested_rule(self):
+        """Only extract dates for the specified rule."""
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - comp-a\n"
+            "+            effectiveUntil: \"2026-09-30\"\n"
+            "+          - value: rpm_signature.allowed:abc123\n"
+            "+            componentNames:\n"
+            "+              - comp-a\n"
+            "+            effectiveUntil: \"2026-12-31\"\n"
+        )
+        result = mod.extract_effective_until_by_component(diff, "hermetic_task.hermetic")
+        assert result == {"comp-a": "2026-09-30"}
+
+
 class TestExtractEffectiveUntilFromDiff:
-    """Tests for extract_effective_until_from_diff."""
+    """Tests for extract_effective_until_from_diff (deprecated, returns first date only)."""
 
     def test_extracts_date_from_added_block(self):
         diff = (
@@ -1031,6 +1105,26 @@ class TestExtractEffectiveUntilFromDiff:
             "+            effectiveUntil: '2026-12-31T23:59:59Z'\n"
         )
         assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") == "2026-12-31"
+
+    def test_returns_first_date_when_multiple_blocks_exist(self):
+        """BUG: Currently returns only the first effectiveUntil found.
+
+        This test documents the current (buggy) behavior where an MR with
+        multiple exception blocks for the same rule but different components
+        and different effectiveUntil dates only returns the first date.
+        """
+        diff = (
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - odh-mlmd-grpc-server-v3-6-ea-1\n"
+            "+            effectiveUntil: \"2026-09-30T00:00:00Z\"\n"
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - odh-mlmd-grpc-server-v3-6-ea-2\n"
+            "+            effectiveUntil: \"2026-10-21T00:00:00Z\"\n"
+        )
+        # Current buggy behavior: returns only first date
+        assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") == "2026-09-30"
 
 
 # ---------------------------------------------------------------------------
@@ -1083,6 +1177,66 @@ class TestAnalyzeMrImageUrlCoverage:
         assert result["source"] == "diff"
         assert result["suggestion"] == "fully_covered"
         assert sorted(result["covered"]) == ["odh-dashboard-v3-4", "odh-dashboard-v3-5"]
+
+    def test_multiple_components_with_different_effective_until_dates(self):
+        """BUG: Multiple exception blocks with different effectiveUntil dates.
+
+        When an MR has multiple exception blocks for the same rule but different
+        components with different effectiveUntil dates, the current code incorrectly
+        applies only the first effectiveUntil date to ALL components.
+
+        Real-world example: MR !22104 has:
+        - odh-mlmd-grpc-server-v3-6-ea-1 → effectiveUntil: 2026-09-30
+        - odh-mlmd-grpc-server-v3-6-ea-2 → effectiveUntil: 2026-10-21
+
+        But the coverage report shows 2026-09-30 for BOTH components.
+        """
+        diff = (
+            "+++ b/config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml\n"
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - odh-mlmd-grpc-server-v3-6-ea-1\n"
+            "+              - odh-openvino-model-server-v3-6-ea-1\n"
+            "+            effectiveUntil: \"2026-09-30T00:00:00Z\"\n"
+            "+            reference: https://redhat.atlassian.net/browse/PRODSECRM-309\n"
+            "+          - value: hermetic_task.hermetic\n"
+            "+            componentNames:\n"
+            "+              - odh-mlmd-grpc-server-v3-6-ea-2\n"
+            "+              - odh-openvino-model-server-v3-6-ea-2\n"
+            "+            effectiveUntil: \"2026-10-21T00:00:00Z\"\n"
+            "+            reference: https://redhat.atlassian.net/browse/PRODSECRM-309\n"
+        )
+        mod._mr_cache.store(
+            22104,
+            [{"new_path": "config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml", "diff": diff}],
+        )
+        result = mod.analyze_mr_component_coverage(
+            mr_iid=22104,
+            rule="hermetic_task.hermetic",
+            requested_components=[
+                "odh-mlmd-grpc-server-v3-6-ea-1",
+                "odh-mlmd-grpc-server-v3-6-ea-2",
+                "odh-openvino-model-server-v3-6-ea-2",
+            ],
+        )
+        assert result["source"] == "diff"
+        assert result["suggestion"] == "fully_covered"
+        assert sorted(result["covered"]) == [
+            "odh-mlmd-grpc-server-v3-6-ea-1",
+            "odh-mlmd-grpc-server-v3-6-ea-2",
+            "odh-openvino-model-server-v3-6-ea-2",
+        ]
+        assert result["missing"] == []
+
+        # FIXED: Each component now has its own effectiveUntil
+        assert result["effective_until_by_component"] == {
+            "odh-mlmd-grpc-server-v3-6-ea-1": "2026-09-30",
+            "odh-openvino-model-server-v3-6-ea-1": "2026-09-30",
+            "odh-mlmd-grpc-server-v3-6-ea-2": "2026-10-21",
+            "odh-openvino-model-server-v3-6-ea-2": "2026-10-21",
+        }
+        # The global effective_until field uses the earliest date for backward compat
+        assert result["effective_until"] == "2026-09-30"
 
 
 # ---------------------------------------------------------------------------

@@ -293,7 +293,14 @@ def _compute_violation_buckets(
 
         if _upcoming_dt_mr:
             for e in has_mr_entries:
-                mr_eu = e["mr"].get("effective_until")
+                mr = e["mr"]
+                comp = e.get("component")
+                # Try per-component date first, fall back to global
+                mr_eu = None
+                if comp and mr.get("effective_until_by_component"):
+                    mr_eu = mr["effective_until_by_component"].get(comp)
+                if not mr_eu:
+                    mr_eu = mr.get("effective_until")
                 if mr_eu:
                     try:
                         mr_eu_date = datetime.strptime(mr_eu[:10], "%Y-%m-%d").date()
@@ -349,7 +356,12 @@ def _compute_violation_buckets(
                         if not covering_mr:
                             expiring_no_mr.append(entry)
                         else:
-                            mr_eu = covering_mr.get("effective_until")
+                            # Try per-component date first, fall back to global
+                            mr_eu = None
+                            if covering_mr.get("effective_until_by_component"):
+                                mr_eu = covering_mr["effective_until_by_component"].get(comp)
+                            if not mr_eu:
+                                mr_eu = covering_mr.get("effective_until")
                             mr_eu_ok = False
                             if mr_eu:
                                 try:

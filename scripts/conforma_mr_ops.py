@@ -361,6 +361,12 @@ def extract_effective_until_from_diff(diff_text: str, rule: str) -> str | None:
     Scans for ``- value: <rule>`` blocks on added lines and returns the
     ``effectiveUntil`` value from the same block (added or context).
     Returns ``None`` if no effectiveUntil is found.
+
+    .. deprecated::
+        This function returns only the first effectiveUntil found, which is
+        incorrect when a diff contains multiple exception blocks for the same
+        rule with different components and different dates. Use
+        :func:`extract_effective_until_by_component` instead.
     """
     lines = _parse_diff_lines(diff_text)
 
@@ -384,6 +390,93 @@ def extract_effective_until_from_diff(diff_text: str, rule: str) -> str | None:
         else:
             i += 1
     return None
+
+
+def extract_effective_until_by_component(
+    diff_text: str,
+    rule: str,
+    requested_components: list[str] | None = None,
+) -> dict[str, str]:
+    """Extract per-component effectiveUntil dates for a rule from a unified diff.
+
+    Scans for ``- value: <rule>`` blocks on added lines and returns a mapping
+    of ``{component: effectiveUntil}`` for each component covered by an exception
+    with an effectiveUntil date.
+
+    **Global exceptions** (no ``componentNames`` or ``imageUrl``) are NOT included
+    in the mapping since they apply to all components equally.
+
+    **imageUrl-scoped exceptions** require *requested_components* to resolve the
+    imageUrl to matching component names.
+
+    Args:
+        diff_text: Unified diff text from a merge request.
+        rule: Policy rule to search for (e.g., "hermetic_task.hermetic").
+        requested_components: Optional list of component names to resolve imageUrl.
+
+    Returns:
+        Dict mapping component names to their effectiveUntil dates (YYYY-MM-DD).
+        Empty dict if no component-scoped exceptions with dates are found.
+    """
+    lines = _parse_diff_lines(diff_text)
+    result: dict[str, str] = {}
+
+    i = 0
+    while i < len(lines):
+        stripped, is_added = lines[i]
+        value = ""
+        if stripped.startswith("- value: "):
+            value = stripped[len("- value: "):].strip().strip('"').strip("'")
+        if is_added and value and _matches_rule(value, rule):
+            # Found a matching rule block - scan for componentNames, imageUrl, effectiveUntil
+            i += 1
+            effective_until = None
+            component_names: list[str] = []
+            image_url = ""
+            in_component_names = False
+
+            while i < len(lines):
+                s, _ = lines[i]
+                if not s or s.startswith("- value:"):
+                    break
+                if s.startswith("componentNames:"):
+                    in_component_names = True
+                    i += 1
+                    continue
+                if s.startswith("imageUrl:"):
+                    image_url = s[len("imageUrl:"):].strip().strip('"').strip("'")
+                    i += 1
+                    continue
+                if s.startswith("effectiveUntil:"):
+                    eu = s[len("effectiveUntil:"):].strip().strip('"').strip("'")
+                    if eu:
+                        effective_until = eu[:10]
+                    i += 1
+                    continue
+                if in_component_names and s.startswith("- "):
+                    comp = s[2:].strip().strip('"').strip("'")
+                    if comp:
+                        component_names.append(comp)
+                    i += 1
+                    continue
+                if in_component_names:
+                    in_component_names = False
+                i += 1
+
+            # Store the effectiveUntil for each component in this block
+            if effective_until:
+                if component_names:
+                    for comp in component_names:
+                        result[comp] = effective_until
+                elif image_url and requested_components:
+                    for comp in requested_components:
+                        if image_url_covers_component(image_url, comp):
+                            result[comp] = effective_until
+                # Ignore global exceptions (no component scoping)
+        else:
+            i += 1
+
+    return result
 
 
 def _parse_components_from_description(description: str) -> list[str]:
@@ -759,6 +852,8 @@ def analyze_mr_component_coverage(
     relevant_basenames = {Path(f).name for f in relevant_policy_files} if relevant_policy_files else None
 
     mr_effective_until: str | None = None
+    effective_until_by_component: dict[str, str] = {}
+
     for change in changes:
         path = change.get("new_path", "")
         if any(marker in path for marker in EXCEPTION_PATH_MARKERS):
@@ -767,10 +862,25 @@ def analyze_mr_component_coverage(
             diff_components.extend(_parse_components_from_diff(
             change.get("diff", ""), rule, requested_components=requested_components,
         ))
+            # Extract per-component effective_until dates
+            component_dates = extract_effective_until_by_component(
+                change.get("diff", ""),
+                rule,
+                requested_components=requested_components,
+            )
+            effective_until_by_component.update(component_dates)
+
+            # Fallback for global exceptions: use the old function for backward compat
             if mr_effective_until is None:
                 mr_effective_until = extract_effective_until_from_diff(
                     change.get("diff", ""), rule
                 )
+
+    # Determine the effective_until field for backward compatibility:
+    # - If we have per-component dates, use the earliest one
+    # - Otherwise use mr_effective_until (for global exceptions)
+    if effective_until_by_component:
+        mr_effective_until = min(effective_until_by_component.values())
 
     if diff_components:
         if "*" in diff_components:
@@ -782,9 +892,11 @@ def analyze_mr_component_coverage(
                 "source": "diff",
                 "suggestion": "fully_covered",
                 "effective_until": mr_effective_until,
+                "effective_until_by_component": effective_until_by_component,
             }
         mr_comps = sorted(set(diff_components))
         result_base["effective_until"] = mr_effective_until
+        result_base["effective_until_by_component"] = effective_until_by_component
         return _build_coverage_result(
             result_base,
             mr_comps,
