@@ -2116,8 +2116,9 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "### TODO #2 — 0 violations with expiring exceptions, no open Merge Request" in content
-        assert "### TODO #4 — 1 violations with expiring exceptions, Merge Request extends past release" in content
+        # Zero-count sections now appear at the end with ✓ marker (sorting puts non-zero first)
+        assert "0 violations with expiring exceptions, no open Merge Request ✓ (no action needed)" in content
+        assert "1 violations with expiring exceptions, Merge Request extends past release" in content
         assert "[!19385]" in content
 
     def test_expiring_with_mr_insufficient_expiry(
@@ -2185,7 +2186,8 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "### TODO #3 — 1 violations with expiring exceptions, Merge Request also expires before release" in content
+        # With sorting, non-zero sections appear first (no specific TODO number)
+        assert "1 violations with expiring exceptions, Merge Request also expires before release" in content
         assert "| Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |" in content
         assert "2026-07-15" in content
         assert "[!19385]" in content
@@ -2292,11 +2294,16 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        uncovered_pos = content.index("violations without exception or open Merge Request")
+        # With sorting, check semantic ordering of expiring sections (all have violations)
+        # "uncovered" section is zero-count and appears at end with ✓ marker
         no_mr_pos = content.index("expiring exceptions, no open Merge Request")
         insuf_pos = content.index("Merge Request also expires before release")
         suf_pos = content.index("Merge Request extends past release")
-        assert uncovered_pos < no_mr_pos < insuf_pos < suf_pos
+        assert no_mr_pos < insuf_pos < suf_pos, "Expiring sections should appear in priority order"
+
+        # Zero-count "uncovered" section should be at end with marker
+        assert "0 violations without exception or open Merge Request ✓ (no action needed)" in content
+
         assert "comp-no-mr" in content
         assert "comp-insuf-mr" in content
         assert "comp-suf-mr" in content
