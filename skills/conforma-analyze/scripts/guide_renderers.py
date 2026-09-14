@@ -600,214 +600,254 @@ def render_key_takeaways(
             rows.append(f"|   | +{len(details) - max_show} more {label}s{empty}")
         return rows
 
-    todo_num = 0
+    # Collect all TODO sections as data structures for sorting
+    todo_sections: list[dict] = []
 
-    # TODO #0: Tooling health — always present for structural consistency
+    # TODO: Tooling health — always pinned first
     unhealthy_tools = [
         t for t in (tooling_health_data or {}).get("tools", [])
         if t.get("health", {}).get("status") in ("unhealthy", "error")
     ]
+    tooling_body = []
     if unhealthy_tools:
         names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)
-        lines.append(f"### TODO #{todo_num} — {names} workflow is failing")
-        lines.append("")
-        lines.append(
+        title = f"{names} workflow is failing"
+        tooling_body.append("")
+        tooling_body.append(
             f"**The violation data in this report may be stale.** "
             f"The {names} workflow is failing — the CSV reports this analysis "
             f"depends on are not being refreshed."
         )
-        lines.append("")
-        lines.append("**Next steps:**")
-        lines.append("")
-        lines.append(
+        tooling_body.append("")
+        tooling_body.append("**Next steps:**")
+        tooling_body.append("")
+        tooling_body.append(
             f"1. Go to the [conforma-reporter GitHub Actions workflow]({CONFORMA_REPORTER_ACTIONS_URL})"
         )
-        lines.append("2. Check the latest failed run for error details")
-        lines.append("3. Common failure causes: expired auth tokens, EC policy timeouts, branch not found")
-        lines.append("4. Fix the issue and re-run the workflow")
-        lines.append("5. Once the workflow succeeds, re-run this analysis to get fresh data")
-        lines.append("")
+        tooling_body.append("2. Check the latest failed run for error details")
+        tooling_body.append("3. Common failure causes: expired auth tokens, EC policy timeouts, branch not found")
+        tooling_body.append("4. Fix the issue and re-run the workflow")
+        tooling_body.append("5. Once the workflow succeeds, re-run this analysis to get fresh data")
+        tooling_body.append("")
         tooling_line = _tooling_health_executive_line(tooling_health_data)
         if tooling_line:
-            lines.append(tooling_line)
+            tooling_body.append(tooling_line)
+        count = len(unhealthy_tools)
     else:
-        lines.append(f"### TODO #{todo_num} — Tooling status: healthy")
-        lines.append("")
+        title = "Tooling status: healthy"
+        tooling_body.append("")
         if tooling_health_data:
-            _append_tooling_health_detail(lines, tooling_health_data)
+            _append_tooling_health_detail(tooling_body, tooling_health_data)
         else:
-            lines.append(
+            tooling_body.append(
                 f"The [conforma-reporter workflow]({CONFORMA_REPORTER_ACTIONS_URL}) "
                 f"status is unknown — no tooling health data was collected."
             )
-    lines.append("")
-    lines.append("---")
+        count = 0
+    tooling_body.append("")
+    tooling_body.append("---")
 
-    # Next TODO: Violations with no exception and no open Merge Request (highest risk)
-    todo_num += 1
-    lines.append(
-        f"### TODO #{todo_num} — {no_mr_violation_count:,} violations without exception or open Merge Request"
-    )
-    lines.append("")
-    lines.append(
+    todo_sections.append({
+        "title": title,
+        "count": count,
+        "body": tooling_body,
+        "pinned": True,  # Always first
+        "priority": 0,  # Tooling always #0
+    })
+
+    # TODO: Violations with no exception and no open Merge Request (highest risk)
+    no_mr_body = []
+    no_mr_body.append("")
+    no_mr_body.append(
         "Review each violation — click the violation code to see details and next steps."
     )
-    lines.append("")
-    lines.append("| # | Violation | Component | Violations |")
-    lines.append("|--:|-----------|-----------|:----------:|")
+    no_mr_body.append("")
+    no_mr_body.append("| # | Violation | Component | Violations |")
+    no_mr_body.append("|--:|-----------|-----------|:----------:|")
     if no_mr_entries:
         for row_num, entry in enumerate(no_mr_entries, 1):
             violation_cell = _format_violation_cell(entry["rule"], entry["component"])
-            lines.append(f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} |")
-            lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 2))
+            no_mr_body.append(f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} |")
+            no_mr_body.extend(_detail_continuation_rows(entry["rule"], entry["component"], 2))
     else:
-        lines.append("| | No violations | | |")
-    lines.append("")
-    lines.append("---")
+        no_mr_body.append("| | No violations | | |")
+    no_mr_body.append("")
+    no_mr_body.append("---")
 
-    # TODOs 2-4: Exceptions expiring before the upcoming release date
+    todo_sections.append({
+        "title": f"{no_mr_violation_count:,} violations without exception or open Merge Request",
+        "count": no_mr_violation_count,
+        "body": no_mr_body,
+        "pinned": False,
+        "priority": 1,  # Highest priority: uncovered violations
+    })
+
+    # TODOs: Exceptions expiring before the upcoming release date
     if upcoming_release_date:
-        # TODO #2: Expiring exceptions with no open Merge Request
+        # TODO: Expiring exceptions with no open Merge Request
         expiring_no_mr_count = sum(e["violation_count"] for e in expiring_no_mr)
-        todo_num += 1
-        lines.append(
-            f"### TODO #{todo_num} — {expiring_no_mr_count:,} violations with expiring exceptions, no open Merge Request"
-        )
-        lines.append("")
-        lines.append(
+        expiring_no_mr_body = []
+        expiring_no_mr_body.append("")
+        expiring_no_mr_body.append(
             f"The exceptions below will expire before the planned release date for "
             f"{version_label} on {upcoming_release_date}. "
             f"Click each violation for details — try to resolve the underlying issue in code, "
             f"or create a Merge Request to extend the exception past the release date."
         )
-        lines.append("")
-        lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception |")
-        lines.append("|--:|-----------|-----------|:----------:|-----------------|")
+        expiring_no_mr_body.append("")
+        expiring_no_mr_body.append("| # | Violation | Component | Violations | Effective Until in Existing Exception |")
+        expiring_no_mr_body.append("|--:|-----------|-----------|:----------:|-----------------|")
         if expiring_no_mr:
             for row_num, entry in enumerate(expiring_no_mr, 1):
                 violation_cell = _format_violation_cell(entry["rule"], entry["component"])
-                lines.append(
+                expiring_no_mr_body.append(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {entry['effective_until']} |"
                 )
-                lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 3))
+                expiring_no_mr_body.extend(_detail_continuation_rows(entry["rule"], entry["component"], 3))
         else:
-            lines.append("| | No violations | | | |")
-        lines.append("")
-        lines.append("---")
+            expiring_no_mr_body.append("| | No violations | | | |")
+        expiring_no_mr_body.append("")
+        expiring_no_mr_body.append("---")
 
-        # TODO #3: Expiring exceptions with MR but MR expiry also before release
+        todo_sections.append({
+            "title": f"{expiring_no_mr_count:,} violations with expiring exceptions, no open Merge Request",
+            "count": expiring_no_mr_count,
+            "body": expiring_no_mr_body,
+            "pinned": False,
+            "priority": 2,
+        })
+
+        # TODO: Expiring exceptions with MR but MR expiry also before release
         expiring_mr_insuf_count = sum(e["violation_count"] for e in expiring_mr_insufficient)
-        todo_num += 1
-        lines.append(
-            f"### TODO #{todo_num} — {expiring_mr_insuf_count:,} violations with expiring exceptions, "
-            f"Merge Request also expires before release"
-        )
-        lines.append("")
-        lines.append(
+        expiring_mr_insuf_body = []
+        expiring_mr_insuf_body.append("")
+        expiring_mr_insuf_body.append(
             f"Open Merge Requests exist for these violations but their proposed effective-until dates "
             f"also expire before the release. Review and update the Merge Request to extend past "
             f"{upcoming_release_date}, or resolve the violation in code. Click each for details."
         )
-        lines.append("")
-        lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
-        lines.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
+        expiring_mr_insuf_body.append("")
+        expiring_mr_insuf_body.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
+        expiring_mr_insuf_body.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
         if expiring_mr_insufficient:
             for row_num, entry in enumerate(expiring_mr_insufficient, 1):
                 violation_cell = _format_violation_cell(entry["rule"], entry["component"])
                 mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
                 mr_eu_display = entry.get("mr_effective_until") or "unknown"
-                lines.append(
+                expiring_mr_insuf_body.append(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
-                lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 5))
+                expiring_mr_insuf_body.extend(_detail_continuation_rows(entry["rule"], entry["component"], 5))
         else:
-            lines.append("| | No violations | | | | | |")
-        lines.append("")
-        lines.append("---")
+            expiring_mr_insuf_body.append("| | No violations | | | | | |")
+        expiring_mr_insuf_body.append("")
+        expiring_mr_insuf_body.append("---")
 
-        # TODO #4: Expiring exceptions with MR extending past release (lower risk)
+        todo_sections.append({
+            "title": f"{expiring_mr_insuf_count:,} violations with expiring exceptions, Merge Request also expires before release",
+            "count": expiring_mr_insuf_count,
+            "body": expiring_mr_insuf_body,
+            "pinned": False,
+            "priority": 3,
+        })
+
+        # TODO: Expiring exceptions with MR extending past release (lower risk)
         expiring_mr_suf_count = sum(e["violation_count"] for e in expiring_mr_sufficient)
-        todo_num += 1
-        lines.append(
-            f"### TODO #{todo_num} — {expiring_mr_suf_count:,} violations with expiring exceptions, "
-            f"Merge Request extends past release"
-        )
-        lines.append("")
-        lines.append(
+        expiring_mr_suf_body = []
+        expiring_mr_suf_body.append("")
+        expiring_mr_suf_body.append(
             "Open Merge Requests already extend these exceptions past the release date. "
             "Track and ensure they get merged before the release."
         )
-        lines.append("")
-        lines.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
-        lines.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
+        expiring_mr_suf_body.append("")
+        expiring_mr_suf_body.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
+        expiring_mr_suf_body.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
         if expiring_mr_sufficient:
             for row_num, entry in enumerate(expiring_mr_sufficient, 1):
                 violation_cell = _format_violation_cell(entry["rule"], entry["component"])
                 mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
                 mr_eu_display = entry.get("mr_effective_until") or "unknown"
-                lines.append(
+                expiring_mr_suf_body.append(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
-                lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 5))
+                expiring_mr_suf_body.extend(_detail_continuation_rows(entry["rule"], entry["component"], 5))
         else:
-            lines.append("| | No violations | | | | | |")
-        lines.append("")
-        lines.append("---")
+            expiring_mr_suf_body.append("| | No violations | | | | | |")
+        expiring_mr_suf_body.append("")
+        expiring_mr_suf_body.append("---")
+
+        todo_sections.append({
+            "title": f"{expiring_mr_suf_count:,} violations with expiring exceptions, Merge Request extends past release",
+            "count": expiring_mr_suf_count,
+            "body": expiring_mr_suf_body,
+            "pinned": False,
+            "priority": 4,
+        })
 
     # TODO: Violations with no exception, open MR expires before release
     if upcoming_release_date and has_mr_expires_before_release:
-        todo_num += 1
-        lines.append(
-            f"### TODO #{todo_num} — {has_mr_expires_count:,} violations with open Merge Request expiring before release"
-        )
-        lines.append("")
-        lines.append(
+        has_mr_exp_body = []
+        has_mr_exp_body.append("")
+        has_mr_exp_body.append(
             f"Open Merge Requests address these violations but their proposed exception "
             f"effective-until dates expire **before** the {version_label} release on "
             f"{upcoming_release_date}. Even if merged, the exception will not cover the "
             f"release. Update the Merge Request to extend past {upcoming_release_date}, "
             f"or resolve the violation in code."
         )
-        lines.append("")
-        lines.append("| # | Violation | Component | Violations | Exception Effective Until in Open Merge Request | Merge Request |")
-        lines.append("|--:|-----------|-----------|:----------:|------------------------------------------------|---------------|")
+        has_mr_exp_body.append("")
+        has_mr_exp_body.append("| # | Violation | Component | Violations | Exception Effective Until in Open Merge Request | Merge Request |")
+        has_mr_exp_body.append("|--:|-----------|-----------|:----------:|------------------------------------------------|---------------|")
         for row_num, entry in enumerate(has_mr_expires_before_release, 1):
             violation_cell = _format_violation_cell(entry["rule"], entry["component"])
             mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
             mr_eu_display = entry.get("mr_effective_until") or "unknown"
-            lines.append(
+            has_mr_exp_body.append(
                 f"| {row_num} | {violation_cell} | `{entry['component']}` "
                 f"| {entry['violation_count']} | {mr_eu_display} | {mr_link} |"
             )
-            lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 4))
-        lines.append("")
-        lines.append("---")
+            has_mr_exp_body.extend(_detail_continuation_rows(entry["rule"], entry["component"], 4))
+        has_mr_exp_body.append("")
+        has_mr_exp_body.append("---")
+
+        todo_sections.append({
+            "title": f"{has_mr_expires_count:,} violations with open Merge Request expiring before release",
+            "count": has_mr_expires_count,
+            "body": has_mr_exp_body,
+            "pinned": False,
+            "priority": 5,
+        })
 
     # TODO: Violations with no exception but having an open Merge Request (OK expiry)
-    todo_num += 1
-    lines.append(
-        f"### TODO #{todo_num} — {has_mr_ok_count:,} violations addressed by open Merge Requests (not yet merged)"
-    )
-    lines.append("")
-    lines.append(
+    has_mr_ok_body = []
+    has_mr_ok_body.append("")
+    has_mr_ok_body.append(
         "Open Merge Requests address the following violations. "
         "Track and ensure they get merged. Click each violation for details."
     )
-    lines.append("")
-    lines.append("| # | Violation | Component | Violations | Merge Request |")
-    lines.append("|--:|-----------|-----------|:----------:|---------------|")
+    has_mr_ok_body.append("")
+    has_mr_ok_body.append("| # | Violation | Component | Violations | Merge Request |")
+    has_mr_ok_body.append("|--:|-----------|-----------|:----------:|---------------|")
     if has_mr_ok:
         for row_num, entry in enumerate(has_mr_ok, 1):
             violation_cell = _format_violation_cell(entry["rule"], entry["component"])
             mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
-            lines.append(f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} | {mr_link} |")
-            lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 3))
+            has_mr_ok_body.append(f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} | {mr_link} |")
+            has_mr_ok_body.extend(_detail_continuation_rows(entry["rule"], entry["component"], 3))
     else:
-        lines.append("| | No violations | | | |")
-    lines.append("")
+        has_mr_ok_body.append("| | No violations | | | |")
+    has_mr_ok_body.append("")
+
+    todo_sections.append({
+        "title": f"{has_mr_ok_count:,} violations addressed by open Merge Requests (not yet merged)",
+        "count": has_mr_ok_count,
+        "body": has_mr_ok_body,
+        "pinned": False,
+        "priority": 6,
+    })
 
     # Warnings becoming violations — split by release date
     if analysis_result.upcoming_violations:
@@ -845,27 +885,24 @@ def render_key_takeaways(
         else:
             post_release = sorted_entries
 
-        # TODO #6: Warnings becoming violations before the release date
-        todo_num += 1
+        # TODO: Warnings becoming violations before the release date
         pre_count = sum(1 for _ in pre_release)
-        lines.append(
-            f"### TODO #{todo_num} — {pre_count:,} warnings becoming violations before release date"
-        )
-        lines.append("")
+        pre_warn_body = []
+        pre_warn_body.append("")
         if upcoming_release_date:
-            lines.append(
+            pre_warn_body.append(
                 f"These warnings will become enforced violations **before** the "
                 f"{version_label} release on {upcoming_release_date}. "
                 f"They will block the release if not addressed."
             )
         else:
-            lines.append(
+            pre_warn_body.append(
                 "No upcoming release date is set — cannot determine which warnings "
                 "will become violations before the release."
             )
-        lines.append("")
-        lines.append("| # | Warning | Component | Count | Deadline | Days Left |")
-        lines.append("|--:|---------|-----------|:-----:|----------|:---------:|")
+        pre_warn_body.append("")
+        pre_warn_body.append("| # | Warning | Component | Count | Deadline | Days Left |")
+        pre_warn_body.append("|--:|---------|-----------|:-----:|----------|:---------:|")
         if pre_release:
             for row_num, ((code, detail, component), info) in enumerate(pre_release, 1):
                 days = info["days_until_effective"]
@@ -873,34 +910,39 @@ def render_key_takeaways(
                 warning_cell = f"`{code}`"
                 if detail:
                     warning_cell += f" ({detail})"
-                lines.append(
+                pre_warn_body.append(
                     f"| {row_num} | {warning_cell} | `{component}` | {info['count']} | {info['effective_on']} | {urgency} |"
                 )
         else:
-            lines.append("| | No warnings | | | | |")
-        lines.append("")
-        lines.append("---")
+            pre_warn_body.append("| | No warnings | | | | |")
+        pre_warn_body.append("")
+        pre_warn_body.append("---")
 
-        # TODO #7: Warnings becoming violations after the release date (within 21 days)
-        todo_num += 1
+        todo_sections.append({
+            "title": f"{pre_count:,} warnings becoming violations before release date",
+            "count": pre_count,
+            "body": pre_warn_body,
+            "pinned": False,
+            "priority": 7,
+        })
+
+        # TODO: Warnings becoming violations after the release date (within 21 days)
         post_count = sum(1 for _ in post_release)
-        lines.append(
-            f"### TODO #{todo_num} — {post_count:,} warnings becoming violations within 21 days (after release date)"
-        )
-        lines.append("")
+        post_warn_body = []
+        post_warn_body.append("")
         if upcoming_release_date:
-            lines.append(
+            post_warn_body.append(
                 f"These warnings will become enforced violations **after** the "
                 f"{version_label} release on {upcoming_release_date}. "
                 f"They will not block this release but should be tracked for the next one."
             )
         else:
-            lines.append(
+            post_warn_body.append(
                 "All warnings within the 21-day threshold are listed below."
             )
-        lines.append("")
-        lines.append("| # | Warning | Component | Count | Deadline | Days Left |")
-        lines.append("|--:|---------|-----------|:-----:|----------|:---------:|")
+        post_warn_body.append("")
+        post_warn_body.append("| # | Warning | Component | Count | Deadline | Days Left |")
+        post_warn_body.append("|--:|---------|-----------|:-----:|----------|:---------:|")
         if post_release:
             for row_num, ((code, detail, component), info) in enumerate(post_release, 1):
                 days = info["days_until_effective"]
@@ -908,12 +950,46 @@ def render_key_takeaways(
                 warning_cell = f"`{code}`"
                 if detail:
                     warning_cell += f" ({detail})"
-                lines.append(
+                post_warn_body.append(
                     f"| {row_num} | {warning_cell} | `{component}` | {info['count']} | {info['effective_on']} | {urgency} |"
                 )
         else:
-            lines.append("| | No warnings | | | | |")
-        lines.append("")
+            post_warn_body.append("| | No warnings | | | | |")
+        post_warn_body.append("")
+
+        todo_sections.append({
+            "title": f"{post_count:,} warnings becoming violations within 21 days (after release date)",
+            "count": post_count,
+            "body": post_warn_body,
+            "pinned": False,
+            "priority": 8,
+        })
+
+    # Sort TODO sections: pinned first, then non-zero by priority, then zero-count by priority
+    def _sort_key(section: dict) -> tuple:
+        if section.get("pinned"):
+            return (0, 0, "")  # Pinned sections always first
+        count = section["count"]
+        priority = section.get("priority", 999)
+        if count > 0:
+            return (1, priority, section["title"])  # Non-zero, sorted by priority (preserves semantic order)
+        return (2, priority, section["title"])  # Zero-count sections last, sorted by priority
+
+    sorted_sections = sorted(todo_sections, key=_sort_key)
+
+    # Render sorted sections with sequential numbering
+    for todo_num, section in enumerate(sorted_sections):
+        count = section["count"]
+        title = section["title"]
+
+        # Add visual indicator for zero-count sections (no action needed)
+        if count == 0:
+            title_suffix = " ✓ (no action needed)"
+        else:
+            title_suffix = ""
+
+        lines.append(f"### TODO #{todo_num} — {title}{title_suffix}")
+        lines.extend(section["body"])
 
     lines.append("---")
 
