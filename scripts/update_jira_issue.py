@@ -247,8 +247,18 @@ def remove_label(jira: JIRA, issue, label: str) -> None:
         sys.exit(1)
 
 
+def _ci_footer() -> str:
+    """Return a CI job link footer when running inside GitLab CI."""
+    import os
+    job_url = os.environ.get("CI_JOB_URL", "")
+    if not job_url:
+        return ""
+    return f"\n\n_CI job: {job_url}_"
+
+
 def add_comment(jira: JIRA, issue, comment: str) -> None:
-    """Post a comment on the issue."""
+    """Post a comment on the issue, automatically appending a CI job footer when in GitLab CI."""
+    comment = comment + _ci_footer()
     try:
         jira.add_comment(issue, comment)
         preview = comment[:80] + ("…" if len(comment) > 80 else "")
