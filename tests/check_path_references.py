@@ -41,6 +41,9 @@ EXCLUDE_PATHS: set[str] = {
     ".git",
     ".venv",
     ".work",
+    # Archived planning documents are historical point-in-time snapshots
+    # (line-number anchors, superseded paths); their links are not live docs.
+    ".plans",
     "__pycache__",
     "tests/check_path_references.py",
     "tests/unit/test_path_references.py",
@@ -89,7 +92,12 @@ def _is_excluded(rel_path: str, extra: set[str] | None = None) -> bool:
     all_excludes = EXCLUDE_PATHS | (extra or set())
     for exc in all_excludes:
         exc_parts = Path(exc).parts
-        if parts[: len(exc_parts)] == exc_parts:
+        if len(exc_parts) == 1:
+            # Single-part entries (directory names) match at any depth,
+            # e.g. .plans/ under skills/<name>/.
+            if exc_parts[0] in parts:
+                return True
+        elif parts[: len(exc_parts)] == exc_parts:
             return True
     return False
 

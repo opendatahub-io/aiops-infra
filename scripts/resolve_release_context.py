@@ -243,7 +243,7 @@ def _format_resolved(
     import release_dates
     from conforma_constants import build_report_url
 
-    eos_text = end_of_support if end_of_support else "Unknown (not in rhai-release-data.yaml)"
+    eos_text = end_of_support if end_of_support else f"Unknown (not in {release_dates.RELEASE_DATA_LINK})"
     version_label = release_dates.format_version_label(release)
     product_pages_url = release_dates.PRODUCT_PAGES_URL
     source_csv_url = build_report_url(release, environment)
@@ -275,7 +275,10 @@ def _format_resolved(
             f"| **Code freeze ({version_label})** | {code_freeze_date} —{cf_source_text} verify on [Product Pages]({product_pages_url}) |"
         )
     elif not code_freeze_date and upcoming_release_date:
-        lines.append(f"| **Code freeze ({version_label})** | Already passed (not found in rhai-release-data.yaml) |")
+        lines.append(
+            f"| **Code freeze ({version_label})** | Already passed "
+            f"(not found in {release_dates.RELEASE_DATA_LINK}) |"
+        )
     if upcoming_release_date:
         upcoming_source_text = f" based on {upcoming_release_source}," if upcoming_release_source else ""
         lines.append(

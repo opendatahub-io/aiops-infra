@@ -123,3 +123,103 @@ class TestInitConformaRun:
         wrapper = tmp_path / "bin" / "conforma_run.sh"
         assert wrapper.is_file()
         assert wrapper.read_text() == tpl.read_text()
+
+
+class TestDetectAiModel:
+    """Tests for auto-detecting the LLM model from the environment."""
+
+    def _clear_model_env(self, monkeypatch):
+        for env_var in init_conforma_run.AI_MODEL_ENV_VARS:
+            monkeypatch.delenv(env_var, raising=False)
+
+    def test_returns_ai_model_env(self, monkeypatch):
+        self._clear_model_env(monkeypatch)
+        monkeypatch.setenv("AI_MODEL", "claude-opus-4-5")
+        assert init_conforma_run.detect_ai_model() == "claude-opus-4-5"
+
+    def test_falls_back_to_anthropic_model(self, monkeypatch):
+        self._clear_model_env(monkeypatch)
+        monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+        assert init_conforma_run.detect_ai_model() == "claude-sonnet-4-5"
+
+    def test_falls_back_to_claude_model(self, monkeypatch):
+        self._clear_model_env(monkeypatch)
+        monkeypatch.setenv("CLAUDE_MODEL", "claude-haiku-4-5")
+        assert init_conforma_run.detect_ai_model() == "claude-haiku-4-5"
+
+    def test_priority_ai_model_over_others(self, monkeypatch):
+        self._clear_model_env(monkeypatch)
+        monkeypatch.setenv("AI_MODEL", "model-a")
+        monkeypatch.setenv("ANTHROPIC_MODEL", "model-b")
+        monkeypatch.setenv("CLAUDE_MODEL", "model-c")
+        assert init_conforma_run.detect_ai_model() == "model-a"
+
+    def test_priority_anthropic_over_claude(self, monkeypatch):
+        self._clear_model_env(monkeypatch)
+        monkeypatch.setenv("ANTHROPIC_MODEL", "model-b")
+        monkeypatch.setenv("CLAUDE_MODEL", "model-c")
+        assert init_conforma_run.detect_ai_model() == "model-b"
+
+    def test_returns_empty_when_no_env_set(self, monkeypatch):
+        self._clear_model_env(monkeypatch)
+        assert init_conforma_run.detect_ai_model() == ""
+
+    def test_strips_surrounding_whitespace(self, monkeypatch):
+        self._clear_model_env(monkeypatch)
+        monkeypatch.setenv("AI_MODEL", "  claude-sonnet-4-5  ")
+        assert init_conforma_run.detect_ai_model() == "claude-sonnet-4-5"
+
+    def test_whitespace_only_ai_model_falls_through(self, monkeypatch):
+        self._clear_model_env(monkeypatch)
+        monkeypatch.setenv("AI_MODEL", "   ")
+        monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+        assert init_conforma_run.detect_ai_model() == "claude-sonnet-4-5"
+
+
+class TestAiModelContextPersistence:
+    """Tests for persisting the LLM model name into context.yaml."""
+
+    @staticmethod
+    def _context_data(tmp_path):
+        runs = [d for d in tmp_path.iterdir() if d.is_dir() and not d.is_symlink()]
+        assert len(runs) == 1
+        return yaml.safe_load((runs[0] / "context.yaml").read_text())
+
+    def test_ai_model_from_env_stored_in_context(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        for env_var in ("ANTHROPIC_MODEL", "CLAUDE_MODEL"):
+            monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setenv("AI_MODEL", "claude-sonnet-4-5")
+        monkeypatch.setattr("sys.argv", ["init_conforma_run.py", "rhoai-3.5ea2"])
+        with patch.object(init_conforma_run, "REPO_ROOT", tmp_path / "repo"):
+            init_conforma_run.main()
+
+        data = self._context_data(tmp_path)
+        assert data["ai_model"] == "claude-sonnet-4-5"
+
+    def test_set_ai_model_overrides_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        for env_var in ("ANTHROPIC_MODEL", "CLAUDE_MODEL"):
+            monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setenv("AI_MODEL", "env-model")
+        monkeypatch.setattr("sys.argv", [
+            "init_conforma_run.py", "rhoai-3.5ea2",
+            "--set", "ai_model", "explicit-model",
+        ])
+        with patch.object(init_conforma_run, "REPO_ROOT", tmp_path / "repo"):
+            init_conforma_run.main()
+
+        data = self._context_data(tmp_path)
+        assert data["ai_model"] == "explicit-model"
+
+    def test_ai_model_absent_when_unknown(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        for env_var in init_conforma_run.AI_MODEL_ENV_VARS:
+            monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setattr("sys.argv", ["init_conforma_run.py", "rhoai-3.5ea2"])
+        with patch.object(init_conforma_run, "REPO_ROOT", tmp_path / "repo"):
+            init_conforma_run.main()
+
+        data = self._context_data(tmp_path)
+        assert "ai_model" not in data
+

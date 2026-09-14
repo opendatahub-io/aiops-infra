@@ -2,8 +2,8 @@
 """generate_resolution_guide — Generate a unified Conforma Resolution Guide.
 
 PUBLIC API:
-    generate_resolution_guide(violations_yaml_path, coverage_json_path, reports_dir, catalog_path, release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, tooling_health_path, todo_file, analysis_output_file, end_of_support, confirmation_display, environment, code_freeze_date, upcoming_release_date) -> str  [line 1213]
-    main() -> int  [line 1364]
+    generate_resolution_guide(violations_yaml_path, coverage_json_path, reports_dir, catalog_path, release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, tooling_health_path, todo_file, analysis_output_file, end_of_support, confirmation_display, environment, code_freeze_date, upcoming_release_date, source_csv_rows, ai_model) -> str
+    main() -> int
 
 INTERNAL SECTIONS:
     Main: _load_catalog, _match_catalog_entry, _match_fallback_reference, _match_known_false_alert, _render_metadata_header, ... (+20 more)
@@ -207,6 +207,8 @@ def generate_resolution_guide(
     environment: str = "",
     code_freeze_date: str = "",
     upcoming_release_date: str = "",
+    source_csv_rows: int | None = None,
+    ai_model: str = "",
 ) -> str:
     """Generate the full resolution guide markdown content.
 
@@ -270,7 +272,13 @@ def generate_resolution_guide(
 
     counts = conforma_counting.count_from_records(records, code_field="code")
 
-    metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, confirmation_display=confirmation_display, environment=environment, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations)
+    # Raw source-CSV row count: fall back to the per-image row count of the
+    # primary (violations) CSV already computed by the counting pass.
+    effective_source_csv_rows = (
+        source_csv_rows if source_csv_rows is not None else counts.image_occurrences
+    )
+
+    metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, confirmation_display=confirmation_display, environment=environment, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations, source_csv_rows=effective_source_csv_rows, ai_model=ai_model)
     tooling_health = _render_tooling_health(tooling_health_data) if tooling_health_data else ""
     key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files, release=release)
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
@@ -305,6 +313,7 @@ def generate_resolution_guide(
                 title_prefix="Conforma Analysis",
                 upcoming_release_date=upcoming_release_date,
                 code_freeze_date=code_freeze_date,
+                ai_model=ai_model,
             )
             existing_content = analysis_path.read_text(encoding="utf-8")
             existing_lines = existing_content.split("\n")
@@ -397,6 +406,11 @@ def main() -> int:
         "--code-freeze-date",
         default="",
         help="Code freeze date (YYYY-MM-DD). Auto-extracted from context.yaml when omitted.",
+    )
+    parser.add_argument(
+        "--ai-model",
+        default="",
+        help="LLM model name for the metadata footer. Auto-extracted from context.yaml when omitted.",
     )
     parser.add_argument(
         "--tooling-health-json",
@@ -492,6 +506,7 @@ def main() -> int:
     end_of_support = args.end_of_support
     upcoming_release_date = args.upcoming_release_date
     code_freeze_date = args.code_freeze_date
+    ai_model = args.ai_model
 
     metadata_file = args.metadata_file
     if metadata_file is None and run_dir:
@@ -528,6 +543,8 @@ def main() -> int:
             upcoming_release_date = conforma_context_ops.get(run_dir, "resolve.upcoming_release_date", "")
         if not code_freeze_date:
             code_freeze_date = conforma_context_ops.get(run_dir, "resolve.code_freeze_date", "")
+        if not ai_model:
+            ai_model = conforma_context_ops.get(run_dir, "ai_model", "")
 
     policy_files = None
     if args.policy_files_json:
@@ -577,6 +594,7 @@ def main() -> int:
             environment=conforma_context_ops.get(run_dir, "environment", "") if context else "",
             upcoming_release_date=upcoming_release_date,
             code_freeze_date=code_freeze_date,
+            ai_model=ai_model,
         )
     except FileNotFoundError as e:
         print(f"ERROR: {e}", file=sys.stderr)

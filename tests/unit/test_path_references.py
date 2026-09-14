@@ -15,9 +15,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from check_path_references import (  # noqa: E402
+    COMMAND_PATH_EXCLUDE_PATHS,
     COMMAND_PATH_PATTERN,
     MARKDOWN_LINK_PATTERN,
     _find_correct_path,
+    _is_excluded,
     _strip_fragment,
     scan_repo,
 )
@@ -38,6 +40,23 @@ class TestNobrokenPathReferences:
                         msg += f"  (did you mean: {f.suggestion}?)"
                     lines.append(msg)
             pytest.fail("\n".join(lines))
+
+
+class TestIsExcluded:
+    """Verify exclusion entries, including .plans archives at any depth."""
+
+    def test_plans_dir_excluded_at_any_depth(self):
+        assert _is_excluded("skills/conforma-analyze/.plans/some-plan.md")
+        assert _is_excluded(".plans/top-level-plan.md")
+
+    def test_regular_skill_docs_not_excluded(self):
+        assert not _is_excluded("skills/conforma-analyze/SKILL.md")
+        assert not _is_excluded("skills/conforma/SKILL.md")
+
+    def test_multi_part_prefix_exclude_still_works(self):
+        # "tests/unit" is a command-path exclusion, passed via the extra set.
+        assert _is_excluded("tests/unit/test_foo.py", COMMAND_PATH_EXCLUDE_PATHS)
+        assert not _is_excluded("tests/integration/test_foo.py", COMMAND_PATH_EXCLUDE_PATHS)
 
 
 class TestCommandPathPattern:

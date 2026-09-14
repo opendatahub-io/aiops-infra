@@ -58,11 +58,17 @@ def test_module_imports_cleanly(module, monkeypatch):
     if module in _AUTH_GATED_MODULES:
         monkeypatch.setenv("GITLAB_HOST", "gitlab.test-corp.fake")
         monkeypatch.setenv("GITLAB_TOKEN", "glpat-test-only")
-    if module in sys.modules:
-        del sys.modules[module]
+    previous = sys.modules.pop(module, None)
     try:
         importlib.import_module(module)
     except (ModuleNotFoundError, ImportError) as exc:
         if module in _LEGACY_IGNORE_LIST:
             pytest.skip(f"legacy script, optional dep missing: {exc}")
         raise
+    finally:
+        # Restore the previously imported module object (if any). Re-importing
+        # swaps the module identity in sys.modules; other test modules that
+        # already imported this module would otherwise be left holding a
+        # stale instance whose patched attributes no longer take effect.
+        if previous is not None:
+            sys.modules[module] = previous

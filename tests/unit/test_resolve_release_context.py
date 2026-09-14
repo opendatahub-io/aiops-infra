@@ -1031,7 +1031,7 @@ class TestCodeFreezeDate:
         assert result["code_freeze_already_passed"] is True
         display = result["confirmation_display"]
         assert "Already passed" in display
-        assert "not found in rhai-release-data.yaml" in display
+        assert f"not found in {mod.release_dates.RELEASE_DATA_LINK}" in display
 
     def test_code_freeze_before_upcoming_release_is_relevant(self):
         with (

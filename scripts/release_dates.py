@@ -58,7 +58,7 @@ _RELEASE_DATA_BRANCH = "main"
 _RELEASE_DATA_URL = (
     f"https://github.com/{_RELEASE_DATA_REPO}/blob/{_RELEASE_DATA_BRANCH}/{_RELEASE_DATA_PATH}"
 )
-_RELEASE_DATA_LINK = f"[{_RELEASE_DATA_FILE}]({_RELEASE_DATA_URL})"
+RELEASE_DATA_LINK = f"[{_RELEASE_DATA_FILE}]({_RELEASE_DATA_URL})"
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +222,7 @@ def get_eos_date_with_source(release: str) -> tuple[Optional[str], str]:
     """
     date = _get_eos_from_remote(release)
     if date:
-        return date, _RELEASE_DATA_LINK
+        return date, RELEASE_DATA_LINK
     return None, ""
 
 
@@ -282,7 +282,7 @@ def get_code_freeze_date_with_source(release: str) -> tuple[Optional[str], str]:
     """Return ``(date, source_link)`` for the code freeze date."""
     date = get_code_freeze_date(release)
     if date:
-        return date, _RELEASE_DATA_LINK
+        return date, RELEASE_DATA_LINK
     return None, ""
 
 
@@ -293,7 +293,7 @@ def get_upcoming_release_date_with_source(release: str) -> tuple[Optional[str], 
     """
     date = get_upcoming_release_date(release)
     if date:
-        return date, _RELEASE_DATA_LINK
+        return date, RELEASE_DATA_LINK
     return None, ""
 
 

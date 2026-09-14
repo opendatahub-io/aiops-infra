@@ -374,12 +374,12 @@ class TestSourceLinksAreUrls:
     """Source links rendered in user-facing output must be proper URLs."""
 
     def test_release_data_link_is_github_url(self):
-        assert "https://github.com/" in mod._RELEASE_DATA_LINK
-        assert "rhai-release-data.yaml" in mod._RELEASE_DATA_LINK
+        assert "https://github.com/" in mod.RELEASE_DATA_LINK
+        assert "rhai-release-data.yaml" in mod.RELEASE_DATA_LINK
 
     def test_release_data_link_is_markdown_link(self):
-        assert mod._RELEASE_DATA_LINK.startswith("[")
-        assert "](https://" in mod._RELEASE_DATA_LINK
+        assert mod.RELEASE_DATA_LINK.startswith("[")
+        assert "](https://" in mod.RELEASE_DATA_LINK
 
     def test_eos_source_contains_url_when_found(self):
         with patch.object(mod, "_get_eos_from_remote", return_value="2026-08-12"):
