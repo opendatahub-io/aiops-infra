@@ -2,7 +2,7 @@
 """generate_resolution_guide — Generate a unified Conforma Resolution Guide.
 
 PUBLIC API:
-    generate_resolution_guide(violations_yaml_path, coverage_json_path, reports_dir, catalog_path, release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, tooling_health_path, todo_file, analysis_output_file, end_of_support, confirmation_display, code_freeze_date, upcoming_release_date) -> str  [line 1213]
+    generate_resolution_guide(violations_yaml_path, coverage_json_path, reports_dir, catalog_path, release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, tooling_health_path, todo_file, analysis_output_file, end_of_support, confirmation_display, environment, code_freeze_date, upcoming_release_date) -> str  [line 1213]
     main() -> int  [line 1364]
 
 INTERNAL SECTIONS:
@@ -204,6 +204,7 @@ def generate_resolution_guide(
     analysis_output_file: str | None = None,
     end_of_support: str = "",
     confirmation_display: str = "",
+    environment: str = "",
     code_freeze_date: str = "",
     upcoming_release_date: str = "",
 ) -> str:
@@ -269,7 +270,7 @@ def generate_resolution_guide(
 
     counts = conforma_counting.count_from_records(records, code_field="code")
 
-    metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, confirmation_display=confirmation_display, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations)
+    metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, confirmation_display=confirmation_display, environment=environment, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations)
     tooling_health = _render_tooling_health(tooling_health_data) if tooling_health_data else ""
     key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files, release=release)
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
@@ -300,7 +301,8 @@ def generate_resolution_guide(
             analysis_header = _render_metadata_header(
                 release, source_path, source_created_at, source_sha,
                 policy_dir_url, policy_files, end_of_support=end_of_support,
-                confirmation_display=confirmation_display, title_prefix="Conforma Analysis",
+                confirmation_display=confirmation_display, environment=environment,
+                title_prefix="Conforma Analysis",
                 upcoming_release_date=upcoming_release_date,
                 code_freeze_date=code_freeze_date,
             )
@@ -572,6 +574,7 @@ def main() -> int:
             analysis_output_file=analysis_output_file,
             end_of_support=end_of_support,
             confirmation_display=conforma_context_ops.get(run_dir, "resolve.confirmation_display", "") if context else "",
+            environment=conforma_context_ops.get(run_dir, "environment", "") if context else "",
             upcoming_release_date=upcoming_release_date,
             code_freeze_date=code_freeze_date,
         )

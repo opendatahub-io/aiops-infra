@@ -1518,6 +1518,7 @@ class TestMainAutoExtraction:
     def test_auto_extracts_source_from_metadata_file(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog, monkeypatch
     ):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "no-conforma"))
         csv_content = (
             "type,component_name,image,message,effective_on,code,title,description,solution\n"
             'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
@@ -1607,6 +1608,7 @@ class TestMainAutoExtraction:
     def test_cli_args_override_auto_extraction(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog, monkeypatch
     ):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "no-conforma"))
         csv_content = (
             "type,component_name,image,message,effective_on,code,title,description,solution\n"
             'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
@@ -2777,6 +2779,164 @@ class TestComputeViolationBuckets:
         buckets = _compute_violation_buckets(coverage, result, by_cr)
         assert buckets["covered_violations"] + buckets["not_covered_violations"] == 5
 
+    def test_buckets_uncovered_mr_expires_before_release(self):
+        mr = _mr(300, "https://example.com/300", ["*"], effective_until="2026-08-12")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        buckets = _compute_violation_buckets(coverage, result, by_cr, upcoming_release_date="2026-09-17")
+        assert len(buckets["has_mr_expires_before_release"]) == 1
+        assert buckets["has_mr_expires_before_release"][0]["mr_effective_until"] == "2026-08-12"
+        assert len(buckets["has_mr_ok"]) == 0
+
+    def test_buckets_uncovered_mr_extends_past_release(self):
+        mr = _mr(301, "https://example.com/301", ["*"], effective_until="2026-10-01")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        buckets = _compute_violation_buckets(coverage, result, by_cr, upcoming_release_date="2026-09-17")
+        assert len(buckets["has_mr_expires_before_release"]) == 0
+        assert len(buckets["has_mr_ok"]) == 1
+
+    def test_buckets_uncovered_mr_no_expiry_treated_as_ok(self):
+        mr = _mr(302, "https://example.com/302", ["*"])
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        buckets = _compute_violation_buckets(coverage, result, by_cr, upcoming_release_date="2026-09-17")
+        assert len(buckets["has_mr_expires_before_release"]) == 0
+        assert len(buckets["has_mr_ok"]) == 1
+
+    def test_buckets_uncovered_mr_split_by_expiry(self):
+        mr_expiring = _mr(303, "https://example.com/303", ["comp-a"], effective_until="2026-08-12")
+        mr_ok = _mr(304, "https://example.com/304", ["comp-b"], effective_until="2026-10-01")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_expiring]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr_ok]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        buckets = _compute_violation_buckets(coverage, result, by_cr, upcoming_release_date="2026-09-17")
+        assert len(buckets["has_mr_expires_before_release"]) == 1
+        assert buckets["has_mr_expires_before_release"][0]["component"] == "comp-a"
+        assert len(buckets["has_mr_ok"]) == 1
+        assert buckets["has_mr_ok"][0]["component"] == "comp-b"
+
+    def test_buckets_uncovered_mr_no_release_date_all_ok(self):
+        mr = _mr(305, "https://example.com/305", ["*"], effective_until="2026-08-12")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        buckets = _compute_violation_buckets(coverage, result, by_cr)
+        assert len(buckets["has_mr_expires_before_release"]) == 0
+        assert len(buckets["has_mr_ok"]) == 1
+
+    def test_buckets_mr21322_exact_scenario_two_components_wildcard(self):
+        """Exact MR !21322 bug: wildcard MR effective_until=2026-08-12, release=2026-09-17."""
+        mr = _mr(21322, "https://example.com/mr/21322", ["*"],
+                 effective_until="2026-08-12")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation(
+                "tasks.required_untrusted_task_found",
+                ["rhai-on-openshift-chart-v3-6-ea-1", "rhai-on-xks-chart-v3-6-ea-1"],
+                open_mrs=[mr],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {
+            ("tasks.required_untrusted_task_found", "rhai-on-openshift-chart-v3-6-ea-1"): 1,
+            ("tasks.required_untrusted_task_found", "rhai-on-xks-chart-v3-6-ea-1"): 1,
+        }
+        buckets = _compute_violation_buckets(
+            coverage, result, by_cr, upcoming_release_date="2026-09-17",
+        )
+        assert len(buckets["has_mr_expires_before_release"]) == 2
+        assert len(buckets["has_mr_ok"]) == 0
+        components = {e["component"] for e in buckets["has_mr_expires_before_release"]}
+        assert components == {"rhai-on-openshift-chart-v3-6-ea-1", "rhai-on-xks-chart-v3-6-ea-1"}
+        for e in buckets["has_mr_expires_before_release"]:
+            assert e["mr_effective_until"] == "2026-08-12"
+
+    def test_buckets_mr_effective_until_equals_release_date_is_ok(self):
+        """MR effective_until == release date: not before, so treated as ok."""
+        mr = _mr(400, "https://example.com/400", ["*"], effective_until="2026-09-17")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        buckets = _compute_violation_buckets(
+            coverage, result, by_cr, upcoming_release_date="2026-09-17",
+        )
+        assert len(buckets["has_mr_expires_before_release"]) == 0
+        assert len(buckets["has_mr_ok"]) == 1
+
+    def test_buckets_mr_effective_until_one_day_before_release(self):
+        """MR effective_until is one day before release: must be flagged."""
+        mr = _mr(401, "https://example.com/401", ["*"], effective_until="2026-09-16")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        buckets = _compute_violation_buckets(
+            coverage, result, by_cr, upcoming_release_date="2026-09-17",
+        )
+        assert len(buckets["has_mr_expires_before_release"]) == 1
+        assert len(buckets["has_mr_ok"]) == 0
+
+    def test_buckets_mr_malformed_effective_until_treated_as_ok(self):
+        """MR with unparseable effective_until falls through to has_mr_ok."""
+        mr = _mr(402, "https://example.com/402", ["*"], effective_until="not-a-date")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        buckets = _compute_violation_buckets(
+            coverage, result, by_cr, upcoming_release_date="2026-09-17",
+        )
+        assert len(buckets["has_mr_expires_before_release"]) == 0
+        assert len(buckets["has_mr_ok"]) == 1
+
+    def test_buckets_invalid_upcoming_release_date_all_ok(self):
+        """Malformed upcoming_release_date: cannot compare, all go to has_mr_ok."""
+        mr = _mr(403, "https://example.com/403", ["*"], effective_until="2026-08-12")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        buckets = _compute_violation_buckets(
+            coverage, result, by_cr, upcoming_release_date="invalid-date",
+        )
+        assert len(buckets["has_mr_expires_before_release"]) == 0
+        assert len(buckets["has_mr_ok"]) == 1
+
+    def test_buckets_mr_with_named_components_not_wildcard(self):
+        """MR with explicit component list (not wildcard) matches only listed components."""
+        mr = _mr(404, "https://example.com/404", ["comp-a"], effective_until="2026-08-12")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a", "comp-b"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-a", "comp-b"): 1}
+        buckets = _compute_violation_buckets(
+            coverage, result, by_cr, upcoming_release_date="2026-09-17",
+        )
+        assert len(buckets["has_mr_expires_before_release"]) == 1
+        assert buckets["has_mr_expires_before_release"][0]["component"] == "comp-a"
+        assert len(buckets["no_mr_entries"]) == 1
+        assert buckets["no_mr_entries"][0]["component"] == "comp-b"
+
 
 # ---------------------------------------------------------------------------
 # TestTodoPreamble — summary preamble in render_key_takeaways()
@@ -2849,6 +3009,168 @@ class TestTodoPreamble:
         output = render_key_takeaways(coverage, result, by_cr, tooling_health_data=tooling)
         assert "Tooling status: healthy" in output
         assert "TODO #1" in output
+
+    def test_todo_mr_expiring_before_release_gets_own_section(self):
+        mr_expiring = _mr(400, "https://example.com/400", ["*"], effective_until="2026-08-12")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_expiring]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-09-17",
+        )
+        assert "open Merge Request expiring before release" in output
+        assert "2026-08-12" in output
+        assert "!400" in output
+
+    def test_todo_mr_ok_expiry_stays_in_addressed_section(self):
+        mr_ok = _mr(401, "https://example.com/401", ["*"], effective_until="2026-10-01")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_ok]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-09-17",
+        )
+        assert "open Merge Request expiring before release" not in output
+        assert "addressed by open Merge Requests" in output
+        assert "!401" in output
+
+    def test_todo_mr_split_expiring_and_ok(self):
+        mr_expiring = _mr(402, "https://example.com/402", ["comp-a"], effective_until="2026-08-12")
+        mr_ok = _mr(403, "https://example.com/403", ["comp-b"], effective_until="2026-10-01")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_expiring]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr_ok]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-09-17",
+        )
+        assert "1 violations with open Merge Request expiring before release" in output
+        assert "1 violations addressed by open Merge Requests" in output
+        assert "!402" in output
+        assert "!403" in output
+
+    def test_todo_mr_expiring_section_hidden_when_empty(self):
+        """When all MRs have valid expiry, the expiring-before-release TODO is omitted."""
+        mr_ok = _mr(500, "https://example.com/500", ["*"], effective_until="2026-12-01")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_ok]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-09-17",
+        )
+        assert "open Merge Request expiring before release" not in output
+        assert "addressed by open Merge Requests" in output
+
+    def test_todo_numbering_with_expiring_mr_section(self):
+        """TODO #5 = expiring MR, TODO #6 = addressed MR when both exist."""
+        mr_expiring = _mr(501, "https://example.com/501", ["comp-a"], effective_until="2026-08-01")
+        mr_ok = _mr(502, "https://example.com/502", ["comp-b"], effective_until="2026-12-01")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_expiring]),
+            _uncovered_violation("rule-b", ["comp-b"], open_mrs=[mr_ok]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-09-17",
+        )
+        import re as _re
+        todo_nums = _re.findall(r"### TODO #(\d+)", output)
+        int_nums = [int(n) for n in todo_nums]
+        assert int_nums == sorted(int_nums), "TODO numbers must be sequential"
+        expiring_todo = None
+        addressed_todo = None
+        for line in output.split("\n"):
+            if "open Merge Request expiring before release" in line:
+                expiring_todo = int(_re.search(r"TODO #(\d+)", line).group(1))
+            if "addressed by open Merge Requests" in line:
+                addressed_todo = int(_re.search(r"TODO #(\d+)", line).group(1))
+        assert expiring_todo is not None
+        assert addressed_todo is not None
+        assert expiring_todo < addressed_todo
+
+    def test_todo_mr_expiring_table_has_effective_until_column(self):
+        """The expiring-MR table must include the 'Exception Effective Until in Open Merge Request' column."""
+        mr_expiring = _mr(503, "https://example.com/503", ["*"], effective_until="2026-08-12")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_expiring]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-09-17",
+        )
+        assert "Exception Effective Until in Open Merge Request" in output
+        assert "2026-08-12" in output
+
+    def test_todo_mr_expiring_warns_even_if_merged(self):
+        """Help text warns that merging alone won't fix the issue."""
+        mr_expiring = _mr(504, "https://example.com/504", ["*"], effective_until="2026-08-12")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_expiring]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-09-17",
+        )
+        assert "Even if merged, the exception will not cover the release" in output
+
+    def test_action_count_separate_for_expiring_and_ok_mr(self):
+        """has_mr_expires_count and has_mr_ok_count each contribute to action_count."""
+        mr_expiring = _mr(505, "https://example.com/505", ["comp-a"], effective_until="2026-08-01")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_expiring]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-09-17",
+        )
+        assert "No TODOs" not in output
+
+    def test_todo_mr21322_rendered_output(self):
+        """Full rendering of the exact MR !21322 scenario: 2 components, wildcard MR."""
+        mr = _mr(21322, "https://example.com/mr/21322", ["*"],
+                 effective_until="2026-08-12")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation(
+                "tasks.required_untrusted_task_found",
+                ["rhai-on-openshift-chart-v3-6-ea-1", "rhai-on-xks-chart-v3-6-ea-1"],
+                open_mrs=[mr],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {
+            ("tasks.required_untrusted_task_found", "rhai-on-openshift-chart-v3-6-ea-1"): 1,
+            ("tasks.required_untrusted_task_found", "rhai-on-xks-chart-v3-6-ea-1"): 1,
+        }
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            upcoming_release_date="2026-09-17",
+        )
+        assert "2 violations with open Merge Request expiring before release" in output
+        assert "!21322" in output
+        assert "rhai-on-openshift-chart-v3-6-ea-1" in output
+        assert "rhai-on-xks-chart-v3-6-ea-1" in output
+        assert "2026-08-12" in output
+        assert "0 violations addressed by open Merge Requests" in output
 
 
 # ---------------------------------------------------------------------------

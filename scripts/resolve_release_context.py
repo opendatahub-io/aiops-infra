@@ -255,6 +255,7 @@ def _format_resolved(
         "|-------|-------|",
         f"| **User requested** | {query} |",
         f"| **Release branch** | {release} |",
+        f"| **Environment** | {environment} |",
         f"| **Source CSV** | [conforma-violations-report.csv]({source_csv_url}) |",
         f"| **Konflux Application** | {app_text} |",
         f"| **Cluster domain** | {cluster_text} |",
@@ -264,7 +265,6 @@ def _format_resolved(
     if policy_file_links:
         files_cell = " · ".join(policy_file_links)
         lines.append(f"| **Policy files** | {files_cell} |")
-    lines.append(f"| **Environment** | {environment} |")
     if code_freeze_date and upcoming_release_date and code_freeze_date > upcoming_release_date:
         lines.append(
             f"| **Code freeze ({version_label})** | Already passed (next code freeze {code_freeze_date} is for a future release) |"

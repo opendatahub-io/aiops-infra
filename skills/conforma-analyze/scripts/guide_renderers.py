@@ -88,6 +88,7 @@ def render_metadata_header(
     policy_files: list[dict[str, str]] | None = None,
     end_of_support: str = "",
     confirmation_display: str = "",
+    environment: str = "",
     title_prefix: str = "Conforma Status and Resolution Guide",
     code_freeze_date: str = "",
     upcoming_release_date: str = "",
@@ -118,6 +119,8 @@ def render_metadata_header(
         lines.append("|-------|-------|")
         lines.append(f"| **Generated** | {now} |")
         lines.append(f"| **Release branch** | {release} |")
+        if environment:
+            lines.append(f"| **Environment** | {environment} |")
         if end_of_support:
             version_label = release_dates.format_version_label(release)
             _, eos_source = release_dates.get_eos_date_with_source(release)
@@ -167,7 +170,8 @@ def render_metadata_header(
             " — reference only, superseded by conforma-* AI skills |"
         )
 
-    lines.append(f"| **Source CSV** | [{source_path}]({source_url}) |")
+    if not confirmation_display:
+        lines.append(f"| **Source CSV** | [{source_path}]({source_url}) |")
     if source_created_at:
         lines.append(f"| **Source CSV generated** | {source_created_at} |")
     if total_violations is not None:
@@ -211,6 +215,20 @@ def _violation_count(
         or by_component_rule.get((rule.split(":")[0], component), 0)
         or 1
     )
+
+
+def _truncate_detail(detail: str, max_len: int = 60) -> str:
+    """Truncate a semantic detail string for table display.
+
+    For URLs, the truncated text links to the full URL so hovering
+    reveals the complete value in the browser status bar.
+    """
+    if len(detail) <= max_len:
+        return detail
+    truncated = detail[:max_len] + "…"
+    if detail.startswith(("http://", "https://")):
+        return f"[{truncated}]({detail})"
+    return truncated
 
 
 def _compute_violation_buckets(
@@ -263,6 +281,33 @@ def _compute_violation_buckets(
 
     no_mr_entries = [e for e in uncovered_entries if not e["mr"]]
     has_mr_entries = [e for e in uncovered_entries if e["mr"]]
+
+    has_mr_expires_before_release: list[dict] = []
+    has_mr_ok: list[dict] = []
+
+    if upcoming_release_date:
+        try:
+            _upcoming_dt_mr = datetime.strptime(upcoming_release_date, "%Y-%m-%d").date()
+        except ValueError:
+            _upcoming_dt_mr = None
+
+        if _upcoming_dt_mr:
+            for e in has_mr_entries:
+                mr_eu = e["mr"].get("effective_until")
+                if mr_eu:
+                    try:
+                        mr_eu_date = datetime.strptime(mr_eu[:10], "%Y-%m-%d").date()
+                        if mr_eu_date < _upcoming_dt_mr:
+                            e["mr_effective_until"] = mr_eu[:10]
+                            has_mr_expires_before_release.append(e)
+                            continue
+                    except ValueError:
+                        pass
+                has_mr_ok.append(e)
+        else:
+            has_mr_ok = list(has_mr_entries)
+    else:
+        has_mr_ok = list(has_mr_entries)
 
     expiring_no_mr: list[dict] = []
     expiring_mr_insufficient: list[dict] = []
@@ -359,12 +404,16 @@ def _compute_violation_buckets(
         table_map["expiring_mr_insufficient"] = table_num
         table_num += 1
         table_map["expiring_mr_sufficient"] = table_num
+        table_num += 1
+        table_map["has_mr_expires_before_release"] = table_num
     table_num += 1
     table_map["has_mr"] = table_num
 
     return {
         "no_mr_entries": no_mr_entries,
         "has_mr_entries": has_mr_entries,
+        "has_mr_expires_before_release": has_mr_expires_before_release,
+        "has_mr_ok": has_mr_ok,
         "expiring_no_mr": expiring_no_mr,
         "expiring_mr_insufficient": expiring_mr_insufficient,
         "expiring_mr_sufficient": expiring_mr_sufficient,
@@ -435,8 +484,12 @@ def render_key_takeaways(
 
     no_mr_entries = buckets["no_mr_entries"]
     has_mr_entries = buckets["has_mr_entries"]
+    has_mr_expires_before_release = buckets["has_mr_expires_before_release"]
+    has_mr_ok = buckets["has_mr_ok"]
     no_mr_violation_count = sum(e["violation_count"] for e in no_mr_entries)
     has_mr_violation_count = sum(e["violation_count"] for e in has_mr_entries)
+    has_mr_expires_count = sum(e["violation_count"] for e in has_mr_expires_before_release)
+    has_mr_ok_count = sum(e["violation_count"] for e in has_mr_ok)
     covered_violations = buckets["covered_violations"]
     total_violations = buckets["total_violations"]
     coverage_pct = buckets["coverage_pct"]
@@ -464,7 +517,8 @@ def render_key_takeaways(
         no_mr_violation_count > 0,
         sum(e["violation_count"] for e in expiring_no_mr) > 0,
         sum(e["violation_count"] for e in expiring_mr_insufficient) > 0,
-        has_mr_violation_count > 0,
+        has_mr_expires_count > 0,
+        has_mr_ok_count > 0,
         bool(tooling_health_data and any(
             t.get("health", {}).get("status") in ("unhealthy", "error")
             for t in tooling_health_data.get("tools", [])
@@ -490,11 +544,23 @@ def render_key_takeaways(
         if len(details) == 0:
             return rule_link
         if len(details) == 1:
-            return f"{rule_link} ({details[0]})"
-        if len(details) <= 20:
-            return f"{rule_link} ({', '.join(details)})"
-        label = detail_labels.get(base_rule, "items")
-        return f"{rule_link} ({', '.join(details[:10])} ... +{len(details) - 10} more {label}s)"
+            return f"{rule_link} ({_truncate_detail(details[0])})"
+        return rule_link
+
+    def _detail_continuation_rows(rule: str, comp: str, trailing_empty: int) -> list[str]:
+        base_rule = rule.split(":")[0]
+        details = detail_lookup.get((base_rule, comp), [])
+        if len(details) <= 1:
+            return []
+        rows = []
+        max_show = 15
+        empty = " |" * trailing_empty
+        for d in details[:max_show]:
+            rows.append(f"|   | ↳ {_truncate_detail(d)}{empty}")
+        if len(details) > max_show:
+            label = detail_labels.get(base_rule, "items")
+            rows.append(f"|   | +{len(details) - max_show} more {label}s{empty}")
+        return rows
 
     todo_num = 0
 
@@ -555,6 +621,7 @@ def render_key_takeaways(
         for row_num, entry in enumerate(no_mr_entries, 1):
             violation_cell = _format_violation_cell(entry["rule"], entry["component"])
             lines.append(f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} |")
+            lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 2))
     else:
         lines.append("| | No violations | | |")
     lines.append("")
@@ -585,6 +652,7 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {entry['effective_until']} |"
                 )
+                lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 3))
         else:
             lines.append("| | No violations | | | |")
         lines.append("")
@@ -615,6 +683,7 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
+                lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 5))
         else:
             lines.append("| | No violations | | | | | |")
         lines.append("")
@@ -644,15 +713,45 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
+                lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 5))
         else:
             lines.append("| | No violations | | | | | |")
         lines.append("")
         lines.append("---")
 
-    # TODO #5: Violations with no exception but having an open Merge Request
+    # TODO: Violations with no exception, open MR expires before release
+    if upcoming_release_date and has_mr_expires_before_release:
+        todo_num += 1
+        lines.append(
+            f"### TODO #{todo_num} — {has_mr_expires_count:,} violations with open Merge Request expiring before release"
+        )
+        lines.append("")
+        lines.append(
+            f"Open Merge Requests address these violations but their proposed exception "
+            f"effective-until dates expire **before** the {version_label} release on "
+            f"{upcoming_release_date}. Even if merged, the exception will not cover the "
+            f"release. Update the Merge Request to extend past {upcoming_release_date}, "
+            f"or resolve the violation in code."
+        )
+        lines.append("")
+        lines.append("| # | Violation | Component | Violations | Exception Effective Until in Open Merge Request | Merge Request |")
+        lines.append("|--:|-----------|-----------|:----------:|------------------------------------------------|---------------|")
+        for row_num, entry in enumerate(has_mr_expires_before_release, 1):
+            violation_cell = _format_violation_cell(entry["rule"], entry["component"])
+            mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
+            mr_eu_display = entry.get("mr_effective_until") or "unknown"
+            lines.append(
+                f"| {row_num} | {violation_cell} | `{entry['component']}` "
+                f"| {entry['violation_count']} | {mr_eu_display} | {mr_link} |"
+            )
+            lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 4))
+        lines.append("")
+        lines.append("---")
+
+    # TODO: Violations with no exception but having an open Merge Request (OK expiry)
     todo_num += 1
     lines.append(
-        f"### TODO #{todo_num} — {has_mr_violation_count:,} violations addressed by open Merge Requests (not yet merged)"
+        f"### TODO #{todo_num} — {has_mr_ok_count:,} violations addressed by open Merge Requests (not yet merged)"
     )
     lines.append("")
     lines.append(
@@ -662,11 +761,12 @@ def render_key_takeaways(
     lines.append("")
     lines.append("| # | Violation | Component | Violations | Merge Request |")
     lines.append("|--:|-----------|-----------|:----------:|---------------|")
-    if has_mr_entries:
-        for row_num, entry in enumerate(has_mr_entries, 1):
+    if has_mr_ok:
+        for row_num, entry in enumerate(has_mr_ok, 1):
             violation_cell = _format_violation_cell(entry["rule"], entry["component"])
             mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
             lines.append(f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} | {mr_link} |")
+            lines.extend(_detail_continuation_rows(entry["rule"], entry["component"], 3))
     else:
         lines.append("| | No violations | | | |")
     lines.append("")
