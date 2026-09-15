@@ -22,6 +22,28 @@ konflux_environment.load()
 DEFAULT_JIRA_URL = "https://redhat.atlassian.net"
 
 
+class JiraSearchError(RuntimeError):
+    """Raised when a Jira JQL search fails.
+
+    A search failure must NEVER be reported as an empty result — an empty list
+    is indistinguishable from a failed query, which is exactly how the
+    `label in (...)` silent-empty tenant bug hid conforma tickets. Callers must
+    be able to distinguish "no matches" (returned) from "query failed" (raised).
+    """
+
+    def __init__(self, message: str, jql: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.jql = jql
+        self.status = status
+
+    def to_dict(self) -> dict:
+        result: dict = {"error": self.message, "jql": self.jql}
+        if self.status is not None:
+            result["status"] = self.status
+        return result
+
+
 def get_client(url: str | None = None, email: str | None = None, token: str | None = None) -> JIRA:
     """Get authenticated Jira client. Auto-discovers credentials from environment."""
     resolved_url = url or os.environ.get("JIRA_URL", DEFAULT_JIRA_URL)
@@ -272,42 +294,47 @@ def search_user(display_name: str) -> dict:
 
 
 def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = None) -> dict:
-    """Search issues via JQL. Returns {"issues": list[dict], "total": int}."""
+    """Search issues via JQL. Returns {"issues": list[dict], "total": int}.
+
+    A genuine zero-match result is returned as {"issues": [], "total": 0} with NO
+    error. A Jira API failure (bad JQL, unknown field, auth) is surfaced by
+    raising JiraSearchError — never masked as an empty result.
+    """
     default_fields = ["key", "summary", "status", "issuetype", "assignee"]
     requested = fields if fields else default_fields
     field_str = ",".join(requested)
 
+    client = get_client()
     try:
-        client = get_client()
         issues = client.search_issues(jql, maxResults=max_results, fields=field_str)
-
-        results = []
-        for issue in issues:
-            entry: dict = {"key": issue.key, "url": _issue_url(client, issue.key)}
-            if "summary" in requested:
-                entry["summary"] = issue.fields.summary
-            if "status" in requested:
-                entry["status"] = str(issue.fields.status)
-            if "issuetype" in requested:
-                entry["type"] = str(issue.fields.issuetype)
-            if "assignee" in requested:
-                assignee = issue.fields.assignee
-                entry["assignee"] = str(assignee) if assignee else "Unassigned"
-            if "created" in requested:
-                entry["created"] = str(issue.fields.created)
-            if "labels" in requested:
-                entry["labels"] = issue.fields.labels
-            if "fixVersions" in requested:
-                entry["fix_versions"] = (
-                    [v.name for v in issue.fields.fixVersions] if issue.fields.fixVersions else []
-                )
-            results.append(entry)
-
-        return {"issues": results, "total": issues.total}
     except JIRAError as exc:
-        return {"issues": [], "total": 0, "error": str(exc)}
+        raise JiraSearchError(message=str(exc), jql=jql, status=getattr(exc, "status_code", None)) from exc
     except Exception as exc:
-        return {"issues": [], "total": 0, "error": str(exc)}
+        raise JiraSearchError(message=str(exc), jql=jql, status=None) from exc
+
+    results = []
+    for issue in issues:
+        entry: dict = {"key": issue.key, "url": _issue_url(client, issue.key)}
+        if "summary" in requested:
+            entry["summary"] = issue.fields.summary
+        if "status" in requested:
+            entry["status"] = str(issue.fields.status)
+        if "issuetype" in requested:
+            entry["type"] = str(issue.fields.issuetype)
+        if "assignee" in requested:
+            assignee = issue.fields.assignee
+            entry["assignee"] = str(assignee) if assignee else "Unassigned"
+        if "created" in requested:
+            entry["created"] = str(issue.fields.created)
+        if "labels" in requested:
+            entry["labels"] = issue.fields.labels
+        if "fixVersions" in requested:
+            entry["fix_versions"] = (
+                [v.name for v in issue.fields.fixVersions] if issue.fields.fixVersions else []
+            )
+        results.append(entry)
+
+    return {"issues": results, "total": issues.total}
 
 
 def link_issues(from_key: str, to_key: str, link_type: str = "Related") -> dict:
@@ -475,7 +502,11 @@ def main() -> None:
         result = update_issue(args.key, summary=args.summary, description=args.description, labels=args.labels)
     elif args.command == "search":
         field_list = [f.strip() for f in args.fields.split(",")] if args.fields else None
-        result = search_issues(args.jql, max_results=args.max_results, fields=field_list)
+        try:
+            result = search_issues(args.jql, max_results=args.max_results, fields=field_list)
+        except JiraSearchError as exc:
+            print(json.dumps(exc.to_dict()), file=sys.stderr)
+            raise SystemExit(1)
     elif args.command == "search-user":
         result = search_user(args.name)
     elif args.command == "link-issues":

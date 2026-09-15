@@ -289,15 +289,40 @@ class TestSearchIssues:
         assert "assignee" not in result["issues"][0]
         assert result["issues"][0]["status"] == "Open"
 
-    def test_error(self):
+    def test_error_raises_jira_search_error(self):
+        import pytest
+
         client = _mock_client()
         client.search_issues.side_effect = JIRAError("Bad JQL")
         with patch.object(jira_ops, "get_client", return_value=client):
-            result = jira_ops.search_issues("invalid jql")
+            with pytest.raises(jira_ops.JiraSearchError) as exc_info:
+                jira_ops.search_issues("invalid jql")
 
-        assert result["total"] == 0
-        assert result["issues"] == []
-        assert "error" in result
+        assert exc_info.value.jql == "invalid jql"
+        assert "Bad JQL" in exc_info.value.message
+        # A failure must not be reported as a silent empty result.
+        assert not hasattr(exc_info.value, "issues")
+
+    def test_error_status_propagates(self):
+        import pytest
+
+        client = _mock_client()
+        client.search_issues.side_effect = JIRAError(status_code=400, text="unknown field")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            with pytest.raises(jira_ops.JiraSearchError) as exc_info:
+                jira_ops.search_issues("project = NOPE", fields=["key", "badfield"])
+
+        assert exc_info.value.status == 400
+        assert "unknown field" in exc_info.value.message
+
+    def test_unexpected_error_also_raises(self):
+        import pytest
+
+        client = _mock_client()
+        client.search_issues.side_effect = ValueError("boom")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            with pytest.raises(jira_ops.JiraSearchError):
+                jira_ops.search_issues("project = X")
 
     def test_empty_results(self):
         client = _mock_client()
@@ -311,6 +336,7 @@ class TestSearchIssues:
 
         assert result["total"] == 0
         assert result["issues"] == []
+        assert "error" not in result
 
 
 class TestSearchUser:
