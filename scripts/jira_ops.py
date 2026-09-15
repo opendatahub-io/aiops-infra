@@ -147,12 +147,14 @@ def get_comments(issue_key: str) -> dict:
         comments = []
         for c in issue.fields.comment.comments:
             author = getattr(c.author, "displayName", "") if c.author else ""
-            comments.append({
-                "id": c.id,
-                "author": author,
-                "body": c.body or "",
-                "created": str(c.created),
-            })
+            comments.append(
+                {
+                    "id": c.id,
+                    "author": author,
+                    "body": c.body or "",
+                    "created": str(c.created),
+                }
+            )
         return {"ok": True, "comments": comments}
     except JIRAError as exc:
         return {"ok": False, "comments": [], "error": str(exc)}
@@ -219,8 +221,16 @@ def update_issue(
     summary: str | None = None,
     description: str | None = None,
     labels: list[str] | None = None,
+    components: list[str] | None = None,
+    priority: str | None = None,
+    extra_fields: dict | None = None,
 ) -> dict:
-    """Update issue fields."""
+    """Update issue fields. Returns {"key": str, "updated": list[str], "error": str|None}.
+
+    Only fields whose value is not None are updated. ``components`` replaces the
+    full component list (callers that want a union must pass the union explicitly).
+    ``extra_fields`` merges arbitrary fields (e.g. customfields) into the update payload.
+    """
     fields: dict = {}
     updated: list[str] = []
 
@@ -233,6 +243,15 @@ def update_issue(
     if labels is not None:
         fields["labels"] = labels
         updated.append("labels")
+    if components is not None:
+        fields["components"] = [{"name": c} for c in components]
+        updated.append("components")
+    if priority is not None:
+        fields["priority"] = {"name": priority}
+        updated.append("priority")
+    if extra_fields:
+        fields.update(extra_fields)
+        updated.extend(sorted(extra_fields))
 
     if not fields:
         return {"key": issue_key, "updated": [], "error": "No fields to update"}
@@ -333,9 +352,7 @@ def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = No
         if "labels" in requested:
             entry["labels"] = issue.fields.labels
         if "fixVersions" in requested:
-            entry["fix_versions"] = (
-                [v.name for v in issue.fields.fixVersions] if issue.fields.fixVersions else []
-            )
+            entry["fix_versions"] = [v.name for v in issue.fields.fixVersions] if issue.fields.fixVersions else []
         if "priority" in requested:
             priority = issue.fields.priority
             entry["priority"] = str(priority) if priority else None

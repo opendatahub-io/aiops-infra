@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 import conforma_jira_ops as mod
 
 
@@ -164,7 +168,9 @@ class TestExtractComponentsFromSummary:
         assert result == ["odh-model-registry", "odh-vllm-cpu"]
 
     def test_plus_n_more(self):
-        summary = "[Conforma Violation] hermetic_task.hermetic - comp-a-v3-4, comp-b-v3-4, comp-c-v3-4 (+2 more) - rhoai-3.4"
+        summary = (
+            "[Conforma Violation] hermetic_task.hermetic - comp-a-v3-4, comp-b-v3-4, comp-c-v3-4 (+2 more) - rhoai-3.4"
+        )
         result = mod._extract_components_from_summary(summary)
         assert result == ["comp-a", "comp-b", "comp-c"]
 
@@ -240,10 +246,20 @@ class TestExtractComponentStems:
 class TestPrefetchOpenJiraTickets:
     def test_matches_tickets_to_rules(self, monkeypatch):
         fake_issues = [
-            {"key": "RHOAIENG-66102", "url": "https://redhat.atlassian.net/browse/RHOAIENG-66102",
-             "summary": "[Exception] hermetic_task.hermetic for rhoai-3.4", "status": "New", "type": "Bug"},
-            {"key": "PSX-1097", "url": "https://redhat.atlassian.net/browse/PSX-1097",
-             "summary": "[AMD] rpm_signature.allowed:9386b48a1a693c5c rhoai-3.4", "status": "In Progress", "type": "Task"},
+            {
+                "key": "RHOAIENG-66102",
+                "url": "https://redhat.atlassian.net/browse/RHOAIENG-66102",
+                "summary": "[Exception] hermetic_task.hermetic for rhoai-3.4",
+                "status": "New",
+                "type": "Bug",
+            },
+            {
+                "key": "PSX-1097",
+                "url": "https://redhat.atlassian.net/browse/PSX-1097",
+                "summary": "[AMD] rpm_signature.allowed:9386b48a1a693c5c rhoai-3.4",
+                "status": "In Progress",
+                "type": "Task",
+            },
         ]
         monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": fake_issues, "total": 2})
         result = mod.prefetch_open_jira_tickets(
@@ -267,10 +283,18 @@ class TestPrefetchOpenJiraTickets:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 return {"issues": [], "total": 0}
-            return {"issues": [
-                {"key": "RHOAIENG-99", "url": "https://redhat.atlassian.net/browse/RHOAIENG-99",
-                 "summary": "found via label", "status": "Open", "type": "Bug"},
-            ], "total": 1}
+            return {
+                "issues": [
+                    {
+                        "key": "RHOAIENG-99",
+                        "url": "https://redhat.atlassian.net/browse/RHOAIENG-99",
+                        "summary": "found via label",
+                        "status": "Open",
+                        "type": "Bug",
+                    },
+                ],
+                "total": 1,
+            }
 
         monkeypatch.setattr("jira_ops.search_issues", fake_search)
         result = mod.prefetch_open_jira_tickets(["some.rule"])
@@ -280,10 +304,14 @@ class TestPrefetchOpenJiraTickets:
     def test_pass1_populates_matched_component_stems(self, monkeypatch):
         """Pass 1 tickets get matched_component_stems extracted from summary+description."""
         fake_issues = [
-            {"key": "RHOAIENG-66102", "url": "https://redhat.atlassian.net/browse/RHOAIENG-66102",
-             "summary": "[Conforma Violation] hermetic_task.hermetic - odh-model-registry-job-async-upload-v3-4 - rhoai-3.4",
-             "description": "Conforma Violation Report\n\nRule: hermetic_task.hermetic\nComponents: odh-model-registry-job-async-upload-v3-4\nRHOAI Version: rhoai-3.4",
-             "status": "New", "type": "Bug"},
+            {
+                "key": "RHOAIENG-66102",
+                "url": "https://redhat.atlassian.net/browse/RHOAIENG-66102",
+                "summary": "[Conforma Violation] hermetic_task.hermetic - odh-model-registry-job-async-upload-v3-4 - rhoai-3.4",
+                "description": "Conforma Violation Report\n\nRule: hermetic_task.hermetic\nComponents: odh-model-registry-job-async-upload-v3-4\nRHOAI Version: rhoai-3.4",
+                "status": "New",
+                "type": "Bug",
+            },
         ]
         monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": fake_issues, "total": 1})
         result = mod.prefetch_open_jira_tickets(
@@ -296,10 +324,14 @@ class TestPrefetchOpenJiraTickets:
     def test_pass1_unparseable_gets_empty_stems(self, monkeypatch):
         """Manually-created tickets with freeform summary get empty stems."""
         fake_issues = [
-            {"key": "RHOAIENG-99999", "url": "https://redhat.atlassian.net/browse/RHOAIENG-99999",
-             "summary": "hermetic_task.hermetic issue for rhoai-3.4",
-             "description": "Some manual description without Components line",
-             "status": "New", "type": "Bug"},
+            {
+                "key": "RHOAIENG-99999",
+                "url": "https://redhat.atlassian.net/browse/RHOAIENG-99999",
+                "summary": "hermetic_task.hermetic issue for rhoai-3.4",
+                "description": "Some manual description without Components line",
+                "status": "New",
+                "type": "Bug",
+            },
         ]
         monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": fake_issues, "total": 1})
         result = mod.prefetch_open_jira_tickets(
@@ -319,12 +351,20 @@ class TestPrefetchOpenJiraTickets:
             if "conforma" not in jql:
                 return {"issues": [], "total": 0}
             # Pass 4: component-based search finds a ticket
-            return {"issues": [
-                {"key": "RHOAIENG-70000", "url": "https://redhat.atlassian.net/browse/RHOAIENG-70000",
-                 "summary": "Fix hermetic builds for odh-ogx-core",
-                 "description": "Make the build hermetic for conforma compliance",
-                 "status": "In Progress", "type": "Task", "fix_versions": []},
-            ], "total": 1}
+            return {
+                "issues": [
+                    {
+                        "key": "RHOAIENG-70000",
+                        "url": "https://redhat.atlassian.net/browse/RHOAIENG-70000",
+                        "summary": "Fix hermetic builds for odh-ogx-core",
+                        "description": "Make the build hermetic for conforma compliance",
+                        "status": "In Progress",
+                        "type": "Task",
+                        "fix_versions": [],
+                    },
+                ],
+                "total": 1,
+            }
 
         monkeypatch.setattr("jira_ops.search_issues", fake_search)
         result = mod.prefetch_open_jira_tickets(
@@ -344,12 +384,20 @@ class TestPrefetchOpenJiraTickets:
         def fake_search(jql, **kw):
             captured_jqls.append(jql)
             if "conforma" in jql and "odh-llama-cpp-server" in jql:
-                return {"issues": [
-                    {"key": "RHOAIENG-70001", "url": "https://redhat.atlassian.net/browse/RHOAIENG-70001",
-                     "summary": "Conforma fix for odh-llama-cpp-server hermetic",
-                     "description": "hermetic build fix",
-                     "status": "New", "type": "Task", "fix_versions": []},
-                ], "total": 1}
+                return {
+                    "issues": [
+                        {
+                            "key": "RHOAIENG-70001",
+                            "url": "https://redhat.atlassian.net/browse/RHOAIENG-70001",
+                            "summary": "Conforma fix for odh-llama-cpp-server hermetic",
+                            "description": "hermetic build fix",
+                            "status": "New",
+                            "type": "Task",
+                            "fix_versions": [],
+                        },
+                    ],
+                    "total": 1,
+                }
             return {"issues": [], "total": 0}
 
         monkeypatch.setattr("jira_ops.search_issues", fake_search)
@@ -381,19 +429,35 @@ class TestPrefetchOpenJiraTickets:
             call_count["n"] += 1
             # Pass 1: finds the ticket by rule code
             if call_count["n"] == 1:
-                return {"issues": [
-                    {"key": "RHOAIENG-11111", "url": "https://redhat.atlassian.net/browse/RHOAIENG-11111",
-                     "summary": "hermetic_task.hermetic for odh-ogx-core",
-                     "description": "", "status": "New", "type": "Bug"},
-                ], "total": 1}
+                return {
+                    "issues": [
+                        {
+                            "key": "RHOAIENG-11111",
+                            "url": "https://redhat.atlassian.net/browse/RHOAIENG-11111",
+                            "summary": "hermetic_task.hermetic for odh-ogx-core",
+                            "description": "",
+                            "status": "New",
+                            "type": "Bug",
+                        },
+                    ],
+                    "total": 1,
+                }
             # Pass 4 would also find it
             if "conforma" in jql:
-                return {"issues": [
-                    {"key": "RHOAIENG-11111", "url": "https://redhat.atlassian.net/browse/RHOAIENG-11111",
-                     "summary": "hermetic_task.hermetic for odh-ogx-core",
-                     "description": "hermetic build conforma",
-                     "status": "New", "type": "Bug", "fix_versions": []},
-                ], "total": 1}
+                return {
+                    "issues": [
+                        {
+                            "key": "RHOAIENG-11111",
+                            "url": "https://redhat.atlassian.net/browse/RHOAIENG-11111",
+                            "summary": "hermetic_task.hermetic for odh-ogx-core",
+                            "description": "hermetic build conforma",
+                            "status": "New",
+                            "type": "Bug",
+                            "fix_versions": [],
+                        },
+                    ],
+                    "total": 1,
+                }
             return {"issues": [], "total": 0}
 
         monkeypatch.setattr("jira_ops.search_issues", fake_search)
@@ -408,14 +472,23 @@ class TestPrefetchOpenJiraTickets:
 
     def test_pass4_unconfirmed_ticket_included(self, monkeypatch):
         """Tickets with unconfirmed rule inference are still included."""
+
         def fake_search(jql, **kw):
             if "conforma" in jql:
-                return {"issues": [
-                    {"key": "RHOAIENG-70002", "url": "https://redhat.atlassian.net/browse/RHOAIENG-70002",
-                     "summary": "Conforma issue for odh-ogx-core",
-                     "description": "Something about conforma for this component",
-                     "status": "Open", "type": "Task", "fix_versions": []},
-                ], "total": 1}
+                return {
+                    "issues": [
+                        {
+                            "key": "RHOAIENG-70002",
+                            "url": "https://redhat.atlassian.net/browse/RHOAIENG-70002",
+                            "summary": "Conforma issue for odh-ogx-core",
+                            "description": "Something about conforma for this component",
+                            "status": "Open",
+                            "type": "Task",
+                            "fix_versions": [],
+                        },
+                    ],
+                    "total": 1,
+                }
             return {"issues": [], "total": 0}
 
         monkeypatch.setattr("jira_ops.search_issues", fake_search)
@@ -432,3 +505,238 @@ class TestPrefetchOpenJiraTickets:
         monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": [], "total": 0})
         result = mod.prefetch_open_jira_tickets(["hermetic_task.hermetic"])
         assert result["hermetic_task.hermetic"] == []
+
+
+# ---------------------------------------------------------------------------
+# Pure helper edge cases
+# ---------------------------------------------------------------------------
+class TestExtractComponentsFromSummaryEdges:
+    def test_three_parts_with_plus_n_more(self):
+        summary = "rule - odh-a-v3-4, odh-b-v3-4 (+3 more) - context"
+        assert mod._extract_components_from_summary(summary) == ["odh-a", "odh-b"]
+
+    def test_four_parts_uses_second_segment(self):
+        summary = "[tag1] [tag2] rule - odh-a-v3-4 - rhoai-3.4 - context"
+        assert mod._extract_components_from_summary(summary) == ["odh-a"]
+
+    def test_blank_component_segment(self):
+        assert mod._extract_components_from_summary("a -  - c") == []
+
+    def test_too_few_parts(self):
+        assert mod._extract_components_from_summary("rule - comp") == []
+
+
+class TestExtractComponentsFromDescriptionEdges:
+    def test_empty_description(self):
+        assert mod._extract_components_from_description("") == []
+        assert mod._extract_components_from_description(None) == []
+
+    def test_components_line_empty(self):
+        assert mod._extract_components_from_description("Components:") == []
+
+    def test_components_line_parsed(self):
+        assert mod._extract_components_from_description("Components: odh-a-v3-4, odh-b") == [
+            "odh-a",
+            "odh-b",
+        ]
+
+    def test_no_components_line(self):
+        assert mod._extract_components_from_description("no list here") == []
+
+
+class TestInferRuleFromTextEdges:
+    def test_same_rule_prefix_different_suffix_confirmed_by_suffix_in_text(self):
+        text = "about rpm_signature.allowed:aaaa111122223333 and 1234567890abcdef"
+        assert mod._infer_rule_from_text(text, "rpm_signature.allowed:1234567890abcdef") == "confirmed"
+
+    def test_rule_family_with_colon_in_first_segment(self):
+        # rule.split(".")[0] contains a colon -> rule_family is re-split
+        text = "weird:prefix.name:suffix appears here"
+        assert mod._infer_rule_from_text(text, "weird:prefix.name:suffix") == "confirmed"
+
+
+# ---------------------------------------------------------------------------
+# prefetch passes 2/3/4 branches
+# ---------------------------------------------------------------------------
+class TestPrefetchPass2:
+    def test_finds_ticket_by_rule_label(self, monkeypatch):
+        def fake_search(jql, **kw):
+            if "labels = 'hermetic_task.hermetic'" in jql:
+                return {
+                    "issues": [
+                        {
+                            "key": "PSX-2",
+                            "type": "Task",
+                            "status": "Open",
+                            "summary": "hermetic issue for odh-x",
+                            "description": "Components: odh-x-v3-4",
+                            "url": "https://redhat.atlassian.net/browse/PSX-2",
+                            "fix_versions": [],
+                        }
+                    ],
+                    "total": 1,
+                }
+            return {"issues": [], "total": 0}
+
+        monkeypatch.setattr("jira_ops.search_issues", fake_search)
+        result = mod.prefetch_open_jira_tickets(["hermetic_task.hermetic"])
+        tickets = result["hermetic_task.hermetic"]
+        assert len(tickets) == 1
+        assert tickets[0]["key"] == "PSX-2"
+        assert tickets[0]["matched_component_stems"] == ["odh-x"]
+
+
+class TestPrefetchPass3:
+    def test_finds_unlabeled_ticket_by_summary(self, monkeypatch):
+        def fake_search(jql, **kw):
+            if "summary ~" in jql:
+                return {
+                    "issues": [
+                        {
+                            "key": "RHOAIENG-3",
+                            "type": "Bug",
+                            "status": "Open",
+                            "summary": "hermetic_task.hermetic issue",
+                            "description": "",
+                            "url": "https://redhat.atlassian.net/browse/RHOAIENG-3",
+                            "fix_versions": [],
+                        }
+                    ],
+                    "total": 1,
+                }
+            return {"issues": [], "total": 0}
+
+        monkeypatch.setattr("jira_ops.search_issues", fake_search)
+        result = mod.prefetch_open_jira_tickets(["hermetic_task.hermetic"])
+        tickets = result["hermetic_task.hermetic"]
+        assert len(tickets) == 1
+        assert tickets[0]["key"] == "RHOAIENG-3"
+
+    def test_release_filter_excludes_mismatched_summary(self, monkeypatch):
+        def fake_search(jql, **kw):
+            if "summary ~" in jql:
+                return {
+                    "issues": [
+                        {
+                            "key": "RHOAIENG-3",
+                            "type": "Bug",
+                            "status": "Open",
+                            "summary": "hermetic_task.hermetic for rhoai-2.25",
+                            "description": "",
+                            "url": "u",
+                            "fix_versions": [],
+                        }
+                    ],
+                    "total": 1,
+                }
+            return {"issues": [], "total": 0}
+
+        monkeypatch.setattr("jira_ops.search_issues", fake_search)
+        result = mod.prefetch_open_jira_tickets(["hermetic_task.hermetic"], releases=["rhoai-3.4"])
+        assert result["hermetic_task.hermetic"] == []
+
+
+class TestPrefetchPass1ColonSuffix:
+    def test_suffix_match_in_pass1_summary(self, monkeypatch):
+        def fake_search(jql, **kw):
+            if "labels = 'conforma-violation'" in jql:
+                return {
+                    "issues": [
+                        {
+                            "key": "PSX-1",
+                            "type": "Bug",
+                            "status": "Open",
+                            "summary": "RPM not signed with allowed key 1234567890abcdef",
+                            "description": "Components: odh-x-v3-4",
+                            "url": "u",
+                            "fix_versions": [],
+                        }
+                    ],
+                    "total": 1,
+                }
+            return {"issues": [], "total": 0}
+
+        monkeypatch.setattr("jira_ops.search_issues", fake_search)
+        result = mod.prefetch_open_jira_tickets(["rpm_signature.allowed:1234567890abcdef"])
+        tickets = result["rpm_signature.allowed:1234567890abcdef"]
+        assert len(tickets) == 1
+        assert tickets[0]["key"] == "PSX-1"
+
+
+class TestPrefetchPass4Branches:
+    def test_rule_without_components_skipped(self, monkeypatch):
+        monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": [], "total": 0})
+        result = mod.prefetch_open_jira_tickets(["r1", "r2"], rule_to_components={"r1": [], "r2": ["odh-x"]})
+        assert result == {"r1": [], "r2": []}
+
+    def test_alias_expansion(self, monkeypatch):
+        seen_jqls = []
+
+        def fake_search(jql, **kw):
+            seen_jqls.append(jql)
+            return {"issues": [], "total": 0}
+
+        monkeypatch.setattr("jira_ops.search_issues", fake_search)
+        result = mod.prefetch_open_jira_tickets(
+            ["r1"],
+            rule_to_components={"r1": ["odh-ogx-core"]},
+            aliases={"odh-ogx-core": {"odh-ogx-core", "odh-llama-cpp-server"}},
+        )
+        assert result["r1"] == []
+        pass4_jqls = [j for j in seen_jqls if 'text ~ "conforma"' in j]
+        assert len(pass4_jqls) == 1
+        assert "odh-ogx-core" in pass4_jqls[0]
+        assert "odh-llama-cpp-server" in pass4_jqls[0]
+
+    def test_empty_result_continues(self, monkeypatch):
+        calls = {"n": 0}
+
+        def fake_search(jql, **kw):
+            if 'text ~ "conforma"' in jql:
+                calls["n"] += 1
+                return {"issues": [], "total": 0}
+            return {"issues": [], "total": 0}
+
+        monkeypatch.setattr("jira_ops.search_issues", fake_search)
+        result = mod.prefetch_open_jira_tickets(["r1"], rule_to_components={"r1": ["odh-x"]})
+        assert calls["n"] == 1
+        assert result["r1"] == []
+
+    def test_duplicate_key_within_pass4_skipped(self, monkeypatch):
+        ticket = {
+            "key": "PSX-4",
+            "type": "Task",
+            "status": "Open",
+            "summary": "hermetic_task.hermetic odh-x conforma",
+            "description": "",
+            "url": "u",
+            "fix_versions": [],
+        }
+
+        def fake_search(jql, **kw):
+            if 'text ~ "conforma"' in jql:
+                return {"issues": [dict(ticket), dict(ticket)], "total": 2}
+            return {"issues": [], "total": 0}
+
+        monkeypatch.setattr("jira_ops.search_issues", fake_search)
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic"], rule_to_components={"hermetic_task.hermetic": ["odh-x"]}
+        )
+        assert len(result["hermetic_task.hermetic"]) == 1
+
+
+class TestMain:
+    def test_search_tickets(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            "sys.argv",
+            ["conforma_jira_ops.py", "search-tickets", "--rules", "r1,r2", "--releases", "rhoai-3.4"],
+        )
+        monkeypatch.setattr("jira_ops.search_issues", lambda jql, **kw: {"issues": [], "total": 0})
+        mod.main()
+        assert json.loads(capsys.readouterr().out) == {"r1": [], "r2": []}
+
+    def test_no_command_prints_help_and_exits(self, monkeypatch, capsys):
+        monkeypatch.setattr("sys.argv", ["conforma_jira_ops.py"])
+        with pytest.raises(SystemExit):
+            mod.main()
+        assert "usage" in capsys.readouterr().out.lower()

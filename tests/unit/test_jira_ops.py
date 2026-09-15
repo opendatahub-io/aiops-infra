@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 from jira.exceptions import JIRAError
 
 import jira_ops
@@ -152,6 +154,13 @@ class TestGetIssue:
         assert result["key"] == "ABC-999"
         assert "error" in result
 
+    def test_non_jira_exception(self):
+        client = _mock_client()
+        client.issue.side_effect = RuntimeError("boom")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.get_issue("ABC-999")
+        assert result == {"key": "ABC-999", "error": "boom"}
+
 
 class TestGetJiraClientAlias:
     def test_alias_is_get_client(self):
@@ -219,6 +228,36 @@ class TestUpdateIssue:
     def test_no_fields(self):
         result = jira_ops.update_issue("ABC-2")
         assert result == {"key": "ABC-2", "updated": [], "error": "No fields to update"}
+
+    def test_components_and_priority(self):
+        client = _mock_client()
+        issue = MagicMock()
+        client.issue.return_value = issue
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.update_issue("ABC-2", components=["AI-Guardrails"], priority="Blocker")
+
+        assert result == {"key": "ABC-2", "updated": ["components", "priority"]}
+        issue.update.assert_called_once_with(
+            fields={
+                "components": [{"name": "AI-Guardrails"}],
+                "priority": {"name": "Blocker"},
+            }
+        )
+
+    def test_extra_fields(self):
+        client = _mock_client()
+        issue = MagicMock()
+        client.issue.return_value = issue
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.update_issue(
+                "ABC-2",
+                extra_fields={"customfield_10855": [{"name": "rhoai-3.6"}], "zfield": 1},
+            )
+
+        assert result == {"key": "ABC-2", "updated": ["customfield_10855", "zfield"]}
+        issue.update.assert_called_once_with(fields={"customfield_10855": [{"name": "rhoai-3.6"}], "zfield": 1})
 
 
 class TestAddWatchers:
@@ -498,3 +537,350 @@ class TestTransitionIssue:
         assert result["current_status"] == "Open"
         assert "not found" in result["error"]
         assert result["available_transitions"] == ["Close"]
+
+
+class TestGetComments:
+    def test_success(self):
+        client = _mock_client()
+        issue = MagicMock()
+        c1 = MagicMock(id="1", author=MagicMock(displayName="Alice"), body="hello", created="2026-01-01T00:00:00Z")
+        c2 = MagicMock(id="2", author=None, body=None, created="2026-01-02T00:00:00Z")
+        issue.fields.comment.comments = [c1, c2]
+        client.issue.return_value = issue
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.get_comments("ABC-1")
+        assert result == {
+            "ok": True,
+            "comments": [
+                {"id": "1", "author": "Alice", "body": "hello", "created": "2026-01-01T00:00:00Z"},
+                {"id": "2", "author": "", "body": "", "created": "2026-01-02T00:00:00Z"},
+            ],
+        }
+        client.issue.assert_called_once_with("ABC-1", fields="comment")
+
+    def test_no_comments(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.fields.comment.comments = []
+        client.issue.return_value = issue
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.get_comments("ABC-1")
+        assert result == {"ok": True, "comments": []}
+
+    def test_jira_error(self):
+        client = _mock_client()
+        client.issue.side_effect = JIRAError("not found")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.get_comments("ABC-1")
+        assert result["ok"] is False
+        assert result["comments"] == []
+        assert "not found" in result["error"]
+
+    def test_non_jira_exception(self):
+        client = _mock_client()
+        client.issue.side_effect = RuntimeError("boom")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.get_comments("ABC-1")
+        assert result["ok"] is False
+        assert result["error"] == "boom"
+
+
+class TestAddCommentGeneric:
+    def test_non_jira_exception(self):
+        client = _mock_client()
+        client.add_comment.side_effect = RuntimeError("boom")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.add_comment("ABC-1", "x")
+        assert result == {"key": "ABC-1", "ok": False, "error": "boom"}
+
+
+class TestCreateIssueOptions:
+    def test_all_options(self):
+        client = _mock_client()
+        created = MagicMock(key="XYZ-20")
+        client.create_issue.return_value = created
+        with patch.object(jira_ops, "get_client", return_value=client):
+            jira_ops.create_issue(
+                "XYZ",
+                "s",
+                None,
+                issue_type="Bug",
+                components=["C1"],
+                labels=["l1"],
+                priority="Blocker",
+                extra_fields={"customfield_10855": [{"name": "v"}]},
+            )
+        kwargs = client.create_issue.call_args.kwargs
+        fields = kwargs["fields"]
+        assert "description" not in fields
+        assert fields["issuetype"] == {"name": "Bug"}
+        assert fields["components"] == [{"name": "C1"}]
+        assert fields["labels"] == ["l1"]
+        assert fields["priority"] == {"name": "Blocker"}
+        assert fields["customfield_10855"] == [{"name": "v"}]
+
+    def test_error(self):
+        client = _mock_client()
+        client.create_issue.side_effect = JIRAError("nope")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.create_issue("XYZ", "s", "d")
+        assert result["key"] is None
+        assert result["url"] is None
+        assert "nope" in result["error"]
+
+
+class TestUpdateIssueErrors:
+    def test_jira_error(self):
+        client = _mock_client()
+        client.issue.side_effect = JIRAError("locked")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.update_issue("ABC-2", summary="s")
+        assert result["key"] == "ABC-2"
+        assert result["updated"] == []
+        assert "locked" in result["error"]
+
+    def test_non_jira_exception(self):
+        client = _mock_client()
+        client.issue.side_effect = RuntimeError("boom")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.update_issue("ABC-2", summary="s")
+        assert result == {"key": "ABC-2", "updated": [], "error": "boom"}
+
+
+class TestAddWatchersErrors:
+    def test_client_error_remaining(self):
+        with patch.object(jira_ops, "get_client", side_effect=RuntimeError("down")):
+            result = jira_ops.add_watchers("ABC-1", ["a1", "a2"])
+        assert result == {"added": [], "failed": ["a1", "a2"], "error": "down"}
+
+
+class TestSearchIssuesOptionalFields:
+    def _result_set(self, issues):
+        result_set = MagicMock()
+        result_set.__iter__ = lambda self: iter(issues)
+        result_set.total = len(issues)
+        return result_set
+
+    def _issue_mock(self):
+        issue = MagicMock()
+        issue.key = "ABC-1"
+        issue.fields.summary = "s"
+        issue.fields.status = "Open"
+        issue.fields.issuetype = "Task"
+        issue.fields.assignee = None
+        issue.fields.created = "2026-01-01T00:00:00Z"
+        issue.fields.labels = ["l1"]
+        issue.fields.fixVersions = None
+        issue.fields.priority = None
+        issue.fields.components = None
+        issue.fields.customfield_10855 = None
+        return issue
+
+    def test_all_optional_fields(self):
+        client = _mock_client()
+        client.search_issues.return_value = self._result_set([self._issue_mock()])
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues(
+                "jql",
+                fields=[
+                    "key",
+                    "summary",
+                    "status",
+                    "issuetype",
+                    "assignee",
+                    "created",
+                    "labels",
+                    "fixVersions",
+                    "priority",
+                    "components",
+                    "target_versions",
+                ],
+            )
+        entry = result["issues"][0]
+        assert entry["assignee"] == "Unassigned"
+        assert entry["created"] == "2026-01-01T00:00:00Z"
+        assert entry["labels"] == ["l1"]
+        assert entry["fix_versions"] == []
+        assert entry["priority"] is None
+        assert entry["components"] == []
+        assert entry["target_versions"] == []
+
+    def test_optional_fields_with_values(self):
+        client = _mock_client()
+        issue = self._issue_mock()
+        issue.fields.assignee = "Bob"
+        fix_v1 = MagicMock()
+        fix_v1.name = "v1"
+        issue.fields.fixVersions = [fix_v1]
+        issue.fields.priority = "High"
+        comp_c1 = MagicMock()
+        comp_c1.name = "C1"
+        issue.fields.components = [comp_c1]
+        target_v1 = MagicMock()
+        target_v1.name = "tv1"
+        issue.fields.customfield_10855 = [target_v1]
+        client.search_issues.return_value = self._result_set([issue])
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues(
+                "jql",
+                fields=["key", "assignee", "fixVersions", "priority", "components", "target_versions"],
+            )
+        entry = result["issues"][0]
+        assert entry["assignee"] == "Bob"
+        assert entry["fix_versions"] == ["v1"]
+        assert entry["priority"] == "High"
+        assert entry["components"] == ["C1"]
+        assert entry["target_versions"] == ["tv1"]
+
+
+class TestSearchUserErrors:
+    def test_error(self):
+        client = _mock_client()
+        client.search_users.side_effect = RuntimeError("down")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_user("Nobody")
+        assert result["found"] is False
+        assert result["error"] == "down"
+
+
+class TestLinkIssuesErrors:
+    def test_jira_error(self):
+        client = _mock_client()
+        client.create_issue_link.side_effect = JIRAError("link denied")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.link_issues("A-1", "B-2", link_type="Blocks")
+        assert result["from_key"] == "A-1"
+        assert result["to_key"] == "B-2"
+        assert result["link_type"] == "Blocks"
+        assert result["ok"] is False
+        assert "link denied" in result["error"]
+
+    def test_generic_error(self):
+        client = _mock_client()
+        client.create_issue_link.side_effect = RuntimeError("boom")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.link_issues("A-1", "B-2")
+        assert result["ok"] is False
+        assert result["error"] == "boom"
+
+
+class TestDeleteIssueLink:
+    def test_success(self):
+        client = _mock_client()
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.delete_issue_link("42")
+        assert result == {"ok": True, "link_id": "42"}
+        client._session.delete.assert_called_once_with("https://redhat.atlassian.net/rest/api/2/issueLink/42")
+
+    def test_jira_error(self):
+        client = _mock_client()
+        client._session.delete.side_effect = JIRAError("gone")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.delete_issue_link("42")
+        assert result["ok"] is False
+        assert result["link_id"] == "42"
+        assert "gone" in result["error"]
+
+    def test_generic_error(self):
+        client = _mock_client()
+        client._session.delete.side_effect = RuntimeError("boom")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.delete_issue_link("42")
+        assert result["ok"] is False
+        assert result["error"] == "boom"
+
+
+class TestTransitionIssueErrors:
+    def test_jira_error(self):
+        client = _mock_client()
+        client.issue.side_effect = JIRAError("locked")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.transition_issue("ABC-4", "Done")
+        assert result["key"] == "ABC-4"
+        assert result["ok"] is False
+        assert "locked" in result["error"]
+
+    def test_generic_error(self):
+        client = _mock_client()
+        client.transitions.side_effect = RuntimeError("boom")
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.transition_issue("ABC-4", "Done")
+        assert result == {"key": "ABC-4", "ok": False, "error": "boom"}
+
+
+class TestMainCLI:
+    def _set_argv(self, monkeypatch, *argv):
+        monkeypatch.setattr("sys.argv", ["jira_ops.py", *argv])
+
+    def test_verify_auth(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "verify-auth")
+        monkeypatch.setattr(jira_ops, "verify_auth", lambda **k: {"ok": True, "user": "u", "error": None})
+        jira_ops.main()
+        assert json.loads(capsys.readouterr().out) == {"ok": True, "user": "u", "error": None}
+
+    def test_get_issue(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "get-issue", "--key", "ABC-1", "--fields", "labels,priority")
+        monkeypatch.setattr(jira_ops, "get_issue", lambda key, fields=None: {"key": key, "fields": fields})
+        jira_ops.main()
+        assert json.loads(capsys.readouterr().out)["fields"] == ["labels", "priority"]
+
+    def test_add_comment(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "add-comment", "--key", "ABC-1", "--body", "hi")
+        monkeypatch.setattr(jira_ops, "add_comment", lambda key, body: {"ok": True})
+        jira_ops.main()
+        assert json.loads(capsys.readouterr().out) == {"ok": True}
+
+    def test_create_issue(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "create-issue", "--project", "P", "--summary", "s", "--description", "d")
+        monkeypatch.setattr(jira_ops, "create_issue", lambda *a, **k: {"key": "P-1", "url": "u"})
+        jira_ops.main()
+        assert json.loads(capsys.readouterr().out)["key"] == "P-1"
+
+    def test_update_issue(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "update-issue", "--key", "P-1", "--summary", "s2", "--labels", "a", "b")
+        monkeypatch.setattr(jira_ops, "update_issue", lambda key, **k: {"key": key, "updated": ["summary", "labels"]})
+        jira_ops.main()
+        assert json.loads(capsys.readouterr().out)["updated"] == ["summary", "labels"]
+
+    def test_search(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "search", "--jql", "j", "--fields", "labels")
+        monkeypatch.setattr(jira_ops, "search_issues", lambda jql, **k: {"issues": [], "total": 0})
+        jira_ops.main()
+        assert json.loads(capsys.readouterr().out) == {"issues": [], "total": 0}
+
+    def test_search_error_exits_1(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "search", "--jql", "bad")
+        monkeypatch.setattr(
+            jira_ops,
+            "search_issues",
+            lambda jql, **k: (_ for _ in ()).throw(jira_ops.JiraSearchError("bad jql", "bad", 400)),
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            jira_ops.main()
+        assert exc_info.value.code == 1
+        assert json.loads(capsys.readouterr().err)["jql"] == "bad"
+
+    def test_search_user(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "search-user", "--name", "Alice")
+        monkeypatch.setattr(jira_ops, "search_user", lambda name: {"found": True})
+        jira_ops.main()
+        assert json.loads(capsys.readouterr().out) == {"found": True}
+
+    def test_link_issues(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "link-issues", "--from", "A-1", "--to", "B-2", "--link-type", "Blocks")
+        monkeypatch.setattr(jira_ops, "link_issues", lambda a, b, link_type=None: {"ok": True})
+        jira_ops.main()
+        assert json.loads(capsys.readouterr().out) == {"ok": True}
+
+    def test_transition(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch, "transition", "--key", "A-1", "--transition", "Done", "--resolution", "Done")
+        monkeypatch.setattr(jira_ops, "transition_issue", lambda key, name, resolution=None: {"ok": True})
+        jira_ops.main()
+        assert json.loads(capsys.readouterr().out) == {"ok": True}
+
+    def test_no_command_prints_help_and_exits_1(self, monkeypatch, capsys):
+        self._set_argv(monkeypatch)
+        with pytest.raises(SystemExit) as exc_info:
+            jira_ops.main()
+        assert exc_info.value.code == 1
+        assert "usage" in capsys.readouterr().out.lower()
