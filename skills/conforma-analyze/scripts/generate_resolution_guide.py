@@ -313,6 +313,8 @@ def generate_resolution_guide(
                 title_prefix="Conforma Analysis",
                 upcoming_release_date=upcoming_release_date,
                 code_freeze_date=code_freeze_date,
+                total_violations=counts.violations,
+                source_csv_rows=effective_source_csv_rows,
                 ai_model=ai_model,
             )
             existing_content = analysis_path.read_text(encoding="utf-8")

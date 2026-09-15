@@ -1,5 +1,22 @@
 """Shared constants for the conforma-reporter repository. No dependencies."""
 
+# ---------------------------------------------------------------------------
+# Context confirmation table — shared row labels and placeholders.
+#
+# The context confirmation table is shown in Step 2 (resolve_release_context)
+# and re-emitted in the Step 9 resolution guide metadata header
+# (guide_renderers.render_metadata_header). Both steps must render the same
+# table structure: rows whose values are not known yet carry a placeholder
+# note in Step 2 and are replaced in place once the values become available.
+# Keep the labels and placeholders here so the two renderers cannot drift.
+# ---------------------------------------------------------------------------
+ROW_LABEL_GENERATED = "Generated"
+ROW_LABEL_SOURCE_CSV_ROWS = "Source CSV rows (raw, per-image)"
+ROW_LABEL_TOTAL_VIOLATIONS = "Total violations (deduplicated per image)"
+ROW_LABEL_SOURCE_CSV_GENERATED = "Source CSV generated"
+NOT_YET_AVAILABLE_NOTE = "not yet available"
+
+
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
 CONFORMA_REPORTER_URL = f"https://github.com/{CONFORMA_REPORTER_REPO}"
 CONFORMA_REPORTER_ACTIONS_URL = (

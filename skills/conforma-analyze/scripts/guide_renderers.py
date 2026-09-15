@@ -18,6 +18,11 @@ import analyze_csv_report as analysis  # noqa: E402
 from conforma_constants import (  # noqa: E402
     CONFORMA_REPORTER_ACTIONS_URL,
     CONFORMA_REPORTER_URL,
+    NOT_YET_AVAILABLE_NOTE,
+    ROW_LABEL_GENERATED,
+    ROW_LABEL_SOURCE_CSV_GENERATED,
+    ROW_LABEL_SOURCE_CSV_ROWS,
+    ROW_LABEL_TOTAL_VIOLATIONS,
     VERIFY_NEXT_STEP,
 )
 
@@ -103,19 +108,6 @@ def render_metadata_header(
 
     lines = [f"# {title_prefix}: {release}", ""]
 
-    # Source CSV statistics rows, placed directly below the "Source CSV" row:
-    # the raw (unfiltered) row count of the source CSV followed by the
-    # deduplicated total violation count.
-    source_stat_rows = []
-    if source_csv_rows is not None:
-        source_stat_rows.append(
-            f"| **Source CSV rows (raw, per-image)** | {source_csv_rows:,} |"
-        )
-    if total_violations is not None:
-        source_stat_rows.append(
-            f"| **Total violations (deduplicated per image)** | {total_violations:,} |"
-        )
-
     if confirmation_display:
         display = confirmation_display.rstrip()
         display_lines = display.split("\n")
@@ -129,21 +121,46 @@ def render_metadata_header(
                 header_end = i + 1
             if stripped.startswith("| **Source CSV** |"):
                 source_csv_row = i
-        if header_end is not None:
-            display_lines.insert(header_end, f"| **Generated** | {now} |")
-            if source_csv_row is not None:
-                source_csv_row += 1
-        if source_stat_rows:
-            if source_csv_row is not None:
-                insert_at = source_csv_row + 1
-            else:
-                insert_at = header_end if header_end is not None else len(display_lines)
-            display_lines[insert_at:insert_at] = source_stat_rows
+
+        # The context confirmation table is reused verbatim across steps, so a
+        # row whose value is not known yet already appears with a placeholder
+        # note (see resolve_release_context._format_resolved). Set its real
+        # value in place to keep the structure identical. A row is only
+        # inserted when it is missing (e.g. a confirmation display generated
+        # before the placeholder rows were introduced).
+        def _ensure_row(label: str, value: str, insert_at: int) -> None:
+            prefix = f"| **{label}** |"
+            for line_index, line in enumerate(display_lines):
+                if line.strip().startswith(prefix):
+                    display_lines[line_index] = f"{prefix} {value} |"
+                    return
+            display_lines.insert(insert_at, f"{prefix} {value} |")
+
+        # Generated is the first data row, right below the table separator.
+        _ensure_row(ROW_LABEL_GENERATED, now, header_end if header_end is not None else 0)
+        # Inserting Generated may have shifted the Source CSV row; recompute.
+        for i, dl in enumerate(display_lines):
+            if dl.strip().startswith("| **Source CSV** |"):
+                source_csv_row = i
+                break
+        stat_insert_at = (
+            (source_csv_row + 1)
+            if source_csv_row is not None
+            else (header_end if header_end is not None else len(display_lines))
+        )
+        # The source CSV generation timestamp sits directly under the Source
+        # CSV row; the raw per-image row count and deduplicated total follow it.
+        if source_created_at:
+            _ensure_row(ROW_LABEL_SOURCE_CSV_GENERATED, source_created_at, stat_insert_at)
+        if source_csv_rows is not None:
+            _ensure_row(ROW_LABEL_SOURCE_CSV_ROWS, f"{source_csv_rows:,}", stat_insert_at + 1)
+        if total_violations is not None:
+            _ensure_row(ROW_LABEL_TOTAL_VIOLATIONS, f"{total_violations:,}", stat_insert_at + 2)
         lines.append("\n".join(display_lines))
     else:
         lines.append("| Field | Value |")
         lines.append("|-------|-------|")
-        lines.append(f"| **Generated** | {now} |")
+        lines.append(f"| **{ROW_LABEL_GENERATED}** | {now} |")
         lines.append(f"| **Release branch** | {release} |")
         if environment:
             lines.append(f"| **Environment** | {environment} |")
@@ -198,9 +215,27 @@ def render_metadata_header(
 
     if not confirmation_display:
         lines.append(f"| **Source CSV** | [{source_path}]({source_url}) |")
-        lines.extend(source_stat_rows)
-    if source_created_at:
-        lines.append(f"| **Source CSV generated** | {source_created_at} |")
+        # The source CSV generation timestamp sits directly under the Source
+        # CSV row, matching the Step 2 context confirmation table.
+        if source_created_at:
+            lines.append(f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {source_created_at} |")
+        else:
+            lines.append(
+                f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {NOT_YET_AVAILABLE_NOTE} |"
+            )
+        # Keep the same structure as the Step 2 context confirmation table:
+        # the raw (unfiltered) row count precedes the deduplicated total, and
+        # a value that is not available yet carries a placeholder note.
+        lines.append(
+            f"| **{ROW_LABEL_SOURCE_CSV_ROWS}** | {source_csv_rows:,} |"
+            if source_csv_rows is not None
+            else f"| **{ROW_LABEL_SOURCE_CSV_ROWS}** | {NOT_YET_AVAILABLE_NOTE} |"
+        )
+        lines.append(
+            f"| **{ROW_LABEL_TOTAL_VIOLATIONS}** | {total_violations:,} |"
+            if total_violations is not None
+            else f"| **{ROW_LABEL_TOTAL_VIOLATIONS}** | {NOT_YET_AVAILABLE_NOTE} |"
+        )
 
     import getpass
     import socket
@@ -787,29 +822,37 @@ def render_key_takeaways(
             "priority": 4,
         })
 
-    # TODO: Violations with no exception, open MR expires before release
-    if upcoming_release_date and has_mr_expires_before_release:
+    # TODO: Violations with no exception, open MR expires before release.
+    # Always rendered (like the other expiring-exception sections) when a release
+    # date is known: an empty bucket still shows "0 violations … ✓ (no action
+    # needed)" so the check is visible in the report. Gating on a non-empty list
+    # would silently drop the section and break the TODO numbering.
+    if upcoming_release_date:
         has_mr_exp_body = []
         has_mr_exp_body.append("")
-        has_mr_exp_body.append(
-            f"Open Merge Requests address these violations but their proposed exception "
-            f"effective-until dates expire **before** the {version_label} release on "
-            f"{upcoming_release_date}. Even if merged, the exception will not cover the "
-            f"release. Update the Merge Request to extend past {upcoming_release_date}, "
-            f"or resolve the violation in code."
-        )
+        if has_mr_expires_before_release:
+            has_mr_exp_body.append(
+                f"Open Merge Requests address these violations but their proposed exception "
+                f"effective-until dates expire **before** the {version_label} release on "
+                f"{upcoming_release_date}. Even if merged, the exception will not cover the "
+                f"release. Update the Merge Request to extend past {upcoming_release_date}, "
+                f"or resolve the violation in code."
+            )
         has_mr_exp_body.append("")
         has_mr_exp_body.append("| # | Violation | Component | Violations | Exception Effective Until in Open Merge Request | Merge Request |")
         has_mr_exp_body.append("|--:|-----------|-----------|:----------:|------------------------------------------------|---------------|")
-        for row_num, entry in enumerate(has_mr_expires_before_release, 1):
-            violation_cell = _format_violation_cell(entry["rule"], entry["component"])
-            mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
-            mr_eu_display = entry.get("mr_effective_until") or "unknown"
-            has_mr_exp_body.append(
-                f"| {row_num} | {violation_cell} | `{entry['component']}` "
-                f"| {entry['violation_count']} | {mr_eu_display} | {mr_link} |"
-            )
-            has_mr_exp_body.extend(_detail_continuation_rows(entry["rule"], entry["component"], 4))
+        if has_mr_expires_before_release:
+            for row_num, entry in enumerate(has_mr_expires_before_release, 1):
+                violation_cell = _format_violation_cell(entry["rule"], entry["component"])
+                mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
+                mr_eu_display = entry.get("mr_effective_until") or "unknown"
+                has_mr_exp_body.append(
+                    f"| {row_num} | {violation_cell} | `{entry['component']}` "
+                    f"| {entry['violation_count']} | {mr_eu_display} | {mr_link} |"
+                )
+                has_mr_exp_body.extend(_detail_continuation_rows(entry["rule"], entry["component"], 4))
+        else:
+            has_mr_exp_body.append("| | No violations | | | | |")
         has_mr_exp_body.append("")
         has_mr_exp_body.append("---")
 

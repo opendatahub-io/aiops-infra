@@ -748,7 +748,11 @@ class TestMetadataTotalViolations:
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
         )
-        assert "Total violations" not in header
+        # The row is still present so the structure matches the Step 2
+        # confirmation table; its value carries a placeholder note.
+        placeholder_row = "| **Total violations (deduplicated per image)** | not yet available |"
+        assert placeholder_row in header
+        assert header.count("| **Total violations (deduplicated per image)** |") == 1
 
 
 class TestMetadataSourceCsvRows:
@@ -767,7 +771,9 @@ class TestMetadataSourceCsvRows:
             source_path="prod/report.csv",
             source_created_at="2026-06-10T05:19:05Z",
         )
-        assert "Source CSV rows" not in header
+        # The row is still present so the structure matches the Step 2
+        # confirmation table; its value carries a placeholder note.
+        assert "| **Source CSV rows (raw, per-image)** | not yet available |" in header
 
     def test_source_csv_rows_precedes_deduplicated_total(self):
         header = render_metadata_header(
@@ -808,15 +814,19 @@ class TestMetadataAiModelFooter:
 
 
 class TestMetadataHeaderConfirmationDisplay:
-    """Source-stat rows inserted into the context confirmation display."""
+    """Placeholder rows in the context confirmation are replaced in place."""
 
     DISPLAY = (
         "### Conforma Workflow \u2014 Context Confirmation\n"
         "\n"
         "| Field | Value |\n"
         "|-------|-------|\n"
+        "| **Generated** | not yet available |\n"
         "| **User requested** | rhoai-3.5-ea.2 |\n"
         "| **Source CSV** | [conforma-violations-report.csv](https://example.com/report.csv) |\n"
+        "| **Source CSV generated** | not yet available |\n"
+        "| **Source CSV rows (raw, per-image)** | not yet available |\n"
+        "| **Total violations (deduplicated per image)** | not yet available |\n"
         "| **Konflux Application** | rhoai |\n"
         "\n"
         "*Source: GitLab tree (konflux-release-data, main branch)*"
@@ -832,10 +842,11 @@ class TestMetadataHeaderConfirmationDisplay:
             total_violations=162,
         )
         src_idx = header.index("| **Source CSV** | [conforma-violations-report.csv]")
+        generated_idx = header.index("| **Source CSV generated** |")
         rows_idx = header.index("| **Source CSV rows (raw, per-image)** | 1,055 |")
         total_idx = header.index("| **Total violations (deduplicated per image)** | 162 |")
         app_idx = header.index("| **Konflux Application** |")
-        assert src_idx < rows_idx < total_idx < app_idx
+        assert src_idx < generated_idx < rows_idx < total_idx < app_idx
 
     def test_generated_row_inserted_after_header_separator(self):
         header = render_metadata_header(
@@ -849,6 +860,91 @@ class TestMetadataHeaderConfirmationDisplay:
         gen_idx = header.index("| **Generated** |")
         total_idx = header.index("| **Total violations (deduplicated per image)** | 162 |")
         assert sep_idx < gen_idx < total_idx
+
+    def test_placeholder_values_replaced_in_place(self):
+        header = render_metadata_header(
+            release="rhoai-3.5-ea.2",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            confirmation_display=self.DISPLAY,
+            source_csv_rows=1055,
+            total_violations=162,
+        )
+        assert "not yet available" not in header
+        assert "| **Generated** | not yet available |" not in header
+        assert "| **Source CSV rows (raw, per-image)** | 1,055 |" in header
+        assert "| **Total violations (deduplicated per image)** | 162 |" in header
+
+    def test_table_structure_matches_step2_confirmation(self):
+        """Row order in the guide header equals the Step 2 confirmation order."""
+        header = render_metadata_header(
+            release="rhoai-3.5-ea.2",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            confirmation_display=self.DISPLAY,
+            source_csv_rows=1055,
+            total_violations=162,
+        )
+        expected_order = [
+            "| **Generated** |",
+            "| **User requested** |",
+            "| **Source CSV** |",
+            "| **Source CSV generated** |",
+            "| **Source CSV rows (raw, per-image)** |",
+            "| **Total violations (deduplicated per image)** |",
+            "| **Konflux Application** |",
+        ]
+        indices = [header.index(label) for label in expected_order]
+        assert indices == sorted(indices)
+        # Exactly one occurrence of each row label (no duplicated rows).
+        for label in expected_order:
+            assert header.count(label) == 1, f"{label} appears more than once"
+
+    def test_source_csv_generated_directly_under_source_csv_manual_table(self):
+        """In the manually-built header (no confirmation display), the
+        "Source CSV generated" row sits directly under the "Source CSV" row."""
+        header = render_metadata_header(
+            release="rhoai-3.5",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            source_csv_rows=1055,
+            total_violations=162,
+        )
+        src_idx = header.index("| **Source CSV** |")
+        generated_idx = header.index("| **Source CSV generated** |")
+        rows_idx = header.index("| **Source CSV rows (raw, per-image)** |")
+        total_idx = header.index("| **Total violations (deduplicated per image)** |")
+        assert src_idx < generated_idx < rows_idx < total_idx
+
+
+    def test_legacy_display_without_placeholder_rows_still_works(self):
+        """A confirmation display generated before the placeholder rows were
+        introduced still gets the rows inserted (backward compatibility)."""
+        legacy_display = (
+            "### Conforma Workflow \u2014 Context Confirmation\n"
+            "\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            "| **User requested** | rhoai-3.5-ea.2 |\n"
+            "| **Source CSV** | [conforma-violations-report.csv](https://example.com/report.csv) |\n"
+            "| **Konflux Application** | rhoai |\n"
+            "\n"
+            "*Source: GitLab tree (konflux-release-data, main branch)*"
+        )
+        header = render_metadata_header(
+            release="rhoai-3.5-ea.2",
+            source_path="prod/report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            confirmation_display=legacy_display,
+            source_csv_rows=1055,
+            total_violations=162,
+        )
+        assert "not yet available" not in header
+        assert "| **Generated** |" in header
+        assert "| **Source CSV rows (raw, per-image)** | 1,055 |" in header
+        assert "| **Total violations (deduplicated per image)** | 162 |" in header
+        for label in ("| **Generated** |", "| **Source CSV rows (raw, per-image)** |", "| **Total violations (deduplicated per image)** |"):
+            assert header.count(label) == 1, f"{label} appears more than once"
 
     def test_ai_model_footer_rendered_with_confirmation_display(self):
         header = render_metadata_header(
@@ -2311,7 +2407,13 @@ class TestUpcomingReleaseDate:
     def test_always_shows_zero_count_headers(
         self, tmp_path, sample_violations_yaml, sample_catalog
     ):
-        """All three expiring section headers appear even when counts are 0."""
+        """All expiring section headers appear even when counts are 0.
+
+        This includes the "open Merge Request expiring before release" section:
+        like its sibling expiring sections, it is always rendered (as a
+        zero-count "no action needed" entry) whenever a release date is known,
+        so the TODO numbering stays contiguous.
+        """
         data = {
             "summary": {"fully_covered": 0, "not_covered": 1, "total_violations": 1},
             "violations": [
@@ -2355,6 +2457,9 @@ class TestUpcomingReleaseDate:
         assert "### TODO #2 — 0 violations with expiring exceptions, no open Merge Request" in content
         assert "### TODO #3 — 0 violations with expiring exceptions, Merge Request also expires before release" in content
         assert "### TODO #4 — 0 violations with expiring exceptions, Merge Request extends past release" in content
+        # The MR-expiring section is always rendered too (regression: it was
+        # previously dropped when empty, breaking the contiguous numbering).
+        assert "0 violations with open Merge Request expiring before release ✓ (no action needed)" in content
         assert "1 violations without exception or open Merge Request" in content
         assert "0 violations addressed by open Merge Requests (not yet merged)" in content
 
@@ -3157,8 +3262,11 @@ class TestTodoPreamble:
             coverage, result, by_cr,
             upcoming_release_date="2026-09-17",
         )
-        assert "open Merge Request expiring before release" not in output
-        assert "addressed by open Merge Requests" in output
+        # The MR's exception extends past release, so the expiring section is a
+        # zero-count "no action needed" entry (rendered, not hidden) and the
+        # violation stays in the "addressed" section.
+        assert "0 violations with open Merge Request expiring before release" in output
+        assert "1 violations addressed by open Merge Requests" in output
         assert "!401" in output
 
     def test_todo_mr_split_expiring_and_ok(self):
@@ -3179,8 +3287,17 @@ class TestTodoPreamble:
         assert "!402" in output
         assert "!403" in output
 
-    def test_todo_mr_expiring_section_hidden_when_empty(self):
-        """When all MRs have valid expiry, the expiring-before-release TODO is omitted."""
+    def test_todo_mr_expiring_section_shown_with_no_action_when_empty(self):
+        """When all MRs extend past release, the expiring-before-release TODO is
+        still rendered as a zero-count "no action needed" section.
+
+        Regression guard: the reorg that introduced TODO sorting made every
+        section always render (zero-count marked "✓ (no action needed)"), but
+        this section was left gated on a non-empty bucket, so it silently
+        disappeared and the TODO list shrank (e.g. #0–#6 → #0–#5) as soon as
+        per-component effectiveUntil dates moved violations into "addressed by
+        open Merge Requests". An empty bucket must still produce the section.
+        """
         mr_ok = _mr(500, "https://example.com/500", ["*"], effective_until="2026-12-01")
         coverage = _make_coverage_data(violations=[
             _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_ok]),
@@ -3191,8 +3308,51 @@ class TestTodoPreamble:
             coverage, result, by_cr,
             upcoming_release_date="2026-09-17",
         )
-        assert "open Merge Request expiring before release" not in output
+        # The section is present (no longer hidden when empty)...
+        assert "0 violations with open Merge Request expiring before release" in output
+        # ...and is marked as needing no action, matching its sibling sections.
+        assert "0 violations with open Merge Request expiring before release ✓ (no action needed)" in output
+        # The MR's component correctly lands in the "addressed" section, not here.
         assert "addressed by open Merge Requests" in output
+        assert "comp-a" in output
+
+    def test_todo_numbering_full_set_with_empty_mr_expiring_section(self):
+        """Regression guard for the #0-#6 TODO set.
+
+        When the "open Merge Request expiring before release" bucket is empty,
+        the full TODO set must still be contiguous 0-6 (7 sections): the
+        always-present tooling section, the three expiring-exception sections,
+        the empty MR-expiring section (marked no-action), and the addressed-MR
+        section. Before the fix this section was conditionally dropped,
+        shrinking the list to 0-5.
+        """
+        import re as _re
+
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {"status": "healthy"}}]}
+        # All uncovered violations are addressed by an MR whose exception extends
+        # past the release, so the MR-expiring bucket is empty.
+        mr_ok = _mr(600, "https://example.com/600", ["comp-a"], effective_until="2026-12-31")
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"], open_mrs=[mr_ok]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr,
+            tooling_health_data=tooling,
+            upcoming_release_date="2026-09-17",
+        )
+
+        todo_nums = [int(n) for n in _re.findall(r"### TODO #(\d+)", output)]
+        assert todo_nums == [0, 1, 2, 3, 4, 5, 6], f"expected contiguous TODO #0-#6, got {todo_nums}"
+
+        # The empty MR-expiring section is present and flagged no-action.
+        assert "open Merge Request expiring before release ✓ (no action needed)" in output
+        # The other sections' presence is intact.
+        assert "Tooling status: healthy" in output
+        assert "violations without exception or open Merge Request" in output
+        assert "violations with expiring exceptions, no open Merge Request" in output
+        assert "violations addressed by open Merge Requests" in output
 
     def test_todo_numbering_with_expiring_mr_section(self):
         """TODO #5 = expiring MR, TODO #6 = addressed MR when both exist."""
@@ -3852,6 +4012,27 @@ class TestGuideSourceCsvRowsAndAiModel:
         assert "(LLM: claude-sonnet-4-5)" in new_analysis
         assert "**Report**:" not in new_analysis
         assert "Body content here." in new_analysis
+
+    def test_analysis_output_file_header_includes_source_statistics(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
+    ):
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(self.CSV_CONTENT)
+        analysis_file = tmp_path / "conforma-analysis.md"
+        analysis_file.write_text("Body content here.\n")
+        mod.generate_resolution_guide(
+            violations_yaml_path=str(sample_violations_yaml),
+            coverage_json_path=str(sample_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="prod/future/build_type_latest/conforma-violations-report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            analysis_output_file=str(analysis_file),
+        )
+        new_analysis = analysis_file.read_text()
+        # Same structure as the Step 9 guide header: source CSV statistics rows.
+        assert "| **Source CSV rows (raw, per-image)** | 2 |" in new_analysis
+        assert "| **Total violations (deduplicated per image)** | 1 |" in new_analysis
 
     def test_ai_model_cli_flag(
         self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog, monkeypatch

@@ -241,7 +241,14 @@ def _format_resolved(
         policy_file_links.extend(f"[exceptions/{f['name']}]({f['url']})" for f in links["self_service_exception_files"])
 
     import release_dates
-    from conforma_constants import build_report_url
+    from conforma_constants import (
+        ROW_LABEL_GENERATED,
+        ROW_LABEL_SOURCE_CSV_GENERATED,
+        ROW_LABEL_SOURCE_CSV_ROWS,
+        ROW_LABEL_TOTAL_VIOLATIONS,
+        NOT_YET_AVAILABLE_NOTE,
+        build_report_url,
+    )
 
     eos_text = end_of_support if end_of_support else f"Unknown (not in {release_dates.RELEASE_DATA_LINK})"
     version_label = release_dates.format_version_label(release)
@@ -253,10 +260,14 @@ def _format_resolved(
         "",
         "| Field | Value |",
         "|-------|-------|",
+        f"| **{ROW_LABEL_GENERATED}** | {NOT_YET_AVAILABLE_NOTE} |",
         f"| **User requested** | {query} |",
         f"| **Release branch** | {release} |",
         f"| **Environment** | {environment} |",
         f"| **Source CSV** | [conforma-violations-report.csv]({source_csv_url}) |",
+        f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {NOT_YET_AVAILABLE_NOTE} |",
+        f"| **{ROW_LABEL_SOURCE_CSV_ROWS}** | {NOT_YET_AVAILABLE_NOTE} |",
+        f"| **{ROW_LABEL_TOTAL_VIOLATIONS}** | {NOT_YET_AVAILABLE_NOTE} |",
         f"| **Konflux Application** | {app_text} |",
         f"| **Cluster domain** | {cluster_text} |",
         f"| **Tenant** | {tenant} |",

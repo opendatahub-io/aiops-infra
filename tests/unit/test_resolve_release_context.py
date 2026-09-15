@@ -375,6 +375,35 @@ class TestConfirmationDisplay:
         assert "EnterpriseContractPolicy" in display
         assert "prod" in display
 
+    def test_resolved_contains_placeholder_rows_for_not_yet_known_values(self, mock_env):
+        """Rows whose values are not known yet appear with a placeholder note so
+        the table structure matches the Step 9 resolution guide metadata header."""
+        with patch.object(mod, "list_version_dirs", return_value=["v3.5-ea.1"]):
+            result = mod.resolve("3.5-ea.1")
+
+        display = result["confirmation_display"]
+        assert "| **Generated** | not yet available |" in display
+        assert "| **Source CSV rows (raw, per-image)** | not yet available |" in display
+        assert "| **Total violations (deduplicated per image)** | not yet available |" in display
+        assert "| **Source CSV generated** | not yet available |" in display
+
+    def test_placeholder_rows_keep_step9_row_order(self, mock_env):
+        """Row order matches the Step 9 metadata header: Generated first, the
+        Source CSV generated timestamp directly below the Source CSV row, then
+        the source CSV statistics rows."""
+        with patch.object(mod, "list_version_dirs", return_value=["v3.5-ea.1"]):
+            result = mod.resolve("3.5-ea.1")
+
+        display = result["confirmation_display"]
+        generated_idx = display.index("| **Generated** |")
+        user_requested_idx = display.index("| **User requested** |")
+        source_csv_idx = display.index("| **Source CSV** |")
+        generated_at_idx = display.index("| **Source CSV generated** |")
+        rows_idx = display.index("| **Source CSV rows (raw, per-image)** |")
+        total_idx = display.index("| **Total violations (deduplicated per image)** |")
+        assert generated_idx < user_requested_idx < source_csv_idx < generated_at_idx
+        assert source_csv_idx < generated_at_idx < rows_idx < total_idx
+
     def test_ambiguous_lists_all_candidates(self, mock_env):
         with patch.object(mod, "list_version_dirs", return_value=["v3.4", "v3.6-ea.1", "v3.6-ea.2"]):
             result = mod.resolve("3.6")

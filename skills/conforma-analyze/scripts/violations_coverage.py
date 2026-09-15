@@ -601,11 +601,18 @@ def check_violations_coverage(
                 {
                     "rule": rule,
                     "title": info.get("title", ""),
+                    "violation_count": 0,
                     "total_components": 0,
                     "covered_components": [],
                     "uncovered_components": [],
+                    "covered_count": 0,
+                    "uncovered_count": 0,
                     "coverage": "no_components",
                     "status": "skipped",
+                    "status_label": "No components to check",
+                    "display_components": "",
+                    "next_steps": "No components listed for this rule — nothing to check",
+                    "next_steps_short": "No components",
                 }
             )
             continue
