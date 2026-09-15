@@ -289,6 +289,62 @@ class TestSearchIssues:
         assert "assignee" not in result["issues"][0]
         assert result["issues"][0]["status"] == "Open"
 
+    def test_priority_components_target_versions(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.key = "RHOAIENG-1"
+        issue.fields.summary = "Conforma violation"
+        issue.fields.status = MagicMock(__str__=lambda self: "Open")
+        issue.fields.issuetype = MagicMock(__str__=lambda self: "Task")
+        issue.fields.assignee = None
+        issue.fields.priority = MagicMock(__str__=lambda self: "Blocker")
+        comp_a = MagicMock()
+        comp_a.name = "AI-Guardrails"
+        comp_b = MagicMock()
+        comp_b.name = "Model-Registry"
+        issue.fields.components = [comp_a, comp_b]
+        version_1 = MagicMock()
+        version_1.name = "rhoai-3.6-ea.2"
+        issue.fields.customfield_10855 = [version_1]
+
+        result_set = MagicMock()
+        result_set.__iter__ = lambda self: iter([issue])
+        result_set.total = 1
+        client.search_issues.return_value = result_set
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues(
+                "project = RHOAIENG",
+                fields=["key", "summary", "status", "priority", "components", "target_versions"],
+            )
+
+        entry = result["issues"][0]
+        assert entry["priority"] == "Blocker"
+        assert entry["components"] == ["AI-Guardrails", "Model-Registry"]
+        assert entry["target_versions"] == ["rhoai-3.6-ea.2"]
+
+    def test_new_fields_absent_when_not_requested(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.key = "RHOAIENG-2"
+        issue.fields.summary = "x"
+        issue.fields.status = MagicMock(__str__=lambda self: "Open")
+        issue.fields.issuetype = MagicMock(__str__=lambda self: "Task")
+        issue.fields.assignee = None
+
+        result_set = MagicMock()
+        result_set.__iter__ = lambda self: iter([issue])
+        result_set.total = 1
+        client.search_issues.return_value = result_set
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues("project = RHOAIENG", fields=["key", "summary"])
+
+        entry = result["issues"][0]
+        assert "priority" not in entry
+        assert "components" not in entry
+        assert "target_versions" not in entry
+
     def test_error_raises_jira_search_error(self):
         import pytest
 

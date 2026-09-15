@@ -298,7 +298,11 @@ def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = No
 
     A genuine zero-match result is returned as {"issues": [], "total": 0} with NO
     error. A Jira API failure (bad JQL, unknown field, auth) is surfaced by
-    raising JiraSearchError — never masked as an empty result.
+    raising JiraSearchError - never masked as an empty result.
+
+    Supported ``fields`` (any subset; default = key/summary/status/issuetype/assignee):
+        key, summary, status, issuetype, assignee, created, labels,
+        fixVersions, priority, components, target_versions.
     """
     default_fields = ["key", "summary", "status", "issuetype", "assignee"]
     requested = fields if fields else default_fields
@@ -332,6 +336,15 @@ def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = No
             entry["fix_versions"] = (
                 [v.name for v in issue.fields.fixVersions] if issue.fields.fixVersions else []
             )
+        if "priority" in requested:
+            priority = issue.fields.priority
+            entry["priority"] = str(priority) if priority else None
+        if "components" in requested:
+            components = issue.fields.components
+            entry["components"] = [c.name for c in components] if components else []
+        if "target_versions" in requested:
+            target_versions = getattr(issue.fields, "customfield_10855", None)
+            entry["target_versions"] = [v.name for v in target_versions] if target_versions else []
         results.append(entry)
 
     return {"issues": results, "total": issues.total}
@@ -468,7 +481,8 @@ def main() -> None:
     search_parser.add_argument(
         "--fields",
         default=None,
-        help="Comma-separated fields: key,summary,status,issuetype,assignee,created,labels",
+        help="Comma-separated fields: key,summary,status,issuetype,assignee,created,labels,"
+        "fixVersions,priority,components,target_versions",
     )
 
     search_user_parser = sub.add_parser("search-user")
