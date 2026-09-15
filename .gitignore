@@ -1,4 +1,5 @@
 .DS_STORE
+.DS_Store
 __pycache__/
 *.pyc
 tmp/
@@ -6,6 +7,12 @@ tmp/
 *.egg-info/
 .env
 graphify-out/
+
+# Unit test / coverage reports
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 eval/
 eval.md
