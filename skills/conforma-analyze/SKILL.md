@@ -114,6 +114,7 @@ Both files are fetched and analyzed by default:
 | Intent | Workflow file |
 |--------|---------------|
 | Full violation analysis (fetch, parse, analyze, coverage, guide) | Read `workflows/full-analysis.md` |
+| Regenerate/refresh the resolution guide for the active run (rendering only, no re-fetch) | Read `workflows/regenerate-guide.md` |
 | Trace when a violation appeared/disappeared | Read `workflows/violation-history.md` |
 
 ## Output Format

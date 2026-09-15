@@ -3889,6 +3889,46 @@ class TestHorizontalRuleSeparators:
         )
         assert "&nbsp;" not in output
 
+    def test_todo_headings_preceded_by_rendered_gap(self):
+        """Every TODO heading after the first must be preceded by a blank
+        line and a rendered <br> so sections do not visually merge with the
+        preceding --- horizontal rule."""
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _uncovered_violation("rule-b", ["comp-b"]),
+            _covered_violation(
+                "rule-c", ["comp-c"],
+                expiry_details=[{"component": "comp-c", "effective_until": "2026-07-10"}],
+            ),
+        ])
+        result = _make_analysis_result(total_violations=3)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1, ("rule-c", "comp-c"): 1}
+        output = render_key_takeaways(
+            coverage, result, by_cr, upcoming_release_date="2026-08-15",
+        )
+        headings = [line for line in output.split("\n") if line.startswith("### TODO #")]
+        assert len(headings) >= 2
+        # The first heading must not be preceded by a <br> gap.
+        assert output.index("<br>") > output.index("### TODO #0")
+        # Every subsequent heading is separated from the previous section
+        # by a blank line and a rendered gap.
+        for heading in headings[1:]:
+            assert f"\n<br>\n{heading}" in output
+
+    def test_no_doubled_trailing_horizontal_rule(self):
+        """Each section body ends with ---; the breakdown must not append a
+        second --- after the last section (no doubled rule)."""
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("rule-a", ["comp-a"]),
+            _uncovered_violation("rule-b", ["comp-b"]),
+        ])
+        result = _make_analysis_result(total_violations=2)
+        by_cr = {("rule-a", "comp-a"): 1, ("rule-b", "comp-b"): 1}
+        output = render_key_takeaways(coverage, result, by_cr)
+        assert "---\n---" not in output
+        # Exactly one trailing rule after the last section body.
+        assert output.rstrip("\n").endswith("---")
+
 
 # ---------------------------------------------------------------------------
 # TestTodoPreviewContent

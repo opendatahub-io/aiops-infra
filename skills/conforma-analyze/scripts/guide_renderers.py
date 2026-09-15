@@ -883,6 +883,7 @@ def render_key_takeaways(
     else:
         has_mr_ok_body.append("| | No violations | | | |")
     has_mr_ok_body.append("")
+    has_mr_ok_body.append("---")
 
     todo_sections.append({
         "title": f"{has_mr_ok_count:,} violations addressed by open Merge Requests (not yet merged)",
@@ -1031,10 +1032,20 @@ def render_key_takeaways(
         else:
             title_suffix = ""
 
+        if todo_num > 0:
+            # Blank line + rendered <br> after the preceding --- so the
+            # next heading does not visually merge with the previous
+            # section (a bare blank line before a heading is not rendered
+            # as a gap by most Markdown renderers).
+            lines.append("")
+            lines.append("<br>")
+
         lines.append(f"### TODO #{todo_num} — {title}{title_suffix}")
         lines.extend(section["body"])
 
-    lines.append("---")
+    # Each section body already ends with ---; avoid a doubled rule.
+    if not (sorted_sections and sorted_sections[-1]["body"][-1] == "---"):
+        lines.append("---")
 
     if expiring_soon:
         parts = [f"`{rule}`{detail} (expires {date}, {days}d)" for rule, date, days, detail in expiring_soon]

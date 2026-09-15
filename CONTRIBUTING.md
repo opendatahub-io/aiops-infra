@@ -222,11 +222,15 @@ pytest tests/unit/test_gitlab_ops.py -v
 
 After `pre-commit install`, every commit runs:
 
-1. **ruff check** — lint Python files (auto-fix enabled)
-2. **ruff format** — format Python files
-3. **pytest unit** — run unit tests
-4. **check-test-coverage** — verify test files exist for any new/modified scripts
-5. **check-no-internal-refs** — scan all tracked files for hardcoded internal hostnames
+1. **require Jira ticket linked to current branch** — runs the `link-work-to-jira` skill's branch-state check and blocks commits without a linked ticket
+2. **ruff check** — lint Python files (auto-fix enabled)
+3. **ruff format** — format Python files
+4. **pytest unit** — run unit tests
+5. **check-test-coverage** — verify test files exist for any new/modified scripts
+6. **check-no-internal-refs** — scan all tracked files for hardcoded internal hostnames
+
+The Jira hook expects the skill at `~/.claude/skills/link-work-to-jira`. Set
+`LINK_WORK_TO_JIRA_SKILL_DIR` when it is installed elsewhere.
 
 To bypass hooks in emergencies: `git commit --no-verify` (use sparingly).
 

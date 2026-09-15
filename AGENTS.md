@@ -16,6 +16,10 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for how to write scripts, add tests, str
 - Domain-specific logic stays in `skills/<name>/scripts/`
 - Every new script MUST have a corresponding test in `tests/unit/`
 
+## Plans
+
+Durable feature/work plans (implementation plans, design records for in-flight work) SHOULD be saved in `.agents/plans/` in this repository — a plain, tool-agnostic location any AI harness can read and write, so plans stay portable across tools (unlike harness-local plan storage such as `~/.claude/plans/`). This is a soft rule: ephemeral single-session scratch plans may still live in the harness's own plan area, but any plan worth reusing or reviewing belongs in `.agents/plans/` and is version-controlled with the work it describes.
+
 ## Secrets Policy
 
 **NEVER ask the user to paste tokens, API keys, or credentials into the chat window.** Always instruct them to write secrets to the project's designated env file directly (using their editor or terminal). See [CONTRIBUTING.md](CONTRIBUTING.md#secrets-and-credentials-policy) for details.
@@ -41,6 +45,7 @@ The deterministic scripted path is always the default. Manual exploration is a l
 
 - `scripts/` — shared automation scripts (onboarding + `*_ops.py` primitives)
 - `skills/` — conforma and other skills (`.cursor/skills` is a symlink here)
+- `.agents/plans/` — durable feature/work plans (see Plans above)
 - `.claude/skills/` — onboarding pipeline skills
 - `tests/` — unit and integration tests
 - `schemas/` — JSON schemas for validation
