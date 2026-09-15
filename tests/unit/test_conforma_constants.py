@@ -88,3 +88,47 @@ class TestBuildWarningsReportUrl:
         assert "rhoai-3.5-ea.1" in url
         assert conforma_constants.CONFORMA_REPORTER_URL in url
         assert conforma_constants.STAGE_WARNINGS_CSV_PATHS[0] in url
+
+
+class TestDiscoveryScope:
+    def test_projects_are_the_seven_discovery_projects(self):
+        assert len(conforma_constants.CONFORMA_DISCOVERY_PROJECTS) == 7
+        assert conforma_constants.CONFORMA_DISCOVERY_PROJECTS == [
+            "RHOAIENG",
+            "PSX",
+            "OCPEXCEPT",
+            "PRODSECRM",
+            "RHAI",
+            "RHAIENG",
+            "AIPCC",
+        ]
+
+    def test_labels_include_universal_and_legacy(self):
+        assert len(conforma_constants.CONFORMA_DISCOVERY_LABELS) == 3
+        assert "conforma" in conforma_constants.CONFORMA_DISCOVERY_LABELS
+        assert "conforma-violation" in conforma_constants.CONFORMA_DISCOVERY_LABELS
+        assert "conforma-exception-ai-skill" in conforma_constants.CONFORMA_DISCOVERY_LABELS
+
+
+class TestBuildLabelDiscoveryJql:
+    def test_emits_plural_labels_in_across_seven_projects(self):
+        jql = conforma_constants.build_label_discovery_jql()
+        assert (
+            jql
+            == "project in (RHOAIENG, PSX, OCPEXCEPT, PRODSECRM, RHAI, RHAIENG, AIPCC) "
+               "AND labels in (conforma, conforma-violation, conforma-exception-ai-skill)"
+        )
+
+    def test_uses_plural_labels_not_singular(self):
+        jql = conforma_constants.build_label_discovery_jql()
+        assert "labels in (" in jql
+        # The singular `label in (` form is the tenant bug — it must never be emitted.
+        assert "label in (" not in jql.replace("labels in (", "")
+
+    def test_has_no_status_filter(self):
+        jql = conforma_constants.build_label_discovery_jql()
+        assert "status" not in jql.lower()
+
+    def test_custom_projects_and_labels(self):
+        jql = conforma_constants.build_label_discovery_jql(projects=["RHOAIENG"], labels=["conforma"])
+        assert jql == "project in (RHOAIENG) AND labels in (conforma)"

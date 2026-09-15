@@ -53,6 +53,17 @@ STAGE_WARNINGS_CSV_PATHS = [
     f"stage/future/build_type_nightly/{WARNINGS_CSV_FILENAME}",
 ]
 
+# ---------------------------------------------------------------------------
+# Jira discovery (conforma-analyze) — single source of truth for the label-first
+# discovery scope. On the redhat.atlassian.net tenant only the PLURAL
+# ``labels in (...)`` / ``labels = "..."`` forms return data; the singular
+# ``label in (...)`` silently returns empty. The builder below always emits the
+# plural form and applies NO status filter (discovery must see both open and
+# closed tickets — closed ones are prior-issue context).
+# ---------------------------------------------------------------------------
+CONFORMA_DISCOVERY_PROJECTS = ["RHOAIENG", "PSX", "OCPEXCEPT", "PRODSECRM", "RHAI", "RHAIENG", "AIPCC"]
+CONFORMA_DISCOVERY_LABELS = ["conforma", "conforma-violation", "conforma-exception-ai-skill"]
+
 VERIFY_NEXT_STEP = (
     f"Run [conforma-reporter]({CONFORMA_REPORTER_ACTIONS_URL})"
     " or `conforma-violations-scan` AI skill"
@@ -84,3 +95,18 @@ def build_warnings_report_url(release: str, environment: str) -> str:
     """Build a GitHub URL to the warnings report for a release."""
     paths = warnings_csv_paths_for_environment(environment)
     return f"{CONFORMA_REPORTER_URL}/blob/{release}/{paths[0]}"
+
+
+def build_label_discovery_jql(
+    projects: list[str] = CONFORMA_DISCOVERY_PROJECTS,
+    labels: list[str] = CONFORMA_DISCOVERY_LABELS,
+) -> str:
+    """Build the label-first Jira discovery JQL across the conforma projects.
+
+    Uses the plural ``labels in (...)`` form (the only form that returns data on
+    this tenant) and applies NO status filter, so both open and closed tickets
+    are discovered. Closed tickets are surfaced downstream as prior-issue context.
+    """
+    project_list = ", ".join(projects)
+    label_list = ", ".join(labels)
+    return f"project in ({project_list}) AND labels in ({label_list})"
