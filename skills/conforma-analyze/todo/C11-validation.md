@@ -1,7 +1,7 @@
 # C11 — Full validation + pre-commit coverage-gate wiring + live dry-run
 
 Status: **NOT STARTED**
-Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../.agents/plans/conforma-analyze-jira-coverage-plan.md) → Phase 5, Step 5.1
+Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../../../.agents/plans/conforma-analyze-jira-coverage-plan.md) → Phase 5, Step 5.1
 Jira: [RHAIENG-6190 — improve conforma-analyze skill](https://redhat.atlassian.net/browse/RHAIENG-6190)
 Depends on: C10
 

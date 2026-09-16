@@ -1,7 +1,7 @@
 # C10 — Workflow Step 8 (Jira Sync) + docs
 
 Status: **NOT STARTED**
-Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../.agents/plans/conforma-analyze-jira-coverage-plan.md) → Phase 4, Step 4.3
+Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../../../.agents/plans/conforma-analyze-jira-coverage-plan.md) → Phase 4, Step 4.3
 Jira: [RHAIENG-6190 — improve conforma-analyze skill](https://redhat.atlassian.net/browse/RHAIENG-6190)
 Depends on: C9
 

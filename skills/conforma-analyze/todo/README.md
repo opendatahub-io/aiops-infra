@@ -1,7 +1,7 @@
 # Outstanding work — conforma-analyze Jira coverage
 
 Jira: [RHAIENG-6190 — improve conforma-analyze skill](https://redhat.atlassian.net/browse/RHAIENG-6190)
-Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../.agents/plans/conforma-analyze-jira-coverage-plan.md)
+Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../../../.agents/plans/conforma-analyze-jira-coverage-plan.md)
 One document per outstanding todo item. Status baseline: commit `fe2aeaa`, unit suite 2529 passed / 5 skipped, all four coverage-gated scripts >97%.
 
 ## Status at a glance

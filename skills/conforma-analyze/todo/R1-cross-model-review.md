@@ -1,7 +1,7 @@
 # R1 — Cross-model review checkpoint (ticket ops)
 
 Status: **PENDING** (recorded as PENDING in the plan handover §17; its scheduled slot was "after C7" — C7 already landed in `fe2aeaa`, the verdict was never recorded)
-Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../.agents/plans/conforma-analyze-jira-coverage-plan.md) → Phase 3 DoD / Review checkpoint R1
+Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../../../.agents/plans/conforma-analyze-jira-coverage-plan.md) → Phase 3 DoD / Review checkpoint R1
 Jira: [RHAIENG-6190 — improve conforma-analyze skill](https://redhat.atlassian.net/browse/RHAIENG-6190)
 Depends on: C9 + C10 (run once the Phase 4 diff is final so the reviewer sees the whole feature; the checkpoint does **not** gate C8)
 
