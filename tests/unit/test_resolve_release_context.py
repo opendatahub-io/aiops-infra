@@ -382,10 +382,13 @@ class TestConfirmationDisplay:
             result = mod.resolve("3.5-ea.1")
 
         display = result["confirmation_display"]
-        assert "| **Generated** | not yet available |" in display
-        assert "| **Source CSV rows (raw, per-image)** | not yet available |" in display
-        assert "| **Total violations (deduplicated per image)** | not yet available |" in display
-        assert "| **Source CSV generated** | not yet available |" in display
+        assert "| **Generated** | set when the resolution guide is generated (step 9) |" in display
+        assert "| **Source CSV rows (raw, per-image)** | set after the source CSV is fetched (step 4) |" in display
+        assert (
+            "| **Total violations (deduplicated per image)** | set after the violations are analyzed (step 6) |"
+            in display
+        )
+        assert "| **Source CSV generated** | set after the source CSV is fetched (step 4) |" in display
 
     def test_placeholder_rows_keep_step9_row_order(self, mock_env):
         """Row order matches the Step 9 metadata header: Generated first, the

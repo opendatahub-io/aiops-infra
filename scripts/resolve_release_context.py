@@ -242,11 +242,14 @@ def _format_resolved(
 
     import release_dates
     from conforma_constants import (
+        NOT_YET_AVAILABLE_NOTE,
+        NOT_YET_AVAILABLE_SOURCE_CSV_GENERATED_NOTE,
+        NOT_YET_AVAILABLE_SOURCE_CSV_ROWS_NOTE,
+        NOT_YET_AVAILABLE_TOTAL_VIOLATIONS_NOTE,
         ROW_LABEL_GENERATED,
         ROW_LABEL_SOURCE_CSV_GENERATED,
         ROW_LABEL_SOURCE_CSV_ROWS,
         ROW_LABEL_TOTAL_VIOLATIONS,
-        NOT_YET_AVAILABLE_NOTE,
         build_report_url,
     )
 
@@ -265,9 +268,9 @@ def _format_resolved(
         f"| **Release branch** | {release} |",
         f"| **Environment** | {environment} |",
         f"| **Source CSV** | [conforma-violations-report.csv]({source_csv_url}) |",
-        f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {NOT_YET_AVAILABLE_NOTE} |",
-        f"| **{ROW_LABEL_SOURCE_CSV_ROWS}** | {NOT_YET_AVAILABLE_NOTE} |",
-        f"| **{ROW_LABEL_TOTAL_VIOLATIONS}** | {NOT_YET_AVAILABLE_NOTE} |",
+        f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {NOT_YET_AVAILABLE_SOURCE_CSV_GENERATED_NOTE} |",
+        f"| **{ROW_LABEL_SOURCE_CSV_ROWS}** | {NOT_YET_AVAILABLE_SOURCE_CSV_ROWS_NOTE} |",
+        f"| **{ROW_LABEL_TOTAL_VIOLATIONS}** | {NOT_YET_AVAILABLE_TOTAL_VIOLATIONS_NOTE} |",
         f"| **Konflux Application** | {app_text} |",
         f"| **Cluster domain** | {cluster_text} |",
         f"| **Tenant** | {tenant} |",

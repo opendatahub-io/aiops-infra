@@ -750,7 +750,9 @@ class TestMetadataTotalViolations:
         )
         # The row is still present so the structure matches the Step 2
         # confirmation table; its value carries a placeholder note.
-        placeholder_row = "| **Total violations (deduplicated per image)** | not yet available |"
+        placeholder_row = (
+            "| **Total violations (deduplicated per image)** | set after the violations are analyzed (step 6) |"
+        )
         assert placeholder_row in header
         assert header.count("| **Total violations (deduplicated per image)** |") == 1
 
@@ -773,7 +775,7 @@ class TestMetadataSourceCsvRows:
         )
         # The row is still present so the structure matches the Step 2
         # confirmation table; its value carries a placeholder note.
-        assert "| **Source CSV rows (raw, per-image)** | not yet available |" in header
+        assert "| **Source CSV rows (raw, per-image)** | set after the source CSV is fetched (step 4) |" in header
 
     def test_source_csv_rows_precedes_deduplicated_total(self):
         header = render_metadata_header(
@@ -821,12 +823,12 @@ class TestMetadataHeaderConfirmationDisplay:
         "\n"
         "| Field | Value |\n"
         "|-------|-------|\n"
-        "| **Generated** | not yet available |\n"
+        "| **Generated** | set when the resolution guide is generated (step 9) |\n"
         "| **User requested** | rhoai-3.5-ea.2 |\n"
         "| **Source CSV** | [conforma-violations-report.csv](https://example.com/report.csv) |\n"
-        "| **Source CSV generated** | not yet available |\n"
-        "| **Source CSV rows (raw, per-image)** | not yet available |\n"
-        "| **Total violations (deduplicated per image)** | not yet available |\n"
+        "| **Source CSV generated** | set after the source CSV is fetched (step 4) |\n"
+        "| **Source CSV rows (raw, per-image)** | set after the source CSV is fetched (step 4) |\n"
+        "| **Total violations (deduplicated per image)** | set after the violations are analyzed (step 6) |\n"
         "| **Konflux Application** | rhoai |\n"
         "\n"
         "*Source: GitLab tree (konflux-release-data, main branch)*"
@@ -870,8 +872,11 @@ class TestMetadataHeaderConfirmationDisplay:
             source_csv_rows=1055,
             total_violations=162,
         )
-        assert "not yet available" not in header
-        assert "| **Generated** | not yet available |" not in header
+        # The pending-row notes must not survive in the final header: every
+        # placeholder row that had a real value is replaced in place.
+        assert "set when the resolution guide is generated" not in header
+        assert "set after the source CSV is fetched" not in header
+        assert "set after the violations are analyzed" not in header
         assert "| **Source CSV rows (raw, per-image)** | 1,055 |" in header
         assert "| **Total violations (deduplicated per image)** | 162 |" in header
 
@@ -939,7 +944,9 @@ class TestMetadataHeaderConfirmationDisplay:
             source_csv_rows=1055,
             total_violations=162,
         )
-        assert "not yet available" not in header
+        # No pending-row note may leak into the final header; the rows that
+        # were present are replaced with their real values in place.
+        assert "set after the" not in header
         assert "| **Generated** |" in header
         assert "| **Source CSV rows (raw, per-image)** | 1,055 |" in header
         assert "| **Total violations (deduplicated per image)** | 162 |" in header

@@ -8,13 +8,23 @@
 # (guide_renderers.render_metadata_header). Both steps must render the same
 # table structure: rows whose values are not known yet carry a placeholder
 # note in Step 2 and are replaced in place once the values become available.
-# Keep the labels and placeholders here so the two renderers cannot drift.
+# The guide renderer matches each row by its *label* (ROW_LABEL_*), so only
+# the labels must stay stable; the placeholder *values* are free to carry a
+# short note about when the real value will appear, so the Step 2 table does
+# not read as an error. Keep the labels and placeholders here so the two
+# renderers cannot drift.
 # ---------------------------------------------------------------------------
 ROW_LABEL_GENERATED = "Generated"
 ROW_LABEL_SOURCE_CSV_ROWS = "Source CSV rows (raw, per-image)"
 ROW_LABEL_TOTAL_VIOLATIONS = "Total violations (deduplicated per image)"
 ROW_LABEL_SOURCE_CSV_GENERATED = "Source CSV generated"
-NOT_YET_AVAILABLE_NOTE = "not yet available"
+# Placeholder shown in Step 2 for each value that is not known yet. Each one
+# tells the user the step at which the value becomes available so the pending
+# rows read as "expected, will fill in shortly" rather than as an error.
+NOT_YET_AVAILABLE_NOTE = "set when the resolution guide is generated (step 9)"
+NOT_YET_AVAILABLE_SOURCE_CSV_GENERATED_NOTE = "set after the source CSV is fetched (step 4)"
+NOT_YET_AVAILABLE_SOURCE_CSV_ROWS_NOTE = "set after the source CSV is fetched (step 4)"
+NOT_YET_AVAILABLE_TOTAL_VIOLATIONS_NOTE = "set after the violations are analyzed (step 6)"
 
 
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"

@@ -18,7 +18,9 @@ import analyze_csv_report as analysis  # noqa: E402
 from conforma_constants import (  # noqa: E402
     CONFORMA_REPORTER_ACTIONS_URL,
     CONFORMA_REPORTER_URL,
-    NOT_YET_AVAILABLE_NOTE,
+    NOT_YET_AVAILABLE_SOURCE_CSV_GENERATED_NOTE,
+    NOT_YET_AVAILABLE_SOURCE_CSV_ROWS_NOTE,
+    NOT_YET_AVAILABLE_TOTAL_VIOLATIONS_NOTE,
     ROW_LABEL_GENERATED,
     ROW_LABEL_SOURCE_CSV_GENERATED,
     ROW_LABEL_SOURCE_CSV_ROWS,
@@ -221,7 +223,7 @@ def render_metadata_header(
             lines.append(f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {source_created_at} |")
         else:
             lines.append(
-                f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {NOT_YET_AVAILABLE_NOTE} |"
+                f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {NOT_YET_AVAILABLE_SOURCE_CSV_GENERATED_NOTE} |"
             )
         # Keep the same structure as the Step 2 context confirmation table:
         # the raw (unfiltered) row count precedes the deduplicated total, and
@@ -229,12 +231,12 @@ def render_metadata_header(
         lines.append(
             f"| **{ROW_LABEL_SOURCE_CSV_ROWS}** | {source_csv_rows:,} |"
             if source_csv_rows is not None
-            else f"| **{ROW_LABEL_SOURCE_CSV_ROWS}** | {NOT_YET_AVAILABLE_NOTE} |"
+            else f"| **{ROW_LABEL_SOURCE_CSV_ROWS}** | {NOT_YET_AVAILABLE_SOURCE_CSV_ROWS_NOTE} |"
         )
         lines.append(
             f"| **{ROW_LABEL_TOTAL_VIOLATIONS}** | {total_violations:,} |"
             if total_violations is not None
-            else f"| **{ROW_LABEL_TOTAL_VIOLATIONS}** | {NOT_YET_AVAILABLE_NOTE} |"
+            else f"| **{ROW_LABEL_TOTAL_VIOLATIONS}** | {NOT_YET_AVAILABLE_TOTAL_VIOLATIONS_NOTE} |"
         )
 
     import getpass
