@@ -40,6 +40,20 @@ Still prompt for genuinely ambiguous situations (e.g. multiple candidate release
 
 **Important**: Step 0 creates a `context.yaml` file in a timestamped run directory under `~/.conforma/` and sets it as the active run via a `.conforma-active` symlink. Step 1 persists prerequisite results (including Slack availability) to context.yaml. Step 2 enriches the context with release and environment data. All subsequent scripts auto-discover the active run directory and read `release`, `environment`, output paths, and intermediate results from `context.yaml`. **Do NOT pass `--release`, `--releases`, `--environment`, `--run-dir`, `--require-slack`, or output paths as CLI arguments** — the scripts resolve them automatically. Only pass arguments that represent behavioral choices not stored in context.yaml (e.g. `--format markdown`, `--dry-run`).
 
+### Long-running steps (HARD REQUIREMENT)
+
+Some steps exceed the agent's ~30s foreground command cap (fetching CSVs, and the `ec validate` coverage check most notably). **Do NOT run them as plain foreground commands** — they will time out — and **do NOT improvise a `nohup`/`sleep`/`ps` polling loop** — repeated identical poll commands trigger the harness "repeated identical call" loop detector and the task is aborted.
+
+Instead, route them through the deterministic long-task runner, which owns both the background launch and the wait loop:
+
+```bash
+~/.conforma/bin/conforma_run.sh scripts/run_long_task.py launch <step> <script-path>
+```
+
+`launch` returns JSON with a `next_command` field. **Run that `next_command` verbatim.** It is a `wait` call that blocks up to ~25s, returns `status` (`running` / `done` / `failed`) plus a new `next_command` whose `--seq` has incremented. Repeat the returned `next_command` verbatim — never editing it — until `status` is `done` or `failed`. The incrementing `--seq` guarantees no two wait calls are byte-identical, so the loop detector cannot fire no matter how long the step runs.
+
+State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and `<run_dir>/<step>.exit`, so a restarted agent can resume from the files. On `failed`, read `<run_dir>/<step>.log` and report the error before continuing. This mechanism is defined in `scripts/run_long_task.py` and applies to any conforma skill.
+
 0. **Initialize conforma run (REQUIRED before any script)**: Run with Bash description: `"Initialize conforma run context for <extracted_release_text>"`:
 
 ```bash
@@ -97,26 +111,36 @@ Still prompt for genuinely ambiguous situations (e.g. multiple candidate release
    - **`"in_progress"`** -- render the `display` field as markdown, then use AskQuestion with `question_text` and `question_options` from the tooling health JSON verbatim. If the user chooses to wait, monitor the run using `~/.conforma/bin/conforma_run.sh scripts/run_github_workflow.py monitor --repo-url https://github.com/red-hat-data-services/conforma-reporter --run-id RUN_ID --timeout 60 --poll-interval 60`, then re-run the tooling health check. If the run fails after waiting, fall back to the unhealthy prompt.
    - **`"no_runs"`** -- render the `display` field as markdown, warn ("No conforma-reporter runs found for this branch -- report may not exist") and proceed.
 
-4. **Fetch reports**: Fetch CSVs into the active run directory. Use Bash description: `"Fetch Conforma violation CSV reports"`:
+4. **Fetch reports** *(long-running step)*: Fetch CSVs into the active run directory. **This step can take several minutes** and exceeds the ~30s foreground command cap, so it MUST run through the long-task runner (see the "Long-running steps" rule below) — do NOT run it as a plain foreground command, and do NOT improvise a `nohup`/`sleep`/`ps` polling loop.
 
-```bash
-~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_csv_reports.py
-```
+   ```bash
+   # 1. Launch the fetch in the background (Bash description: "Fetch Conforma violation CSV reports"):
+   ~/.conforma/bin/conforma_run.sh scripts/run_long_task.py launch fetch skills/conforma-report-fetch/scripts/fetch_csv_reports.py
+   ```
 
-   The script reads release, environment, output directory, and metadata file path from `context.yaml` automatically.
+   Then run the **exact `next_command` string from the JSON output** (a `wait` call). Each round blocks up to ~25s and returns `status` plus a new `next_command` whose `--seq` has incremented. Repeat the returned `next_command` verbatim until `status` is `done` or `failed`:
+
+   ```bash
+   # 2. Repeat the returned next_command verbatim until status becomes "done":
+   ~/.conforma/bin/conforma_run.sh scripts/run_long_task.py wait fetch --seq 1 --timeout 25
+   ```
+
+   If `status` is `failed`, read `<run_dir>/fetch.log` and report the error before continuing.
+
+    The script reads release, environment, output directory, and metadata file path from `context.yaml` automatically.
 
    **Do NOT pass `--releases`** for the standard single-release workflow — the script reads the release from `context.yaml` automatically. The `--releases` flag is ONLY for the rare cross-release comparison use case (when the user explicitly asks to compare multiple releases side by side):
 
 ```bash
 # ONLY for cross-release comparison — never for the standard workflow:
-~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_csv_reports.py \
-  --releases rhoai-2.25,rhoai-3.4
+# (long-running: launch + repeat next_command, as above)
+~/.conforma/bin/conforma_run.sh scripts/run_long_task.py launch fetch skills/conforma-report-fetch/scripts/fetch_csv_reports.py -- --releases rhoai-2.25,rhoai-3.4
 ```
 
-   To fetch ALL supported releases (rare — only for full-portfolio audits):
+   To fetch ALL supported releases (rare — only for full-portfolio audits). Use the `--all` target arg (note the `--` separator before the target) and a distinct step name so it does not collide with a standard `fetch`:
 
 ```bash
-~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch_csv_reports.py --all
+~/.conforma/bin/conforma_run.sh scripts/run_long_task.py launch fetch-all skills/conforma-report-fetch/scripts/fetch_csv_reports.py -- --all
 ```
 
    The output directory will contain `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release. The `fetch-metadata.json` contains `source_path` and `created_at` per release — needed by downstream steps. Some in-development/EA branches may not have report CSVs yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
@@ -174,11 +198,23 @@ Still prompt for genuinely ambiguous situations (e.g. multiple candidate release
 
    The script reads violations YAML, CSV path, release, environment, clone directory, metadata file, and output path from `context.yaml` automatically. The script manages the `~/.conforma/konflux-release-data` clone (fresh fetch + reset). It enforces the repo clone policy: it will `git fetch` any existing clone and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
 
-```bash
-~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/violations_coverage.py
-```
+    **This step can take several minutes** (it runs `ec validate` across every component) and exceeds the ~30s foreground command cap, so it MUST run through the long-task runner (see the "Long-running steps" rule below) — do NOT run it as a plain foreground command, and do NOT improvise a `nohup`/`sleep`/`ps` polling loop.
 
-   The coverage table is the primary deliverable and is included in the TODO preview (step 9). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
+    ```bash
+    # 1. Launch the coverage check in the background (Bash description: "Cross-reference violations with exceptions, Merge Requests, Jira, Slack"):
+    ~/.conforma/bin/conforma_run.sh scripts/run_long_task.py launch coverage skills/conforma-analyze/scripts/violations_coverage.py
+    ```
+
+    Then run the **exact `next_command` string from the JSON output**. Each round blocks up to ~25s and returns `status` plus a new `next_command` whose `--seq` has incremented — run the returned command verbatim, and **do NOT stop or change it**, until `status` is `done` or `failed`. The incrementing `--seq` is what keeps this from tripping a harness "repeated identical command" loop detector:
+
+    ```bash
+    # 2. Repeat the returned next_command verbatim until status becomes "done":
+    ~/.conforma/bin/conforma_run.sh scripts/run_long_task.py wait coverage --seq 1 --timeout 25
+    ```
+
+    If `status` is `failed`, read `<run_dir>/coverage.log` and report the error before continuing.
+
+    The coverage table is the primary deliverable and is included in the TODO preview (step 9). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
 
 8. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **TODO preview** is presented in the chat — the full guide is submitted to GitHub. See step 9 for the generation command and presentation rules.
 
