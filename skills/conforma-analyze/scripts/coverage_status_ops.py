@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 import component_alias_ops
 import conforma_ec_validate
-import conforma_jira_ops
 import conforma_mr_ops
 import conforma_policy_ops
 import conforma_slack_ops
@@ -24,6 +23,7 @@ import slack_ops
 from conforma_constants import (
     CONFORMA_REPORTER_URL,
     VERIFY_NEXT_STEP,
+    build_label_discovery_jql,
 )
 
 
@@ -131,12 +131,7 @@ def build_search_urls(
             f"/-/merge_requests?state=opened&search={encoded_rule}"
         )
 
-    jql = (
-        f"{conforma_jira_ops.SEARCH_PROJECTS_JQL} "
-        f"AND labels = 'conforma-violation' "
-        f"AND status not in (Closed, Resolved, Done) "
-        f"AND summary ~ '{rule}'"
-    )
+    jql = f"{build_label_discovery_jql()} AND summary ~ '{rule}'"
     jira_search_url = f"https://redhat.atlassian.net/issues/?jql={urllib.parse.quote(jql)}"
 
     slack_search_url = ""

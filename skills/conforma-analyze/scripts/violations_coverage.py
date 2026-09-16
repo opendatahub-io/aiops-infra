@@ -527,7 +527,6 @@ def check_violations_coverage(
         _log(f"  [Jira] Searching Jira tickets for {len(all_rules)} rules...")
         result = conforma_jira_ops.prefetch_open_jira_tickets(
             all_rules,
-            releases=releases,
             rule_to_components=rule_to_components,
             aliases=aliases,
         )
