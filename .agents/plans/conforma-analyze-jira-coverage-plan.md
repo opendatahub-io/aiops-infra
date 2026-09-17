@@ -325,10 +325,10 @@ Start point: all tickets with the `conforma` label (7 projects, all statuses; `-
 - **Phase 0:** DONE. C0 = `0b466cc` — committed pre-existing in-flight work under RHAIENG-6190; tree clean (verified `git status --porcelain` empty).
 - **Phase 1:** DONE. C1 `5f52f49` (conforma_constants 7-project JQL + tests), C2 `1da82ee` (search_issues raises JiraSearchError, no silent empty; CLI catches + exit 1), C3 `041f569` (search_issues returns priority/components/target_versions). Full suite 2364 passed.
 - **Phase 2:** DONE. C4 `ba1cf50` — `tests/check_script_coverage.py` (coverage run + json, per-target >97% strict, skip-on-absent) + `tests/unit/test_check_script_coverage.py` (14 tests). Baseline at C4: conforma_constants 100%, ticket_ops skip, jira_ops 58.5%, conforma_jira_ops 85.8%. **Pre-commit wiring deferred to Step 5.1** (would block C5–C10 otherwise).
-- **Phase 3:** NOT STARTED. (C5 script, C6 TargetVersion, C7 guide-URL comment)
-- **Review R1:** PENDING — paste `claude -p` `.result` here.
-- **Phase 4:** NOT STARTED. (C8 cutover, C9 renderer, C10 workflow/docs)
-- **Phase 5:** NOT STARTED. (C11 validation)
-- **Review R2:** PENDING — paste `claude -p` `.result` here.
+- **Phase 3:** DONE. C5/C6/C7 landed in `fe2aeaa` (`conforma_jira_ticket_ops` + TargetVersion + guide-URL comment).
+- **Review R1:** PENDING — never recorded (scheduled after C7; C7 landed in `fe2aeaa`, verdict was never recorded).
+- **Phase 4:** DONE. C8 `85b636d` (cutover to label-first discovery), C9 `7e24f82` (renderer: Jira block + JIRAs cell + per-row Jira column + pre-fill links), C10 `10349c0` (workflow Step 8 Jira Sync + docs).
+- **Phase 5:** DONE. C11 (validation) — unit suite 2597 passed / 5 skipped; coverage gate 98.1 / 100.0 / 99.5 / 98.3 (all >97%); `check-script-coverage` pre-commit hook wired + passing; live `find` (read-only) discovered 98 conforma tickets. **Two defects found & fixed in C11:** (1) stale `patch(...)` targets in two tests broken by the in-flight ruff F401 cleanup — fixed by patching the real implementation modules; (2) `find` performed self-heal label **writes by default** (51 `+conforma` writes observed on the live tenant during the first run) — `cmd_find` is now unconditionally read-only. **Open DoD gap:** RHOAIENG-70681 has `labels: []` (live-verified) and is therefore not discoverable by the label-first design; needs product decision (accept / one-time label / keyword pass).
+- **Review R2:** PENDING — run after C11; paste `claude -p` `.result` here.
 
 **How to resume:** start at the first NOT STARTED step above; each step lists its files, tests, and commit id. Do not skip the commit or the DoD. Do not create real Jira tickets without explicit user confirmation (live `find` in Phase 5 is read-only).

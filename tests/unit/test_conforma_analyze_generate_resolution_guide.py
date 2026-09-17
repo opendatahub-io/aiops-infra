@@ -1790,7 +1790,9 @@ class TestTodoPreviewFile:
         )
 
         frozen = datetime(2026, 7, 4, 12, 0, 0, tzinfo=timezone.utc)
-        with patch("generate_resolution_guide.datetime") as mock_dt:
+        # All datetime usage (timestamp, expiry parsing) now lives in guide_renderers
+        # (generate_resolution_guide no longer imports datetime), so patch there.
+        with patch("guide_renderers.datetime") as mock_dt:
             mock_dt.now.return_value = frozen
             mock_dt.fromisoformat = datetime.fromisoformat
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)

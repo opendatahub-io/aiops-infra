@@ -793,18 +793,15 @@ def compact_summary(sync_output: dict) -> str:
     return "\n".join(lines)
 
 
-def cmd_find(dry_run: bool) -> int:
-    """Discovery-only: print the ticket table (read-only by default)."""
+def cmd_find() -> int:
+    """Discovery only: print the ticket table. Always read-only —
+    label self-healing is the job of the audit/repair/sync commands."""
     tickets = discover_conforma_tickets()
     print(f"Discovered {len(tickets)} conforma tickets:")
     for t in tickets:
         status = t.get("status", "?")
         role = "existing" if is_open(status) else "prior-issue"
         print(f"  {t.get('key')}  [{role}]  {status}  {t.get('summary', '')}")
-    if not dry_run:
-        actions = self_heal_labels(tickets)
-        for a in actions:
-            print(f"  {a}")
     return 0
 
 
@@ -873,8 +870,7 @@ def main() -> int:
     sync_p = sub.add_parser("sync", help="Full workflow sync")
     sync_p.add_argument("--dry-run", action="store_true", help="No Jira writes (discovery read-only, create planned)")
 
-    find_p = sub.add_parser("find", help="Discovery only")
-    find_p.add_argument("--dry-run", action="store_true", help="Skip self-heal writes")
+    sub.add_parser("find", help="Discovery only (read-only, no label self-heal)")
 
     sub.add_parser("audit", help="Audit the conforma index")
     sub.add_parser("repair", help="Audit + repair")
@@ -891,7 +887,7 @@ def main() -> int:
             print(json.dumps(out, indent=2))
             print(compact_summary(out))
         elif args.command == "find":
-            return cmd_find(dry_run=args.dry_run)
+            return cmd_find()
         elif args.command == "audit":
             return cmd_audit()
         elif args.command == "repair":

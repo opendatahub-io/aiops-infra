@@ -268,9 +268,11 @@ class TestBuildPsxFilledAdf:
 
 class TestBuildProvenanceFooter:
     def test_includes_repo_and_user(self):
+        # build_provenance_footer now lives in jira_description_builders (re-exported
+        # by create_jira_ticket), so patch the modules it actually imports.
         with (
-            patch("create_jira_ticket.getpass.getuser", return_value="testuser"),
-            patch("create_jira_ticket.platform.node", return_value="testhost"),
+            patch("jira_description_builders.getpass.getuser", return_value="testuser"),
+            patch("jira_description_builders.platform.node", return_value="testhost"),
         ):
             footer = cjt.build_provenance_footer()
         assert "---" in footer

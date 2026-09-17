@@ -59,3 +59,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: check-script-coverage
+        name: per-script coverage >97% for plan-touched scripts
+        entry: python tests/check_script_coverage.py
+        language: system
+        pass_filenames: false
+        always_run: true

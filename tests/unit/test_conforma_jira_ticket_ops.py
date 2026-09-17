@@ -970,21 +970,33 @@ class TestPrivateHelpers:
 # CLI
 # ---------------------------------------------------------------------------
 class TestCmdFind:
-    def test_prints_table_and_self_heals(self, monkeypatch, capsys):
+    def test_prints_table_no_writes(self, monkeypatch, capsys):
         monkeypatch.setattr(mod, "discover_conforma_tickets", lambda **k: [dict(OPEN_TICKET), dict(CLOSED_TICKET)])
-        monkeypatch.setattr(mod, "self_heal_labels", lambda tickets: ["labeled K +conforma"])
-        assert mod.cmd_find(dry_run=False) == 0
+
+        def no_write(tickets):
+            raise AssertionError("find must not self-heal (read-only)")
+
+        monkeypatch.setattr(mod, "self_heal_labels", no_write)
+        assert mod.cmd_find() == 0
         out = capsys.readouterr().out
         assert "Discovered 2 conforma tickets:" in out
         assert "RHOAIENG-80001  [existing]  In Progress" in out
         assert "RHOAIENG-70681  [prior-issue]  Closed" in out
-        assert "labeled K +conforma" in out
+        assert "labeled" not in out
 
-    def test_dry_run_skips_self_heal(self, monkeypatch, capsys):
-        monkeypatch.setattr(mod, "discover_conforma_tickets", lambda **k: [])
-        monkeypatch.setattr(mod, "self_heal_labels", lambda tickets: (_ for _ in ()).throw(AssertionError("no heal")))
-        assert mod.cmd_find(dry_run=True) == 0
-        assert "Discovered 0" in capsys.readouterr().out
+    def test_find_is_read_only_even_for_unlabeled_tickets(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            mod,
+            "discover_conforma_tickets",
+            lambda **k: [{"key": "K-1", "labels": [], "summary": "Conforma violation: r in a"}],
+        )
+
+        def no_write(tickets):
+            raise AssertionError("find must not self-heal (read-only)")
+
+        monkeypatch.setattr(mod, "self_heal_labels", no_write)
+        assert mod.cmd_find() == 0
+        assert "Discovered 1" in capsys.readouterr().out
 
 
 class TestCmdAudit:
@@ -1050,8 +1062,8 @@ class TestMain:
         assert "## Jira sync summary" in out
 
     def test_find_dispatch(self, monkeypatch, capsys):
-        self._set_argv(monkeypatch, "find", "--dry-run")
-        monkeypatch.setattr(mod, "cmd_find", lambda dry_run: 0)
+        self._set_argv(monkeypatch, "find")
+        monkeypatch.setattr(mod, "cmd_find", lambda: 0)
         assert mod.main() == 0
 
     def test_audit_dispatch(self, monkeypatch):
