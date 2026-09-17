@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import re
 import shutil
 import subprocess
 
@@ -319,13 +318,15 @@ def search_issues(
         data = resp.json()
         issues = []
         for item in data.get("items", [])[:max_results]:
-            issues.append({
-                "url": item.get("html_url", ""),
-                "title": item.get("title", ""),
-                "state": item.get("state", ""),
-                "created_at": item.get("created_at", ""),
-                "number": item.get("number"),
-            })
+            issues.append(
+                {
+                    "url": item.get("html_url", ""),
+                    "title": item.get("title", ""),
+                    "state": item.get("state", ""),
+                    "created_at": item.get("created_at", ""),
+                    "number": item.get("number"),
+                }
+            )
         return {"issues": issues, "total": data.get("total_count", 0)}
     except requests.RequestException as exc:
         return {"error": f"GitHub API request failed: {exc}"}
@@ -363,6 +364,7 @@ def check_workflow_run(repo: str, run_id: int | str) -> dict:
 
 def main() -> None:
     import konflux_environment
+
     konflux_environment.load()
 
     parser = argparse.ArgumentParser(description="GitHub primitives")
@@ -421,9 +423,11 @@ def main() -> None:
         result = create_issue(args.repo, args.title, args.body, labels=args.labels)
     elif args.command == "search-issues":
         result = search_issues(
-            args.repo, labels=args.labels,
+            args.repo,
+            labels=args.labels,
             title_keywords=args.title_keywords,
-            state=args.state, max_results=args.max_results,
+            state=args.state,
+            max_results=args.max_results,
         )
     elif args.command == "check-workflow-run":
         result = check_workflow_run(args.repo, args.run_id)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import konflux_environment
@@ -108,6 +110,42 @@ class TestSlackCheckMarkedOptional:
             result = prereqs._check_slack_auth()
         assert result["optional"] is True
         assert result["ok"] is False
+
+
+class TestKonfluxCheck:
+    @patch.object(prereqs, "_probe_konflux_cluster", return_value=(True, True, None))
+    @patch.object(prereqs.konflux_environment, "_check_konflux_connectivity")
+    @patch("konflux_tenant_env_discovery.discover")
+    @patch("gitlab_ops.discover_token", return_value="gitlab-token")
+    def test_preferred_cluster_discovery_populates_domain(
+        self, _mock_token, mock_discover, mock_konflux_connectivity, _mock_probe
+    ):
+        context = SimpleNamespace(
+            cluster=SimpleNamespace(cluster_domain="stone-stg-p01.hjvn.p1"),
+            conforma_policy_dir="",
+            conforma_policy_files=[],
+            rpa_dir="",
+            self_service_files=[],
+            rpa_subdirs=[],
+        )
+        mock_discover.return_value = context
+        mock_konflux_connectivity.side_effect = lambda result: setattr(result, "konflux_reachable", None)
+
+        with patch.dict(
+            os.environ,
+            {
+                "KONFLUX_TENANT": "rhoai-tenant",
+                "PREFERRED_KONFLUX_CLUSTER": "stone-stg-p01",
+                "GITLAB_HOST": "gitlab.example.com",
+                "GITLAB_TOKEN": "gitlab-token",
+            },
+            clear=True,
+        ):
+            result = prereqs._check_konflux()
+            assert os.environ["KONFLUX_CLUSTER_DOMAIN"] == "stone-stg-p01.hjvn.p1"
+
+        assert result["ok"] is True
+        mock_discover.assert_called_once_with("rhoai-tenant", preferred_cluster="stone-stg-p01")
 
 
 class TestFormatMarkdown:

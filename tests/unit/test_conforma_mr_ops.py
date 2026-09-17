@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import requests
+
 import conforma_mr_ops as mod
 
 
@@ -31,6 +33,67 @@ class TestEnsureGitlabEnv:
         mod._ensure_gitlab_env()
         mock_discover.assert_called_once()
         assert mod.os.environ.get("GITLAB_TOKEN") is None
+
+
+class TestJiraReferenceDiscovery:
+    def test_extracts_keys_from_urls_and_plain_text(self):
+        assert mod.extract_jira_keys(
+            "See https://redhat.atlassian.net/browse/RHOAIENG-88509 and PSX-11."
+        ) == ["RHOAIENG-88509", "PSX-11"]
+
+    def test_scans_merge_request_description_and_commits(self, monkeypatch):
+        project = MagicMock()
+        merge_request = MagicMock(
+            iid=22104,
+            title="RHOAIENG-88509: Add policy exceptions",
+            web_url="https://gitlab.example/mr/22104",
+        )
+        merge_request.description = "Tracks RHOAIENG-88509"
+        merge_request.commits.return_value = [
+            MagicMock(message="Fixes RHOAIENG-88509"),
+            MagicMock(message="Also relates PSX-11"),
+        ]
+        project.mergerequests.list.return_value = [merge_request]
+        monkeypatch.setattr(mod, "_get_project", lambda: project)
+
+        result = mod.discover_jira_references()
+
+        assert [(item["key"], item["source"]) for item in result] == [
+            ("RHOAIENG-88509", "merge_request_title"),
+            ("RHOAIENG-88509", "merge_request"),
+            ("RHOAIENG-88509", "commit"),
+            ("PSX-11", "commit"),
+        ]
+        project.mergerequests.list.assert_called_once_with(
+            state="opened", per_page=100, get_all=True, timeout=30
+        )
+
+    def test_retries_merge_request_listing_after_timeout(self, monkeypatch):
+        project = MagicMock()
+        merge_request = MagicMock(iid=22104, web_url="https://gitlab.example/mr/22104")
+        merge_request.description = "Tracks RHOAIENG-88509"
+        merge_request.commits.return_value = []
+        project.mergerequests.list.side_effect = [
+            requests.exceptions.ReadTimeout("temporary"),
+            [merge_request],
+        ]
+        monkeypatch.setattr(mod, "_get_project", lambda: project)
+
+        with patch("conforma_mr_ops.gitlab_ops.time.sleep"):
+            result = mod.discover_jira_references()
+
+        assert result[0]["key"] == "RHOAIENG-88509"
+        assert project.mergerequests.list.call_count == 2
+
+    def test_gitlab_failure_propagates(self, monkeypatch):
+        error = RuntimeError("GitLab authentication failed")
+        monkeypatch.setattr(mod, "_get_project", lambda: (_ for _ in ()).throw(error))
+
+        try:
+            mod.discover_jira_references()
+            raise AssertionError("expected GitLab failure")
+        except RuntimeError as exc:
+            assert str(exc) == "GitLab authentication failed"
 
 
 class TestImageUrlCoversComponent:
@@ -311,6 +374,30 @@ class TestBuildCoverageResultWithAliases:
         assert result["covered"] == ["comp-new"]
         assert result["missing"] == ["comp-other"]
 
+    def test_unversioned_merge_request_component_covers_all_versions(self):
+        result = mod._build_coverage_result(
+            {},
+            mr_components=["odh-component"],
+            requested_components=["odh-component-v3-5", "odh-component-v3-6"],
+            source="diff",
+        )
+
+        assert result["suggestion"] == "fully_covered"
+        assert result["covered"] == ["odh-component-v3-5", "odh-component-v3-6"]
+        assert result["missing"] == []
+
+    def test_versioned_merge_request_component_stays_version_specific(self):
+        result = mod._build_coverage_result(
+            {},
+            mr_components=["odh-component-v3-5"],
+            requested_components=["odh-component-v3-5", "odh-component-v3-6"],
+            source="diff",
+        )
+
+        assert result["suggestion"] == "extend_mr"
+        assert result["covered"] == ["odh-component-v3-5"]
+        assert result["missing"] == ["odh-component-v3-6"]
+
 
 class TestParseDiffLines:
     """Tests for _parse_diff_lines helper."""
@@ -339,10 +426,7 @@ class TestParseComponentsFromDiffGlobalCoverage:
     """Tests for global exclusion detection in _parse_components_from_diff."""
 
     def test_bare_rule_permanent_exclusion(self):
-        diff = (
-            "+          # AMD ROCm RPM signing key\n"
-            "+          - rpm_signature.allowed:9386b48a1a693c5c\n"
-        )
+        diff = "+          # AMD ROCm RPM signing key\n+          - rpm_signature.allowed:9386b48a1a693c5c\n"
         result = mod._parse_components_from_diff(diff, "rpm_signature.allowed:9386b48a1a693c5c")
         assert result == mod.GLOBAL_COVERAGE
 
@@ -373,46 +457,31 @@ class TestParseComponentsFromDiffGlobalCoverage:
 
     def test_bare_rule_in_context_line_not_matched(self):
         """Pre-existing bare item in context is NOT a new addition."""
-        diff = (
-            "           - rpm_signature.allowed:9386b48a1a693c5c\n"
-            "+          - rpm_signature.allowed:newrule123\n"
-        )
+        diff = "           - rpm_signature.allowed:9386b48a1a693c5c\n+          - rpm_signature.allowed:newrule123\n"
         result = mod._parse_components_from_diff(diff, "rpm_signature.allowed:9386b48a1a693c5c")
         assert result == []
 
     def test_volatile_without_component_scoping_is_global(self):
-        diff = (
-            "+          - value: rpm_signature.allowed:abc123\n"
-            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
-        )
+        diff = '+          - value: rpm_signature.allowed:abc123\n+            effectiveUntil: "2026-12-31T00:00:00Z"\n'
         result = mod._parse_components_from_diff(diff, "rpm_signature.allowed:abc123")
         assert result == mod.GLOBAL_COVERAGE
 
     def test_volatile_with_component_names_is_not_global(self):
-        diff = (
-            "+          - value: hermetic_task.hermetic\n"
-            "+            componentNames:\n"
-            "+              - comp-a\n"
-        )
+        diff = "+          - value: hermetic_task.hermetic\n+            componentNames:\n+              - comp-a\n"
         result = mod._parse_components_from_diff(diff, "hermetic_task.hermetic")
         assert result == ["comp-a"]
 
     def test_volatile_with_image_url_resolves_matching_components(self):
-        diff = (
-            "+          - value: hermetic_task.hermetic\n"
-            "+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
-        )
+        diff = "+          - value: hermetic_task.hermetic\n+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
         result = mod._parse_components_from_diff(
-            diff, "hermetic_task.hermetic",
+            diff,
+            "hermetic_task.hermetic",
             requested_components=["odh-dashboard-v3-4", "odh-model-v3-4"],
         )
         assert result == ["odh-dashboard-v3-4"]
 
     def test_volatile_with_image_url_no_requested_returns_empty(self):
-        diff = (
-            "+          - value: hermetic_task.hermetic\n"
-            "+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
-        )
+        diff = "+          - value: hermetic_task.hermetic\n+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
         result = mod._parse_components_from_diff(diff, "hermetic_task.hermetic")
         assert result == []
 
@@ -431,23 +500,22 @@ class TestParseComponentsFromDiffGlobalCoverage:
         """MR adds effectiveUntil but imageUrl pre-exists as context."""
         diff = (
             "+          - value: hermetic_task.hermetic\n"
-            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-12-31T00:00:00Z"\n'
             "             imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
         )
         result = mod._parse_components_from_diff(
-            diff, "hermetic_task.hermetic",
+            diff,
+            "hermetic_task.hermetic",
             requested_components=["odh-dashboard-v3-4", "odh-modelmesh-v3-4"],
         )
         assert result == ["odh-dashboard-v3-4"]
 
     def test_volatile_with_image_url_no_match(self):
         """imageUrl doesn't match any requested component."""
-        diff = (
-            "+          - value: hermetic_task.hermetic\n"
-            "+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
-        )
+        diff = "+          - value: hermetic_task.hermetic\n+            imageUrl: quay.io/rhoai/odh-dashboard-rhel9\n"
         result = mod._parse_components_from_diff(
-            diff, "hermetic_task.hermetic",
+            diff,
+            "hermetic_task.hermetic",
             requested_components=["odh-model-v3-4", "odh-modelmesh-v3-4"],
         )
         assert result == []
@@ -459,10 +527,7 @@ class TestParseComponentsFromDiffGlobalCoverage:
 
     def test_value_in_context_line_not_matched(self):
         """Pre-existing - value: in context should not trigger global."""
-        diff = (
-            "           - value: hermetic_task.hermetic\n"
-            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
-        )
+        diff = '           - value: hermetic_task.hermetic\n+            effectiveUntil: "2026-12-31T00:00:00Z"\n'
         result = mod._parse_components_from_diff(diff, "hermetic_task.hermetic")
         assert result == []
 
@@ -487,7 +552,7 @@ class TestParseComponentsFromDiffSuffixMatching:
     def test_base_rule_matches_suffixed_volatile_global(self):
         diff = (
             "+          - value: sbom_spdx.allowed_package_sources:pkg:generic\n"
-            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-12-31T00:00:00Z"\n'
         )
         result = mod._parse_components_from_diff(diff, "sbom_spdx.allowed_package_sources")
         assert result == mod.GLOBAL_COVERAGE
@@ -555,7 +620,7 @@ class TestAnalyzeMrGlobalCoverage:
         diff = (
             "+++ b/config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml\n"
             "+          - value: test.rule\n"
-            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-12-31T00:00:00Z"\n'
         )
         mod._mr_cache.store(
             999,
@@ -597,14 +662,14 @@ class TestExtractAllRulesFromChanges:
         return {"new_path": path, "diff": diff}
 
     def test_volatile_exception_single_rule(self):
-        diff = "+  - value: hermetic_task.hermetic\n+    effectiveUntil: \"2026-12-31\"\n"
+        diff = '+  - value: hermetic_task.hermetic\n+    effectiveUntil: "2026-12-31"\n'
         result = mod._extract_all_rules_from_changes([self._make_change(diff)])
         assert result == {"hermetic_task.hermetic"}
 
     def test_volatile_exception_multiple_rules(self):
         diff = (
             "+  - value: hermetic_task.hermetic\n"
-            "+    effectiveUntil: \"2026-12-31\"\n"
+            '+    effectiveUntil: "2026-12-31"\n'
             "+  - value: prefetch_dependencies.mode_not_permissive\n"
         )
         result = mod._extract_all_rules_from_changes([self._make_change(diff)])
@@ -671,8 +736,7 @@ class TestAnalyzeMrRulesInDiff:
     def test_rules_in_diff_populated(self):
         self._store(
             101,
-            "+  - value: hermetic_task.hermetic\n"
-            "+  - value: prefetch_dependencies.mode_not_permissive\n",
+            "+  - value: hermetic_task.hermetic\n+  - value: prefetch_dependencies.mode_not_permissive\n",
         )
         result = mod.analyze_mr_component_coverage(
             mr_iid=101, rule="hermetic_task.hermetic", requested_components=["comp-a"]
@@ -686,16 +750,12 @@ class TestAnalyzeMrRulesInDiff:
             102,
             [{"new_path": "tekton/pipeline/push.yaml", "diff": "+  - step: build\n"}],
         )
-        result = mod.analyze_mr_component_coverage(
-            mr_iid=102, rule="hermetic_task.hermetic", requested_components=[]
-        )
+        result = mod.analyze_mr_component_coverage(mr_iid=102, rule="hermetic_task.hermetic", requested_components=[])
         assert result["rules_in_diff"] == []
 
     def test_title_mentions_rule_false_when_no_title(self):
         self._store(103, "+  - value: hermetic_task.hermetic\n")
-        result = mod.analyze_mr_component_coverage(
-            mr_iid=103, rule="hermetic_task.hermetic", requested_components=[]
-        )
+        result = mod.analyze_mr_component_coverage(mr_iid=103, rule="hermetic_task.hermetic", requested_components=[])
         # result_base doesn't get a "title" key from this path — mentions defaults to False
         assert isinstance(result.get("title_mentions_rule"), bool)
 
@@ -780,11 +840,11 @@ class TestDiscoverMrsByDiff:
     @patch("conforma_mr_ops._mr_touches_policy_files")
     @patch("conforma_mr_ops._get_project")
     def test_discovers_mrs_touching_policy_files(self, mock_get_project, mock_touches):
-        mock_mr1 = MagicMock(iid=10, title="policy MR", web_url="https://gl/!10",
-                             description="", created_at="2026-01-01")
+        mock_mr1 = MagicMock(
+            iid=10, title="policy MR", web_url="https://gl/!10", description="", created_at="2026-01-01"
+        )
         mock_mr1.author = {"username": "alice"}
-        mock_mr2 = MagicMock(iid=20, title="code MR", web_url="https://gl/!20",
-                             description="", created_at="2026-01-02")
+        mock_mr2 = MagicMock(iid=20, title="code MR", web_url="https://gl/!20", description="", created_at="2026-01-02")
         mock_mr2.author = {"username": "bob"}
         mock_get_project.return_value.mergerequests.list.return_value = [mock_mr1, mock_mr2]
 
@@ -825,12 +885,21 @@ class TestPrefetchOpenMrsDiffDiscovery:
         mod._mr_cache._diffs.clear()
 
     def test_diff_discovered_mr_matched_to_rule_via_cross_index(self):
-        policy_changes = [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
-            "+          - rpm_signature.allowed:fa296b056c5bb456\n"
-        )}]
+        policy_changes = [
+            {
+                "new_path": "EnterpriseContractPolicy/registry.yaml",
+                "diff": ("+          - rpm_signature.allowed:fa296b056c5bb456\n"),
+            }
+        ]
         diff_mr_info = {
-            300: {"iid": 300, "title": "sync signing keys", "url": "https://gl/!300",
-                  "author": "alice", "created_at": "", "description": ""},
+            300: {
+                "iid": 300,
+                "title": "sync signing keys",
+                "url": "https://gl/!300",
+                "author": "alice",
+                "created_at": "",
+                "description": "",
+            },
         }
 
         mod._mr_cache.store(300, policy_changes)
@@ -847,14 +916,25 @@ class TestPrefetchOpenMrsDiffDiscovery:
         assert "rpm_signature.allowed:fa296b056c5bb456" in entry["diff_rules"]
 
     def test_diff_discovery_finds_mr_invisible_to_text_search(self):
-        policy_changes = [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
-            "+          - value: hermetic_task.hermetic\n"
-            "+            componentNames:\n"
-            "+              - comp-a\n"
-        )}]
+        policy_changes = [
+            {
+                "new_path": "EnterpriseContractPolicy/registry.yaml",
+                "diff": (
+                    "+          - value: hermetic_task.hermetic\n"
+                    "+            componentNames:\n"
+                    "+              - comp-a\n"
+                ),
+            }
+        ]
         diff_mr_info = {
-            301: {"iid": 301, "title": "unrelated title", "url": "https://gl/!301",
-                  "author": "", "created_at": "", "description": ""},
+            301: {
+                "iid": 301,
+                "title": "unrelated title",
+                "url": "https://gl/!301",
+                "author": "",
+                "created_at": "",
+                "description": "",
+            },
         }
 
         mod._mr_cache.store(301, policy_changes)
@@ -868,10 +948,17 @@ class TestPrefetchOpenMrsDiffDiscovery:
         assert any(m["iid"] == 301 for m in result["hermetic_task.hermetic"])
 
     def test_no_duplicate_between_diff_discovery_and_text_search(self):
-        policy_changes = [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
-            "+  - value: hermetic_task.hermetic\n"
-        )}]
-        mr_info = {"iid": 302, "title": "hermetic exception", "url": "", "author": "", "created_at": "", "description": ""}
+        policy_changes = [
+            {"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": ("+  - value: hermetic_task.hermetic\n")}
+        ]
+        mr_info = {
+            "iid": 302,
+            "title": "hermetic exception",
+            "url": "",
+            "author": "",
+            "created_at": "",
+            "description": "",
+        }
 
         mod._mr_cache.store(302, policy_changes)
 
@@ -894,18 +981,30 @@ class TestPrefetchOpenMrsCrossIndex:
     def test_cross_index_adds_mr_to_rule_not_found_by_text_search(self):
         mod._mr_cache.store(
             200,
-            [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
-                "+  - value: hermetic_task.hermetic\n"
-                "+  - value: prefetch_dependencies.mode_not_permissive\n"
-            )}],
+            [
+                {
+                    "new_path": "EnterpriseContractPolicy/registry.yaml",
+                    "diff": (
+                        "+  - value: hermetic_task.hermetic\n+  - value: prefetch_dependencies.mode_not_permissive\n"
+                    ),
+                }
+            ],
         )
-        hermetic_mr = {"iid": 200, "title": "hermetic exception", "url": "https://gl/!200", "author": "", "created_at": "", "description": ""}
+        hermetic_mr = {
+            "iid": 200,
+            "title": "hermetic exception",
+            "url": "https://gl/!200",
+            "author": "",
+            "created_at": "",
+            "description": "",
+        }
 
         with (
             patch("conforma_mr_ops._discover_mrs_by_diff", return_value={}),
             patch("conforma_mr_ops.search_open_exception_mrs") as mock_search,
             patch("conforma_mr_ops._mr_cache.prefetch"),
         ):
+
             def side_effect(rule):
                 if rule == "hermetic_task.hermetic":
                     return [hermetic_mr]
@@ -920,12 +1019,23 @@ class TestPrefetchOpenMrsCrossIndex:
     def test_cross_indexed_mr_marked_found_by_text_search_false(self):
         mod._mr_cache.store(
             201,
-            [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
-                "+  - value: hermetic_task.hermetic\n"
-                "+  - value: sbom_spdx.disallowed_package_attributes\n"
-            )}],
+            [
+                {
+                    "new_path": "EnterpriseContractPolicy/registry.yaml",
+                    "diff": (
+                        "+  - value: hermetic_task.hermetic\n+  - value: sbom_spdx.disallowed_package_attributes\n"
+                    ),
+                }
+            ],
         )
-        hermetic_mr = {"iid": 201, "title": "hermetic exception", "url": "https://gl/!201", "author": "", "created_at": "", "description": ""}
+        hermetic_mr = {
+            "iid": 201,
+            "title": "hermetic exception",
+            "url": "https://gl/!201",
+            "author": "",
+            "created_at": "",
+            "description": "",
+        }
 
         with (
             patch("conforma_mr_ops._discover_mrs_by_diff", return_value={}),
@@ -945,7 +1055,14 @@ class TestPrefetchOpenMrsCrossIndex:
             202,
             [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": "+  - value: hermetic_task.hermetic\n"}],
         )
-        hermetic_mr = {"iid": 202, "title": "hermetic exception", "url": "", "author": "", "created_at": "", "description": ""}
+        hermetic_mr = {
+            "iid": 202,
+            "title": "hermetic exception",
+            "url": "",
+            "author": "",
+            "created_at": "",
+            "description": "",
+        }
 
         with (
             patch("conforma_mr_ops._discover_mrs_by_diff", return_value={}),
@@ -961,10 +1078,14 @@ class TestPrefetchOpenMrsCrossIndex:
     def test_no_duplicate_mr_after_cross_index(self):
         mod._mr_cache.store(
             203,
-            [{"new_path": "EnterpriseContractPolicy/registry.yaml", "diff": (
-                "+  - value: hermetic_task.hermetic\n"
-                "+  - value: prefetch_dependencies.mode_not_permissive\n"
-            )}],
+            [
+                {
+                    "new_path": "EnterpriseContractPolicy/registry.yaml",
+                    "diff": (
+                        "+  - value: hermetic_task.hermetic\n+  - value: prefetch_dependencies.mode_not_permissive\n"
+                    ),
+                }
+            ],
         )
         mr = {"iid": 203, "title": "multi-rule exception", "url": "", "author": "", "created_at": "", "description": ""}
 
@@ -990,12 +1111,12 @@ class TestExtractEffectiveUntilByComponent:
             "+            componentNames:\n"
             "+              - odh-mlmd-grpc-server-v3-6-ea-1\n"
             "+              - odh-openvino-model-server-v3-6-ea-1\n"
-            "+            effectiveUntil: \"2026-09-30T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-09-30T00:00:00Z"\n'
             "+          - value: hermetic_task.hermetic\n"
             "+            componentNames:\n"
             "+              - odh-mlmd-grpc-server-v3-6-ea-2\n"
             "+              - odh-openvino-model-server-v3-6-ea-2\n"
-            "+            effectiveUntil: \"2026-10-21T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-10-21T00:00:00Z"\n'
         )
         result = mod.extract_effective_until_by_component(diff, "hermetic_task.hermetic")
         assert result == {
@@ -1007,20 +1128,13 @@ class TestExtractEffectiveUntilByComponent:
 
     def test_returns_empty_dict_when_no_component_names(self):
         """Global exception (no componentNames) is not included in result."""
-        diff = (
-            "+          - value: hermetic_task.hermetic\n"
-            "+            effectiveUntil: \"2026-08-01T00:00:00Z\"\n"
-        )
+        diff = '+          - value: hermetic_task.hermetic\n+            effectiveUntil: "2026-08-01T00:00:00Z"\n'
         result = mod.extract_effective_until_by_component(diff, "hermetic_task.hermetic")
         assert result == {}
 
     def test_returns_empty_dict_when_no_effective_until(self):
         """Component-scoped exception without effectiveUntil."""
-        diff = (
-            "+          - value: hermetic_task.hermetic\n"
-            "+            componentNames:\n"
-            "+              - comp-a\n"
-        )
+        diff = "+          - value: hermetic_task.hermetic\n+            componentNames:\n+              - comp-a\n"
         result = mod.extract_effective_until_by_component(diff, "hermetic_task.hermetic")
         assert result == {}
 
@@ -1028,7 +1142,7 @@ class TestExtractEffectiveUntilByComponent:
         """imageUrl-scoped exception resolved to matching components."""
         diff = (
             "+          - value: rpm_signature.allowed:8a3872bf3228467c\n"
-            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-12-31T00:00:00Z"\n'
             "+            imageUrl: quay.io/rhoai/odh-vllm-cpu-rhel9\n"
         )
         result = mod.extract_effective_until_by_component(
@@ -1044,11 +1158,11 @@ class TestExtractEffectiveUntilByComponent:
             "+          - value: hermetic_task.hermetic\n"
             "+            componentNames:\n"
             "+              - comp-a\n"
-            "+            effectiveUntil: \"2026-09-30\"\n"
+            '+            effectiveUntil: "2026-09-30"\n'
             "+          - value: rpm_signature.allowed:abc123\n"
             "+            componentNames:\n"
             "+              - comp-a\n"
-            "+            effectiveUntil: \"2026-12-31\"\n"
+            '+            effectiveUntil: "2026-12-31"\n'
         )
         result = mod.extract_effective_until_by_component(diff, "hermetic_task.hermetic")
         assert result == {"comp-a": "2026-09-30"}
@@ -1060,31 +1174,24 @@ class TestExtractEffectiveUntilFromDiff:
     def test_extracts_date_from_added_block(self):
         diff = (
             "+          - value: hermetic_task.hermetic\n"
-            "+            effectiveUntil: \"2026-08-01T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-08-01T00:00:00Z"\n'
             "+            componentNames:\n"
             "+              - comp-a\n"
         )
         assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") == "2026-08-01"
 
     def test_returns_none_when_no_effective_until(self):
-        diff = (
-            "+          - value: hermetic_task.hermetic\n"
-            "+            componentNames:\n"
-            "+              - comp-a\n"
-        )
+        diff = "+          - value: hermetic_task.hermetic\n+            componentNames:\n+              - comp-a\n"
         assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") is None
 
     def test_returns_none_when_rule_not_found(self):
-        diff = (
-            "+          - value: test.no_failed_tests\n"
-            "+            effectiveUntil: \"2026-08-01\"\n"
-        )
+        diff = '+          - value: test.no_failed_tests\n+            effectiveUntil: "2026-08-01"\n'
         assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") is None
 
     def test_extracts_from_context_line(self):
         diff = (
             "+          - value: hermetic_task.hermetic\n"
-            "            effectiveUntil: \"2026-09-15\"\n"
+            '            effectiveUntil: "2026-09-15"\n'
             "+            componentNames:\n"
             "+              - comp-a\n"
         )
@@ -1093,17 +1200,14 @@ class TestExtractEffectiveUntilFromDiff:
     def test_base_rule_matches_suffixed_entry(self):
         diff = (
             "+          - value: rpm_signature.allowed:8a3872bf3228467c\n"
-            "+            effectiveUntil: \"2026-07-15\"\n"
+            '+            effectiveUntil: "2026-07-15"\n'
             "+            componentNames:\n"
             "+              - odh-vllm-cpu-v3-5-ea-2\n"
         )
         assert mod.extract_effective_until_from_diff(diff, "rpm_signature.allowed") == "2026-07-15"
 
     def test_strips_quotes_and_truncates_to_date(self):
-        diff = (
-            "+          - value: hermetic_task.hermetic\n"
-            "+            effectiveUntil: '2026-12-31T23:59:59Z'\n"
-        )
+        diff = "+          - value: hermetic_task.hermetic\n+            effectiveUntil: '2026-12-31T23:59:59Z'\n"
         assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") == "2026-12-31"
 
     def test_returns_first_date_when_multiple_blocks_exist(self):
@@ -1117,11 +1221,11 @@ class TestExtractEffectiveUntilFromDiff:
             "+          - value: hermetic_task.hermetic\n"
             "+            componentNames:\n"
             "+              - odh-mlmd-grpc-server-v3-6-ea-1\n"
-            "+            effectiveUntil: \"2026-09-30T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-09-30T00:00:00Z"\n'
             "+          - value: hermetic_task.hermetic\n"
             "+            componentNames:\n"
             "+              - odh-mlmd-grpc-server-v3-6-ea-2\n"
-            "+            effectiveUntil: \"2026-10-21T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-10-21T00:00:00Z"\n'
         )
         # Current buggy behavior: returns only first date
         assert mod.extract_effective_until_from_diff(diff, "hermetic_task.hermetic") == "2026-09-30"
@@ -1142,7 +1246,7 @@ class TestAnalyzeMrImageUrlCoverage:
         diff = (
             "+++ b/config/.../EnterpriseContractPolicy/registry-rhoai-prod.yaml\n"
             "+          - value: rpm_signature.allowed:8a3872bf3228467c\n"
-            "+            effectiveUntil: \"2026-12-31T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-12-31T00:00:00Z"\n'
             "+            imageUrl: quay.io/rhoai/odh-vllm-cpu-rhel9\n"
         )
         mod._mr_cache.store(
@@ -1197,13 +1301,13 @@ class TestAnalyzeMrImageUrlCoverage:
             "+            componentNames:\n"
             "+              - odh-mlmd-grpc-server-v3-6-ea-1\n"
             "+              - odh-openvino-model-server-v3-6-ea-1\n"
-            "+            effectiveUntil: \"2026-09-30T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-09-30T00:00:00Z"\n'
             "+            reference: https://redhat.atlassian.net/browse/PRODSECRM-309\n"
             "+          - value: hermetic_task.hermetic\n"
             "+            componentNames:\n"
             "+              - odh-mlmd-grpc-server-v3-6-ea-2\n"
             "+              - odh-openvino-model-server-v3-6-ea-2\n"
-            "+            effectiveUntil: \"2026-10-21T00:00:00Z\"\n"
+            '+            effectiveUntil: "2026-10-21T00:00:00Z"\n'
             "+            reference: https://redhat.atlassian.net/browse/PRODSECRM-309\n"
         )
         mod._mr_cache.store(

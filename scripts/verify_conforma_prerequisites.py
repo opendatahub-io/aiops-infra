@@ -68,13 +68,6 @@ def _check_konflux() -> dict:
 
     After verifying config, tests actual connectivity via oc/kubectl whoami.
     """
-    # The module-level load() may have skipped discovery because the connectivity
-    # state file didn't exist yet. _check_gitlab_auth() writes it on success, so
-    # retry discovery here now that the state file exists.
-    if not os.environ.get("KONFLUX_CLUSTER_DOMAIN") and os.environ.get("KONFLUX_TENANT"):
-        konflux_environment._loaded = False
-        konflux_environment.load()
-
     has_tenant = bool(os.environ.get("KONFLUX_TENANT"))
     has_cluster_domain = bool(os.environ.get("KONFLUX_CLUSTER_DOMAIN"))
 
@@ -123,9 +116,10 @@ def _check_konflux() -> dict:
         try:
             import konflux_tenant_env_discovery
 
-            konflux_tenant_env_discovery.discover(tenant, preferred_cluster=preferred)
-            # Discovery succeeded — derive secondary vars so everything is consistent.
-            konflux_environment.load()
+            context = konflux_tenant_env_discovery.discover(tenant, preferred_cluster=preferred)
+            # Discovery succeeded — populate the environment directly because load()
+            # is intentionally idempotent after module initialization.
+            konflux_environment.populate_from_discovery(context)
             cluster_domain = os.environ.get("KONFLUX_CLUSTER_DOMAIN", "")
             if not cluster_domain:
                 return {

@@ -55,9 +55,7 @@ _RELEASE_DATA_REPO = "red-hat-data-services/rhods-devops-infra"
 _RELEASE_DATA_PATH = "src/config/rhai-release-data.yaml"
 _RELEASE_DATA_FILE = "rhai-release-data.yaml"
 _RELEASE_DATA_BRANCH = "main"
-_RELEASE_DATA_URL = (
-    f"https://github.com/{_RELEASE_DATA_REPO}/blob/{_RELEASE_DATA_BRANCH}/{_RELEASE_DATA_PATH}"
-)
+_RELEASE_DATA_URL = f"https://github.com/{_RELEASE_DATA_REPO}/blob/{_RELEASE_DATA_BRANCH}/{_RELEASE_DATA_PATH}"
 RELEASE_DATA_LINK = f"[{_RELEASE_DATA_FILE}]({_RELEASE_DATA_URL})"
 
 
@@ -368,10 +366,7 @@ def validate_effective_until_date(version: str, provided_date: str) -> dict:
     detail = (
         f"Date matches expected EOS + {_EOS_BUFFER_DAYS}d."
         if valid
-        else (
-            f"Expected {expected_ymd} (EOS + {_EOS_BUFFER_DAYS}d), "
-            f"got {provided_ymd}."
-        )
+        else (f"Expected {expected_ymd} (EOS + {_EOS_BUFFER_DAYS}d), got {provided_ymd}.")
     )
     return {
         "valid": valid,
@@ -395,13 +390,15 @@ def list_all() -> list[dict]:
             continue
         release = f"rhoai-{version}"
         eos = _get_eos_from_remote(release)
-        rows.append({
-            "release": release,
-            "end_of_support": eos,
-            "effective_until": get_effective_until(release),
-            "upcoming_release_date": get_upcoming_release_date(release),
-            "source": "rhai-release-data",
-        })
+        rows.append(
+            {
+                "release": release,
+                "end_of_support": eos,
+                "effective_until": get_effective_until(release),
+                "upcoming_release_date": get_upcoming_release_date(release),
+                "source": "rhai-release-data",
+            }
+        )
     return sorted(rows, key=lambda r: r["release"])
 
 
@@ -424,22 +421,32 @@ def main() -> int:
 
     eos = get_eos_date(args.release)
     if eos is None:
-        print(json.dumps({
-            "release": args.release,
-            "end_of_support": None,
-            "effective_until": None,
-            "source": "unknown",
-            "note": f"No EOS date configured for {args.release}.",
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "release": args.release,
+                    "end_of_support": None,
+                    "effective_until": None,
+                    "source": "unknown",
+                    "note": f"No EOS date configured for {args.release}.",
+                },
+                indent=2,
+            )
+        )
         return 1
 
-    print(json.dumps({
-        "release": args.release,
-        "end_of_support": eos,
-        "effective_until": get_effective_until(args.release),
-        "upcoming_release_date": get_upcoming_release_date(args.release),
-        "source": "rhai-release-data",
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "release": args.release,
+                "end_of_support": eos,
+                "effective_until": get_effective_until(args.release),
+                "upcoming_release_date": get_upcoming_release_date(args.release),
+                "source": "rhai-release-data",
+            },
+            indent=2,
+        )
+    )
     return 0
 
 

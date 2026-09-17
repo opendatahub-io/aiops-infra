@@ -11,6 +11,7 @@ import yaml
 import conforma_context_ops
 import release_dates
 import generate_resolution_guide as mod
+import guide_renderers as renderers
 from guide_renderers import render_divergence_warning
 from guide_renderers import render_resolution_guide
 from guide_renderers import render_components_table
@@ -24,6 +25,12 @@ from conforma_constants import TODO_PREVIEW_FILENAME
 from guide_renderers import _find_covering_mr
 from guide_renderers import _violation_count
 from guide_renderers import _compute_violation_buckets
+from guide_renderers import _build_jira_cell
+from guide_renderers import render_cataloged_violation
+from guide_renderers import render_csv_source_fields
+from guide_renderers import render_known_false_alerts
+from guide_renderers import render_tooling_health
+from guide_renderers import render_warnings_section
 
 
 @pytest.fixture
@@ -3062,6 +3069,22 @@ class TestComputeViolationBuckets:
         assert len(buckets["has_mr_entries"]) == 1
         assert buckets["no_mr_entries"] == []
 
+    def test_todo_jira_column_keeps_jira_key_from_merge_request_title(self):
+        mr = _mr(22104, "https://gitlab.example.com/-/merge_requests/22104", ["comp-a"])
+        mr["title"] = "RHOAIENG-88509: Add prod EC policy exceptions"
+        coverage = _make_coverage_data(violations=[
+            _uncovered_violation("hermetic_task.hermetic", ["comp-a"], open_mrs=[mr]),
+        ])
+        result = _make_analysis_result(total_violations=1)
+
+        output = render_key_takeaways(
+            coverage,
+            result,
+            {("hermetic_task.hermetic", "comp-a"): 1},
+        )
+
+        assert "[RHOAIENG-88509](https://redhat.atlassian.net/browse/RHOAIENG-88509)" in output
+
     def test_buckets_expiring_tiers(self):
         mr_insuf = _mr(200, "https://example.com/200", ["comp-a"], effective_until="2026-07-01")
         mr_suf = _mr(201, "https://example.com/201", ["comp-b"], effective_until="2026-09-01")
@@ -4301,7 +4324,9 @@ def _jira_sync_with_prefill(rule: str, konflux_components: list[str], create_url
                         "team": "AI Safety",
                         "existing": None,
                         "created": None,
-                        "create_url": create_url,
+                    "create_url": create_url,
+                    "related_search_url": "https://jira/issues/?jql=related",
+                    "unique_labels": ["conforma-rhoai-3-6-ea-2-comp-a-hermetic-task-hermetic"],
                     }
                 ],
             }
@@ -4352,6 +4377,21 @@ class TestRenderJiraTickets:
         assert "**Create Jira ticket**" in joined
         assert "[create pre-filled](https://jira/new?prefill)" in joined
 
+    def test_related_search_link_rendered_in_create_cell(self):
+        sync = _jira_sync_with_prefill("hermetic_task.hermetic", ["comp-a-v3-5-ea-2"], "https://jira/new?prefill")
+        from guide_renderers import _sync_component_cells
+
+        refs, create_url, search_url, label = _sync_component_cells(
+            sync["violations"][0], "comp-a-v3-5-ea-2"
+        )
+        assert refs == []
+        assert create_url == "https://jira/new?prefill"
+        assert search_url == "https://jira/issues/?jql=related"
+        assert label == "conforma-rhoai-3-6-ea-2-comp-a-hermetic-task-hermetic"
+        assert "[Search related Jira (label: `conforma-rhoai-3-6-ea-2-comp-a-hermetic-task-hermetic`)](https://jira/issues/?jql=related)" in _build_jira_cell(
+            [], [], refs, create_url, search_url, label
+        )
+
     def test_rule_with_colon_matches_base_rule(self):
         lines: list[str] = []
         sync = _jira_sync_with_created("hermetic_task.hermetic", ["comp-a-v3-5-ea-2"], "RHOAIENG-3", "https://jira/3")
@@ -4361,8 +4401,7 @@ class TestRenderJiraTickets:
 
 
 class TestRenderResolutionGuideJira:
-    """render_resolution_guide must render the Jira tickets block when data is
-    present and stay byte-identical when jira_sync is None."""
+    """render_resolution_guide keeps Jira table columns stable across sync states."""
 
     @pytest.fixture
     def coverage_with_one_violation(self) -> dict:
@@ -4397,7 +4436,7 @@ class TestRenderResolutionGuideJira:
             "component_owners": {"comp-a-v3-5-ea-2": "AI Safety"},
         }
 
-    def test_jira_sync_none_is_byte_identical_fallback(
+    def test_jira_sync_none_keeps_jira_columns_in_todo_tables(
         self, coverage_with_one_violation: dict, sample_catalog: Path
     ):
         catalog = mod._load_catalog(sample_catalog)
@@ -4455,6 +4494,8 @@ class TestGenerateResolutionGuideWithJiraSync:
     ):
         content = self._generate(tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog)
         assert "**Jira tickets:**" not in content
+        assert "| # | Violation | Component | Violations | Jira |" in content
+        assert "| 1 |" in content and "| — |" in content
         assert "## Resolution Guide" in content
 
     def test_jira_sync_renders_block(
@@ -4552,6 +4593,245 @@ class TestGenerateResolutionGuideWithJiraSync:
         assert "[RHOAIENG-7](https://jira/7)" in content
 
 
+class TestGuideRendererBranchCoverage:
+    """Exercise the less common renderer inputs used by the report workflow."""
 
+    def test_catalog_fallback_false_alert_and_detail_helpers(self, sample_catalog):
+        catalog = mod._load_catalog(sample_catalog)
+        assert renderers._match_catalog_entry("prefix.rule", {"violations": [{"conforma_rule_codes": ["prefix"]}]})
+        assert renderers._match_fallback_reference("source_image.new", catalog)
+        assert renderers._match_known_false_alert("test.no_failed_tests", "rhoai-fbc-fragment-v3-5", catalog)
+        assert renderers._truncate_detail("short") == "short"
+        long_text = "x" * 61
+        assert renderers._truncate_detail(long_text).endswith("…")
+        long_url = "https://example.com/" + "x" * 61
+        assert renderers._truncate_detail(long_url).startswith("[https://")
 
+    def test_metadata_header_optional_rows_and_policy_directory(self):
+        output = render_metadata_header(
+            "rhoai-3.6",
+            "prod/report.csv",
+            "",
+            policy_dir_url="https://gitlab.example/policy",
+        )
+        assert "policy directory" in output
+        assert "set after the source CSV is fetched" in output
 
+    def test_bucket_date_variants(self):
+        mr = _mr(10, "https://example/mr/10", ["comp-a"], "2026-10-01")
+        mr["effective_until_by_component"] = {"comp-a": "2026-08-01"}
+        covered = _covered_violation(
+            "rule.a",
+            ["comp-a", "comp-b", "comp-c"],
+            expiry_details=[
+                {"component": "comp-a", "effective_until": "2026-08-01"},
+                {"component": "comp-b", "effective_until": "not-a-date"},
+                {"component": "comp-c", "effective_until": "2026-08-01"},
+            ],
+            open_mrs=[mr],
+            earliest_expiry="2999-01-01",
+        )
+        covered["exception_details_by_component"].append(
+            {"component": "comp-c", "effective_until": "2026-08-01", "exception_value": "rule.other"}
+        )
+        uncovered_mr = _uncovered_violation("rule.b", ["comp-a"], open_mrs=[mr])
+        no_date = _covered_violation(
+            "rule.c", ["comp-d"], expiry_details=[
+                {"component": "comp-d"},
+                {"component": "comp-d", "effective_until": "2026-08-01"},
+            ],
+        )
+        malformed_mr = _mr(11, "https://example/mr/11", ["comp-d"], "not-a-date")
+        no_date["open_merge_requests"] = [malformed_mr]
+        covered["exception_expiry"]["earliest_expiry"] = "2026-09-18"
+        invalid_expiry = _covered_violation(
+            "rule.d", ["comp-e"], earliest_expiry="not-a-date",
+        )
+        result = _make_analysis_result(total_violations=3)
+        buckets = _compute_violation_buckets(
+            _make_coverage_data([covered, uncovered_mr, no_date, invalid_expiry]), result,
+            {("rule.a", "comp-a"): 1, ("rule.a", "comp-b"): 1, ("rule.a", "comp-c"): 1,
+             ("rule.b", "comp-a"): 1, ("rule.c", "comp-d"): 1},
+            upcoming_release_date="2026-09-01",
+        )
+        assert buckets["expiring_mr_insufficient"]
+        assert buckets["expiring_no_mr"]
+        assert buckets["expiring_soon"]
+
+    def test_key_takeaways_renders_single_and_multiple_semantic_details(self, monkeypatch):
+        details = [f"detail-{i}" for i in range(16)]
+        monkeypatch.setattr(
+            renderers,
+            "build_semantic_detail_lookup",
+            lambda _: ({("rule.a", "comp-a"): details}, {"rule.a": "detail"}),
+        )
+        coverage = _make_coverage_data([_uncovered_violation("rule.a", ["comp-a"])])
+        output = render_key_takeaways(
+            coverage,
+            _make_analysis_result(total_violations=1),
+            {("rule.a", "comp-a"): 1},
+            violations_yaml_data={"anything": True},
+        )
+        assert "detail-0" in output
+        assert "+1 more details" in output
+
+        monkeypatch.setattr(
+            renderers,
+            "build_semantic_detail_lookup",
+            lambda _: ({("rule.a", "comp-a"): ["one detail"]}, {"rule.a": "detail"}),
+        )
+        output = render_key_takeaways(
+            coverage,
+            _make_analysis_result(total_violations=1),
+            {("rule.a", "comp-a"): 1},
+            violations_yaml_data={"anything": True},
+        )
+        assert "one detail" in output
+
+    def test_key_takeaways_renders_jira_create_and_divergence(self):
+        sync = _jira_sync_with_prefill("rule.a", ["comp-a"], "https://jira/create")
+        coverage = _make_coverage_data([_uncovered_violation("rule.a", ["comp-a"])])
+        coverage["ec_validation"] = {"divergence_count": 1}
+        output = render_key_takeaways(
+            coverage,
+            _make_analysis_result(total_violations=1),
+            {("rule.a", "comp-a"): 1},
+            jira_sync=sync,
+        )
+        assert "[Create](https://jira/create)" in output
+        assert "Search related Jira" in output
+
+    def test_warning_and_resolution_renderers_cover_optional_fields(self):
+        warning_one = analysis.UpcomingViolation(
+            component_name="comp-a", code="rule.a", title="A", message="m",
+            effective_on="2026-09-01", days_until_effective=0, semantic_detail="detail",
+        )
+        warning_two = analysis.UpcomingViolation(
+            component_name="comp-b", code="rule.a", title="A", message="m",
+            effective_on="2026-09-02", days_until_effective=5, semantic_detail="later",
+        )
+        warning_three = analysis.UpcomingViolation(
+            component_name="comp-a", code="rule.a", title="A", message="m",
+            effective_on="2026-08-31", days_until_effective=-1, semantic_detail="detail",
+        )
+        result = _make_analysis_result(
+            total_violations=1,
+            upcoming_violations=[warning_one, warning_two, warning_three],
+            upcoming_by_code={
+                "rule.a": {
+                    "count": 2,
+                    "min_days_remaining": 0,
+                    "earliest_effective_on": "2026-09-01",
+                    "affected_components": [f"comp-{i}" for i in range(7)],
+                }
+            },
+        )
+        warnings = render_warnings_section(result, {})
+        assert "Warnings Becoming Violations" in warnings
+        assert "+2 more" in warnings
+        summary = renderers.render_summary(_make_coverage_data(), result, {})
+        assert "Warnings becoming violations" in summary
+        render_key_takeaways(
+            _make_coverage_data(), result, {}, upcoming_release_date="2026-09-01"
+        )
+        guide = renderers.render_resolution_guide(
+            {"violations": [{
+                "rule": "rule.a", "total_components": 1, "covered_count": 0,
+                "coverage": "not_covered", "all_components": ["comp-a"],
+                "uncovered_components": ["comp-a"], "covered_components": [],
+                "open_merge_requests": [], "open_jira_tickets": [],
+            }]},
+            {"violations": []},
+            detail_lookup={("rule.a", "comp-a"): ["detail"]},
+        )
+        assert "(detail)" in guide
+
+        lines = []
+        render_csv_source_fields(
+            lines,
+            {"descriptions": ["description"], "messages": ["message"], "solution": "solution"},
+        )
+        assert "**Solution**" in "\n".join(lines)
+        render_cataloged_violation(
+            lines,
+            {
+                "triage_note": "triage",
+                "fix_steps": [{"action": "fix", "reference": "https://docs", "where": "file.yaml"}],
+            },
+            {},
+        )
+        assert "(in: file.yaml)" in "\n".join(lines)
+
+    def test_components_and_false_alerts_cover_slack_and_exception_variants(self, sample_catalog):
+        violation = {
+            "rule": "test.no_failed_tests",
+            "uncovered_components": ["rhoai-fbc-fragment-v3-5"],
+            "covered_components": ["comp-b-v3-6"],
+            "exception_details_by_component": [
+                {"component": "rhoai-fbc-fragment-v3-5", "effective_until": "2026-10-01"},
+                {"component": "comp-b-v3-6"},
+            ],
+            "open_merge_requests": [
+                {
+                    "iid": 1, "url": "https://gitlab/1", "mr_components": ["rhoai-fbc-fragment-v3-5"],
+                    "discrepancy": "code_only",
+                }
+            ],
+            "open_jira_tickets": [],
+        }
+        lines = []
+        renderers.render_components_table(
+            lines,
+            violation,
+            {},
+            slack_threads=[{"channel": "c", "permalink": "https://slack/1", "date": "today"}] * 4,
+        )
+        output = "\n".join(lines)
+        assert "+1 more" in output
+        assert "⚠️" in output
+        assert "covered (expires 2026-10-01)" in output
+
+        false_alert_lines = []
+        render_known_false_alerts(false_alert_lines, "test.no_failed_tests", violation, mod._load_catalog(sample_catalog))
+        assert "Known false alerts" in "\n".join(false_alert_lines)
+
+    def test_jira_prior_issue_and_empty_entry_paths(self):
+        lines = []
+        sync = {
+            "violations": [{
+                "rule": "rule.a",
+                "uncovered_components": ["comp-a"],
+                "groups": [{"prior_issues": [{"key": "RHOAIENG-1", "url": "https://jira/1"}]}],
+            }],
+        }
+        render_jira_tickets(lines, {"rule": "rule.a"}, sync)
+        assert "Prior issues" in "\n".join(lines)
+        lines = []
+        render_jira_tickets(
+            lines,
+            {"rule": "rule.a"},
+            {"violations": [{"rule": "rule.a", "uncovered_components": ["comp-a"], "groups": [{}]}]},
+        )
+        assert lines == []
+
+    def test_coverage_empty_rule_and_tooling_missing_runs(self):
+        assert "## Violations Coverage" in render_coverage_table({"violations": [{"rule": ""}], "markdown_table": ""})
+        output = render_tooling_health({
+            "tools": [
+                {"name": "reporter", "health": {"status": "unhealthy"}},
+                {
+                    "name": "complete",
+                    "health": {
+                        "status": "healthy",
+                        "last_success": {"id": 2, "url": "https://run/2", "completed_at": "2026-09-17"},
+                    },
+                    "latest_run": {"id": 3, "url": "https://run/3", "conclusion": "success", "updated_at": "2026-09-17"},
+                },
+            ],
+        })
+        assert "N/A" in output
+        assert "None found" in output
+        assert "may be stale" in output
+        assert render_tooling_health({"display": "ready"}) == "## Tooling Health\n\nready"
+        assert render_tooling_health({}) == ""
+        assert renderers._tooling_health_executive_line({"tools": [{"health": {"status": "healthy"}}]}) is None

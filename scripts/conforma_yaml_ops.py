@@ -72,5 +72,3 @@ def quote_strings_recursively(obj):
     if isinstance(obj, list):
         return [quote_strings_recursively(item) for item in obj]
     return obj
-
-

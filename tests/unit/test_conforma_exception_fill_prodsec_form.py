@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 import yaml
@@ -114,12 +113,27 @@ def sample_config(tmp_path) -> Path:
         "field_count": 4,
         "form_url": "https://docs.google.com/forms/d/e/FAKE_ID/viewform",
         "fields": [
-            {"entry_id": "1234567890", "question": "Conforma policy rule?", "field_type": "short_text", "required": True},
+            {
+                "entry_id": "1234567890",
+                "question": "Conforma policy rule?",
+                "field_type": "short_text",
+                "required": True,
+            },
             {"entry_id": "9876543210", "question": "Scope", "field_type": "paragraph", "required": False},
-            {"entry_id": "5555555555", "question": "Risk level", "field_type": "radio", "required": True,
-             "options": ["Low", "Medium", "High", "Critical"]},
-            {"entry_id": "4444444444", "question": "Product version", "field_type": "dropdown", "required": False,
-             "options": ["rhoai-3.3", "rhoai-3.4", "rhoai-3.5"]},
+            {
+                "entry_id": "5555555555",
+                "question": "Risk level",
+                "field_type": "radio",
+                "required": True,
+                "options": ["Low", "Medium", "High", "Critical"],
+            },
+            {
+                "entry_id": "4444444444",
+                "question": "Product version",
+                "field_type": "dropdown",
+                "required": False,
+                "options": ["rhoai-3.3", "rhoai-3.4", "rhoai-3.5"],
+            },
         ],
         "field_mapping": {
             "entry_1234567890": "rule",
@@ -137,6 +151,7 @@ def sample_config(tmp_path) -> Path:
 # ---------------------------------------------------------------------------
 # Discover mode tests
 # ---------------------------------------------------------------------------
+
 
 class TestExtractFbData:
     def test_extracts_valid_fb_data(self):
@@ -223,6 +238,7 @@ class TestWriteConfig:
 # Health check tests
 # ---------------------------------------------------------------------------
 
+
 class TestValidateConfig:
     def test_healthy_config(self, sample_config):
         warnings = fpf.validate_config(sample_config)
@@ -290,6 +306,7 @@ class TestValidateConfig:
 # ---------------------------------------------------------------------------
 # Generate mode tests
 # ---------------------------------------------------------------------------
+
 
 class TestGeneratePrefillUrl:
     def test_basic_url_generation(self, sample_config):
@@ -387,6 +404,7 @@ class TestMatchOption:
 # CLI tests
 # ---------------------------------------------------------------------------
 
+
 class TestCli:
     def test_discover_writes_config(self, sample_html, tmp_path):
         output = tmp_path / "cli_output.yaml"
@@ -407,19 +425,27 @@ class TestCli:
         assert rc == 1
 
     def test_generate_prints_url(self, sample_config, capsys):
-        rc = fpf.main([
-            "--generate",
-            "--config", str(sample_config),
-            "--rule", "test.rule",
-        ])
+        rc = fpf.main(
+            [
+                "--generate",
+                "--config",
+                str(sample_config),
+                "--rule",
+                "test.rule",
+            ]
+        )
         assert rc == 0
         captured = capsys.readouterr()
         assert "entry.1234567890=test.rule" in captured.out
 
     def test_generate_with_missing_config_fails(self, tmp_path):
-        rc = fpf.main([
-            "--generate",
-            "--config", str(tmp_path / "missing.yaml"),
-            "--rule", "test.rule",
-        ])
+        rc = fpf.main(
+            [
+                "--generate",
+                "--config",
+                str(tmp_path / "missing.yaml"),
+                "--rule",
+                "test.rule",
+            ]
+        )
         assert rc == 1

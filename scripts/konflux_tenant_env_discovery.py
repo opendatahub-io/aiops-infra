@@ -33,8 +33,7 @@ import argparse
 import json
 import os
 import sys
-import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -81,6 +80,7 @@ def _get_gitlab_project():
 
     try:
         import gitlab_ops
+
         token = gitlab_ops.discover_token(f"https://{host}")
     except Exception:
         token = os.environ.get("GITLAB_TOKEN")
@@ -335,6 +335,7 @@ def main() -> int:
 
     try:
         import konflux_environment
+
         konflux_environment.load()
     except Exception:
         pass

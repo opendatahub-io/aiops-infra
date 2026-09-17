@@ -94,6 +94,7 @@ class TestInitConformaRun:
     def test_fails_without_query(self, capsys):
         with pytest.raises(SystemExit) as exc_info:
             import sys
+
             with patch.object(sys, "argv", ["init_conforma_run.py"]):
                 init_conforma_run.main()
         assert exc_info.value.code != 0
@@ -202,10 +203,16 @@ class TestAiModelContextPersistence:
         for env_var in ("ANTHROPIC_MODEL", "CLAUDE_MODEL"):
             monkeypatch.delenv(env_var, raising=False)
         monkeypatch.setenv("AI_MODEL", "env-model")
-        monkeypatch.setattr("sys.argv", [
-            "init_conforma_run.py", "rhoai-3.5ea2",
-            "--set", "ai_model", "explicit-model",
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "init_conforma_run.py",
+                "rhoai-3.5ea2",
+                "--set",
+                "ai_model",
+                "explicit-model",
+            ],
+        )
         with patch.object(init_conforma_run, "REPO_ROOT", tmp_path / "repo"):
             init_conforma_run.main()
 
@@ -222,4 +229,3 @@ class TestAiModelContextPersistence:
 
         data = self._context_data(tmp_path)
         assert "ai_model" not in data
-

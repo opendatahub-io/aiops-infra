@@ -69,6 +69,7 @@ Follow them in ALL generated content — code, comments, commit messages, docume
 - Always use "README.md](../README.md" (never "README.md](README.md")
 - Always use "script-output-presentation.md](../../references/script-output-presentation.md" (never "script-output-presentation.md](../references/script-output-presentation.md")
 - Always use "~/.conforma/bin/conforma_run.sh" (never "python3")
+- Always use "11" (never "10")
 
 ### Behavior and Workflow
 

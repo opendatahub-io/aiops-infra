@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import yaml
 
 import conforma_context_ops
 import fetch_csv_reports
@@ -98,9 +97,7 @@ class TestFetchWarningsCsvForRelease:
             return {"error": "not found"}
 
         commit_resp = MagicMock(status_code=200)
-        commit_resp.json.return_value = [
-            {"commit": {"committer": {"date": "2026-06-01T00:00:00Z"}}, "sha": "abc"}
-        ]
+        commit_resp.json.return_value = [{"commit": {"committer": {"date": "2026-06-01T00:00:00Z"}}, "sha": "abc"}]
         with (
             patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download),
             patch("fetch_csv_reports.requests.get", return_value=commit_resp),
@@ -241,10 +238,16 @@ class TestMainRequiresReleasesOrAll:
 
     def test_no_releases_no_all_exits_with_error(self, monkeypatch, capsys):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(Path("/tmp/empty-workdir")))
-        monkeypatch.setattr("sys.argv", [
-            "fetch_csv_reports.py", "--output-dir", "/tmp/test",
-            "--environment", "prod",
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--output-dir",
+                "/tmp/test",
+                "--environment",
+                "prod",
+            ],
+        )
         rc = fetch_csv_reports.main()
         assert rc == 1
         captured = capsys.readouterr()
@@ -252,52 +255,81 @@ class TestMainRequiresReleasesOrAll:
         assert "--all" in captured.err
 
     def test_all_flag_triggers_auto_detection(self, monkeypatch, tmp_path):
-        monkeypatch.setattr("sys.argv", [
-            "fetch_csv_reports.py", "--all", "--output-dir", str(tmp_path),
-            "--metadata-file", str(tmp_path / "meta.json"),
-            "--environment", "prod",
-        ])
         monkeypatch.setattr(
-            fetch_csv_reports, "fetch_supported_releases",
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--all",
+                "--output-dir",
+                str(tmp_path),
+                "--metadata-file",
+                str(tmp_path / "meta.json"),
+                "--environment",
+                "prod",
+            ],
+        )
+        monkeypatch.setattr(
+            fetch_csv_reports,
+            "fetch_supported_releases",
             lambda: ["rhoai-3.5-ea.1"],
         )
 
         def mock_fetch(release, output_dir, environment="prod"):
             (output_dir / f"{release}.csv").write_text("type,component_name\nviolation,comp-a\n")
             return {
-                "release": release, "status": "fetched",
+                "release": release,
+                "status": "fetched",
                 "path": str(output_dir / f"{release}.csv"),
-                "size_bytes": 10, "source_path": "prod/build_type_latest/report.csv",
-                "created_at": "", "source_sha": "",
+                "size_bytes": 10,
+                "source_path": "prod/build_type_latest/report.csv",
+                "created_at": "",
+                "source_sha": "",
             }
 
         monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", mock_fetch)
-        monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release",
-                            lambda r, d, **kw: {"release": r, "status": "failed", "error": "no warnings", "path": None})
+        monkeypatch.setattr(
+            fetch_csv_reports,
+            "fetch_warnings_csv_for_release",
+            lambda r, d, **kw: {"release": r, "status": "failed", "error": "no warnings", "path": None},
+        )
 
         rc = fetch_csv_reports.main()
         assert rc == 0
 
     def test_releases_flag_works(self, monkeypatch, tmp_path):
-        monkeypatch.setattr("sys.argv", [
-            "fetch_csv_reports.py", "--releases", "rhoai-3.5-ea.1",
-            "--output-dir", str(tmp_path),
-            "--metadata-file", str(tmp_path / "meta.json"),
-            "--environment", "prod",
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--releases",
+                "rhoai-3.5-ea.1",
+                "--output-dir",
+                str(tmp_path),
+                "--metadata-file",
+                str(tmp_path / "meta.json"),
+                "--environment",
+                "prod",
+            ],
+        )
 
         def mock_fetch(release, output_dir, environment="prod"):
             (output_dir / f"{release}.csv").write_text("type,component_name\nviolation,comp-a\n")
             return {
-                "release": release, "status": "fetched",
+                "release": release,
+                "status": "fetched",
                 "path": str(output_dir / f"{release}.csv"),
-                "size_bytes": 10, "source_path": "prod/build_type_latest/report.csv",
-                "created_at": "", "source_sha": "",
+                "size_bytes": 10,
+                "source_path": "prod/build_type_latest/report.csv",
+                "created_at": "",
+                "source_sha": "",
             }
 
         monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", mock_fetch)
-        monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release",
-                            lambda r, d, **kw: {"release": r, "status": "failed", "error": "no warnings", "path": None})
+        monkeypatch.setattr(
+            fetch_csv_reports,
+            "fetch_warnings_csv_for_release",
+            lambda r, d, **kw: {"release": r, "status": "failed", "error": "no warnings", "path": None},
+        )
 
         rc = fetch_csv_reports.main()
         assert rc == 0
@@ -328,9 +360,7 @@ class TestFetchCsvForRelease:
             return {"error": "not found"}
 
         commit_resp = MagicMock(status_code=200)
-        commit_resp.json.return_value = [
-            {"commit": {"committer": {"date": "2026-06-01T00:00:00Z"}}, "sha": "abc"}
-        ]
+        commit_resp.json.return_value = [{"commit": {"committer": {"date": "2026-06-01T00:00:00Z"}}, "sha": "abc"}]
         with (
             patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download),
             patch("fetch_csv_reports.requests.get", return_value=commit_resp),
@@ -364,10 +394,13 @@ class TestContextIntegration:
     def _mock_fetch(self, release, output_dir, environment="prod"):
         (output_dir / f"{release}.csv").write_text("type,component_name\nviolation,comp-a\n")
         return {
-            "release": release, "status": "fetched",
+            "release": release,
+            "status": "fetched",
             "path": str(output_dir / f"{release}.csv"),
-            "size_bytes": 40, "source_path": "prod/build_type_latest/report.csv",
-            "created_at": "2026-07-01T00:00:00Z", "source_sha": "abc123",
+            "size_bytes": 40,
+            "source_path": "prod/build_type_latest/report.csv",
+            "created_at": "2026-07-01T00:00:00Z",
+            "source_sha": "abc123",
         }
 
     def _mock_warn_fetch(self, release, output_dir, environment="prod"):
@@ -376,16 +409,28 @@ class TestContextIntegration:
     def test_reads_release_and_env_from_context(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
-            "environment": "prod",
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.1",
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": "prod",
+            },
+        )
         conforma_context_ops.set_active(run_dir)
 
-        monkeypatch.setattr("sys.argv", [
-            "fetch_csv_reports.py",
-            "--metadata-file", str(tmp_path / "meta.json"),
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--metadata-file",
+                str(tmp_path / "meta.json"),
+            ],
+        )
         monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", self._mock_fetch)
         monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release", self._mock_warn_fetch)
 
@@ -396,16 +441,23 @@ class TestContextIntegration:
     def test_updates_context_after_fetch(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.4", "version": "3.4", "konflux_app": "rhoai-v3-4"},
-            "environment": "prod",
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {"name": "rhoai", "release": "rhoai-3.4", "version": "3.4", "konflux_app": "rhoai-v3-4"},
+                "environment": "prod",
+            },
+        )
         conforma_context_ops.set_active(run_dir)
 
-        monkeypatch.setattr("sys.argv", [
-            "fetch_csv_reports.py",
-            "--metadata-file", str(tmp_path / "meta.json"),
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--metadata-file",
+                str(tmp_path / "meta.json"),
+            ],
+        )
         monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", self._mock_fetch)
         monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release", self._mock_warn_fetch)
 
@@ -419,17 +471,25 @@ class TestContextIntegration:
     def test_cli_release_overrides_context(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.4", "version": "3.4", "konflux_app": "rhoai-v3-4"},
-            "environment": "prod",
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {"name": "rhoai", "release": "rhoai-3.4", "version": "3.4", "konflux_app": "rhoai-v3-4"},
+                "environment": "prod",
+            },
+        )
         conforma_context_ops.set_active(run_dir)
 
-        monkeypatch.setattr("sys.argv", [
-            "fetch_csv_reports.py",
-            "--releases", "rhoai-3.5-ea.1",
-            "--metadata-file", str(tmp_path / "meta.json"),
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--releases",
+                "rhoai-3.5-ea.1",
+                "--metadata-file",
+                str(tmp_path / "meta.json"),
+            ],
+        )
         monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", self._mock_fetch)
         monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release", self._mock_warn_fetch)
 
@@ -439,16 +499,24 @@ class TestContextIntegration:
 
     def test_explicit_run_dir(self, tmp_path, monkeypatch):
         run_dir = tmp_path / "my-run"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.4", "version": "3.4", "konflux_app": "rhoai-v3-4"},
-            "environment": "stage",
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {"name": "rhoai", "release": "rhoai-3.4", "version": "3.4", "konflux_app": "rhoai-v3-4"},
+                "environment": "stage",
+            },
+        )
 
-        monkeypatch.setattr("sys.argv", [
-            "fetch_csv_reports.py",
-            "--run-dir", str(run_dir),
-            "--metadata-file", str(tmp_path / "meta.json"),
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--run-dir",
+                str(run_dir),
+                "--metadata-file",
+                str(tmp_path / "meta.json"),
+            ],
+        )
         monkeypatch.setattr(fetch_csv_reports, "fetch_csv_for_release", self._mock_fetch)
         monkeypatch.setattr(fetch_csv_reports, "fetch_warnings_csv_for_release", self._mock_warn_fetch)
 
@@ -457,10 +525,14 @@ class TestContextIntegration:
 
     def test_no_context_requires_explicit_args(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
-        monkeypatch.setattr("sys.argv", [
-            "fetch_csv_reports.py",
-            "--output-dir", str(tmp_path),
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
 
         with pytest.raises(SystemExit):
             fetch_csv_reports.main()

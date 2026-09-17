@@ -27,10 +27,8 @@ from __future__ import annotations
 import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
 import argparse
-import getpass
 import json
 import os
-import platform
 import re
 import sys
 from pathlib import Path
@@ -42,7 +40,9 @@ from jira_description_builders import build_provenance_footer  # noqa: F401 — 
 from jira_description_builders import build_exception_label  # noqa: F401 — backward compat re-export
 from jira_description_builders import build_rhoaieng_description as _build_rhoaieng_description  # noqa: F401 — backward compat re-export
 from jira_description_builders import build_rhoaieng_remediation_description as _build_rhoaieng_remediation_description  # noqa: F401 — backward compat re-export
-from jira_description_builders import build_rhoaieng_violation_report_description as _build_rhoaieng_violation_report_description  # noqa: F401 — backward compat re-export
+from jira_description_builders import (
+    build_rhoaieng_violation_report_description as _build_rhoaieng_violation_report_description,
+)  # noqa: F401 — backward compat re-export
 from jira_description_builders import build_psx_description as _build_psx_description  # noqa: F401 — backward compat re-export
 from jira_description_builders import build_psx_filled_adf as _build_psx_filled_adf  # noqa: F401 — backward compat re-export
 from jira_description_builders import fill_psx_template as _fill_psx_template  # noqa: F401 — backward compat re-export
@@ -1168,8 +1168,12 @@ def _delete_link(ticket_key: str, target_key: str, link_type: str | None = None)
         client = jira_ops.get_client()
         issue = client.issue(ticket_key, fields="issuelinks")
         for link in issue.fields.issuelinks:
-            inward_key = getattr(link.inwardIssue, "key", "") if hasattr(link, "inwardIssue") and link.inwardIssue else ""
-            outward_key = getattr(link.outwardIssue, "key", "") if hasattr(link, "outwardIssue") and link.outwardIssue else ""
+            inward_key = (
+                getattr(link.inwardIssue, "key", "") if hasattr(link, "inwardIssue") and link.inwardIssue else ""
+            )
+            outward_key = (
+                getattr(link.outwardIssue, "key", "") if hasattr(link, "outwardIssue") and link.outwardIssue else ""
+            )
             lt_name = link.type.name if link.type else ""
 
             if target_key not in (inward_key, outward_key):

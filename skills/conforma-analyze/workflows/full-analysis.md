@@ -12,11 +12,11 @@ When the user asks to show violations, analyze violations, fetch conforma report
 
 ### Handling user-provided URLs
 
-If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), pass the full URL or the extracted release identifier (e.g. `rhoai-3.4`) as the query text to Step 0 (`init_conforma_run.py`). The release context pipeline (Step 2) will resolve it automatically from `context.yaml`. Do NOT pass `--releases` to the fetch script — all downstream steps read from `context.yaml`.
+If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), pass the complete user query unchanged to Step 0 (`init_conforma_run.py`). The deterministic release parser extracts the release from prose or a URL and the release context pipeline (Step 2) resolves it automatically from `context.yaml`. Do NOT pass `--releases` to the fetch script — all downstream steps read from `context.yaml`.
 
 ### Display-before-question rule (HARD REQUIREMENT)
 
-**Whenever a step produces a `display` field AND a `user_question`, the agent MUST render the `display` content verbatim as markdown in the response text BEFORE calling AskQuestion.** Tool results are agent context and are NOT visible to the user — the user only sees text the agent writes in its response. If the agent calls AskQuestion without first rendering the `display` content, the user sees a question with no context. This is a hard failure.
+**Whenever a step produces a `display` field AND a `user_question`, the agent MUST render the `display` content verbatim as markdown in the final user-visible response BEFORE calling AskQuestion.** Intermediate commentary and tool results may be collapsed or hidden by the client, so they are not sufficient. The script also makes confirmation questions self-contained where possible; the agent must still render the display explicitly. If the agent calls AskQuestion without first rendering the `display` content in a user-visible response, the user sees a question with no context. This is a hard failure.
 
 The sequence is always: (1) render `display` as markdown → (2) call AskQuestion. Never combine these into the same tool-call batch — the display text must appear in the response before the question.
 
@@ -54,18 +54,18 @@ Instead, route them through the deterministic long-task runner, which owns both 
 
 State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and `<run_dir>/<step>.exit`, so a restarted agent can resume from the files. On `failed`, read `<run_dir>/<step>.log` and report the error before continuing. This mechanism is defined in `scripts/run_long_task.py` and applies to any conforma skill.
 
-0. **Initialize conforma run (REQUIRED before any script)**: Run with Bash description: `"Initialize conforma run context for <extracted_release_text>"`:
+0. **Initialize conforma run (REQUIRED before any script)**: Run with Bash description: `"Initialize conforma run context"`:
 
 ```bash
 [ -x ~/.conforma/bin/conforma_run.sh ] || { _R="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo $HOME/.local/share/aiops-infra)}"; mkdir -p ~/.conforma/bin; cp "$_R/scripts/conforma_run.sh.tpl" ~/.conforma/bin/conforma_run.sh; chmod +x ~/.conforma/bin/conforma_run.sh; }
-~/.conforma/bin/conforma_run.sh scripts/init_conforma_run.py "<extracted_release_text>"
+~/.conforma/bin/conforma_run.sh scripts/init_conforma_run.py "<user_query>"
 ```
 
-   This is the **only step where user input appears on the command line**. All subsequent steps use fixed commands that read parameters from context.yaml. The script creates a timestamped run directory under `~/.conforma/`, writes `aiops_infra_root` and `user_query` to `context.yaml`, and sets the `.conforma-active` symlink.
+   This is the **only step where user input appears on the command line**. Pass the complete user query unchanged; the deterministic release parser extracts and normalizes any release embedded in prose. All subsequent steps use fixed commands that read parameters from context.yaml. The script creates a timestamped run directory under `~/.conforma/`, writes `aiops_infra_root` and `user_query` to `context.yaml`, and sets the `.conforma-active` symlink.
 
 1. **Prerequisites check**: Run `~/.conforma/bin/conforma_run.sh scripts/verify_conforma_prerequisites.py --format json` with Bash description: `"Check Conforma prerequisites: GitHub, GitLab, Jira, Slack auth"`. Parse the JSON output object. If exit code is non-zero, **stop immediately** — render the `display` field directly (not in a code block) and do not proceed. Do NOT interpret, reformat, or summarize — the script output is self-explanatory. The user must fix failures before the workflow can continue.
 
-   **Slack is optional.** If exit code is 0 and the JSON contains a `user_question` key: render the `display` field directly, then use AskQuestion with `user_question.question_text` and `user_question.question_options` verbatim. If the user chooses "No, set up Slack first", follow the `slack-auth` skill. Otherwise continue — Slack availability is automatically persisted to `steps.prerequisites.slack_available` in context.yaml via `update_step()` and auto-detected by downstream scripts (e.g. `violations_coverage.py`).
+   **Slack is optional.** If exit code is 0 and the JSON contains a `user_question` key: render the `display` field directly, then use AskQuestion with `user_question.question_text` and `user_question.question_options` verbatim. If the user chooses "No, set up Slack first", follow the `slack-auth` skill. Otherwise continue — Slack availability is persisted to `steps.prerequisites.slack_available` in context.yaml for explicit opt-in coverage runs.
 
 2. **Resolve release context**: Run with Bash description: `"Resolve release context"`. The script reads `user_query` from context.yaml automatically (written by Step 0). Environment is auto-detected from the query text by `extract_environment()` (parses "stage"/"prod" keywords, defaults to "prod"). The script enriches the existing context.yaml in merge mode (since Step 0 already created it).
 
@@ -194,11 +194,11 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    This ensures the user can distinguish between "this violation has a fix landing in the current release" vs "there's a Jira for this but it targets a future release and is NOT a solution for the current report".
 
-   All required auth (GitLab, Jira) was already verified in step 1. Slack availability is auto-detected from `steps.prerequisites.slack_available` in context.yaml (persisted by step 1) — no manual `--require-slack` flag needed.
+   All required auth (GitLab, Jira) was already verified in step 1. Slack coverage is disabled by default. The coverage script retains the opt-in `--require-slack true` flag for runs that explicitly request Slack cross-referencing.
 
    The script reads violations YAML, CSV path, release, environment, clone directory, metadata file, and output path from `context.yaml` automatically. The script manages the `~/.conforma/konflux-release-data` clone (fresh fetch + reset). It enforces the repo clone policy: it will `git fetch` any existing clone and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
 
-    **This step can take several minutes** (it runs `ec validate` across every component) and exceeds the ~30s foreground command cap, so it MUST run through the long-task runner (see the "Long-running steps" rule below) — do NOT run it as a plain foreground command, and do NOT improvise a `nohup`/`sleep`/`ps` polling loop.
+    The default coverage check uses the existing policy exception gate and skips the optional current-policy `ec validate` comparison. To run that comparison occasionally, add `--run-ec-validation` to the target script command; that mode can take several minutes and MUST use the long-task runner (see the "Long-running steps" rule below) — do NOT run it as a plain foreground command, and do NOT improvise a `nohup`/`sleep`/`ps` polling loop.
 
     ```bash
     # 1. Launch the coverage check in the background (Bash description: "Cross-reference violations with exceptions, Merge Requests, Jira, Slack"):
@@ -216,10 +216,10 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
     The coverage table is the primary deliverable and is included in the TODO preview (step 10). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
 
-8. **Jira Sync**: Use Bash description: `"Sync violations to Jira tickets"`. After the coverage check, run the Jira sync step. This performs label-first discovery of existing conforma Jira tickets across the discovery projects, self-heals missing labels, and matches tickets to uncovered violations by rule + component. For each uncovered violation with no open ticket it either **creates** a pre-filled Jira ticket (TargetVersion, Jira component, team) or records a **Create** pre-fill URL. The result is written to `jira_sync.json` in the run directory, which the resolution-guide step (step 10) reads to surface Jira tickets in the TODO tables, the components table, and the per-violation Jira blocks.
+8. **Create or update Jira tickets for Conforma violations**: Use Bash description: `"Create or update Jira tickets for Conforma violations"`. After the coverage check, run the Jira ticket step. This performs label-first discovery of existing Jira tickets across the discovery projects, self-heals missing labels, and matches tickets to uncovered violations by violation code + component. For each uncovered violation with no open ticket it either **creates** a pre-filled Jira ticket (TargetVersion, Jira component, team) or records a **Create** pre-fill URL. The result is written to `jira_sync.json` in the run directory, which the resolution-guide step (step 10) reads to surface Jira tickets in the TODO tables, the components table, and the per-violation Jira blocks.
 
 ```bash
-~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py sync
+~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py create-jiras-for-conforma-violations
 ```
 
    The script reads release, environment, coverage violations, and output path from `context.yaml` automatically. To run discovery without any Jira writes (creates are planned but not written and `jira_sync.json` is not written, so the guide falls back to the pre-sync rendering), add `--dry-run`.
@@ -239,7 +239,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
    **⛔ HARD FAILURE RULES FOR STEP 10 — READ THESE BEFORE PROCEEDING:**
 
    **RULE 1 — TODO PREVIEW ONLY (no full guide in chat):**
-   The agent MUST read `conforma-todo.md` from the active run directory (printed by the script) with the Read tool and then **copy its ENTIRE content verbatim into the response text**. This file contains the metadata header (context confirmation) and the TODO section with summary preamble and all TODO #N subsections. The agent MUST NOT:
+   The agent MUST run the deterministic presentation command below and relay the content between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` **verbatim into the response text**. The presentation script validates that every required TODO subsection has a Markdown table before emitting anything. The agent MUST NOT read and reconstruct the file manually. This file contains the metadata header (context confirmation) and the TODO section with summary preamble and all TODO #N subsections. The agent MUST NOT:
    - Paste the full resolution guide (`conforma-resolution-guide.md`) into the chat
    - Paste the full analysis output (`conforma-analysis.md`) into the chat
    - Summarize, paraphrase, or abbreviate the TODO content
@@ -248,7 +248,13 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    The full resolution guide and analysis output are saved to the run directory — the user can open them directly for the complete reference.
 
-   Do NOT rely on the Read tool result alone — tool results are agent context and may not be displayed to the user. The TODO content must appear as literal text in the agent's response. Render as markdown (not in a code block).
+   Run the presentation command with Bash description: `"Present validated Conforma TODO preview verbatim"`:
+
+```bash
+~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/present_conforma_report.py
+```
+
+   If this command exits non-zero, stop and report the validation error. Do NOT present a partial TODO preview. Do NOT rely on the tool result alone — the marked TODO content must appear as literal text in the agent's response. Render it as markdown (not in a code block), preserving every heading, table, link, and line exactly.
 
    **RULE 2 — ORDERING (present THEN ask):**
    The TODO content must appear in the agent's response text BEFORE the AskQuestion call for step 11. Never call AskQuestion in the same tool-call batch that reads the file. The sequence is: (a) read TODO file → (b) paste its content into response → (c) THEN in a SEPARATE subsequent turn, ask about submission. This ensures the user sees the action items before being asked to submit.
@@ -275,4 +281,3 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 ```
 
    The script commits directly to the release branch. If submission fails (e.g. auth issue, branch protection), report the error but do not treat it as a workflow failure — the local guide file is still the primary deliverable.
-

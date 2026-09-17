@@ -15,9 +15,24 @@ class TestCountFromRecords:
 
     def test_same_violation_different_images_collapses_to_one(self):
         records = [
-            {"code": "hermetic_task.hermetic", "component_name": "comp-a", "semantic_detail": "", "full_violation_code": "hermetic_task.hermetic"},
-            {"code": "hermetic_task.hermetic", "component_name": "comp-a", "semantic_detail": "", "full_violation_code": "hermetic_task.hermetic"},
-            {"code": "hermetic_task.hermetic", "component_name": "comp-a", "semantic_detail": "", "full_violation_code": "hermetic_task.hermetic"},
+            {
+                "code": "hermetic_task.hermetic",
+                "component_name": "comp-a",
+                "semantic_detail": "",
+                "full_violation_code": "hermetic_task.hermetic",
+            },
+            {
+                "code": "hermetic_task.hermetic",
+                "component_name": "comp-a",
+                "semantic_detail": "",
+                "full_violation_code": "hermetic_task.hermetic",
+            },
+            {
+                "code": "hermetic_task.hermetic",
+                "component_name": "comp-a",
+                "semantic_detail": "",
+                "full_violation_code": "hermetic_task.hermetic",
+            },
         ]
         counts = conforma_counting.count_from_records(records)
         assert counts.violations == 1
@@ -25,8 +40,18 @@ class TestCountFromRecords:
 
     def test_different_semantic_details_are_different_violations(self):
         records = [
-            {"code": "rpm_repos.ids_known", "component_name": "comp-a", "semantic_detail": "ubi-9-baseos-rpms", "full_violation_code": "rpm_repos.ids_known:pkg:rpm/acl@1"},
-            {"code": "rpm_repos.ids_known", "component_name": "comp-a", "semantic_detail": "ubi-9-appstream-rpms", "full_violation_code": "rpm_repos.ids_known:pkg:rpm/glib@2"},
+            {
+                "code": "rpm_repos.ids_known",
+                "component_name": "comp-a",
+                "semantic_detail": "ubi-9-baseos-rpms",
+                "full_violation_code": "rpm_repos.ids_known:pkg:rpm/acl@1",
+            },
+            {
+                "code": "rpm_repos.ids_known",
+                "component_name": "comp-a",
+                "semantic_detail": "ubi-9-appstream-rpms",
+                "full_violation_code": "rpm_repos.ids_known:pkg:rpm/glib@2",
+            },
         ]
         counts = conforma_counting.count_from_records(records)
         assert counts.violations == 2
@@ -34,8 +59,18 @@ class TestCountFromRecords:
 
     def test_same_package_different_digests_collapses(self):
         records = [
-            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/foo:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"},
-            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/foo:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"},
+            {
+                "code": "sbom_spdx.disallowed_package_attributes",
+                "component_name": "comp-a",
+                "semantic_detail": "pkg:pypi/foo:hermeto:pip:package:binary=true",
+                "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0",
+            },
+            {
+                "code": "sbom_spdx.disallowed_package_attributes",
+                "component_name": "comp-a",
+                "semantic_detail": "pkg:pypi/foo:hermeto:pip:package:binary=true",
+                "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0",
+            },
         ]
         counts = conforma_counting.count_from_records(records)
         assert counts.violations == 1
@@ -43,9 +78,24 @@ class TestCountFromRecords:
 
     def test_different_packages_same_attribute_are_different_violations(self):
         records = [
-            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/foo:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0"},
-            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/bar:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/bar@2.0"},
-            {"code": "sbom_spdx.disallowed_package_attributes", "component_name": "comp-a", "semantic_detail": "pkg:pypi/baz:hermeto:pip:package:binary=true", "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/baz@3.0"},
+            {
+                "code": "sbom_spdx.disallowed_package_attributes",
+                "component_name": "comp-a",
+                "semantic_detail": "pkg:pypi/foo:hermeto:pip:package:binary=true",
+                "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/foo@1.0",
+            },
+            {
+                "code": "sbom_spdx.disallowed_package_attributes",
+                "component_name": "comp-a",
+                "semantic_detail": "pkg:pypi/bar:hermeto:pip:package:binary=true",
+                "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/bar@2.0",
+            },
+            {
+                "code": "sbom_spdx.disallowed_package_attributes",
+                "component_name": "comp-a",
+                "semantic_detail": "pkg:pypi/baz:hermeto:pip:package:binary=true",
+                "full_violation_code": "sbom_spdx.disallowed_package_attributes:pkg:pypi/baz@3.0",
+            },
         ]
         counts = conforma_counting.count_from_records(records)
         assert counts.violations == 3
@@ -53,11 +103,36 @@ class TestCountFromRecords:
 
     def test_by_component_rule_sums_to_violations(self):
         records = [
-            {"code": "hermetic_task.hermetic", "component_name": "comp-a", "semantic_detail": "", "full_violation_code": "hermetic_task.hermetic"},
-            {"code": "hermetic_task.hermetic", "component_name": "comp-a", "semantic_detail": "", "full_violation_code": "hermetic_task.hermetic"},
-            {"code": "hermetic_task.hermetic", "component_name": "comp-b", "semantic_detail": "", "full_violation_code": "hermetic_task.hermetic"},
-            {"code": "rpm_repos.ids_known", "component_name": "comp-a", "semantic_detail": "ubi-9-baseos-rpms", "full_violation_code": "rpm_repos.ids_known:pkg:rpm/acl@1"},
-            {"code": "rpm_repos.ids_known", "component_name": "comp-a", "semantic_detail": "ubi-9-appstream-rpms", "full_violation_code": "rpm_repos.ids_known:pkg:rpm/glib@2"},
+            {
+                "code": "hermetic_task.hermetic",
+                "component_name": "comp-a",
+                "semantic_detail": "",
+                "full_violation_code": "hermetic_task.hermetic",
+            },
+            {
+                "code": "hermetic_task.hermetic",
+                "component_name": "comp-a",
+                "semantic_detail": "",
+                "full_violation_code": "hermetic_task.hermetic",
+            },
+            {
+                "code": "hermetic_task.hermetic",
+                "component_name": "comp-b",
+                "semantic_detail": "",
+                "full_violation_code": "hermetic_task.hermetic",
+            },
+            {
+                "code": "rpm_repos.ids_known",
+                "component_name": "comp-a",
+                "semantic_detail": "ubi-9-baseos-rpms",
+                "full_violation_code": "rpm_repos.ids_known:pkg:rpm/acl@1",
+            },
+            {
+                "code": "rpm_repos.ids_known",
+                "component_name": "comp-a",
+                "semantic_detail": "ubi-9-appstream-rpms",
+                "full_violation_code": "rpm_repos.ids_known:pkg:rpm/glib@2",
+            },
         ]
         counts = conforma_counting.count_from_records(records)
         assert counts.violations == 4
@@ -93,9 +168,24 @@ class TestCountFromRecords:
 
     def test_full_violation_code_count_tracks_policy_granularity(self):
         records = [
-            {"code": "rpm_repos.ids_known", "component_name": "comp-a", "semantic_detail": "ubi-9-baseos-rpms", "full_violation_code": "rpm_repos.ids_known:pkg:rpm/acl@1?repository_id=ubi-9-baseos-rpms"},
-            {"code": "rpm_repos.ids_known", "component_name": "comp-a", "semantic_detail": "ubi-9-baseos-rpms", "full_violation_code": "rpm_repos.ids_known:pkg:rpm/glib@2?repository_id=ubi-9-baseos-rpms"},
-            {"code": "rpm_repos.ids_known", "component_name": "comp-a", "semantic_detail": "ubi-9-baseos-rpms", "full_violation_code": "rpm_repos.ids_known:pkg:rpm/dbus@3?repository_id=ubi-9-baseos-rpms"},
+            {
+                "code": "rpm_repos.ids_known",
+                "component_name": "comp-a",
+                "semantic_detail": "ubi-9-baseos-rpms",
+                "full_violation_code": "rpm_repos.ids_known:pkg:rpm/acl@1?repository_id=ubi-9-baseos-rpms",
+            },
+            {
+                "code": "rpm_repos.ids_known",
+                "component_name": "comp-a",
+                "semantic_detail": "ubi-9-baseos-rpms",
+                "full_violation_code": "rpm_repos.ids_known:pkg:rpm/glib@2?repository_id=ubi-9-baseos-rpms",
+            },
+            {
+                "code": "rpm_repos.ids_known",
+                "component_name": "comp-a",
+                "semantic_detail": "ubi-9-baseos-rpms",
+                "full_violation_code": "rpm_repos.ids_known:pkg:rpm/dbus@3?repository_id=ubi-9-baseos-rpms",
+            },
         ]
         counts = conforma_counting.count_from_records(records)
         assert counts.violations == 1

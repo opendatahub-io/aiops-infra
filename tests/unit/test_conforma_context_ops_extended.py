@@ -10,7 +10,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import yaml
 
 import conforma_context_ops as ctx
 
@@ -139,7 +138,9 @@ class TestMainDirect:
     def test_put_json_value(self, tmp_path, monkeypatch):
         run_dir = str(tmp_path / "run")
         ctx.create(Path(run_dir), {})
-        rc = self._main(["--run-dir", run_dir, "put", "resolve.policy_files", json.dumps(["a.yaml", "b.yaml"])], monkeypatch)
+        rc = self._main(
+            ["--run-dir", run_dir, "put", "resolve.policy_files", json.dumps(["a.yaml", "b.yaml"])], monkeypatch
+        )
         assert rc == 0
         assert ctx.get(Path(run_dir), "resolve.policy_files") == ["a.yaml", "b.yaml"]
 
@@ -154,4 +155,3 @@ class TestMainDirect:
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         with pytest.raises(FileNotFoundError, match="No active conforma run"):
             self._main(["show"], monkeypatch)
-

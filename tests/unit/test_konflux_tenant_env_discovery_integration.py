@@ -48,9 +48,16 @@ def _write_connectivity_state(conn_dir, host="gitlab.corp.com"):
 
 
 _DISCOVERY_VARS = (
-    "KONFLUX_CLUSTER_DOMAIN", "KONFLUX_CLUSTER_ID", "KONFLUX_CONFORMA_POLICY_DIR",
-    "KONFLUX_RPA_SUBPATH", "KONFLUX_INTERNAL_API", "TEKTON_RESULTS_API_DOMAIN",
-    "GITLAB_HOST", "GITLAB_PROJECT", "KONFLUX_TENANT", "PREFERRED_KONFLUX_CLUSTER",
+    "KONFLUX_CLUSTER_DOMAIN",
+    "KONFLUX_CLUSTER_ID",
+    "KONFLUX_CONFORMA_POLICY_DIR",
+    "KONFLUX_RPA_SUBPATH",
+    "KONFLUX_INTERNAL_API",
+    "TEKTON_RESULTS_API_DOMAIN",
+    "GITLAB_HOST",
+    "GITLAB_PROJECT",
+    "KONFLUX_TENANT",
+    "PREFERRED_KONFLUX_CLUSTER",
 )
 
 
@@ -61,9 +68,13 @@ def _clean_env():
 def _mock_discover(tenant, preferred_cluster=None, refresh=False):
     return konflux_tenant_env_discovery.TenantContext(
         tenant=tenant,
-        cluster=konflux_tenant_env_discovery.DiscoveredCluster(cluster_id="stone-stg-p01", cluster_domain="stone-stg-p01.hjvn.p1"),
+        cluster=konflux_tenant_env_discovery.DiscoveredCluster(
+            cluster_id="stone-stg-p01", cluster_domain="stone-stg-p01.hjvn.p1"
+        ),
         all_clusters=[
-            konflux_tenant_env_discovery.DiscoveredCluster(cluster_id="stone-stg-p01", cluster_domain="stone-stg-p01.hjvn.p1")
+            konflux_tenant_env_discovery.DiscoveredCluster(
+                cluster_id="stone-stg-p01", cluster_domain="stone-stg-p01.hjvn.p1"
+            )
         ],
         conforma_policy_dir="config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy",
         conforma_policy_files=["registry-rhoai-prod.yaml"],
@@ -100,7 +111,10 @@ class TestPopulateFromDiscovery:
             with patch("konflux_tenant_env_discovery.discover", side_effect=_mock_discover):
                 populated = konflux_environment.load()
 
-        assert populated.get("KONFLUX_CONFORMA_POLICY_DIR") == "config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy"
+        assert (
+            populated.get("KONFLUX_CONFORMA_POLICY_DIR")
+            == "config/stone-stg-p01.hjvn.p1/product/EnterpriseContractPolicy"
+        )
 
     def test_sets_rpa_subpath(self, tmp_path, connectivity_dir, discovery_cache_dir):
         _write_connectivity_state(connectivity_dir)
@@ -147,7 +161,9 @@ class TestLoadTriggersDiscovery:
     def _no_dotenv(self, tmp_path, monkeypatch):
         monkeypatch.setattr(konflux_environment, "DOTENV_PATH", tmp_path / "nonexistent.env")
 
-    def test_calls_discover_when_tenant_set_and_no_cluster_domain(self, tmp_path, connectivity_dir, discovery_cache_dir):
+    def test_calls_discover_when_tenant_set_and_no_cluster_domain(
+        self, tmp_path, connectivity_dir, discovery_cache_dir
+    ):
         _write_connectivity_state(connectivity_dir)
         env = _clean_env()
         env["KONFLUX_TENANT"] = "rhoai-tenant"

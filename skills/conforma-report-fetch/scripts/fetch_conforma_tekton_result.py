@@ -87,19 +87,29 @@ def _resolve_config(args: argparse.Namespace) -> dict:
     context, run_dir = _load_context()
 
     namespace = _resolve(
-        args.namespace, context, "resolve.tenant",
-        env_var="KONFLUX_NAMESPACE", default=_DEFAULTS["namespace"],
+        args.namespace,
+        context,
+        "resolve.tenant",
+        env_var="KONFLUX_NAMESPACE",
+        default=_DEFAULTS["namespace"],
     )
     cluster_domain = _resolve(
-        args.cluster_domain, context, "resolve.cluster_domain",
-        env_var="KONFLUX_CLUSTER_DOMAIN", default=_DEFAULTS["cluster_domain"],
+        args.cluster_domain,
+        context,
+        "resolve.cluster_domain",
+        env_var="KONFLUX_CLUSTER_DOMAIN",
+        default=_DEFAULTS["cluster_domain"],
     )
     environment = _resolve(
-        args.environment, context, "environment",
+        args.environment,
+        context,
+        "environment",
         default=_DEFAULTS["environment"],
     )
     app_name = _resolve(
-        None, context, "application.name",
+        None,
+        context,
+        "application.name",
         default=_DEFAULTS["app_name"],
     )
 
@@ -203,7 +213,9 @@ def _get_token() -> str:
     try:
         proc = subprocess.run(
             ["oc", "whoami", "-t"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if proc.returncode == 0 and proc.stdout.strip():
             return proc.stdout.strip()
@@ -222,11 +234,18 @@ def _oc_list_pipelineruns(namespace: str) -> list[str]:
     try:
         proc = subprocess.run(
             [
-                "oc", "get", "pipelinerun", "-n", namespace,
+                "oc",
+                "get",
+                "pipelinerun",
+                "-n",
+                namespace,
                 "--sort-by=.metadata.creationTimestamp",
-                "-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}",
+                "-o",
+                'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
             ],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if proc.returncode == 0:
             return [line for line in proc.stdout.strip().splitlines() if line]
@@ -236,7 +255,10 @@ def _oc_list_pipelineruns(namespace: str) -> list[str]:
 
 
 def _search_tekton_api_for_name(
-    api_base: str, namespace: str, token: str, name_pattern: str,
+    api_base: str,
+    namespace: str,
+    token: str,
+    name_pattern: str,
 ) -> str | None:
     url = f"{api_base}/parents/{namespace}/results/-/records"
     try:
@@ -244,7 +266,8 @@ def _search_tekton_api_for_name(
             url,
             headers={"Authorization": f"Bearer {token}"},
             params={"order_by": "create_time desc", "page_size": "100"},
-            verify=False, timeout=30,
+            verify=False,
+            timeout=30,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -258,6 +281,7 @@ def _search_tekton_api_for_name(
             continue
         try:
             import base64
+
             decoded = json.loads(base64.b64decode(raw_value))
             name = decoded.get("metadata", {}).get("name", "")
             if regex.match(name):
@@ -285,7 +309,7 @@ def discover_pipelinerun(
 
     future_matches = [r for r in all_runs if future_regex.match(r)]
     if future_matches:
-        print(f"    ⚠️  No primary runs found. Using newest -future run.", file=sys.stderr)
+        print("    ⚠️  No primary runs found. Using newest -future run.", file=sys.stderr)
         return future_matches[-1]
 
     print("    ⚠️  No live runs found. Searching Tekton Results API archive...", file=sys.stderr)
@@ -296,7 +320,7 @@ def discover_pipelinerun(
 
     archived_future = _search_tekton_api_for_name(api_base, namespace, token, future_prefix)
     if archived_future:
-        print(f"    ⚠️  Using archived -future run.", file=sys.stderr)
+        print("    ⚠️  Using archived -future run.", file=sys.stderr)
         return archived_future
 
     return None
@@ -308,13 +332,17 @@ def discover_pipelinerun(
 
 
 def _resolve_pipelinerun_uuid(
-    pipelinerun_name: str, namespace: str, api_base: str, token: str,
+    pipelinerun_name: str,
+    namespace: str,
+    api_base: str,
+    token: str,
 ) -> str | None:
     try:
         proc = subprocess.run(
-            ["oc", "get", "pipelinerun", pipelinerun_name, "-n", namespace,
-             "-o", "jsonpath={.metadata.uid}"],
-            capture_output=True, text=True, timeout=15,
+            ["oc", "get", "pipelinerun", pipelinerun_name, "-n", namespace, "-o", "jsonpath={.metadata.uid}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if proc.returncode == 0 and proc.stdout.strip() and proc.stdout.strip() != "null":
             return proc.stdout.strip()
@@ -329,7 +357,8 @@ def _resolve_pipelinerun_uuid(
             url,
             headers={"Authorization": f"Bearer {token}"},
             params={"filter": cel_filter},
-            verify=False, timeout=30,
+            verify=False,
+            timeout=30,
         )
         resp.raise_for_status()
         records = resp.json().get("records", [])
@@ -362,10 +391,20 @@ def _resolve_verify_log(
 
     try:
         proc = subprocess.run(
-            ["oc", "get", "taskrun", "-n", namespace,
-             "-l", f"tekton.dev/pipelineRun={pipelinerun_name},tekton.dev/pipelineTask=verify",
-             "-o", "jsonpath={.items[0].metadata.uid}"],
-            capture_output=True, text=True, timeout=15,
+            [
+                "oc",
+                "get",
+                "taskrun",
+                "-n",
+                namespace,
+                "-l",
+                f"tekton.dev/pipelineRun={pipelinerun_name},tekton.dev/pipelineTask=verify",
+                "-o",
+                "jsonpath={.items[0].metadata.uid}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         uid = proc.stdout.strip()
         if proc.returncode == 0 and uid and uid != "null":
@@ -375,10 +414,20 @@ def _resolve_verify_log(
 
     try:
         proc = subprocess.run(
-            ["oc", "get", "taskrun", "-n", namespace,
-             "-l", f"tekton.dev/pipelineRun={pipelinerun_name},tekton.dev/pipelineTask=verify",
-             "-o", "jsonpath={.items[0].status.podName}"],
-            capture_output=True, text=True, timeout=15,
+            [
+                "oc",
+                "get",
+                "taskrun",
+                "-n",
+                namespace,
+                "-l",
+                f"tekton.dev/pipelineRun={pipelinerun_name},tekton.dev/pipelineTask=verify",
+                "-o",
+                "jsonpath={.items[0].status.podName}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         pod = proc.stdout.strip()
         if proc.returncode == 0 and pod and pod != "null":
@@ -396,7 +445,8 @@ def _resolve_verify_log(
             url,
             headers={"Authorization": f"Bearer {token}"},
             params={"page_size": "100"},
-            verify=False, timeout=30,
+            verify=False,
+            timeout=30,
         )
         resp.raise_for_status()
         records = resp.json().get("records", [])
@@ -411,13 +461,11 @@ def _resolve_verify_log(
                 if raw_value:
                     try:
                         import base64
+
                         decoded = json.loads(base64.b64decode(raw_value))
                         meta_name = decoded.get("metadata", {}).get("name", "")
                         labels = decoded.get("metadata", {}).get("labels", {})
-                        is_verify = (
-                            "verify" in meta_name
-                            or labels.get("tekton.dev/pipelineTask") == "verify"
-                        )
+                        is_verify = "verify" in meta_name or labels.get("tekton.dev/pipelineTask") == "verify"
                     except Exception:
                         pass
 
@@ -457,14 +505,19 @@ def extract_report_from_log(log_text: str, step_name: str = STEP_NAME) -> str:
 
 
 def _fetch_log_from_api(
-    api_base: str, namespace: str, result_uuid: str, log_uuid: str, token: str,
+    api_base: str,
+    namespace: str,
+    result_uuid: str,
+    log_uuid: str,
+    token: str,
 ) -> str:
     url = f"{api_base}/parents/{namespace}/results/{result_uuid}/logs/{log_uuid}"
     try:
         resp = requests.get(
             url,
             headers={"Authorization": f"Bearer {token}"},
-            verify=False, timeout=60,
+            verify=False,
+            timeout=60,
         )
         resp.raise_for_status()
         return resp.text
@@ -477,7 +530,9 @@ def _fetch_log_from_pod(pod_name: str, step_name: str, namespace: str) -> str:
     try:
         proc = subprocess.run(
             ["oc", "logs", pod_name, "-c", step_name, "-n", namespace],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if proc.returncode == 0:
             return proc.stdout
@@ -536,22 +591,22 @@ def main() -> int:
         description="Fetch Conforma Tekton report from Konflux.",
     )
     parser.add_argument(
-        "version", nargs="?", default=None,
+        "version",
+        nargs="?",
+        default=None,
         help="Version shortcode (e.g. 3.5, 3.5ea.2) or exact PipelineRun name.",
     )
     parser.add_argument(
-        "--type", choices=POLICY_TYPES, default="registry",
+        "--type",
+        choices=POLICY_TYPES,
+        default="registry",
         help="Policy type (default: registry).",
     )
     parser.add_argument("--namespace", default=None, help="Konflux namespace.")
-    parser.add_argument("--cluster-domain", default=None, dest="cluster_domain",
-                        help="Konflux cluster domain.")
-    parser.add_argument("--environment", choices=["prod", "stage"], default=None,
-                        help="Target environment.")
-    parser.add_argument("--handover", default=None,
-                        help="Path to existing handover JSON to update.")
-    parser.add_argument("--output", default=None,
-                        help="Path to write handover JSON (default: stdout).")
+    parser.add_argument("--cluster-domain", default=None, dest="cluster_domain", help="Konflux cluster domain.")
+    parser.add_argument("--environment", choices=["prod", "stage"], default=None, help="Target environment.")
+    parser.add_argument("--handover", default=None, help="Path to existing handover JSON to update.")
+    parser.add_argument("--output", default=None, help="Path to write handover JSON (default: stdout).")
     args = parser.parse_args()
 
     config = _resolve_config(args)
@@ -584,13 +639,18 @@ def main() -> int:
 
     if is_shortcode:
         its_prefix = build_its_prefix(
-            config["policy_type"], config["app_name"],
-            config["environment"], version_slug,
+            config["policy_type"],
+            config["app_name"],
+            config["environment"],
+            version_slug,
         )
         print(f"⏳ [Input Router] Searching for newest run matching {its_prefix}...", file=sys.stderr)
 
         pipelinerun_name_result = discover_pipelinerun(
-            its_prefix, config["namespace"], config["api_base"], token,
+            its_prefix,
+            config["namespace"],
+            config["api_base"],
+            token,
         )
         if pipelinerun_name_result is None:
             msg = (
@@ -606,7 +666,10 @@ def main() -> int:
 
     print("⏳ [2/4] Resolving PipelineRun UUID...", file=sys.stderr)
     result_uuid = _resolve_pipelinerun_uuid(
-        pipelinerun_name, config["namespace"], config["api_base"], token,
+        pipelinerun_name,
+        config["namespace"],
+        config["api_base"],
+        token,
     )
     if not result_uuid:
         msg = f"Could not locate PipelineRun '{pipelinerun_name}'."
@@ -617,7 +680,11 @@ def main() -> int:
 
     print("⏳ [3/4] Resolving verify task log record...", file=sys.stderr)
     log_uuid, live_pod_name = _resolve_verify_log(
-        pipelinerun_name, result_uuid, config["namespace"], config["api_base"], token,
+        pipelinerun_name,
+        result_uuid,
+        config["namespace"],
+        config["api_base"],
+        token,
     )
     if not log_uuid:
         msg = "Verification log tracking data is missing."
@@ -629,7 +696,11 @@ def main() -> int:
 
     print("⏳ [4/4] Extracting log payload...", file=sys.stderr)
     raw_log = _fetch_log_from_api(
-        config["api_base"], config["namespace"], result_uuid, log_uuid, token,
+        config["api_base"],
+        config["namespace"],
+        result_uuid,
+        log_uuid,
+        token,
     )
     report_content = extract_report_from_log(raw_log)
 
@@ -640,13 +711,20 @@ def main() -> int:
     if report_content:
         report_path.write_text(report_content, encoding="utf-8")
         handover = build_handover(
-            initial_state, pipelinerun_name, config["namespace"], str(report_path),
+            initial_state,
+            pipelinerun_name,
+            config["namespace"],
+            str(report_path),
         )
         _write_step_status(config, pipelinerun_name, str(report_path), None)
     else:
         error_msg = "Log payload returned empty or unpopulated."
         handover = build_handover(
-            initial_state, pipelinerun_name, config["namespace"], None, error=error_msg,
+            initial_state,
+            pipelinerun_name,
+            config["namespace"],
+            None,
+            error=error_msg,
         )
         _write_step_status(config, pipelinerun_name, None, error_msg)
 
@@ -663,7 +741,11 @@ def main() -> int:
 
 def _write_failure(config: dict, initial_state: dict, error_msg: str) -> None:
     handover = build_handover(
-        initial_state, "", config["namespace"], None, error=error_msg,
+        initial_state,
+        "",
+        config["namespace"],
+        None,
+        error=error_msg,
     )
     _write_step_status(config, "", None, error_msg)
     _write_output(handover, config["output_file"])
@@ -681,14 +763,18 @@ def _write_step_status(
     try:
         if error is None and report_path:
             conforma_context_ops.update_step(
-                run_dir, "tekton_fetch", "completed",
+                run_dir,
+                "tekton_fetch",
+                "completed",
                 raw_report_path=report_path,
                 pipeline_run=pipelinerun_name,
                 policy_type=config["policy_type"],
             )
         else:
             conforma_context_ops.update_step(
-                run_dir, "tekton_fetch", "failed",
+                run_dir,
+                "tekton_fetch",
+                "failed",
                 error=error or "Unknown error",
                 pipeline_run=pipelinerun_name,
                 failed_at=datetime.now(timezone.utc).isoformat(),

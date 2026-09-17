@@ -254,14 +254,22 @@ class TestSearchExisting:
     def test_github_dispatch(self):
         mock_result = {
             "issues": [
-                {"url": "https://github.com/org/repo/issues/1", "title": "Bug", "state": "open",
-                 "created_at": "2026-01-01", "number": 1},
+                {
+                    "url": "https://github.com/org/repo/issues/1",
+                    "title": "Bug",
+                    "state": "open",
+                    "created_at": "2026-01-01",
+                    "number": 1,
+                },
             ],
             "total": 1,
         }
         with patch.object(submit_feedback.github_ops, "search_issues", return_value=mock_result) as mock:
             result = submit_feedback.search_existing(
-                "org/repo", "github", labels=["infrastructure"], title_keywords="query.py",
+                "org/repo",
+                "github",
+                labels=["infrastructure"],
+                title_keywords="query.py",
             )
 
         mock.assert_called_once_with("org/repo", labels=["infrastructure"], title_keywords="query.py")
@@ -271,7 +279,8 @@ class TestSearchExisting:
 
     def test_github_no_matches(self):
         with patch.object(
-            submit_feedback.github_ops, "search_issues",
+            submit_feedback.github_ops,
+            "search_issues",
             return_value={"issues": [], "total": 0},
         ):
             result = submit_feedback.search_existing("org/repo", "github")
@@ -281,7 +290,8 @@ class TestSearchExisting:
 
     def test_github_error_propagates(self):
         with patch.object(
-            submit_feedback.github_ops, "search_issues",
+            submit_feedback.github_ops,
+            "search_issues",
             return_value={"error": "API error"},
         ):
             result = submit_feedback.search_existing("org/repo", "github")
@@ -296,26 +306,38 @@ class TestSearchExisting:
 
 class TestParseArgsNewSubcommands:
     def test_classify_error(self):
-        args = submit_feedback.parse_args([
-            "classify-error",
-            "--exception-type", "FileNotFoundError",
-            "--error-message", "query.py not found",
-            "--script-path", "scripts/component_catalog_ops.py",
-        ])
+        args = submit_feedback.parse_args(
+            [
+                "classify-error",
+                "--exception-type",
+                "FileNotFoundError",
+                "--error-message",
+                "query.py not found",
+                "--script-path",
+                "scripts/component_catalog_ops.py",
+            ]
+        )
         assert args.command == "classify-error"
         assert args.exception_type == "FileNotFoundError"
         assert args.error_message == "query.py not found"
         assert args.script_path == "scripts/component_catalog_ops.py"
 
     def test_from_error_required_fields(self):
-        args = submit_feedback.parse_args([
-            "from-error",
-            "--skill-name", "conforma-analyze",
-            "--workflow-step", "4. Parse violations",
-            "--script-path", "scripts/parse_violations.py",
-            "--error-type", "infrastructure",
-            "--error-message", "query.py not found",
-        ])
+        args = submit_feedback.parse_args(
+            [
+                "from-error",
+                "--skill-name",
+                "conforma-analyze",
+                "--workflow-step",
+                "4. Parse violations",
+                "--script-path",
+                "scripts/parse_violations.py",
+                "--error-type",
+                "infrastructure",
+                "--error-message",
+                "query.py not found",
+            ]
+        )
         assert args.command == "from-error"
         assert args.skill_name == "conforma-analyze"
         assert args.workflow_step == "4. Parse violations"
@@ -326,19 +348,31 @@ class TestParseArgsNewSubcommands:
         assert args.reproduction_command == "N/A"
 
     def test_from_error_all_fields(self):
-        args = submit_feedback.parse_args([
-            "from-error",
-            "--skill-name", "conforma-analyze",
-            "--workflow-step", "4. Parse violations",
-            "--script-path", "scripts/parse_violations.py",
-            "--error-type", "infrastructure",
-            "--error-message", "query.py not found",
-            "--traceback", "Traceback ...",
-            "--reproduction-command", "python3 scripts/parse.py",
-            "--severity", "critical",
-            "--root-cause", "repo reorganized",
-            "--title-hint", "query.py missing",
-        ])
+        args = submit_feedback.parse_args(
+            [
+                "from-error",
+                "--skill-name",
+                "conforma-analyze",
+                "--workflow-step",
+                "4. Parse violations",
+                "--script-path",
+                "scripts/parse_violations.py",
+                "--error-type",
+                "infrastructure",
+                "--error-message",
+                "query.py not found",
+                "--traceback",
+                "Traceback ...",
+                "--reproduction-command",
+                "python3 scripts/parse.py",
+                "--severity",
+                "critical",
+                "--root-cause",
+                "repo reorganized",
+                "--title-hint",
+                "query.py missing",
+            ]
+        )
         assert args.severity == "critical"
         assert args.root_cause == "repo reorganized"
         assert args.title_hint == "query.py missing"
@@ -347,25 +381,40 @@ class TestParseArgsNewSubcommands:
 
     def test_from_error_invalid_severity_rejected(self):
         with pytest.raises(SystemExit):
-            submit_feedback.parse_args([
-                "from-error",
-                "--skill-name", "test",
-                "--workflow-step", "1",
-                "--script-path", "test.py",
-                "--error-type", "infrastructure",
-                "--error-message", "test",
-                "--severity", "blocker",
-            ])
+            submit_feedback.parse_args(
+                [
+                    "from-error",
+                    "--skill-name",
+                    "test",
+                    "--workflow-step",
+                    "1",
+                    "--script-path",
+                    "test.py",
+                    "--error-type",
+                    "infrastructure",
+                    "--error-message",
+                    "test",
+                    "--severity",
+                    "blocker",
+                ]
+            )
 
     def test_search_existing(self):
-        args = submit_feedback.parse_args([
-            "search-existing",
-            "--repo-path", "org/repo",
-            "--platform", "github",
-            "--label", "infrastructure",
-            "--label", "bug",
-            "--title-keywords", "query.py missing",
-        ])
+        args = submit_feedback.parse_args(
+            [
+                "search-existing",
+                "--repo-path",
+                "org/repo",
+                "--platform",
+                "github",
+                "--label",
+                "infrastructure",
+                "--label",
+                "bug",
+                "--title-keywords",
+                "query.py missing",
+            ]
+        )
         assert args.command == "search-existing"
         assert args.repo_path == "org/repo"
         assert args.platform == "github"
@@ -373,10 +422,14 @@ class TestParseArgsNewSubcommands:
         assert args.title_keywords == "query.py missing"
 
     def test_search_existing_defaults(self):
-        args = submit_feedback.parse_args([
-            "search-existing",
-            "--repo-path", "org/repo",
-            "--platform", "github",
-        ])
+        args = submit_feedback.parse_args(
+            [
+                "search-existing",
+                "--repo-path",
+                "org/repo",
+                "--platform",
+                "github",
+            ]
+        )
         assert args.labels is None
         assert args.title_keywords is None

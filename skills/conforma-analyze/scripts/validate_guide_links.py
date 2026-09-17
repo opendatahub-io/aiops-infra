@@ -23,7 +23,6 @@ import glob
 import json
 import os
 import re
-import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -51,8 +50,6 @@ class LinkCheckResult(NamedTuple):
     reason: str
 
 
-
-
 def _get_gitlab_token() -> str:
     token = os.environ.get("GITLAB_TOKEN", "").strip()
     if token:
@@ -60,6 +57,7 @@ def _get_gitlab_token() -> str:
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "scripts"))
         import gitlab_ops
+
         return gitlab_ops.discover_token() or ""
     except Exception:
         return ""
@@ -143,7 +141,9 @@ def _check_single_link(url: str) -> LinkCheckResult:
             if method is requests.head and resp.status_code == 405:
                 continue
             return LinkCheckResult(
-                url=url, ok=False, status_code=resp.status_code,
+                url=url,
+                ok=False,
+                status_code=resp.status_code,
                 reason=f"HTTP {resp.status_code}",
             )
         except requests.ConnectionError:
@@ -185,12 +185,14 @@ def validate_guide_links(
 
     for label, anchor_id in anchor_refs:
         if anchor_id not in anchors:
-            broken.append({
-                "url": f"#{anchor_id}",
-                "ok": False,
-                "status_code": None,
-                "reason": "Anchor target not found in document",
-            })
+            broken.append(
+                {
+                    "url": f"#{anchor_id}",
+                    "ok": False,
+                    "status_code": None,
+                    "reason": "Anchor target not found in document",
+                }
+            )
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_check_single_link, url): url for url in external_urls}
@@ -260,13 +262,21 @@ def main() -> int:
             if ctx_guide:
                 guide_file = str(Path(run_dir) / ctx_guide)
             else:
-                print(json.dumps({"error": "No guide_file in context (steps.resolution_guide.guide_file)", "all_ok": False}))
+                print(
+                    json.dumps(
+                        {"error": "No guide_file in context (steps.resolution_guide.guide_file)", "all_ok": False}
+                    )
+                )
                 return 1
         else:
             print(json.dumps({"error": "No guide found at canonical path and no context available", "all_ok": False}))
             return 1
     else:
-        print(json.dumps({"error": "--guide-file or --latest is required when no run context is available", "all_ok": False}))
+        print(
+            json.dumps(
+                {"error": "--guide-file or --latest is required when no run context is available", "all_ok": False}
+            )
+        )
         return 1
 
     path = Path(guide_file)
@@ -287,8 +297,7 @@ def main() -> int:
         return 1
 
     print(
-        f"All links OK ({report['external_checked']} external, "
-        f"{report['anchor_checked']} anchors checked)",
+        f"All links OK ({report['external_checked']} external, {report['anchor_checked']} anchors checked)",
         file=sys.stderr,
     )
     return 0

@@ -33,11 +33,7 @@ import yaml  # noqa: E402
 import github_ops  # noqa: E402
 
 GITHUB_API = "https://api.github.com"
-CATALOG_PATH = (
-    Path(__file__).resolve().parent.parent.parent
-    / "references"
-    / "tooling-health-catalog.yaml"
-)
+CATALOG_PATH = Path(__file__).resolve().parent.parent.parent / "references" / "tooling-health-catalog.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -119,9 +115,9 @@ def _fetch_workflow_runs(
     all_runs = data.get("workflow_runs", [])
     env_marker = f"target env: {environment}"
     matched = [
-        r for r in all_runs
-        if release in (r.get("display_title") or "")
-        and env_marker in (r.get("display_title") or "")
+        r
+        for r in all_runs
+        if release in (r.get("display_title") or "") and env_marker in (r.get("display_title") or "")
     ]
 
     return {"runs": matched[:max_runs]}
@@ -315,9 +311,7 @@ def check_tool_health(
     }
 
     if health["status"] == "unhealthy":
-        tool_result["failure_classification"] = classify_failure(
-            health.get("reason", ""), tool_config
-        )
+        tool_result["failure_classification"] = classify_failure(health.get("reason", ""), tool_config)
 
     return tool_result
 
@@ -366,10 +360,12 @@ def _render_display(tools_results: list[dict]) -> str:
     unhealthy_tools = [t for t in tools_results if t.get("health", {}).get("status") in ("unhealthy", "error")]
     if unhealthy_tools:
         names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)
-        lines.extend([
-            "",
-            f"**⚠ WARNING: The violation data in this report may be stale because the {names} workflow is failing.**",
-        ])
+        lines.extend(
+            [
+                "",
+                f"**⚠ WARNING: The violation data in this report may be stale because the {names} workflow is failing.**",
+            ]
+        )
 
     lines.append("")
     return "\n".join(lines)
@@ -443,9 +439,7 @@ def check_all_tools(release: str, environment: str, max_runs: int = 5, catalog_p
             ls = health.get("last_success") or {}
             ls_date = ls.get("completed_at", "")[:10] if ls else "unknown"
             parts.append(f"{t['name']}: run #{run_id} started {started}")
-        result["question_text"] = (
-            f"A conforma-reporter run is in progress for {release} ({'; '.join(parts)}). Choose:"
-        )
+        result["question_text"] = f"A conforma-reporter run is in progress for {release} ({'; '.join(parts)}). Choose:"
         result["question_options"] = [
             f"Use last completed report ({ls_date})",
             "Wait for current run to finish (up to 60 min)",
@@ -477,9 +471,7 @@ def _compute_overall_health(tools: list[dict]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Check health of conforma infrastructure tools"
-    )
+    parser = argparse.ArgumentParser(description="Check health of conforma infrastructure tools")
     parser.add_argument(
         "--run-dir",
         default=None,

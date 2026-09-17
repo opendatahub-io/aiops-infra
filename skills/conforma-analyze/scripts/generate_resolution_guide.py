@@ -18,7 +18,6 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -26,7 +25,6 @@ import _setup_env  # noqa: F401, E402
 
 import conforma_context_ops  # noqa: E402
 import conforma_counting  # noqa: E402
-import release_dates  # noqa: E402
 import yaml  # noqa: E402
 from parse_violations import build_semantic_detail_lookup  # noqa: E402
 
@@ -37,7 +35,6 @@ from conforma_constants import (  # noqa: E402
     CONFORMA_REPORTER_URL,
     RESOLUTION_GUIDE_FILENAME,
     TODO_PREVIEW_FILENAME,
-    VERIFY_NEXT_STEP,
 )
 
 from guide_renderers import render_metadata_header as _render_metadata_header  # noqa: F401 — backward compat re-export
@@ -288,13 +285,36 @@ def generate_resolution_guide(
 
     # Raw source-CSV row count: fall back to the per-image row count of the
     # primary (violations) CSV already computed by the counting pass.
-    effective_source_csv_rows = (
-        source_csv_rows if source_csv_rows is not None else counts.image_occurrences
-    )
+    effective_source_csv_rows = source_csv_rows if source_csv_rows is not None else counts.image_occurrences
 
-    metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, confirmation_display=confirmation_display, environment=environment, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations, source_csv_rows=effective_source_csv_rows, ai_model=ai_model)
+    metadata_header = _render_metadata_header(
+        release,
+        source_path,
+        source_created_at,
+        source_sha,
+        policy_dir_url,
+        policy_files,
+        end_of_support=end_of_support,
+        confirmation_display=confirmation_display,
+        environment=environment,
+        code_freeze_date=code_freeze_date,
+        upcoming_release_date=upcoming_release_date,
+        total_violations=counts.violations,
+        source_csv_rows=effective_source_csv_rows,
+        ai_model=ai_model,
+    )
     tooling_health = _render_tooling_health(tooling_health_data) if tooling_health_data else ""
-    key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files, release=release, jira_sync=jira_sync)
+    key_takeaways = _render_key_takeaways(
+        coverage_data,
+        analysis_result,
+        counts.by_component_rule,
+        tooling_health_data,
+        violations_yaml_data=viol_data,
+        upcoming_release_date=upcoming_release_date,
+        policy_files=policy_files,
+        release=release,
+        jira_sync=jira_sync,
+    )
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
 
     sections = [
@@ -303,7 +323,15 @@ def generate_resolution_guide(
         summary_metrics,
         tooling_health,
         _render_coverage_table(coverage_data),
-        _render_resolution_guide(coverage_data, catalog, work_scope_by_rule, source_csv_url, policy_files=policy_files, detail_lookup=build_semantic_detail_lookup(viol_data)[0] if viol_data else None, jira_sync=jira_sync),
+        _render_resolution_guide(
+            coverage_data,
+            catalog,
+            work_scope_by_rule,
+            source_csv_url,
+            policy_files=policy_files,
+            detail_lookup=build_semantic_detail_lookup(viol_data)[0] if viol_data else None,
+            jira_sync=jira_sync,
+        ),
         _render_warnings_section(analysis_result, component_owners),
         _render_statistical_breakdown(analysis_result, component_owners),
     ]
@@ -321,9 +349,15 @@ def generate_resolution_guide(
         analysis_path = Path(analysis_output_file)
         if analysis_path.exists():
             analysis_header = _render_metadata_header(
-                release, source_path, source_created_at, source_sha,
-                policy_dir_url, policy_files, end_of_support=end_of_support,
-                confirmation_display=confirmation_display, environment=environment,
+                release,
+                source_path,
+                source_created_at,
+                source_sha,
+                policy_dir_url,
+                policy_files,
+                end_of_support=end_of_support,
+                confirmation_display=confirmation_display,
+                environment=environment,
                 title_prefix="Conforma Analysis",
                 upcoming_release_date=upcoming_release_date,
                 code_freeze_date=code_freeze_date,
@@ -336,7 +370,9 @@ def generate_resolution_guide(
             cleaned_lines = []
             skip_old_header = True
             for line in existing_lines:
-                if skip_old_header and (line.startswith("**Report**:") or line.startswith("# Conforma Violations Analysis")):
+                if skip_old_header and (
+                    line.startswith("**Report**:") or line.startswith("# Conforma Violations Analysis")
+                ):
                     continue
                 skip_old_header = False
                 cleaned_lines.append(line)
@@ -406,7 +442,7 @@ def main() -> int:
     parser.add_argument(
         "--policy-files-json",
         default="",
-        help='JSON array of {name, url} objects for policy config files. Auto-extracted from context.yaml when omitted.',
+        help="JSON array of {name, url} objects for policy config files. Auto-extracted from context.yaml when omitted.",
     )
     parser.add_argument(
         "--end-of-support",
@@ -615,7 +651,9 @@ def main() -> int:
             todo_file=todo_file,
             analysis_output_file=analysis_output_file,
             end_of_support=end_of_support,
-            confirmation_display=conforma_context_ops.get(run_dir, "resolve.confirmation_display", "") if context else "",
+            confirmation_display=conforma_context_ops.get(run_dir, "resolve.confirmation_display", "")
+            if context
+            else "",
             environment=conforma_context_ops.get(run_dir, "environment", "") if context else "",
             upcoming_release_date=upcoming_release_date,
             code_freeze_date=code_freeze_date,

@@ -28,11 +28,7 @@ class TestExtractBashBlocks:
         assert blocks == []
 
     def test_multiple_blocks_in_same_step(self):
-        content = (
-            "### Step 7\n\n"
-            "```bash\n# With Slack\necho yes\n```\n\n"
-            "```bash\n# Without Slack\necho no\n```\n"
-        )
+        content = "### Step 7\n\n```bash\n# With Slack\necho yes\n```\n\n```bash\n# Without Slack\necho no\n```\n"
         blocks = hook.extract_bash_blocks(content)
         assert len(blocks) == 2
         assert all("Step 7" in b["step"] for b in blocks)
@@ -75,10 +71,7 @@ class TestFindConditionalPairs:
 
 class TestFindExtractAndPassInstructions:
     def test_detects_extract_and_pass_via_releases(self):
-        content = (
-            "extract the release branch from the URL path "
-            "and pass it to the fetch script via `--releases`."
-        )
+        content = "extract the release branch from the URL path and pass it to the fetch script via `--releases`."
         findings = hook.find_extract_and_pass_instructions(content)
         assert len(findings) == 1
         assert findings[0]["flag"] == "--releases"
@@ -118,11 +111,7 @@ class TestCheckFile:
 
     def test_detects_paired_blocks(self, tmp_path):
         f = tmp_path / "bad.md"
-        f.write_text(
-            "### Step 7\n\n"
-            "```bash\n# With Slack\necho yes\n```\n\n"
-            "```bash\n# Without Slack\necho no\n```\n"
-        )
+        f.write_text("### Step 7\n\n```bash\n# With Slack\necho yes\n```\n\n```bash\n# Without Slack\necho no\n```\n")
         with patch.object(hook, "REPO_ROOT", tmp_path):
             errors = hook.check_file(f)
         assert len(errors) == 1
@@ -130,10 +119,7 @@ class TestCheckFile:
 
     def test_detects_extract_and_pass_in_file(self, tmp_path):
         f = tmp_path / "bad_prose.md"
-        f.write_text(
-            "### Handling URLs\n\n"
-            "extract the branch from the URL and pass it via `--releases`.\n"
-        )
+        f.write_text("### Handling URLs\n\nextract the branch from the URL and pass it via `--releases`.\n")
         with patch.object(hook, "REPO_ROOT", tmp_path):
             errors = hook.check_file(f)
         assert len(errors) == 1

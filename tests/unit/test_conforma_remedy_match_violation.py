@@ -23,7 +23,10 @@ SAMPLE_CATALOG = {
             },
             "symptoms": ["Build task was not invoked with the hermetic parameter set"],
             "fix_steps": [
-                {"action": "Set hermetic=true in the PipelineRun YAML", "reference": "https://konflux-ci.dev/docs/building/hermetic-builds/"},
+                {
+                    "action": "Set hermetic=true in the PipelineRun YAML",
+                    "reference": "https://konflux-ci.dev/docs/building/hermetic-builds/",
+                },
                 {"action": "Enable prefetch-dependencies"},
                 {"action": "Rebuild the component in Konflux"},
             ],
@@ -260,9 +263,7 @@ class TestFalseAlertDetection:
         assert alerts[0]["action"] == "ignore"
 
     def test_detect_false_alert_with_component(self, matcher):
-        alerts = matcher.check_false_alerts(
-            "test.no_failed_tests", component="rhoai-fbc-fragment"
-        )
+        alerts = matcher.check_false_alerts("test.no_failed_tests", component="rhoai-fbc-fragment")
         assert len(alerts) == 1
         assert alerts[0]["applies_to"] == "rhoai-fbc-fragment"
 
@@ -352,9 +353,7 @@ class TestSanitization:
         assert result.id == "hermetic_task.hermetic"
 
     def test_quoted_symptom_message(self, matcher):
-        result = matcher.match(
-            'Task "xyz" Build task was not invoked with the hermetic parameter set'
-        )
+        result = matcher.match('Task "xyz" Build task was not invoked with the hermetic parameter set')
         assert result is not None
         assert result.id == "hermetic_task.hermetic"
 

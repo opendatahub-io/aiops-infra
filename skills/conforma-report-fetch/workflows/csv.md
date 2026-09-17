@@ -87,7 +87,6 @@ Some in-development/EA branches may not have a violations report CSV yet. The sc
 
 ### Handling User-Provided URLs
 
-If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), pass the full URL or the extracted release identifier (e.g. `rhoai-3.4`) as the query text to Step 0 (`init_conforma_run.py`). The release context pipeline will resolve it automatically from `context.yaml`. Do NOT pass `--releases` to the fetch script — all downstream steps read from `context.yaml`.
+If the user provides a GitHub URL to a specific report (e.g. `https://github.com/red-hat-data-services/conforma-reporter/blob/rhoai-3.4/prod/release_day/conforma-violations-report.csv`), pass the complete user query unchanged to Step 0 (`init_conforma_run.py`). The deterministic release parser extracts the release from prose or a URL and the release context pipeline resolves it automatically from `context.yaml`. Do NOT pass `--releases` to the fetch script — all downstream steps read from `context.yaml`.
 
 ---
-

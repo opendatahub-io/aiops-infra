@@ -31,8 +31,7 @@ CONDITIONAL_COMMENT_RE = re.compile(
 
 STEP_HEADING_RE = re.compile(r"^#{1,4}\s+.*(?:Step|step)\s+\d+", re.IGNORECASE)
 
-CONTEXT_YAML_FLAGS = ["--release", "--releases", "--environment", "--run-dir",
-                      "--require-slack", "--output-dir"]
+CONTEXT_YAML_FLAGS = ["--release", "--releases", "--environment", "--run-dir", "--require-slack", "--output-dir"]
 
 EXTRACT_AND_PASS_RE = re.compile(
     r"extract\b.*\b(?:pass|run with)\b.*(`--\w+`)",
@@ -52,11 +51,7 @@ def discover_workflow_files() -> list[Path]:
         text=True,
         cwd=str(REPO_ROOT),
     )
-    return [
-        REPO_ROOT / f
-        for f in result.stdout.splitlines()
-        if f.endswith(".md") and "/workflows/" in f
-    ]
+    return [REPO_ROOT / f for f in result.stdout.splitlines() if f.endswith(".md") and "/workflows/" in f]
 
 
 def extract_bash_blocks(content: str) -> list[dict]:
@@ -84,11 +79,13 @@ def extract_bash_blocks(content: str) -> list[dict]:
             continue
 
         if in_bash and stripped.startswith("```"):
-            blocks.append({
-                "step": current_step,
-                "comments": block_comments,
-                "line_no": block_start,
-            })
+            blocks.append(
+                {
+                    "step": current_step,
+                    "comments": block_comments,
+                    "line_no": block_start,
+                }
+            )
             in_bash = False
             continue
 
@@ -126,12 +123,14 @@ def find_conditional_pairs(blocks: list[dict]) -> list[dict]:
 
         for topic in with_topics:
             if topic in without_topics:
-                findings.append({
-                    "step": step,
-                    "topic": topic,
-                    "with_lines": with_topics[topic],
-                    "without_lines": without_topics[topic],
-                })
+                findings.append(
+                    {
+                        "step": step,
+                        "topic": topic,
+                        "with_lines": with_topics[topic],
+                        "without_lines": without_topics[topic],
+                    }
+                )
 
     return findings
 
@@ -199,8 +198,7 @@ def main() -> int:
             file=sys.stderr,
         )
         print(
-            "Replace paired With/Without blocks with a single fixed command "
-            "that reads parameters from context.yaml.",
+            "Replace paired With/Without blocks with a single fixed command that reads parameters from context.yaml.",
             file=sys.stderr,
         )
         return 1

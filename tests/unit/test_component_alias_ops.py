@@ -8,13 +8,7 @@ import component_alias_ops as mod
 class TestLoadAliases:
     def test_loads_groups_from_yaml(self, tmp_path):
         f = tmp_path / "aliases.yaml"
-        f.write_text(
-            "alias_groups:\n"
-            "  - names:\n"
-            "      - comp-a\n"
-            "      - comp-b\n"
-            "    note: test\n"
-        )
+        f.write_text("alias_groups:\n  - names:\n      - comp-a\n      - comp-b\n    note: test\n")
         aliases = mod.load_aliases(f)
         assert "comp-a" in aliases
         assert "comp-b" in aliases
@@ -31,23 +25,12 @@ class TestLoadAliases:
 
     def test_single_name_group_ignored(self, tmp_path):
         f = tmp_path / "aliases.yaml"
-        f.write_text(
-            "alias_groups:\n"
-            "  - names:\n"
-            "      - only-one\n"
-            "    note: too few\n"
-        )
+        f.write_text("alias_groups:\n  - names:\n      - only-one\n    note: too few\n")
         assert mod.load_aliases(f) == {}
 
     def test_multiple_groups(self, tmp_path):
         f = tmp_path / "aliases.yaml"
-        f.write_text(
-            "alias_groups:\n"
-            "  - names: [a, b]\n"
-            "    note: first\n"
-            "  - names: [x, y, z]\n"
-            "    note: second\n"
-        )
+        f.write_text("alias_groups:\n  - names: [a, b]\n    note: first\n  - names: [x, y, z]\n    note: second\n")
         aliases = mod.load_aliases(f)
         assert aliases["a"] == {"a", "b"}
         assert aliases["x"] == {"x", "y", "z"}

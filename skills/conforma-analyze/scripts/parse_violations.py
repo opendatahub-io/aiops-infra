@@ -45,22 +45,31 @@ import yaml
 # Fields are tried in order; first match wins.  Supported fields: "message", "description".
 _RULE_EXTRACTORS: list[tuple[str, list[tuple[str, re.Pattern]]]] = [
     # rpm_signature.allowed -> extract 16-char hex key ID from message
-    ("rpm_signature.allowed", [
-        ("message", re.compile(r"([0-9a-fA-F]{16})(?![0-9a-fA-F])")),
-    ]),
+    (
+        "rpm_signature.allowed",
+        [
+            ("message", re.compile(r"([0-9a-fA-F]{16})(?![0-9a-fA-F])")),
+        ],
+    ),
     # test.no_failed_tests -> extract task name from description (primary) or message (fallback)
     # Description contains the exact EC exclude entry: add "test.no_failed_tests:<task-name>"
     # Message contains: The Task "<task-name>" from the build Pipeline reports a failed test
-    ("test.no_failed_tests", [
-        ("description", re.compile(r'test\.no_failed_tests:([^"]+)')),
-        ("message", re.compile(r'[Tt]ask\s+"([^"]+)"')),
-    ]),
+    (
+        "test.no_failed_tests",
+        [
+            ("description", re.compile(r'test\.no_failed_tests:([^"]+)')),
+            ("message", re.compile(r'[Tt]ask\s+"([^"]+)"')),
+        ],
+    ),
     # test.no_erred_tests -> extract task name (same message pattern as no_failed_tests)
     # Message contains: The Task "<task-name>" from the build Pipeline reports a test erred
-    ("test.no_erred_tests", [
-        ("description", re.compile(r'test\.no_erred_tests:([^"]+)')),
-        ("message", re.compile(r'[Tt]ask\s+"([^"]+)"')),
-    ]),
+    (
+        "test.no_erred_tests",
+        [
+            ("description", re.compile(r'test\.no_erred_tests:([^"]+)')),
+            ("message", re.compile(r'[Tt]ask\s+"([^"]+)"')),
+        ],
+    ),
 ]
 
 
@@ -128,11 +137,7 @@ def extract_full_violation_code(description: str, code: str, message: str = "") 
 
 def _load_semantic_catalog() -> dict:
     """Load the violation-detail-extractors.yaml catalog."""
-    catalog_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "references"
-        / "violation-detail-extractors.yaml"
-    )
+    catalog_path = Path(__file__).resolve().parent.parent.parent / "references" / "violation-detail-extractors.yaml"
     if not catalog_path.exists():
         return {}
     return yaml.safe_load(catalog_path.read_text(encoding="utf-8")) or {}
@@ -149,9 +154,7 @@ def get_semantic_catalog() -> dict:
     return _SEMANTIC_CATALOG
 
 
-def _apply_extraction(
-    extraction: dict, message: str, full_violation_code: str
-) -> str:
+def _apply_extraction(extraction: dict, message: str, full_violation_code: str) -> str:
     """Apply a single extraction config and return the extracted detail."""
     field = extraction.get("field", "")
     pattern_str = extraction.get("pattern", "")
@@ -233,16 +236,6 @@ def extract_semantic_detail(
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # CSV parsing
 # ---------------------------------------------------------------------------
@@ -294,8 +287,6 @@ def parse_csv_file(csv_path: Path, release: str) -> list[dict]:
 
 
 DEFAULT_UPCOMING_THRESHOLD_DAYS = 21
-
-
 
 
 def parse_warnings_csv_file(
@@ -594,9 +585,7 @@ def build_violations_index(
                 continue
             for r in recs:
                 r["semantic_detail"] = ""
-            by_code[code]["seen_violations"] = {
-                (code, r["component_name"], "") for r in recs
-            }
+            by_code[code]["seen_violations"] = {(code, r["component_name"], "") for r in recs}
 
     violations_by_rule = {}
     for code, info in sorted(by_code.items()):
@@ -674,7 +663,9 @@ def build_violations_index(
         result["violation_data"]["failed_releases"] = failed_releases
 
     if upcoming_records:
-        upcoming_section = _build_upcoming_violations_section(upcoming_records, releases, upcoming_threshold_days, environment)
+        upcoming_section = _build_upcoming_violations_section(
+            upcoming_records, releases, upcoming_threshold_days, environment
+        )
         if upcoming_section:
             result["violation_data"]["upcoming_violations"] = upcoming_section
 
@@ -829,8 +820,7 @@ def main() -> int:
         target_csv = reports_dir_path / f"{target_release}.csv"
         if not target_csv.exists():
             print(
-                f"Error: no CSV found for release '{target_release}' "
-                f"(expected {target_csv})",
+                f"Error: no CSV found for release '{target_release}' (expected {target_csv})",
                 file=sys.stderr,
             )
             return 1
@@ -911,7 +901,9 @@ def main() -> int:
 
     if run_dir:
         conforma_context_ops.update_step(
-            run_dir, "parse", "completed",
+            run_dir,
+            "parse",
+            "completed",
             violations_yaml=output_path.name,
         )
 

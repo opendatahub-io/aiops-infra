@@ -3,19 +3,8 @@
 from __future__ import annotations
 
 from __future__ import annotations
-import argparse
 import getpass
-import json
-import os
 import platform
-import posixpath
-import re
-import subprocess
-import sys
-import tempfile
-from pathlib import Path
-import gitlab_ops
-import konflux_environment
 
 
 PROVENANCE_REPO = "opendatahub-io/aiops-infra"
@@ -134,9 +123,7 @@ def build_mr_body(
     return "\n".join(lines)
 
 
-def build_mr_title(
-    rule: str, rhoai_version: str, environment: str, vendor_tag: str | None = None
-) -> str:
+def build_mr_title(rule: str, rhoai_version: str, environment: str, vendor_tag: str | None = None) -> str:
     """Build the MR title, including vendor tag and environment prefix."""
     env_prefix = f"[{environment}] " if environment else ""
     title = f"{env_prefix}[RHOAI] Conforma exception: {rule} for {rhoai_version}"
@@ -270,4 +257,3 @@ def build_mr_body_consolidated(
     )
 
     return "\n".join(lines)
-

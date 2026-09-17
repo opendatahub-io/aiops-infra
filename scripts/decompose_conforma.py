@@ -16,13 +16,10 @@ from __future__ import annotations
 
 import argparse
 import ast
-import os
 import re
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -269,9 +266,7 @@ def generate_module_header(filepath: Path) -> str:
                 ret = f" -> {ast.unparse(node.returns)}"
 
             # Determine args
-            args_str = ", ".join(
-                a.arg for a in node.args.args if a.arg != "self"
-            )
+            args_str = ", ".join(a.arg for a in node.args.args if a.arg != "self")
 
             if not name.startswith("_"):
                 public_funcs.append(f"    {name}({args_str}){ret}  [line {line}]")
@@ -485,7 +480,7 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
     all_imports: list[str] = []
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.Import | ast.ImportFrom):
-            import_text = "".join(lines[node.lineno - 1: node.end_lineno or node.lineno])
+            import_text = "".join(lines[node.lineno - 1 : node.end_lineno or node.lineno])
             all_imports.append(import_text.rstrip())
 
     # Build the new module content
@@ -519,7 +514,7 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
             chunk = chunk.replace(f"class {old_name}(", f"class {new_name}(", 1)
             chunk = chunk.replace(f"class {old_name}:", f"class {new_name}:", 1)
             # Rename call sites using word boundary regex
-            chunk = re.sub(rf'\b{re.escape(old_name)}\b', new_name, chunk)
+            chunk = re.sub(rf"\b{re.escape(old_name)}\b", new_name, chunk)
         extracted_chunks[i] = chunk
 
     for chunk in extracted_chunks:
@@ -565,10 +560,7 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
             return n.target.id
         return None
 
-    sorted_ranges = sorted(
-        (s, e, n) for s, e, n in all_extract_nodes
-        if _get_node_name(n) in explicitly_extracted
-    )
+    sorted_ranges = sorted((s, e, n) for s, e, n in all_extract_nodes if _get_node_name(n) in explicitly_extracted)
     for _, end, _ in sorted_ranges:
         i = end
         while i < len(lines) and lines[i].strip() == "":
@@ -587,8 +579,7 @@ def extract_functions(config: ExtractionConfig, *, dry_run: bool = False) -> boo
         original_name = node.name
         if public_name == original_name:
             re_exports.append(
-                f"from {target_module_name} import {public_name}  "
-                f"# noqa: F401 — backward compat re-export"
+                f"from {target_module_name} import {public_name}  # noqa: F401 — backward compat re-export"
             )
         else:
             re_exports.append(
@@ -723,9 +714,9 @@ class Step0_FixAlwaysOnOverhead(Step):
 
     def execute(self, *, dry_run: bool = False) -> bool:
         if dry_run:
-            print(f"\n    Would delete CLAUDE.md")
+            print("\n    Would delete CLAUDE.md")
             print(f"    Would rewrite AGENTS.md ({len(TARGET_AGENTS_MD.splitlines())} lines)")
-            print(f"    Would add Conforma Conventions to skills/conforma/SKILL.md")
+            print("    Would add Conforma Conventions to skills/conforma/SKILL.md")
             return True
 
         # Delete CLAUDE.md
@@ -829,37 +820,77 @@ class Step2_SplitExceptionSkill(Step):
         skill_path.write_text(router)
 
         # Create workflow files based on logical grouping
-        self._write_workflow("create", sections, workflows_dir, [
-            "Prerequisites", "Remote Data Access Policy", "RHOAIENG Approval Gate",
-            "Important: Human-in-the-Loop", "Workflow Routing",
-            "Exception Creation Workflow Diagram", "Explaining Conforma Exceptions",
-            "Run Directory Convention", "Starting Without Details",
-            "Listing Exception Types, Usage, and Questionnaire",
-            "Component Version Reconciliation", "Dry-Run Mode",
-            "Verification Contract", "Jira Component Audit",
-            "Commit Message Structure",
-        ])
+        self._write_workflow(
+            "create",
+            sections,
+            workflows_dir,
+            [
+                "Prerequisites",
+                "Remote Data Access Policy",
+                "RHOAIENG Approval Gate",
+                "Important: Human-in-the-Loop",
+                "Workflow Routing",
+                "Exception Creation Workflow Diagram",
+                "Explaining Conforma Exceptions",
+                "Run Directory Convention",
+                "Starting Without Details",
+                "Listing Exception Types, Usage, and Questionnaire",
+                "Component Version Reconciliation",
+                "Dry-Run Mode",
+                "Verification Contract",
+                "Jira Component Audit",
+                "Commit Message Structure",
+            ],
+        )
 
-        self._write_workflow("extend", sections, workflows_dir, [
-            "Prerequisites", "Remote Data Access Policy",
-            "Important: Human-in-the-Loop", "Workflow Routing",
-            "Run Directory Convention", "Dry-Run Mode", "Verification Contract",
-        ])
+        self._write_workflow(
+            "extend",
+            sections,
+            workflows_dir,
+            [
+                "Prerequisites",
+                "Remote Data Access Policy",
+                "Important: Human-in-the-Loop",
+                "Workflow Routing",
+                "Run Directory Convention",
+                "Dry-Run Mode",
+                "Verification Contract",
+            ],
+        )
 
-        self._write_workflow("lifecycle", sections, workflows_dir, [
-            "Prerequisites", "Remote Data Access Policy",
-            "Reconcile Mode", "Existing Exception Deduplication",
-            "Managing Exceptions",
-        ])
+        self._write_workflow(
+            "lifecycle",
+            sections,
+            workflows_dir,
+            [
+                "Prerequisites",
+                "Remote Data Access Policy",
+                "Reconcile Mode",
+                "Existing Exception Deduplication",
+                "Managing Exceptions",
+            ],
+        )
 
-        self._write_workflow("check", sections, workflows_dir, [
-            "Prerequisites", "Listing, Searching, and Watchers",
-        ])
+        self._write_workflow(
+            "check",
+            sections,
+            workflows_dir,
+            [
+                "Prerequisites",
+                "Listing, Searching, and Watchers",
+            ],
+        )
 
-        self._write_workflow("assess-expired", sections, workflows_dir, [
-            "Prerequisites", "Remote Data Access Policy",
-            "Managing Exceptions",
-        ])
+        self._write_workflow(
+            "assess-expired",
+            sections,
+            workflows_dir,
+            [
+                "Prerequisites",
+                "Remote Data Access Policy",
+                "Managing Exceptions",
+            ],
+        )
 
         return True
 
@@ -921,9 +952,7 @@ class Step2_SplitExceptionSkill(Step):
 
         return router
 
-    def _write_workflow(
-        self, name: str, sections: dict[str, str], workflows_dir: Path, section_keys: list[str]
-    ):
+    def _write_workflow(self, name: str, sections: dict[str, str], workflows_dir: Path, section_keys: list[str]):
         """Write a workflow file from specified sections."""
         content = f"# {name.replace('-', ' ').title()} Workflow\n\n"
         for key in section_keys:
@@ -987,7 +1016,9 @@ class Step3_SplitAnalyzeSkill(Step):
         router += "## Workflow Routing\n\n"
         router += "| Intent | Workflow file |\n"
         router += "|--------|---------------|\n"
-        router += "| Full violation analysis (fetch, parse, analyze, coverage, guide) | Read `workflows/full-analysis.md` |\n"
+        router += (
+            "| Full violation analysis (fetch, parse, analyze, coverage, guide) | Read `workflows/full-analysis.md` |\n"
+        )
         router += "| Trace when a violation appeared/disappeared | Read `workflows/violation-history.md` |\n"
         router += "\n"
 
@@ -1010,7 +1041,7 @@ class Step3_SplitAnalyzeSkill(Step):
 
         # Violation history = "## Violation History" section
         history_end = len(lines)
-        for i, line in enumerate(lines[history_start + 1:], start=history_start + 1):
+        for i, line in enumerate(lines[history_start + 1 :], start=history_start + 1):
             if line.startswith("## "):
                 history_end = i
                 break
@@ -1129,7 +1160,7 @@ class Step5_ReferenceScoping(Step):
 
         if dry_run:
             print(f"\n    Would create {aliases_path} ({len(aliases_entries)} entries)")
-            print(f"    Would add reference sections to workflow files")
+            print("    Would add reference sections to workflow files")
             return True
 
         aliases_path.write_text(aliases_content)
@@ -1174,7 +1205,9 @@ class Step5_ReferenceScoping(Step):
                 ref_section += "\n---\n\n"
                 content = ref_section + content
             else:
-                ref_section = "## References (load these before executing)\n\nNo additional references needed.\n\n---\n\n"
+                ref_section = (
+                    "## References (load these before executing)\n\nNo additional references needed.\n\n---\n\n"
+                )
                 content = ref_section + content
 
             path.write_text(content)
@@ -1195,10 +1228,14 @@ class Step6_ExtractMrText(Step):
             source_file="skills/conforma-exception/scripts/create_gitlab_mr.py",
             target_file="skills/conforma-exception/scripts/exception_mr_text.py",
             function_names=[
-                "build_commit_message", "build_commit_message_consolidated",
-                "build_mr_title", "build_mr_title_consolidated",
-                "build_mr_body", "build_mr_body_consolidated",
-                "build_extend_commit_message", "build_lifecycle_commit_message",
+                "build_commit_message",
+                "build_commit_message_consolidated",
+                "build_mr_title",
+                "build_mr_title_consolidated",
+                "build_mr_body",
+                "build_mr_body_consolidated",
+                "build_extend_commit_message",
+                "build_lifecycle_commit_message",
             ],
             target_docstring="Exception Merge Request text generation — commit messages, titles, and bodies.",
         )
@@ -1218,11 +1255,16 @@ class Step7_ExtractPolicyFileOps(Step):
             source_file="skills/conforma-exception/scripts/create_gitlab_mr.py",
             target_file="skills/conforma-exception/scripts/exception_policy_file_ops.py",
             function_names=[
-                "resolve_policy_file", "resolve_self_service_file",
-                "detect_component_type", "get_target_file",
-                "generate_exception_yaml", "find_existing_exceptions",
-                "remove_exception_from_policy_file", "apply_exception_to_policy_file",
-                "append_to_policy_file", "AmbiguousPolicyFileError",
+                "resolve_policy_file",
+                "resolve_self_service_file",
+                "detect_component_type",
+                "get_target_file",
+                "generate_exception_yaml",
+                "find_existing_exceptions",
+                "remove_exception_from_policy_file",
+                "apply_exception_to_policy_file",
+                "append_to_policy_file",
+                "AmbiguousPolicyFileError",
             ],
             target_docstring="Exception policy file operations — resolution, YAML generation, and manipulation.",
         )
@@ -1242,11 +1284,15 @@ class Step8_ExtractJiraBuilders(Step):
             source_file="skills/conforma-exception/scripts/create_jira_ticket.py",
             target_file="skills/conforma-exception/scripts/jira_description_builders.py",
             function_names=[
-                "build_rhoaieng_description", "build_rhoaieng_remediation_description",
+                "build_rhoaieng_description",
+                "build_rhoaieng_remediation_description",
                 "build_rhoaieng_violation_report_description",
-                "build_psx_description", "build_psx_filled_adf",
-                "build_summary", "fill_psx_template",
-                "build_exception_label", "build_provenance_footer",
+                "build_psx_description",
+                "build_psx_filled_adf",
+                "build_summary",
+                "fill_psx_template",
+                "build_exception_label",
+                "build_provenance_footer",
             ],
             target_docstring="Jira ticket description builders — ADF and text generation for all ticket types.",
         )
@@ -1266,14 +1312,24 @@ class Step9_ExtractGuideRenderers(Step):
             source_file="skills/conforma-analyze/scripts/generate_resolution_guide.py",
             target_file="skills/conforma-analyze/scripts/guide_renderers.py",
             function_names=[
-                "render_metadata_header", "render_key_takeaways", "render_summary",
-                "render_coverage_table", "render_resolution_guide",
-                "render_excepted_violation", "render_partial_coverage_header",
-                "render_cataloged_violation", "render_uncataloged_violation",
-                "render_known_false_alerts", "render_components_table",
-                "render_warnings_section", "render_statistical_breakdown",
-                "render_tooling_health", "render_work_scope", "render_divergence_warning",
-                "write_todo_preview", "format_violation_cell",
+                "render_metadata_header",
+                "render_key_takeaways",
+                "render_summary",
+                "render_coverage_table",
+                "render_resolution_guide",
+                "render_excepted_violation",
+                "render_partial_coverage_header",
+                "render_cataloged_violation",
+                "render_uncataloged_violation",
+                "render_known_false_alerts",
+                "render_components_table",
+                "render_warnings_section",
+                "render_statistical_breakdown",
+                "render_tooling_health",
+                "render_work_scope",
+                "render_divergence_warning",
+                "write_todo_preview",
+                "format_violation_cell",
             ],
             target_docstring="Resolution guide renderers — pure functions that take data and return markdown.",
         )
@@ -1293,8 +1349,11 @@ class Step10_ExtractCoverageStatus(Step):
             source_file="skills/conforma-analyze/scripts/violations_coverage.py",
             target_file="skills/conforma-analyze/scripts/coverage_status_ops.py",
             function_names=[
-                "determine_status_and_next_steps", "build_search_urls",
-                "map_gate_status", "extract_exception_expiry", "load_report_metadata",
+                "determine_status_and_next_steps",
+                "build_search_urls",
+                "map_gate_status",
+                "extract_exception_expiry",
+                "load_report_metadata",
             ],
             target_docstring="Coverage status operations — pure status determination and classification logic.",
         )
@@ -1314,11 +1373,17 @@ class Step11_ExtractExceptionScanner(Step):
             source_file="skills/conforma-exception/scripts/manage_exceptions.py",
             target_file="skills/conforma-exception/scripts/exception_scanner.py",
             function_names=[
-                "scan_all_exceptions", "scan_permanent_exclusions",
-                "scan_self_service_exceptions", "search_exceptions_for_components",
-                "filter_expired", "annotate_expiry",
-                "strip_version_suffix", "extract_image_base",
-                "normalize_name", "fuzzy_component_match", "fuzzy_image_match",
+                "scan_all_exceptions",
+                "scan_permanent_exclusions",
+                "scan_self_service_exceptions",
+                "search_exceptions_for_components",
+                "filter_expired",
+                "annotate_expiry",
+                "strip_version_suffix",
+                "extract_image_base",
+                "normalize_name",
+                "fuzzy_component_match",
+                "fuzzy_image_match",
             ],
             target_docstring="Exception scanner — policy file scanning and component name matching.",
         )
@@ -1368,9 +1433,7 @@ class Step12_DedupSharedUtils(Step):
             for node in ast.iter_child_nodes(tree):
                 if isinstance(node, ast.FunctionDef) and node.name == "_parse_date":
                     source_lines = content.splitlines(keepends=True)
-                    parse_date_source = "".join(
-                        source_lines[node.lineno - 1: node.end_lineno]
-                    )
+                    parse_date_source = "".join(source_lines[node.lineno - 1 : node.end_lineno])
                     break
             if parse_date_source:
                 break
@@ -1439,7 +1502,13 @@ class Step12_DedupSharedUtils(Step):
             Path("skills/conforma-exception/scripts/manage_exceptions.py"),
         ]
 
-        yaml_funcs = ["_QuotedStr", "_quoted_str_representer", "_safe_yaml_dump", "_needs_quoting", "_quote_strings_recursively"]
+        yaml_funcs = [
+            "_QuotedStr",
+            "_quoted_str_representer",
+            "_safe_yaml_dump",
+            "_needs_quoting",
+            "_quote_strings_recursively",
+        ]
         found_source = None
         found_nodes: list[tuple[int, int]] = []
 
@@ -1487,11 +1556,11 @@ class Step12_DedupSharedUtils(Step):
         yaml_ops_content = yaml_ops_content.replace("def _needs_quoting", "def needs_quoting")
         yaml_ops_content = yaml_ops_content.replace("def _quote_strings_recursively", "def quote_strings_recursively")
         # Replace all internal references using word-boundary approach
-        yaml_ops_content = re.sub(r'\b_QuotedStr\b', 'QuotedStr', yaml_ops_content)
-        yaml_ops_content = re.sub(r'\b_quoted_str_representer\b', 'quoted_str_representer', yaml_ops_content)
-        yaml_ops_content = re.sub(r'\b_safe_yaml_dump\b', 'safe_yaml_dump', yaml_ops_content)
-        yaml_ops_content = re.sub(r'\b_needs_quoting\b', 'needs_quoting', yaml_ops_content)
-        yaml_ops_content = re.sub(r'\b_quote_strings_recursively\b', 'quote_strings_recursively', yaml_ops_content)
+        yaml_ops_content = re.sub(r"\b_QuotedStr\b", "QuotedStr", yaml_ops_content)
+        yaml_ops_content = re.sub(r"\b_quoted_str_representer\b", "quoted_str_representer", yaml_ops_content)
+        yaml_ops_content = re.sub(r"\b_safe_yaml_dump\b", "safe_yaml_dump", yaml_ops_content)
+        yaml_ops_content = re.sub(r"\b_needs_quoting\b", "needs_quoting", yaml_ops_content)
+        yaml_ops_content = re.sub(r"\b_quote_strings_recursively\b", "quote_strings_recursively", yaml_ops_content)
 
         Path("scripts/conforma_yaml_ops.py").write_text(yaml_ops_content)
 
@@ -1629,53 +1698,85 @@ class Step13_UpdateTests(Step):
         extraction_map = {
             "create_gitlab_mr": {
                 "exception_mr_text": [
-                    "_build_commit_message", "_build_commit_message_consolidated",
-                    "_build_mr_title", "_build_mr_title_consolidated",
-                    "_build_mr_body", "_build_mr_body_consolidated",
-                    "_build_extend_commit_message", "_build_lifecycle_commit_message",
+                    "_build_commit_message",
+                    "_build_commit_message_consolidated",
+                    "_build_mr_title",
+                    "_build_mr_title_consolidated",
+                    "_build_mr_body",
+                    "_build_mr_body_consolidated",
+                    "_build_extend_commit_message",
+                    "_build_lifecycle_commit_message",
                 ],
                 "exception_policy_file_ops": [
-                    "_resolve_policy_file", "_resolve_self_service_file",
-                    "_detect_component_type", "_get_target_file",
-                    "_generate_exception_yaml", "_find_existing_exceptions",
-                    "_remove_exception_from_policy_file", "_apply_exception_to_policy_file",
-                    "_append_to_policy_file", "AmbiguousPolicyFileError",
+                    "_resolve_policy_file",
+                    "_resolve_self_service_file",
+                    "_detect_component_type",
+                    "_get_target_file",
+                    "_generate_exception_yaml",
+                    "_find_existing_exceptions",
+                    "_remove_exception_from_policy_file",
+                    "_apply_exception_to_policy_file",
+                    "_append_to_policy_file",
+                    "AmbiguousPolicyFileError",
                 ],
             },
             "create_jira_ticket": {
                 "jira_description_builders": [
-                    "_build_rhoaieng_description", "_build_rhoaieng_remediation_description",
+                    "_build_rhoaieng_description",
+                    "_build_rhoaieng_remediation_description",
                     "_build_rhoaieng_violation_report_description",
-                    "_build_psx_description", "_build_psx_filled_adf",
-                    "_build_summary", "_fill_psx_template",
-                    "_build_exception_label", "_build_provenance_footer",
+                    "_build_psx_description",
+                    "_build_psx_filled_adf",
+                    "_build_summary",
+                    "_fill_psx_template",
+                    "_build_exception_label",
+                    "_build_provenance_footer",
                 ],
             },
             "generate_resolution_guide": {
                 "guide_renderers": [
-                    "_render_metadata_header", "_render_key_takeaways", "_render_summary",
-                    "_render_coverage_table", "_render_resolution_guide",
-                    "_render_excepted_violation", "_render_partial_coverage_header",
-                    "_render_cataloged_violation", "_render_uncataloged_violation",
-                    "_render_known_false_alerts", "_render_components_table",
-                    "_render_warnings_section", "_render_statistical_breakdown",
-                    "_render_tooling_health", "_render_work_scope", "_render_divergence_warning",
-                    "_write_todo_preview", "_format_violation_cell",
+                    "_render_metadata_header",
+                    "_render_key_takeaways",
+                    "_render_summary",
+                    "_render_coverage_table",
+                    "_render_resolution_guide",
+                    "_render_excepted_violation",
+                    "_render_partial_coverage_header",
+                    "_render_cataloged_violation",
+                    "_render_uncataloged_violation",
+                    "_render_known_false_alerts",
+                    "_render_components_table",
+                    "_render_warnings_section",
+                    "_render_statistical_breakdown",
+                    "_render_tooling_health",
+                    "_render_work_scope",
+                    "_render_divergence_warning",
+                    "_write_todo_preview",
+                    "_format_violation_cell",
                 ],
             },
             "violations_coverage": {
                 "coverage_status_ops": [
-                    "_determine_status_and_next_steps", "_build_search_urls",
-                    "_map_gate_status", "_extract_exception_expiry", "_load_report_metadata",
+                    "_determine_status_and_next_steps",
+                    "_build_search_urls",
+                    "_map_gate_status",
+                    "_extract_exception_expiry",
+                    "_load_report_metadata",
                 ],
             },
             "manage_exceptions": {
                 "exception_scanner": [
-                    "scan_all_exceptions", "scan_permanent_exclusions",
-                    "scan_self_service_exceptions", "search_exceptions_for_components",
-                    "filter_expired", "annotate_expiry",
-                    "_strip_version_suffix", "_extract_image_base",
-                    "_normalize_name", "_fuzzy_component_match", "_fuzzy_image_match",
+                    "scan_all_exceptions",
+                    "scan_permanent_exclusions",
+                    "scan_self_service_exceptions",
+                    "search_exceptions_for_components",
+                    "filter_expired",
+                    "annotate_expiry",
+                    "_strip_version_suffix",
+                    "_extract_image_base",
+                    "_normalize_name",
+                    "_fuzzy_component_match",
+                    "_fuzzy_image_match",
                 ],
             },
         }

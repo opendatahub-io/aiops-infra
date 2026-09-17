@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
-import yaml
 
 import conforma_context_ops
 import parse_violations
@@ -37,7 +35,7 @@ class TestExtractFullRuleCode:
         description = (
             'Produce a violation if any non-informative tests have their result set to "FAILED". '
             'To exclude this rule add "test.no_failed_tests:deprecated-image-check" to the '
-            '`exclude` section of the policy configuration.'
+            "`exclude` section of the policy configuration."
         )
         result = parse_violations.extract_full_rule_code(code, message, description)
         assert result == "test.no_failed_tests:deprecated-image-check"
@@ -512,7 +510,9 @@ class TestExtractSemanticDetail:
     def test_disallowed_attributes_strips_version_from_purl(self):
         msg = 'Package pkg:pypi/aiohttp@3.14.1 has the attribute "hermeto:pip:package:binary" set to "true"'
         result = parse_violations.extract_semantic_detail(
-            "sbom_spdx.disallowed_package_attributes", msg, "sbom_spdx.disallowed_package_attributes:pkg:pypi/aiohttp@3.14.1"
+            "sbom_spdx.disallowed_package_attributes",
+            msg,
+            "sbom_spdx.disallowed_package_attributes:pkg:pypi/aiohttp@3.14.1",
         )
         assert result == "pkg:pypi/aiohttp:hermeto:pip:package:binary=true"
 
@@ -572,7 +572,10 @@ class TestExtractSemanticDetail:
         result = parse_violations.extract_semantic_detail(
             "sbom_spdx.allowed_package_sources", msg, "sbom_spdx.allowed_package_sources:pkg:generic/foo"
         )
-        assert result == "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
+        assert (
+            result
+            == "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
+        )
 
     def test_test_no_failed_extracts_task_name(self):
         result = parse_violations.extract_semantic_detail(
@@ -587,9 +590,7 @@ class TestExtractSemanticDetail:
         assert result == "some-suffix"
 
     def test_unknown_code_no_suffix_returns_empty(self):
-        result = parse_violations.extract_semantic_detail(
-            "unknown_rule.no_suffix", "", "unknown_rule.no_suffix"
-        )
+        result = parse_violations.extract_semantic_detail("unknown_rule.no_suffix", "", "unknown_rule.no_suffix")
         assert result == ""
 
     def test_unknown_code_no_suffix_with_message_returns_message(self):
@@ -803,10 +804,18 @@ class TestContextIntegration:
     def _create_run_with_csv(self, tmp_path, monkeypatch, release="rhoai-3.5-ea.1", environment="prod"):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": release, "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
-            "environment": environment,
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": release,
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": environment,
+            },
+        )
         conforma_context_ops.set_active(run_dir)
         (run_dir / f"{release}.csv").write_text(self.CSV_HEADER + self.CSV_ROW)
         return run_dir
@@ -829,10 +838,15 @@ class TestContextIntegration:
     def test_cli_overrides_context(self, tmp_path, monkeypatch):
         run_dir = self._create_run_with_csv(tmp_path, monkeypatch)
         custom_output = tmp_path / "custom.yaml"
-        monkeypatch.setattr("sys.argv", [
-            "parse_violations.py", "--no-catalog",
-            "--output", str(custom_output),
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "parse_violations.py",
+                "--no-catalog",
+                "--output",
+                str(custom_output),
+            ],
+        )
         rc = parse_violations.main()
         assert rc == 0
         assert custom_output.is_file()
@@ -840,15 +854,23 @@ class TestContextIntegration:
 
     def test_explicit_run_dir(self, tmp_path, monkeypatch):
         run_dir = tmp_path / "my-run"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.4", "version": "3.4", "konflux_app": "rhoai-v3-4"},
-            "environment": "prod",
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {"name": "rhoai", "release": "rhoai-3.4", "version": "3.4", "konflux_app": "rhoai-v3-4"},
+                "environment": "prod",
+            },
+        )
         (run_dir / "rhoai-3.4.csv").write_text(self.CSV_HEADER + self.CSV_ROW)
-        monkeypatch.setattr("sys.argv", [
-            "parse_violations.py", "--no-catalog",
-            "--run-dir", str(run_dir),
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "parse_violations.py",
+                "--no-catalog",
+                "--run-dir",
+                str(run_dir),
+            ],
+        )
         rc = parse_violations.main()
         assert rc == 0
         assert (run_dir / "violations.yaml").is_file()

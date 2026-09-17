@@ -1236,8 +1236,8 @@ class TestContextIntegration:
             mod.main()
 
 
-class TestRequireSlackAutoDetect:
-    """Verify --require-slack auto-detection from context.yaml."""
+class TestRequireSlackDefault:
+    """Verify Slack coverage is opt-in and remains available through the flag."""
 
     def _setup_run(self, tmp_path, monkeypatch, slack_available=None):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
@@ -1281,12 +1281,12 @@ class TestRequireSlackAutoDetect:
         mod.main()
         assert captured["require_slack"] is False
 
-    def test_auto_detected_true_from_context(self, tmp_path, monkeypatch):
+    def test_context_does_not_enable_slack_by_default(self, tmp_path, monkeypatch):
         self._setup_run(tmp_path, monkeypatch, slack_available=True)
         captured = self._mock_check(monkeypatch)
         monkeypatch.setattr("sys.argv", ["violations_coverage.py"])
         mod.main()
-        assert captured["require_slack"] is True
+        assert captured["require_slack"] is False
 
     def test_cli_overrides_context(self, tmp_path, monkeypatch):
         self._setup_run(tmp_path, monkeypatch, slack_available=True)
@@ -1295,9 +1295,16 @@ class TestRequireSlackAutoDetect:
         mod.main()
         assert captured["require_slack"] is False
 
-    def test_defaults_true_without_context(self, tmp_path, monkeypatch):
+    def test_cli_enables_slack_explicitly(self, tmp_path, monkeypatch):
+        self._setup_run(tmp_path, monkeypatch, slack_available=False)
+        captured = self._mock_check(monkeypatch)
+        monkeypatch.setattr("sys.argv", ["violations_coverage.py", "--require-slack", "true"])
+        mod.main()
+        assert captured["require_slack"] is True
+
+    def test_defaults_false_without_context(self, tmp_path, monkeypatch):
         self._setup_run(tmp_path, monkeypatch, slack_available=None)
         captured = self._mock_check(monkeypatch)
         monkeypatch.setattr("sys.argv", ["violations_coverage.py"])
         mod.main()
-        assert captured["require_slack"] is True
+        assert captured["require_slack"] is False

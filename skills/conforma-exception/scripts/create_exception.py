@@ -495,9 +495,7 @@ def main() -> int:
 
         if jira_result.get("status") == "failed":
             print(json.dumps(result, indent=2))
-            print(
-                f"\nFailed to create RHOAIENG violation report ticket: {jira_result.get('error')}", file=sys.stderr
-            )
+            print(f"\nFailed to create RHOAIENG violation report ticket: {jira_result.get('error')}", file=sys.stderr)
             return 1
 
         violation_report_url = jira_result.get("ticket_url")
@@ -554,9 +552,7 @@ def main() -> int:
 
             if jira_result.get("status") == "failed":
                 print(json.dumps(result, indent=2))
-                print(
-                    f"\nFailed to create RHOAIENG remediation ticket: {jira_result.get('error')}", file=sys.stderr
-                )
+                print(f"\nFailed to create RHOAIENG remediation ticket: {jira_result.get('error')}", file=sys.stderr)
                 return 1
 
             remediation_url = jira_result.get("ticket_url")

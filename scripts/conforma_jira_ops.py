@@ -90,7 +90,7 @@ def _extract_components_from_description(description: str) -> list[str]:
     for line in description.splitlines():
         line = line.strip()
         if line.startswith("Components:"):
-            raw = line[len("Components:"):].strip()
+            raw = line[len("Components:") :].strip()
             if not raw:
                 return []
             return [_strip_version_suffix(n.strip()) for n in raw.split(", ") if n.strip()]
@@ -121,9 +121,8 @@ def _infer_rule_from_text(text: str, rule: str) -> str:
     extracted = _extract_rule_from_summary(text)
     if extracted and extracted == rule:
         return "confirmed"
-    if extracted and ":" in rule and extracted.startswith(rule.split(":")[0]):
-        if rule.split(":", 1)[1].lower() in text.lower():
-            return "confirmed"
+    if extracted and (extracted.startswith(rule + ":") or (":" in rule and extracted.startswith(rule.split(":", 1)[0] + ":"))):
+        return "confirmed"
 
     text_lower = text.lower()
 
@@ -166,7 +165,7 @@ def _summary_component_names(summary: str) -> list[str]:
     """
     if not summary.startswith(_TICKET_SUMMARY_PREFIX):
         return []
-    body = summary[len(_TICKET_SUMMARY_PREFIX):]
+    body = summary[len(_TICKET_SUMMARY_PREFIX) :]
     body = body.split(" - ", 1)[0]
     in_part = body.split(" in ", 1)
     if len(in_part) < 2:
@@ -185,7 +184,7 @@ def _description_component_names(description: str) -> list[str]:
     for line in description.splitlines():
         line = line.strip()
         if line.startswith(_DESCRIPTION_COMPONENTS_HEADER):
-            raw = line[len(_DESCRIPTION_COMPONENTS_HEADER):].strip()
+            raw = line[len(_DESCRIPTION_COMPONENTS_HEADER) :].strip()
             if not raw:
                 return []
             return [n.strip() for n in raw.split(",") if n.strip()]
@@ -247,6 +246,10 @@ def _normalize_ticket(
         "components": components,
         "matched_component_stems": _matched_component_stems(ticket),
     }
+    if "description" in ticket:
+        normalized["description"] = ticket.get("description") or ""
+    if "merge_request_references" in ticket:
+        normalized["merge_request_references"] = ticket["merge_request_references"]
     if match_source is not None:
         normalized["match_source"] = match_source
         normalized["inference_confidence"] = inference_confidence
@@ -267,23 +270,70 @@ def _konflux_stems_in_text(
     konflux_components: list[str],
     aliases: dict[str, set[str]] | None,
 ) -> list[str]:
-    """Version-stripped konflux/alias component stems present in the ticket text.
+    """Version-aware Konflux/alias components present in the ticket text.
 
-    A ticket references a rule's component when a version-stripped konflux
-    component name (or one of its aliases) appears in the ticket's summary or
-    description. Substring matching (case-insensitive) keeps this robust for
-    manually-created tickets with freeform summaries. Returns the sorted stems,
-    or an empty list when the ticket names none of the rule's components.
+    An explicitly scoped ticket component must match the requested component,
+    including its RHOAI version suffix. An unversioned component therefore does
+    not match every version of that component. Tickets without an explicit
+    component list remain eligible for rule-level matching elsewhere.
     """
     if not konflux_components:
         return []
-    text_lower = ((ticket.get("summary") or "") + " " + (ticket.get("description") or "")).lower()
-    comp_set = set(konflux_components)
+    requested_set = {c.lower() for c in konflux_components}
+    candidate_set = set(requested_set)
     if aliases:
         import component_alias_ops
 
-        comp_set = component_alias_ops.expand_component_set(comp_set, aliases)
-    return sorted({_normalize_component_name(c) for c in comp_set if _normalize_component_name(c) in text_lower})
+        candidate_set = {
+            alias.lower()
+            for component in konflux_components
+            for alias in component_alias_ops.expand_component_set({component}, aliases)
+        }
+    ticket_components = _ticket_component_names(ticket)
+    if ticket_components:
+        matched = {component.lower() for component in ticket_components} & candidate_set
+    else:
+        text_lower = ((ticket.get("summary") or "") + " " + (ticket.get("description") or "")).lower()
+        matched = {component for component in candidate_set if component in text_lower}
+    return sorted({_normalize_component_name(component) for component in matched})
+
+
+def _ticket_has_component_overlap(
+    ticket: dict,
+    requested_components: list[str],
+    aliases: dict[str, set[str]] | None,
+) -> bool:
+    """Whether an explicitly scoped ticket names a requested versioned component.
+
+    An empty ticket component list means the ticket has no component scope. Such
+    a ticket may still be retained as rule-level evidence, but a ticket that
+    explicitly names components must overlap the requested version exactly.
+    """
+    ticket_components = _ticket_component_names(ticket)
+    if ticket_components:
+        return bool(_konflux_stems_in_text(ticket, requested_components, aliases))
+
+    text_lower = ((ticket.get("summary") or "") + " " + (ticket.get("description") or "")).lower()
+    component_candidates = {component.lower() for component in requested_components}
+    if aliases:
+        import component_alias_ops
+
+        component_candidates |= {
+            alias.lower()
+            for component in requested_components
+            for alias in component_alias_ops.expand_component_set({component}, aliases)
+        }
+    # If the ticket mentions a requested component family but only without the
+    # requested version suffix, it is explicitly scoped to the wrong/unknown
+    # version and must not be treated as covering this violation.
+    family_mentions = {
+        _normalize_component_name(component)
+        for component in component_candidates
+        if _normalize_component_name(component) in text_lower
+    }
+    if not family_mentions:
+        return True
+    return bool(_konflux_stems_in_text(ticket, requested_components, aliases))
 
 
 def _build_release_version_patterns(releases: list[str]) -> list[str]:
@@ -316,9 +366,7 @@ def _normalize_version(version: str) -> str:
     return version.strip().lower()
 
 
-def classify_ticket_version_relevance(
-    ticket: dict, analyzed_release: str
-) -> str:
+def classify_ticket_version_relevance(ticket: dict, analyzed_release: str) -> str:
     """Classify whether a ticket's fixVersion targets the analyzed release.
 
     Returns one of:
@@ -365,7 +413,14 @@ def prefetch_open_jira_tickets(
     """
     import conforma_jira_ticket_ops
 
-    discovered = conforma_jira_ticket_ops.discover_conforma_tickets()
+    discovery_violations = [
+        {
+            "rule": rule,
+            "uncovered_components": (rule_to_components or {}).get(rule) or [],
+        }
+        for rule in rules
+    ]
+    discovered = conforma_jira_ticket_ops.discover_conforma_tickets(violations=discovery_violations)
     open_tickets = [t for t in discovered if is_open(t.get("status"))]
     base_by_key = {t.get("key", ""): _normalize_ticket(t) for t in open_tickets}
 
@@ -381,6 +436,9 @@ def prefetch_open_jira_tickets(
         extracted = _extract_rule_from_summary(ticket.get("summary", "") or "")
         for rule in rules:
             if extracted == rule:
+                requested_components = (rule_to_components or {}).get(rule) or []
+                if requested_components and not _ticket_has_component_overlap(ticket, requested_components, aliases):
+                    continue
                 rule_to_tickets[rule].append(base_by_key[key])
                 assigned_keys.add(key)
                 break
@@ -399,7 +457,7 @@ def prefetch_open_jira_tickets(
                 continue
             for ticket in open_tickets:
                 key = ticket.get("key", "")
-                if key in assigned_keys:
+                if key in assigned_keys and not rule_matches(ticket, rule):
                     continue
                 if not _konflux_stems_in_text(ticket, konflux_components, aliases):
                     continue

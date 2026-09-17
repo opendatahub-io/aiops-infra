@@ -126,13 +126,11 @@ class TestThreeTicketLinking:
         link_ops = [r for r in result["results"] if "link_type" in r]
         # violation -> remediation (Related)
         assert any(
-            r["from"] == "RHOAIENG-100" and r["to"] == "RHOAIENG-101" and r["link_type"] == "Related"
-            for r in link_ops
+            r["from"] == "RHOAIENG-100" and r["to"] == "RHOAIENG-101" and r["link_type"] == "Related" for r in link_ops
         )
         # violation -> approval (Related)
         assert any(
-            r["from"] == "RHOAIENG-100" and r["to"] == "RHOAIENG-102" and r["link_type"] == "Related"
-            for r in link_ops
+            r["from"] == "RHOAIENG-100" and r["to"] == "RHOAIENG-102" and r["link_type"] == "Related" for r in link_ops
         )
         # approval -> psx (Blocks)
         assert any(
@@ -151,8 +149,7 @@ class TestThreeTicketLinking:
 
         link_ops = [r for r in result["results"] if "link_type" in r]
         assert any(
-            r["from"] == "RHOAIENG-100" and r["to"] == "RHOAIENG-101" and r["link_type"] == "Related"
-            for r in link_ops
+            r["from"] == "RHOAIENG-100" and r["to"] == "RHOAIENG-101" and r["link_type"] == "Related" for r in link_ops
         )
         # No approval links
         assert not any(r.get("link_type") == "Blocks" for r in link_ops)

@@ -40,7 +40,9 @@ class TestDetect:
 
     def test_error_passthrough(self):
         with patch.object(
-            submit_feedback.git_ops, "detect_remote", return_value={"error": "not a git repo"},
+            submit_feedback.git_ops,
+            "detect_remote",
+            return_value={"error": "not a git repo"},
         ):
             result = submit_feedback.detect()
 
@@ -50,7 +52,9 @@ class TestDetect:
 class TestCheckIssues:
     def test_github_dispatch(self):
         with patch.object(
-            submit_feedback.github_ops, "check_issues_enabled", return_value={"enabled": True},
+            submit_feedback.github_ops,
+            "check_issues_enabled",
+            return_value={"enabled": True},
         ) as mock:
             result = submit_feedback.check_issues("org/repo", "github")
 
@@ -59,7 +63,9 @@ class TestCheckIssues:
 
     def test_gitlab_dispatch(self):
         with patch.object(
-            submit_feedback.gitlab_ops, "check_issues_enabled", return_value={"enabled": True},
+            submit_feedback.gitlab_ops,
+            "check_issues_enabled",
+            return_value={"enabled": True},
         ) as mock:
             result = submit_feedback.check_issues("group/repo", "gitlab", host="gitlab.example.com")
 
@@ -159,7 +165,11 @@ class TestSubmit:
             return_value={"issue_url": "https://github.com/org/repo/issues/1", "issue_number": 1},
         ) as mock:
             result = submit_feedback.submit(
-                "org/repo", "github", "Title", "Body", labels=["bug"],
+                "org/repo",
+                "github",
+                "Title",
+                "Body",
+                labels=["bug"],
             )
 
         mock.assert_called_once_with("org/repo", "Title", "Body", labels=["bug"])
@@ -172,11 +182,20 @@ class TestSubmit:
             return_value={"issue_url": "https://gitlab.example.com/g/r/-/issues/5", "issue_iid": 5},
         ) as mock:
             result = submit_feedback.submit(
-                "g/r", "gitlab", "Title", "Body", labels=["bug"], host="gitlab.example.com",
+                "g/r",
+                "gitlab",
+                "Title",
+                "Body",
+                labels=["bug"],
+                host="gitlab.example.com",
             )
 
         mock.assert_called_once_with(
-            "g/r", "Title", "Body", labels=["bug"], instance_url="gitlab.example.com",
+            "g/r",
+            "Title",
+            "Body",
+            labels=["bug"],
+            instance_url="gitlab.example.com",
         )
         assert result["issue_iid"] == 5
 
@@ -193,73 +212,119 @@ class TestParseArgs:
         assert args.cwd is None
 
     def test_check_issues(self):
-        args = submit_feedback.parse_args([
-            "check-issues", "--repo-path", "org/repo", "--platform", "github",
-        ])
+        args = submit_feedback.parse_args(
+            [
+                "check-issues",
+                "--repo-path",
+                "org/repo",
+                "--platform",
+                "github",
+            ]
+        )
         assert args.command == "check-issues"
         assert args.repo_path == "org/repo"
         assert args.platform == "github"
 
     def test_gather_context_required_fields(self):
-        args = submit_feedback.parse_args([
-            "gather-context",
-            "--skill-name", "conforma-exception",
-            "--type", "bug",
-            "--summary", "It broke",
-            "--expected", "It works",
-            "--actual", "It crashed",
-        ])
+        args = submit_feedback.parse_args(
+            [
+                "gather-context",
+                "--skill-name",
+                "conforma-exception",
+                "--type",
+                "bug",
+                "--summary",
+                "It broke",
+                "--expected",
+                "It works",
+                "--actual",
+                "It crashed",
+            ]
+        )
         assert args.skill_name == "conforma-exception"
         assert args.issue_type == "bug"
         assert args.severity == "major"
 
     def test_gather_context_all_fields(self):
-        args = submit_feedback.parse_args([
-            "gather-context",
-            "--skill-name", "test",
-            "--type", "enhancement",
-            "--summary", "Add feature",
-            "--expected", "Feature exists",
-            "--actual", "No feature",
-            "--error-output", "none",
-            "--severity", "minor",
-            "--additional-context", "Extra info",
-        ])
+        args = submit_feedback.parse_args(
+            [
+                "gather-context",
+                "--skill-name",
+                "test",
+                "--type",
+                "enhancement",
+                "--summary",
+                "Add feature",
+                "--expected",
+                "Feature exists",
+                "--actual",
+                "No feature",
+                "--error-output",
+                "none",
+                "--severity",
+                "minor",
+                "--additional-context",
+                "Extra info",
+            ]
+        )
         assert args.issue_type == "enhancement"
         assert args.severity == "minor"
         assert args.additional_context == "Extra info"
 
     def test_submit_with_labels(self):
-        args = submit_feedback.parse_args([
-            "submit",
-            "--repo-path", "org/repo",
-            "--platform", "github",
-            "--title", "Bug",
-            "--body", "Details",
-            "--label", "bug",
-            "--label", "conforma",
-        ])
+        args = submit_feedback.parse_args(
+            [
+                "submit",
+                "--repo-path",
+                "org/repo",
+                "--platform",
+                "github",
+                "--title",
+                "Bug",
+                "--body",
+                "Details",
+                "--label",
+                "bug",
+                "--label",
+                "conforma",
+            ]
+        )
         assert args.labels == ["bug", "conforma"]
 
     def test_invalid_type_rejected(self):
         with pytest.raises(SystemExit):
-            submit_feedback.parse_args([
-                "gather-context",
-                "--skill-name", "test",
-                "--type", "invalid",
-                "--summary", "s",
-                "--expected", "e",
-                "--actual", "a",
-            ])
+            submit_feedback.parse_args(
+                [
+                    "gather-context",
+                    "--skill-name",
+                    "test",
+                    "--type",
+                    "invalid",
+                    "--summary",
+                    "s",
+                    "--expected",
+                    "e",
+                    "--actual",
+                    "a",
+                ]
+            )
 
     def test_invalid_severity_rejected(self):
         with pytest.raises(SystemExit):
-            submit_feedback.parse_args([
-                "gather-context",
-                "--skill-name", "test",
-                "--type", "bug",
-                "--summary", "s",
-                "--expected", "e",
-                "--actual", "a",
-                "--severity", "blocker",
-            ])
+            submit_feedback.parse_args(
+                [
+                    "gather-context",
+                    "--skill-name",
+                    "test",
+                    "--type",
+                    "bug",
+                    "--summary",
+                    "s",
+                    "--expected",
+                    "e",
+                    "--actual",
+                    "a",
+                    "--severity",
+                    "blocker",
+                ]
+            )

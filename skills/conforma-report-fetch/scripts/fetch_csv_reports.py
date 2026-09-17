@@ -128,10 +128,7 @@ def _fetch_last_commit_info(release: str, csv_path: str) -> dict[str, str]:
 
     # --- Primary: requests ---
     if token:
-        url = (
-            f"https://api.github.com/repos/{CONFORMA_REPORTER_REPO}/commits"
-            f"?path={csv_path}&sha={release}&per_page=1"
-        )
+        url = f"https://api.github.com/repos/{CONFORMA_REPORTER_REPO}/commits?path={csv_path}&sha={release}&per_page=1"
         try:
             resp = requests.get(
                 url,
@@ -182,12 +179,17 @@ def _fetch_last_commit_info_gh(release: str, csv_path: str) -> dict[str, str]:
     try:
         proc = subprocess.run(
             [
-                gh, "api",
+                gh,
+                "api",
                 f"/repos/{CONFORMA_REPORTER_REPO}/commits",
-                "-f", f"path={csv_path}",
-                "-f", f"sha={release}",
-                "-f", "per_page=1",
-                "--jq", ".[0] | .commit.committer.date + \"\\n\" + .sha",
+                "-f",
+                f"path={csv_path}",
+                "-f",
+                f"sha={release}",
+                "-f",
+                "per_page=1",
+                "--jq",
+                '.[0] | .commit.committer.date + "\\n" + .sha',
             ],
             capture_output=True,
             text=True,

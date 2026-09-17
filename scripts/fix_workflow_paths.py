@@ -17,6 +17,7 @@ import argparse
 import re
 import sys
 from _repo_root import REPO_ROOT
+
 SKILLS_DIR = REPO_ROOT / "skills"
 SHARED_REFS_DIR = SKILLS_DIR / "references"
 
@@ -39,7 +40,7 @@ def skill_dir_for(workflow_file):
 def fix_readme_links(content, workflow_file):
     """Fix [README.md](README.md) -> [README.md](../README.md)."""
     fixes = []
-    pattern = re.compile(r'\[README\.md\]\(README\.md\)')
+    pattern = re.compile(r"\[README\.md\]\(README\.md\)")
     for match in pattern.finditer(content):
         target = skill_dir_for(workflow_file) / "README.md"
         if target.exists():
@@ -57,7 +58,7 @@ def fix_shared_reference_links(content, workflow_file):
     """
     fixes = []
     skill_refs_dir = skill_dir_for(workflow_file) / "references"
-    pattern = re.compile(r'\]\(\.\./references/([^)]+)\)')
+    pattern = re.compile(r"\]\(\.\./references/([^)]+)\)")
 
     def replace_if_shared(match):
         filename = match.group(1)
@@ -80,7 +81,7 @@ def fix_bare_reference_links(content, workflow_file):
     """
     fixes = []
     skill_refs_dir = skill_dir_for(workflow_file) / "references"
-    pattern = re.compile(r'\]\(references/([^)]+)\)')
+    pattern = re.compile(r"\]\(references/([^)]+)\)")
 
     def replace_if_exists(match):
         filename = match.group(1)
@@ -110,10 +111,7 @@ def fix_router_skill_md(dry_run):
         content = content.replace(old_link, new_link)
         fixes.append("violation-catalog.yaml link href")
 
-    old_routing = (
-        "**read its SKILL.md** at `skills/<skill-name>/SKILL.md` "
-        "(e.g. `skills/conforma-analyze/SKILL.md`)"
-    )
+    old_routing = "**read its SKILL.md** at `skills/<skill-name>/SKILL.md` (e.g. `skills/conforma-analyze/SKILL.md`)"
     new_routing = (
         "**read its SKILL.md** (from the repository root) at "
         "`skills/<skill-name>/SKILL.md` "
@@ -136,7 +134,7 @@ def fix_router_skill_md(dry_run):
 def verify_all_links(files):
     """Verify all markdown link hrefs in workflow files resolve to existing files."""
     errors = []
-    link_pattern = re.compile(r'\]\(([^)]+)\)')
+    link_pattern = re.compile(r"\]\(([^)]+)\)")
 
     for f in files:
         content = f.read_text()
@@ -148,21 +146,21 @@ def verify_all_links(files):
                 continue
             resolved = (f.parent / href).resolve()
             if not resolved.exists():
-                line_num = content[:match.start()].count("\n") + 1
+                line_num = content[: match.start()].count("\n") + 1
                 errors.append((f.relative_to(REPO_ROOT), line_num, href))
 
     return errors
 
 
-_REPO_PREFIX = '_R="$(grep \'^aiops_infra_root:\' ~/.conforma/.conforma-active/context.yaml | cut -d\' \' -f2-)"'
+_REPO_PREFIX = "_R=\"$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)\""
 
 _BARE_PYTHON3_RE = re.compile(
-    r'python3\s+(scripts/|skills/)',
+    r"python3\s+(scripts/|skills/)",
 )
 
 _ALREADY_PREFIXED_RE = re.compile(r'_R=.*&&\s*python3\s+"\$_R/')
 
-_ABSOLUTE_PATH_RE = re.compile(r'python3\s+~/')
+_ABSOLUTE_PATH_RE = re.compile(r"python3\s+~/")
 
 
 def find_all_md_files():
@@ -176,7 +174,7 @@ def rewrite_script_paths_in_file(content):
     Returns (new_content, list_of_changes).
     """
     changes = []
-    lines = content.split('\n')
+    lines = content.split("\n")
     new_lines = []
 
     for line in lines:
@@ -189,19 +187,24 @@ def rewrite_script_paths_in_file(content):
 
         match = _BARE_PYTHON3_RE.search(line)
         if match:
-            new_line = line[:match.start()] + _REPO_PREFIX + ' && python3 "$_R/' + line[match.start() + len('python3 '):]
+            new_line = (
+                line[: match.start()] + _REPO_PREFIX + ' && python3 "$_R/' + line[match.start() + len("python3 ") :]
+            )
             # Close the quote around the script path (before args)
             # Find the end of the path (next space or end of line, but handle quoted paths)
-            path_and_args = line[match.start() + len('python3 '):]
+            path_and_args = line[match.start() + len("python3 ") :]
             # Split path from args: path ends at first space not inside quotes
             parts = path_and_args.split()
             if parts:
                 script_path = parts[0]
-                remaining_args = ' '.join(parts[1:])
+                remaining_args = " ".join(parts[1:])
                 new_line = (
-                    line[:match.start()]
-                    + _REPO_PREFIX + ' && python3 "$_R/' + script_path + '"'
-                    + (' ' + remaining_args if remaining_args else '')
+                    line[: match.start()]
+                    + _REPO_PREFIX
+                    + ' && python3 "$_R/'
+                    + script_path
+                    + '"'
+                    + (" " + remaining_args if remaining_args else "")
                 )
                 # Handle multi-line continuations: if line ends with \, keep it
                 changes.append(f"  {script_path}")
@@ -212,7 +215,7 @@ def rewrite_script_paths_in_file(content):
         else:
             new_lines.append(line)
 
-    return '\n'.join(new_lines), changes
+    return "\n".join(new_lines), changes
 
 
 def rewrite_script_paths(dry_run):
@@ -244,9 +247,9 @@ def validate_no_bare_paths():
     for md_file in md_files:
         content = md_file.read_text(encoding="utf-8")
         in_code_block = False
-        for i, line in enumerate(content.split('\n'), 1):
+        for i, line in enumerate(content.split("\n"), 1):
             stripped = line.strip()
-            if stripped.startswith('```'):
+            if stripped.startswith("```"):
                 in_code_block = not in_code_block
                 continue
             if not in_code_block:
@@ -269,15 +272,15 @@ def validate_no_bare_paths():
 WRAPPER_CMD = "~/.conforma/bin/conforma_run.sh"
 
 BOOTSTRAP_GUARD = (
-    '[ -x ~/.conforma/bin/conforma_run.sh ] || '
+    "[ -x ~/.conforma/bin/conforma_run.sh ] || "
     '{ _R="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null '
     '|| echo $HOME/.local/share/aiops-infra)}"; '
-    'mkdir -p ~/.conforma/bin; '
+    "mkdir -p ~/.conforma/bin; "
     'cp "$_R/scripts/conforma_run.sh.tpl" ~/.conforma/bin/conforma_run.sh; '
-    'chmod +x ~/.conforma/bin/conforma_run.sh; }'
+    "chmod +x ~/.conforma/bin/conforma_run.sh; }"
 )
 
-_WRAPPER_CALL_RE = re.compile(r'~/\.conforma/bin/conforma_run\.sh\s+')
+_WRAPPER_CALL_RE = re.compile(r"~/\.conforma/bin/conforma_run\.sh\s+")
 
 _PATTERN_A_RE = re.compile(
     r'^(\s*)_R="\$\(grep\s.*?context\.yaml.*?\)"\s*&&\s*python3\s+"\$_R/([^"]+)"(.*)',
@@ -291,14 +294,13 @@ _PATTERN_C_START_RE = re.compile(
     r'^(\s*)_ROOT="\$\{AIOPS_INFRA_ROOT',
 )
 
-_EXCLUDED_PARTS = {'.plans', '.work'}
+_EXCLUDED_PARTS = {".plans", ".work"}
 
 
 def _find_md_files_for_wrapper():
     """Find .md files eligible for wrapper migration (excludes internal dirs)."""
     return [
-        f for f in find_all_md_files()
-        if not any(part in _EXCLUDED_PARTS for part in f.relative_to(SKILLS_DIR).parts)
+        f for f in find_all_md_files() if not any(part in _EXCLUDED_PARTS for part in f.relative_to(SKILLS_DIR).parts)
     ]
 
 
@@ -307,7 +309,7 @@ def rewrite_to_wrapper_in_file(content):
 
     Returns (new_content, list_of_(pattern, description) tuples).
     """
-    lines = content.split('\n')
+    lines = content.split("\n")
     new_lines = []
     changes = []
     i = 0
@@ -317,7 +319,7 @@ def rewrite_to_wrapper_in_file(content):
         line = lines[i]
         stripped = line.strip()
 
-        if stripped.startswith('```'):
+        if stripped.startswith("```"):
             in_code_block = not in_code_block
             new_lines.append(line)
             i += 1
@@ -372,15 +374,13 @@ def rewrite_to_wrapper_in_file(content):
             end = i + 1
             while end < len(lines):
                 s = lines[end].strip()
-                if s.startswith('```'):
+                if s.startswith("```"):
                     break
                 end += 1
                 if s.startswith('echo "run_dir') or s.startswith("echo 'run_dir"):
                     break
             new_lines.append(f"{indent}{BOOTSTRAP_GUARD}")
-            new_lines.append(
-                f'{indent}{WRAPPER_CMD} scripts/init_conforma_run.py "<describe_the_request>"'
-            )
+            new_lines.append(f'{indent}{WRAPPER_CMD} scripts/init_conforma_run.py "<describe_the_request>"')
             changes.append(("C", f"heredoc block ({end - block_start} lines)"))
             i = end
             continue
@@ -389,12 +389,12 @@ def rewrite_to_wrapper_in_file(content):
         if not _ALREADY_PREFIXED_RE.search(line) and not _ABSOLUTE_PATH_RE.search(line):
             m = _BARE_PYTHON3_RE.search(line)
             if m:
-                prefix_text = line[:m.start()]
-                path_and_args = line[m.start() + len('python3 '):]
+                prefix_text = line[: m.start()]
+                path_and_args = line[m.start() + len("python3 ") :]
                 parts = path_and_args.split()
                 if parts:
                     script_path = parts[0]
-                    remaining = ' '.join(parts[1:])
+                    remaining = " ".join(parts[1:])
                     new_line = f"{prefix_text}{WRAPPER_CMD} {script_path}"
                     if remaining:
                         new_line += f" {remaining}"
@@ -406,7 +406,7 @@ def rewrite_to_wrapper_in_file(content):
         new_lines.append(line)
         i += 1
 
-    return '\n'.join(new_lines), changes
+    return "\n".join(new_lines), changes
 
 
 def rewrite_to_wrapper(dry_run):
@@ -437,14 +437,14 @@ def validate_wrapper():
     for md_file in md_files:
         content = md_file.read_text(encoding="utf-8")
         in_code_block = False
-        for line_num, line in enumerate(content.split('\n'), 1):
+        for line_num, line in enumerate(content.split("\n"), 1):
             stripped = line.strip()
-            if stripped.startswith('```'):
+            if stripped.startswith("```"):
                 in_code_block = not in_code_block
                 continue
             if not in_code_block:
                 continue
-            if 'conforma_run.sh' in line:
+            if "conforma_run.sh" in line:
                 continue
 
             rel = md_file.relative_to(REPO_ROOT)
@@ -466,16 +466,25 @@ def validate_wrapper():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Show changes without modifying files")
-    parser.add_argument("--rewrite-script-paths", action="store_true",
-                        help="Rewrite bare python3 script paths to use $_R prefix from context.yaml")
-    parser.add_argument("--validate", action="store_true",
-                        help="Check that no bare python3 script paths remain in code blocks")
-    parser.add_argument("--rewrite-to-wrapper", action="store_true",
-                        help="Rewrite $_R/_ROOT prefix and bare paths to use ~/.conforma/bin/conforma_run.sh")
-    parser.add_argument("--validate-wrapper", action="store_true",
-                        help="Check that no old-style $_R, $_ROOT, or bare paths remain in code blocks")
+    parser.add_argument("--dry-run", action="store_true", help="Show changes without modifying files")
+    parser.add_argument(
+        "--rewrite-script-paths",
+        action="store_true",
+        help="Rewrite bare python3 script paths to use $_R prefix from context.yaml",
+    )
+    parser.add_argument(
+        "--validate", action="store_true", help="Check that no bare python3 script paths remain in code blocks"
+    )
+    parser.add_argument(
+        "--rewrite-to-wrapper",
+        action="store_true",
+        help="Rewrite $_R/_ROOT prefix and bare paths to use ~/.conforma/bin/conforma_run.sh",
+    )
+    parser.add_argument(
+        "--validate-wrapper",
+        action="store_true",
+        help="Check that no old-style $_R, $_ROOT, or bare paths remain in code blocks",
+    )
     args = parser.parse_args()
 
     if not (REPO_ROOT / "AGENTS.md").exists():

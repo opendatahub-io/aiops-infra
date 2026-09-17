@@ -22,7 +22,7 @@ If the user's phrase does not match any alias in the catalog, first run `analyze
 
 ### Extracting release from user input
 
-- Pass the user's release text (e.g. `3.5-ea.1`, `rhoai-3.5-ea.1`, or a full GitHub URL) to Step 0 (`init_conforma_run.py`) as the query text. The release context pipeline resolves it automatically from `context.yaml`. Do NOT pass `--release` to the history script — it reads from `context.yaml`.
+- Pass the complete user query unchanged to Step 0 (`init_conforma_run.py`). The deterministic release parser extracts and normalizes a release from release text, prose, or a full GitHub URL. The release context pipeline resolves it automatically from `context.yaml`. Do NOT pass `--release` to the history script — it reads from `context.yaml`.
 - If the user provides a GitHub URL containing a specific CSV path (e.g. `.../prod/future/build_type_latest/...`), pass `--csv-path` to Step 3 to override the auto-detected path.
 - If no URL is provided and no `--csv-path` is given, the script auto-detects which CSV path exists on the branch (same fallback order as the fetch script).
 
@@ -30,14 +30,14 @@ If the user's phrase does not match any alias in the catalog, first run `analyze
 
 **Script path convention**: Every command below uses `~/.conforma/bin/conforma_run.sh` to resolve the aiops-infra repo root and dispatch to the target Python script. Do NOT use bare `python3` paths — always use the wrapper.
 
-0. **Initialize conforma run (REQUIRED before any script)**: Run with Bash description: `"Initialize conforma run context for <extracted_release_text>"`:
+0. **Initialize conforma run (REQUIRED before any script)**: Run with Bash description: `"Initialize conforma run context"`:
 
 ```bash
 [ -x ~/.conforma/bin/conforma_run.sh ] || { _R="${AIOPS_INFRA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo $HOME/.local/share/aiops-infra)}"; mkdir -p ~/.conforma/bin; cp "$_R/scripts/conforma_run.sh.tpl" ~/.conforma/bin/conforma_run.sh; chmod +x ~/.conforma/bin/conforma_run.sh; }
-~/.conforma/bin/conforma_run.sh scripts/init_conforma_run.py "<extracted_release_text>" --set violation_code "<resolved_code>"
+~/.conforma/bin/conforma_run.sh scripts/init_conforma_run.py "<user_query>" --set violation_code "<resolved_code>"
 ```
 
-   This is the **only step where user input appears on the command line**. The `--set violation_code` stores the resolved violation code in context.yaml for use by Step 3. All subsequent steps use fixed commands.
+   This is the **only step where user input appears on the command line**. Pass the complete user query unchanged. The `--set violation_code` stores the resolved violation code in context.yaml for use by Step 3. All subsequent steps use fixed commands.
 
 1. **Prerequisites check**: Run `_R="$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)" && python3 "$_R/scripts/verify_conforma_prerequisites.py" --format markdown`. If exit code is non-zero, render the markdown output directly and stop. Do not interpret or reformat.
 
@@ -103,4 +103,3 @@ The text output includes:
 | **Disappeared** | First commit after "last seen" where the violation is absent |
 | **First seen** | Oldest commit in checked history where the violation appeared |
 | **TIMELINE** | Visual commit-by-commit view: `██` = present, `··` = absent |
-

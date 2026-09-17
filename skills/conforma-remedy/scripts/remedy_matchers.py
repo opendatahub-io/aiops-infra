@@ -97,9 +97,7 @@ def chain(matchers: list[Matcher]) -> Matcher:
     return match
 
 
-def find_false_alerts(
-    alerts: list[dict], rule_code: str, component: str | None = None
-) -> list[dict]:
+def find_false_alerts(alerts: list[dict], rule_code: str, component: str | None = None) -> list[dict]:
     """Filter known false alerts by rule code, optionally scoped to a component."""
     return [
         alert

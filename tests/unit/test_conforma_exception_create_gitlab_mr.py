@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -408,20 +408,12 @@ class TestSyncMrDescription:
 
     @patch("create_gitlab_mr.gitlab_ops")
     def test_updates_existing_mr(self, mock_ops):
-        mock_ops.find_mr.return_value = [
-            {"mr_iid": 42, "mr_url": "https://gitlab.example.com/mr/42"}
-        ]
-        mock_ops.update_mr.return_value = {
-            "mr_url": "https://gitlab.example.com/mr/42"
-        }
+        mock_ops.find_mr.return_value = [{"mr_iid": 42, "mr_url": "https://gitlab.example.com/mr/42"}]
+        mock_ops.update_mr.return_value = {"mr_url": "https://gitlab.example.com/mr/42"}
 
-        result = mod._sync_mr_description(
-            "my-branch", "New Title", "New body text"
-        )
+        result = mod._sync_mr_description("my-branch", "New Title", "New body text")
 
-        mock_ops.find_mr.assert_called_once_with(
-            mod.GITLAB_PROJECT, source_branch="my-branch", state="opened"
-        )
+        mock_ops.find_mr.assert_called_once_with(mod.GITLAB_PROJECT, source_branch="my-branch", state="opened")
         mock_ops.update_mr.assert_called_once_with(
             mod.GITLAB_PROJECT, 42, title="New Title", description="New body text"
         )
@@ -431,9 +423,7 @@ class TestSyncMrDescription:
     def test_returns_none_when_no_mr_found(self, mock_ops):
         mock_ops.find_mr.return_value = []
 
-        result = mod._sync_mr_description(
-            "nonexistent-branch", "Title", "Body"
-        )
+        result = mod._sync_mr_description("nonexistent-branch", "Title", "Body")
 
         assert result is None
         mock_ops.update_mr.assert_not_called()
@@ -442,9 +432,7 @@ class TestSyncMrDescription:
     def test_returns_none_when_find_mr_errors(self, mock_ops):
         mock_ops.find_mr.return_value = [{"error": "API failure"}]
 
-        result = mod._sync_mr_description(
-            "my-branch", "Title", "Body"
-        )
+        result = mod._sync_mr_description("my-branch", "Title", "Body")
 
         assert result is None
         mock_ops.update_mr.assert_not_called()

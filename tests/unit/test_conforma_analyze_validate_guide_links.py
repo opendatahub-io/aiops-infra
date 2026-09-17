@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 import requests as requests_lib
 import yaml
 
@@ -16,6 +14,7 @@ import validate_guide_links as mod
 # ---------------------------------------------------------------------------
 # Link extraction tests
 # ---------------------------------------------------------------------------
+
 
 class TestExtractMarkdownLinks:
     def test_extracts_standard_links(self):
@@ -65,18 +64,12 @@ class TestExtractMarkdownLinks:
         assert links[0] == ("page", "https://example.com/page")
 
     def test_deduplicates_across_markdown_and_html(self):
-        content = (
-            "[link](https://example.com) and "
-            '<a href="https://example.com" target="_blank">link</a>'
-        )
+        content = '[link](https://example.com) and <a href="https://example.com" target="_blank">link</a>'
         links = mod.extract_markdown_links(content)
         assert len(links) == 1
 
     def test_extracts_both_markdown_and_html_links(self):
-        content = (
-            "[md](https://md.example.com) "
-            '<a href="https://html.example.com" target="_blank">html</a>'
-        )
+        content = '[md](https://md.example.com) <a href="https://html.example.com" target="_blank">html</a>'
         links = mod.extract_markdown_links(content)
         assert len(links) == 2
         urls = {u for _, u in links}
@@ -87,6 +80,7 @@ class TestExtractMarkdownLinks:
 # ---------------------------------------------------------------------------
 # Anchor collection tests
 # ---------------------------------------------------------------------------
+
 
 class TestCollectDocumentAnchors:
     def test_collects_html_anchor_ids(self):
@@ -118,6 +112,7 @@ class TestCollectDocumentAnchors:
 # Auth header routing tests
 # ---------------------------------------------------------------------------
 
+
 class TestAuthHeadersForUrl:
     def test_github_url_gets_github_token(self):
         with patch.object(mod, "_get_github_token", return_value="gh-tok"):
@@ -142,6 +137,7 @@ class TestAuthHeadersForUrl:
 # ---------------------------------------------------------------------------
 # Single link check tests
 # ---------------------------------------------------------------------------
+
 
 class TestCheckSingleLink:
     def test_head_200_ok(self):
@@ -185,13 +181,10 @@ class TestCheckSingleLink:
 # Full guide validation tests
 # ---------------------------------------------------------------------------
 
+
 class TestValidateGuideLinks:
     def test_all_links_valid(self):
-        content = (
-            '## Summary <a id="summary"></a>\n\n'
-            "[section](#summary)\n"
-            "[example](https://example.com)\n"
-        )
+        content = '## Summary <a id="summary"></a>\n\n[section](#summary)\n[example](https://example.com)\n'
         resp = MagicMock(status_code=200)
         with patch.object(mod.requests, "head", return_value=resp):
             report = mod.validate_guide_links(content)
@@ -252,6 +245,7 @@ class TestValidateGuideLinks:
 # ---------------------------------------------------------------------------
 # find_latest_guide tests
 # ---------------------------------------------------------------------------
+
 
 class TestFindLatestGuide:
     def test_finds_latest_by_mtime(self, tmp_path):

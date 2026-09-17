@@ -19,8 +19,9 @@ from pathlib import Path
 
 import yaml
 
-from _repo_root import REPO_ROOT as _REPO_ROOT
-WORK_DIR = Path(os.environ.get("CONFORMA_WORKDIR", "")) if os.environ.get("CONFORMA_WORKDIR") else Path.home() / ".conforma"
+WORK_DIR = (
+    Path(os.environ.get("CONFORMA_WORKDIR", "")) if os.environ.get("CONFORMA_WORKDIR") else Path.home() / ".conforma"
+)
 EC_BINARY_DIR = WORK_DIR / "bin"
 EC_BINARY_PATH = EC_BINARY_DIR / "ec"
 
@@ -72,7 +73,9 @@ def _verify_ec_binary(path: Path) -> bool:
     try:
         result = subprocess.run(
             [str(path), "version"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         return result.returncode == 0 and "Version" in result.stdout
     except (subprocess.TimeoutExpired, OSError):
@@ -122,7 +125,8 @@ def _download_ec_binary() -> Path:
 
 
 def build_snapshot_from_entries(
-    entries: list[dict], output_path: str,
+    entries: list[dict],
+    output_path: str,
 ) -> Path:
     """Write an ApplicationSnapshot spec.json from pre-built entries.
 
@@ -141,7 +145,8 @@ def build_snapshot_from_entries(
 
 
 def build_snapshot_from_csv(
-    csv_path: str, output_path: str,
+    csv_path: str,
+    output_path: str,
 ) -> tuple[Path, list[dict]]:
     """Construct an ApplicationSnapshot spec.json from a CSV report.
 
@@ -164,15 +169,16 @@ def build_snapshot_from_csv(
             if digest in seen_digests:
                 continue
             seen_digests.add(digest)
-            components.append({
-                "name": component_name,
-                "containerImage": image,
-            })
+            components.append(
+                {
+                    "name": component_name,
+                    "containerImage": image,
+                }
+            )
 
     if not components:
         raise EcValidateError(
-            f"No valid component/image pairs found in {csv_path}. "
-            f"CSV must have 'component_name' and 'image' columns."
+            f"No valid component/image pairs found in {csv_path}. CSV must have 'component_name' and 'image' columns."
         )
 
     out = build_snapshot_from_entries(components, output_path)
@@ -242,22 +248,29 @@ def run_ec_validate(
     violations_path = out_dir / "ec-violations.json"
 
     cmd = [
-        str(ec_binary), "validate", "image",
-        "--images", str(spec_json),
-        "--policy", str(policy_file),
+        str(ec_binary),
+        "validate",
+        "image",
+        "--images",
+        str(spec_json),
+        "--policy",
+        str(policy_file),
         "--ignore-rekor",
         "--skip-image-sig-check",
         "--skip-att-sig-check",
         "--show-successes",
-        "--output", f"json={violations_path}",
-        "--timeout", timeout,
+        "--output",
+        f"json={violations_path}",
+        "--timeout",
+        timeout,
     ]
 
     print(f"Running: {' '.join(cmd)}", file=sys.stderr, flush=True)
 
     result = subprocess.run(
         cmd,
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
         timeout=int(timeout.rstrip("m")) * 60 + 60,
     )
 
@@ -302,6 +315,7 @@ def _normalize_ec_component_name(ec_name: str) -> str:
     CSV names are just: 'odh-dashboard-v3-5'
     """
     import re
+
     return re.sub(r"-sha256:[a-f0-9]+-[a-z0-9]+$", "", ec_name)
 
 
@@ -352,18 +366,20 @@ def validate_ec_against_csv(
             elif code in ec_succ:
                 confirmed_covered += 1
             else:
-                divergences.append({
-                    "component": comp,
-                    "violation_code": code,
-                    "reason": (
-                        "The source CSV report lists this as a violation, but "
-                        "running Conforma now does not evaluate this rule for "
-                        "this component. The Conforma policy may have changed "
-                        "since the report was generated (rule renamed, removed "
-                        "from the policy bundle, or evaluation error). Coverage "
-                        "cannot be verified automatically."
-                    ),
-                })
+                divergences.append(
+                    {
+                        "component": comp,
+                        "violation_code": code,
+                        "reason": (
+                            "The source CSV report lists this as a violation, but "
+                            "running Conforma now does not evaluate this rule for "
+                            "this component. The Conforma policy may have changed "
+                            "since the report was generated (rule renamed, removed "
+                            "from the policy bundle, or evaluation error). Coverage "
+                            "cannot be verified automatically."
+                        ),
+                    }
+                )
 
     total = sum(len(v) for v in csv_violations.values())
     return {
@@ -444,9 +460,7 @@ def compare_coverage(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Conforma exception coverage via ec CLI"
-    )
+    parser = argparse.ArgumentParser(description="Conforma exception coverage via ec CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_snap = sub.add_parser(
@@ -463,7 +477,8 @@ def main() -> int:
     p_validate.add_argument("--csv", required=True, help="Path to CSV report")
     p_validate.add_argument("--policy", required=True, help="Path to policy YAML")
     p_validate.add_argument(
-        "--output-dir", required=True,
+        "--output-dir",
+        required=True,
         help="Directory for output files (spec.json, ec-violations.json)",
     )
     p_validate.add_argument("--timeout", default=EC_VALIDATE_TIMEOUT)
@@ -487,11 +502,12 @@ def main() -> int:
         out_dir = Path(args.output_dir)
 
         spec_path, _entries = build_snapshot_from_csv(args.csv, str(out_dir / "spec.json"))
-        policy_path = prepare_policy_for_local_use(
-            args.policy, str(out_dir / "policy-local.yaml")
-        )
+        policy_path = prepare_policy_for_local_use(args.policy, str(out_dir / "policy-local.yaml"))
         ec_output = run_ec_validate(
-            ec_bin, str(spec_path), str(policy_path), str(out_dir),
+            ec_bin,
+            str(spec_path),
+            str(policy_path),
+            str(out_dir),
             timeout=args.timeout,
         )
 

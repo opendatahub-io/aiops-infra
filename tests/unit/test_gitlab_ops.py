@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+import requests
 from gitlab.exceptions import GitlabAuthenticationError, GitlabError, GitlabGetError
 
 import gitlab_ops
@@ -58,6 +62,98 @@ class TestDiscoverToken:
         with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", tmp_path / "missing.yml"):
             assert gitlab_ops.discover_token() is None
 
+    def test_from_oauth_token(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.test.example.com")
+        config_path = tmp_path / "config.yml"
+        config_path.write_text(
+            "hosts:\n  gitlab.test.example.com:\n    oauth_token: oauth-token\n",
+            encoding="utf-8",
+        )
+        with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", config_path):
+            assert gitlab_ops.discover_token() == "oauth-token"
+
+    def test_ignores_non_mapping_host_config(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        monkeypatch.setenv("GITLAB_HOST", "gitlab.test.example.com")
+        config_path = tmp_path / "config.yml"
+        config_path.write_text("hosts:\n  gitlab.test.example.com: token\n", encoding="utf-8")
+        with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", config_path):
+            assert gitlab_ops.discover_token() is None
+
+    def test_returns_none_for_invalid_config(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        config_path = tmp_path / "config.yml"
+        config_path.write_text("hosts: [", encoding="utf-8")
+        with patch.object(gitlab_ops, "GLAB_CONFIG_PATH", config_path):
+            assert gitlab_ops.discover_token() is None
+
+
+class TestRetryGitlabOperation:
+    def test_defaults_use_longer_timeout_and_backoff(self):
+        assert gitlab_ops.DEFAULT_GITLAB_TIMEOUT_SECONDS == 30
+        assert gitlab_ops.DEFAULT_GITLAB_RETRY_BACKOFF_SECONDS == 10.0
+
+    def test_default_retry_limit_is_five_attempts(self):
+        operation = MagicMock(side_effect=requests.exceptions.ReadTimeout("persistent"))
+
+        with patch.object(gitlab_ops.time, "sleep") as sleep:
+            with pytest.raises(requests.exceptions.ReadTimeout, match="persistent"):
+                gitlab_ops.retry_gitlab_operation(operation)
+
+        assert operation.call_count == 5
+        assert sleep.call_count == 4
+
+    def test_retries_transient_timeout_and_returns_result(self):
+        operation = MagicMock(side_effect=[requests.exceptions.ReadTimeout("temporary"), "ok"])
+
+        with patch.object(gitlab_ops.time, "sleep") as sleep:
+            result = gitlab_ops.retry_gitlab_operation(operation, backoff_seconds=1)
+
+        assert result == "ok"
+        assert operation.call_count == 2
+        sleep.assert_called_once_with(1)
+
+    def test_retries_connection_error_with_exponential_backoff(self):
+        operation = MagicMock(
+            side_effect=[
+                requests.exceptions.ConnectionError("temporary"),
+                requests.exceptions.ConnectionError("temporary"),
+                "ok",
+            ]
+        )
+
+        with patch.object(gitlab_ops.time, "sleep") as sleep:
+            result = gitlab_ops.retry_gitlab_operation(operation, backoff_seconds=2)
+
+        assert result == "ok"
+        assert sleep.call_args_list == [((2,),), ((4,),)]
+
+    def test_reraises_after_max_attempts(self):
+        error = requests.exceptions.ReadTimeout("persistent")
+        operation = MagicMock(side_effect=error)
+
+        with patch.object(gitlab_ops.time, "sleep") as sleep:
+            with pytest.raises(requests.exceptions.ReadTimeout, match="persistent"):
+                gitlab_ops.retry_gitlab_operation(operation, max_attempts=2, backoff_seconds=0)
+
+        assert operation.call_count == 2
+        sleep.assert_called_once_with(0)
+
+    def test_does_not_retry_non_transient_errors(self):
+        operation = MagicMock(side_effect=GitlabError("forbidden"))
+
+        with patch.object(gitlab_ops.time, "sleep") as sleep:
+            with pytest.raises(GitlabError, match="forbidden"):
+                gitlab_ops.retry_gitlab_operation(operation)
+
+        operation.assert_called_once_with()
+        sleep.assert_not_called()
+
+    def test_rejects_zero_attempts(self):
+        with pytest.raises(ValueError, match="at least 1"):
+            gitlab_ops.retry_gitlab_operation(lambda: None, max_attempts=0)
+
 
 class TestVerifyAuth:
     def test_success(self, monkeypatch):
@@ -85,6 +181,59 @@ class TestVerifyAuth:
         assert result["user"] is None
         assert "invalid token" in result["error"]
 
+    def test_unexpected_failure(self):
+        with patch.object(gitlab_ops, "get_client", side_effect=RuntimeError("network down")):
+            result = gitlab_ops.verify_auth("https://gitlab.example.com")
+
+        assert result == {
+            "ok": False,
+            "user": None,
+            "instance": "https://gitlab.example.com",
+            "error": "network down",
+        }
+
+
+class TestGetClient:
+    def test_requires_token(self, monkeypatch):
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        with patch.object(gitlab_ops, "discover_token", return_value=None):
+            with pytest.raises(ValueError, match="GitLab token not found"):
+                gitlab_ops.get_client("gitlab.example.com")
+
+    def test_authenticates_with_explicit_token(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_SSL_VERIFY", "true")
+        client = MagicMock()
+        with patch.object(gitlab_ops.gitlab, "Gitlab", return_value=client) as constructor:
+            assert gitlab_ops.get_client("gitlab.example.com", token="token") is client
+
+        constructor.assert_called_once_with(
+            url="https://gitlab.example.com",
+            private_token="token",
+            ssl_verify=True,
+            timeout=30,
+        )
+        client.auth.assert_called_once_with()
+
+    def test_retries_without_certificate_verification(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_SSL_VERIFY", "true")
+        first_client = MagicMock()
+        first_client.auth.side_effect = RuntimeError("CERTIFICATE_VERIFY_FAILED")
+        second_client = MagicMock()
+        with patch.object(gitlab_ops.gitlab, "Gitlab", side_effect=[first_client, second_client]) as constructor:
+            result = gitlab_ops.get_client("gitlab.example.com", token="token")
+
+        assert result is second_client
+        assert constructor.call_count == 2
+        second_client.auth.assert_called_once_with()
+
+    def test_reraises_non_certificate_error(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_SSL_VERIFY", "true")
+        client = MagicMock()
+        client.auth.side_effect = RuntimeError("unauthorized")
+        with patch.object(gitlab_ops.gitlab, "Gitlab", return_value=client):
+            with pytest.raises(RuntimeError, match="unauthorized"):
+                gitlab_ops.get_client("gitlab.example.com", token="token")
+
 
 class TestGetProject:
     def test_found(self):
@@ -107,6 +256,10 @@ class TestGetProject:
 
         assert "error" in result
         assert "group/missing" in result["error"]
+
+    def test_unexpected_error(self):
+        with patch.object(gitlab_ops, "get_client", side_effect=RuntimeError("network")):
+            assert gitlab_ops.get_project("group/repo") == {"error": "network"}
 
 
 class TestCreateMr:
@@ -146,6 +299,10 @@ class TestCreateMr:
         assert "error" in result
         assert "branch not found" in result["error"]
 
+    def test_unexpected_error(self):
+        with patch.object(gitlab_ops, "get_client", side_effect=RuntimeError("network")):
+            assert gitlab_ops.create_mr("group/repo", "feature", "main", "Title") == {"error": "network"}
+
 
 class TestCheckIssuesEnabled:
     def test_enabled(self):
@@ -173,6 +330,10 @@ class TestCheckIssuesEnabled:
             result = gitlab_ops.check_issues_enabled("group/missing")
 
         assert "error" in result
+
+    def test_unexpected_error(self):
+        with patch.object(gitlab_ops, "get_client", side_effect=RuntimeError("network")):
+            assert gitlab_ops.check_issues_enabled("group/repo") == {"error": "network"}
 
 
 class TestCreateIssue:
@@ -237,6 +398,17 @@ class TestCreateIssue:
 
         assert "error" in result
 
+    def test_gitlab_error(self):
+        project = _mock_project()
+        project.issues.create.side_effect = GitlabError("forbidden")
+        with patch.object(gitlab_ops, "get_client", return_value=_mock_gl(project=project)):
+            result = gitlab_ops.create_issue("group/repo", "Title", "Desc")
+        assert result == {"error": "Failed to create issue: forbidden"}
+
+    def test_unexpected_error(self):
+        with patch.object(gitlab_ops, "get_client", side_effect=RuntimeError("network")):
+            assert gitlab_ops.create_issue("group/repo", "Title", "Desc") == {"error": "network"}
+
 
 class TestFindMr:
     def test_returns_matching_mrs(self):
@@ -276,6 +448,102 @@ class TestFindMr:
             source_branch="fix",
             target_branch="main",
         )
+
+    def test_returns_all_mrs_when_filters_are_absent(self):
+        project = _mock_project()
+        project.mergerequests.list.return_value = []
+        with patch.object(gitlab_ops, "get_client", return_value=_mock_gl(project=project)):
+            assert gitlab_ops.find_mr("group/repo", state="closed") == []
+        project.mergerequests.list.assert_called_once_with(state="closed", all=True)
+
+    def test_returns_error_on_failure(self):
+        with patch.object(gitlab_ops, "get_client", side_effect=RuntimeError("network")):
+            assert gitlab_ops.find_mr("group/repo") == [{"error": "network"}]
+
+
+class TestUpdateMr:
+    def test_rejects_empty_update(self):
+        assert gitlab_ops.update_mr("group/repo", 1) == {
+            "error": "At least one of title or description must be provided"
+        }
+
+    def test_updates_title_and_description(self):
+        mr = MagicMock(web_url="https://gitlab.example/mr/1", iid=1)
+        project = _mock_project()
+        project.mergerequests.get.return_value = mr
+        with patch.object(gitlab_ops, "get_client", return_value=_mock_gl(project=project)):
+            result = gitlab_ops.update_mr("group/repo", 1, title="New title", description="New description")
+        assert result == {"mr_url": mr.web_url, "mr_iid": 1}
+        assert mr.title == "New title"
+        assert mr.description == "New description"
+        mr.save.assert_called_once_with()
+
+    def test_updates_title_only(self):
+        mr = MagicMock(web_url="url", iid=2)
+        project = _mock_project()
+        project.mergerequests.get.return_value = mr
+        with patch.object(gitlab_ops, "get_client", return_value=_mock_gl(project=project)):
+            result = gitlab_ops.update_mr("group/repo", 2, title="New title")
+        assert result["mr_iid"] == 2
+        assert mr.title == "New title"
+
+    def test_updates_description_only(self):
+        mr = MagicMock(web_url="url", iid=3)
+        project = _mock_project()
+        project.mergerequests.get.return_value = mr
+        with patch.object(gitlab_ops, "get_client", return_value=_mock_gl(project=project)):
+            result = gitlab_ops.update_mr("group/repo", 3, description="New description")
+        assert result["mr_iid"] == 3
+        assert mr.description == "New description"
+
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            (GitlabGetError("404"), "Merge request not found: 4: 404"),
+            (GitlabError("forbidden"), "Failed to update merge request: forbidden"),
+            (RuntimeError("network"), "network"),
+        ],
+    )
+    def test_update_errors(self, error, expected):
+        project = _mock_project()
+        project.mergerequests.get.side_effect = error
+        with patch.object(gitlab_ops, "get_client", return_value=_mock_gl(project=project)):
+            result = gitlab_ops.update_mr("group/repo", 4, title="Title")
+        assert result == {"error": expected}
+
+
+class TestMain:
+    @pytest.mark.parametrize(
+        "argv, function_name",
+        [
+            (["gitlab_ops.py", "verify-auth"], "verify_auth"),
+            (["gitlab_ops.py", "get-project", "--project", "group/repo"], "get_project"),
+            (
+                ["gitlab_ops.py", "clone-repo", "--project", "group/repo", "--target-dir", "/tmp/repo"],
+                "clone_repo",
+            ),
+            (
+                ["gitlab_ops.py", "push-branch", "--repo-dir", "/tmp/repo", "--branch", "feature", "--commit-msg", "msg"],
+                "push_branch",
+            ),
+            (
+                ["gitlab_ops.py", "create-mr", "--project", "group/repo", "--source-branch", "feature", "--title", "Title"],
+                "create_mr",
+            ),
+            (["gitlab_ops.py", "check-issues-enabled", "--project", "group/repo"], "check_issues_enabled"),
+            (
+                ["gitlab_ops.py", "create-issue", "--project", "group/repo", "--title", "Title"],
+                "create_issue",
+            ),
+            (["gitlab_ops.py", "find-mr", "--project", "group/repo"], "find_mr"),
+        ],
+    )
+    def test_dispatches_command(self, monkeypatch, capsys, argv, function_name):
+        monkeypatch.setattr(sys, "argv", argv)
+        with patch.object(gitlab_ops, function_name, return_value={"ok": True}) as function:
+            gitlab_ops.main()
+        function.assert_called_once()
+        assert '"ok": true' in capsys.readouterr().out
 
 
 class TestGitEnv:
@@ -384,9 +652,7 @@ class TestAuthenticatedCloneUrl:
 
     def test_custom_instance_url(self, monkeypatch):
         monkeypatch.setenv("GITLAB_TOKEN", "custom-token")
-        url = gitlab_ops.authenticated_clone_url(
-            "team/repo", instance_url="https://custom.gitlab.io"
-        )
+        url = gitlab_ops.authenticated_clone_url("team/repo", instance_url="https://custom.gitlab.io")
         assert url == "https://custom.gitlab.io/team/repo.git"
         assert "custom-token" not in url
 
@@ -435,6 +701,22 @@ class TestRunGit:
 
 
 class TestCloneRepo:
+    def test_missing_token(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        with patch.object(gitlab_ops, "discover_token", return_value=None):
+            assert gitlab_ops.clone_repo("group/repo", str(tmp_path / "repo")) == {
+                "error": "GitLab token not found for clone"
+            }
+
+    def test_nonempty_target(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "token")
+        target_dir = tmp_path / "repo"
+        target_dir.mkdir()
+        (target_dir / "existing").write_text("data", encoding="utf-8")
+        with patch.object(gitlab_ops, "get_client"):
+            result = gitlab_ops.clone_repo("group/repo", str(target_dir))
+        assert result == {"error": f"Target directory is not empty: {target_dir}"}
+
     def test_success_no_token_in_url(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GITLAB_TOKEN", "clone-token")
         monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
@@ -498,6 +780,38 @@ class TestCloneRepo:
         assert "secret-tok-123" not in result["error"]
         assert "REDACTED" in result["error"]
 
+    def test_clone_uses_requested_branch(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "token")
+        target_dir = tmp_path / "repo"
+        with (
+            patch.object(gitlab_ops, "get_client", return_value=_mock_gl()),
+            patch.object(gitlab_ops.subprocess, "run", return_value=_completed()),
+        ):
+            result = gitlab_ops.clone_repo("group/repo", str(target_dir), branch="release")
+        assert result["branch"] == "release"
+
+    def test_project_lookup_error(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "secret")
+        gl = MagicMock()
+        gl.projects.get.side_effect = GitlabGetError("404")
+        with patch.object(gitlab_ops, "get_client", return_value=gl):
+            result = gitlab_ops.clone_repo("group/repo", str(tmp_path / "repo"))
+        assert "Project not found" in result["error"]
+
+    def test_clone_timeout(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "token")
+        with (
+            patch.object(gitlab_ops, "get_client", return_value=_mock_gl()),
+            patch.object(gitlab_ops.subprocess, "run", side_effect=subprocess.TimeoutExpired("git", 600)),
+        ):
+            assert gitlab_ops.clone_repo("group/repo", str(tmp_path / "repo")) == {"error": "git clone timed out"}
+
+    def test_unexpected_clone_error_is_redacted(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "secret")
+        with patch.object(gitlab_ops, "get_client", side_effect=RuntimeError("secret failed")):
+            result = gitlab_ops.clone_repo("group/repo", str(tmp_path / "repo"))
+        assert result == {"error": "REDACTED failed"}
+
 
 class TestPushBranch:
     def test_success(self, tmp_path):
@@ -534,3 +848,64 @@ class TestPushBranch:
         result = gitlab_ops.push_branch(str(tmp_path / "missing"), "feature", "msg")
         assert "error" in result
         assert "not found" in result["error"]
+
+    @pytest.mark.parametrize(
+        ("responses", "expected"),
+        [
+            ([_completed(returncode=1, stderr="checkout")], "git checkout failed: checkout"),
+            ([_completed(), _completed(returncode=1, stderr="add")], "git add failed: add"),
+            ([_completed(), _completed(), _completed(returncode=1, stderr="status")], "git status failed: status"),
+            (
+                [_completed(), _completed(), _completed(stdout="M file"), _completed(returncode=1, stderr="commit")],
+                "git commit failed: commit",
+            ),
+            (
+                [
+                    _completed(),
+                    _completed(),
+                    _completed(stdout="M file"),
+                    _completed(),
+                    _completed(returncode=1, stderr="push"),
+                ],
+                "git push failed: push",
+            ),
+        ],
+    )
+    def test_git_step_failures(self, tmp_path, responses, expected):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        with patch.object(gitlab_ops, "_run_git", side_effect=responses):
+            result = gitlab_ops.push_branch(str(repo_dir), "feature", "Update files")
+        assert result == {"error": expected}
+
+    def test_uses_explicit_files(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        responses = [_completed(), _completed(), _completed(stdout="M file"), _completed(), _completed()]
+        with patch.object(gitlab_ops, "_run_git", side_effect=responses) as run_git:
+            gitlab_ops.push_branch(str(repo_dir), "feature", "Update files", files=["file.txt"])
+        assert run_git.call_args_list[1].args[1] == ["add", "file.txt"]
+
+    def test_git_timeout(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        with patch.object(gitlab_ops, "_run_git", side_effect=subprocess.TimeoutExpired("git", 120)):
+            assert gitlab_ops.push_branch(str(repo_dir), "feature", "msg") == {"error": "git operation timed out"}
+
+    def test_unexpected_git_error(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        with patch.object(gitlab_ops, "_run_git", side_effect=RuntimeError("broken")):
+            assert gitlab_ops.push_branch(str(repo_dir), "feature", "msg") == {"error": "broken"}
+
+
+class TestRunGitInternal:
+    def test_runs_git_with_repository_directory_and_environment(self, tmp_path):
+        with patch.object(gitlab_ops.subprocess, "run", return_value=_completed()) as run:
+            result = gitlab_ops._run_git(str(tmp_path), ["status"], timeout=7)
+
+        assert result.returncode == 0
+        run.assert_called_once()
+        assert run.call_args.args[0] == ["git", "status"]
+        assert run.call_args.kwargs["cwd"] == str(tmp_path)
+        assert run.call_args.kwargs["timeout"] == 7

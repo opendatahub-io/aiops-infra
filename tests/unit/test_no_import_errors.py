@@ -17,9 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 _SKILL_SCRIPT_DIRS = sorted(
-    d / "scripts"
-    for d in (REPO_ROOT / "skills").iterdir()
-    if d.is_dir() and (d / "scripts").is_dir()
+    d / "scripts" for d in (REPO_ROOT / "skills").iterdir() if d.is_dir() and (d / "scripts").is_dir()
 )
 
 

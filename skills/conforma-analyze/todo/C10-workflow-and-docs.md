@@ -13,7 +13,7 @@ Wire the Jira sync step into the conforma-analyze workflow and update the skill 
 
 - `skills/conforma-analyze/workflows/full-analysis.md` (234 lines today; numbered steps 1–10)
   - New **Step 8 "Jira Sync"** between coverage (step 7) and the resolution-guide step. Command (single deterministic form — no conditional variants, per `check_workflow_determinism`):
-    `~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py sync`
+    `~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py create-jiras-for-conforma-violations`
   - Renumber existing steps: 8 (Resolution Guide) → 9, 9 (Generate the resolution guide) → 10, 10 (Submit to GitHub) → 11.
   - Update all cross-references that mention the old step numbers: the "TODO preview in step 9" note in step 6 (line ~144), the "See step 9 for the generation command" note in the Resolution Guide step (line ~183), the "requires user confirmation … separate turn after step 9" note in Submit (line ~219), and the hard-failure rule cross-references to steps 9/10.
 - `skills/conforma-analyze/SKILL.md`

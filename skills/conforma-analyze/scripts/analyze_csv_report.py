@@ -125,8 +125,6 @@ def load_reports_dir(reports_dir: Path) -> list[ViolationRecord]:
     return all_records
 
 
-
-
 def load_warnings_csv(
     csv_path: Path,
     release: str = "",
@@ -402,7 +400,9 @@ def analyze(
     result.rpm_signature_details = extract_rpm_signature_details(records)
     result.component_patterns = compute_component_patterns(records)
     result.effective_dates = compute_effective_dates(records)
-    result.priority_recommendations = generate_priority_recommendations(records, code_violation_counts, result.untrusted_tasks)
+    result.priority_recommendations = generate_priority_recommendations(
+        records, code_violation_counts, result.untrusted_tasks
+    )
 
     if upcoming:
         result.upcoming_violations = upcoming
@@ -620,7 +620,9 @@ def format_markdown(result: AnalysisResult, component_owners: dict[str, str | No
         for rec in result.priority_recommendations:
             lines.append(f"### #{rec['priority']}: {rec['action']}")
             lines.append("")
-            lines.append(f"- **Resolves:** {rec['violations_resolved']} violations ({rec['percent_of_total']}% of total)")
+            lines.append(
+                f"- **Resolves:** {rec['violations_resolved']} violations ({rec['percent_of_total']}% of total)"
+            )
             lines.append(f"- **Components affected:** {rec['affected_components']}")
             lines.append(f"- **Solution:** {rec['solution']}")
             if "components" in rec:
@@ -660,6 +662,7 @@ def format_json(result: AnalysisResult, component_owners: dict[str, str | None] 
 
 from conforma_constants import CONFORMA_REPORTER_ACTIONS_URL, CONFORMA_REPORTER_URL
 from date_ops import parse_date as _parse_date  # noqa: F401
+
 STALENESS_THRESHOLD_DAYS = 3
 
 

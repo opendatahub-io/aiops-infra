@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import subprocess
 from unittest.mock import MagicMock, patch
 
 import github_ops
@@ -62,18 +60,26 @@ def _patch_no_env_token():
 
 class TestGetToken:
     def test_success(self):
-        with _patch_no_env_token(), _patch_which(), patch.object(
-            github_ops.subprocess,
-            "run",
-            return_value=_completed(stdout="ghp_token123\n"),
+        with (
+            _patch_no_env_token(),
+            _patch_which(),
+            patch.object(
+                github_ops.subprocess,
+                "run",
+                return_value=_completed(stdout="ghp_token123\n"),
+            ),
         ):
             assert github_ops.get_token() == "ghp_token123"
 
     def test_failure_returns_empty(self):
-        with _patch_no_env_token(), _patch_which(), patch.object(
-            github_ops.subprocess,
-            "run",
-            return_value=_completed(returncode=1, stderr="not authenticated"),
+        with (
+            _patch_no_env_token(),
+            _patch_which(),
+            patch.object(
+                github_ops.subprocess,
+                "run",
+                return_value=_completed(returncode=1, stderr="not authenticated"),
+            ),
         ):
             assert github_ops.get_token() == ""
 
@@ -88,10 +94,13 @@ class TestGetToken:
 
 class TestCreatePr:
     def test_success(self):
-        resp = _mock_response(201, json_data={
-            "html_url": "https://github.com/org/repo/pull/42",
-            "number": 42,
-        })
+        resp = _mock_response(
+            201,
+            json_data={
+                "html_url": "https://github.com/org/repo/pull/42",
+                "number": 42,
+            },
+        )
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "post", return_value=resp):
                 result = github_ops.create_pr(
@@ -120,11 +129,14 @@ class TestCreatePr:
 class TestGetFile:
     def test_success(self):
         encoded = "aGVsbG8="  # "hello"
-        response = _mock_response(200, json_data={
-            "encoding": "base64",
-            "content": encoded,
-            "sha": "abc123",
-        })
+        response = _mock_response(
+            200,
+            json_data={
+                "encoding": "base64",
+                "content": encoded,
+                "sha": "abc123",
+            },
+        )
 
         with (
             patch.object(github_ops, "get_token", return_value="token"),
@@ -149,11 +161,14 @@ class TestGetFile:
 
 class TestGetRepo:
     def test_success(self):
-        resp = _mock_response(200, json_data={
-            "full_name": "org/repo",
-            "default_branch": "main",
-            "private": False,
-        })
+        resp = _mock_response(
+            200,
+            json_data={
+                "full_name": "org/repo",
+                "default_branch": "main",
+                "private": False,
+            },
+        )
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "get", return_value=resp):
                 result = github_ops.get_repo("org/repo")
@@ -203,10 +218,13 @@ class TestCheckIssuesEnabled:
 
 class TestCreateIssue:
     def test_success(self):
-        resp = _mock_response(201, json_data={
-            "html_url": "https://github.com/org/repo/issues/99",
-            "number": 99,
-        })
+        resp = _mock_response(
+            201,
+            json_data={
+                "html_url": "https://github.com/org/repo/issues/99",
+                "number": 99,
+            },
+        )
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "post", return_value=resp):
                 result = github_ops.create_issue(
@@ -222,10 +240,13 @@ class TestCreateIssue:
         }
 
     def test_success_no_labels(self):
-        resp = _mock_response(201, json_data={
-            "html_url": "https://github.com/org/repo/issues/1",
-            "number": 1,
-        })
+        resp = _mock_response(
+            201,
+            json_data={
+                "html_url": "https://github.com/org/repo/issues/1",
+                "number": 1,
+            },
+        )
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "post", return_value=resp):
                 result = github_ops.create_issue("org/repo", "Title", "Body")
@@ -233,10 +254,13 @@ class TestCreateIssue:
         assert result["issue_number"] == 1
 
     def test_labels_passed_to_api(self):
-        resp = _mock_response(201, json_data={
-            "html_url": "https://github.com/org/repo/issues/5",
-            "number": 5,
-        })
+        resp = _mock_response(
+            201,
+            json_data={
+                "html_url": "https://github.com/org/repo/issues/5",
+                "number": 5,
+            },
+        )
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "post", return_value=resp) as mock_post:
                 github_ops.create_issue("org/repo", "Title", "Body", labels=["bug", "conforma"])
@@ -254,6 +278,7 @@ class TestCreateIssue:
 
     def test_timeout(self):
         import requests as _requests
+
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "post", side_effect=_requests.Timeout("timeout")):
                 result = github_ops.create_issue("org/repo", "Title", "Body")
@@ -263,29 +288,34 @@ class TestCreateIssue:
 
 class TestSearchIssues:
     def test_success_with_labels_and_keywords(self):
-        resp = _mock_response(200, json_data={
-            "total_count": 2,
-            "items": [
-                {
-                    "html_url": "https://github.com/org/repo/issues/10",
-                    "title": "[infra] query.py missing",
-                    "state": "open",
-                    "created_at": "2026-06-01T12:00:00Z",
-                    "number": 10,
-                },
-                {
-                    "html_url": "https://github.com/org/repo/issues/8",
-                    "title": "[infra] query.py moved",
-                    "state": "open",
-                    "created_at": "2026-05-15T10:00:00Z",
-                    "number": 8,
-                },
-            ],
-        })
+        resp = _mock_response(
+            200,
+            json_data={
+                "total_count": 2,
+                "items": [
+                    {
+                        "html_url": "https://github.com/org/repo/issues/10",
+                        "title": "[infra] query.py missing",
+                        "state": "open",
+                        "created_at": "2026-06-01T12:00:00Z",
+                        "number": 10,
+                    },
+                    {
+                        "html_url": "https://github.com/org/repo/issues/8",
+                        "title": "[infra] query.py moved",
+                        "state": "open",
+                        "created_at": "2026-05-15T10:00:00Z",
+                        "number": 8,
+                    },
+                ],
+            },
+        )
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "get", return_value=resp) as mock_get:
                 result = github_ops.search_issues(
-                    "org/repo", labels=["infrastructure"], title_keywords="query.py",
+                    "org/repo",
+                    labels=["infrastructure"],
+                    title_keywords="query.py",
                 )
 
         assert result["total"] == 2
@@ -324,6 +354,7 @@ class TestSearchIssues:
 
     def test_request_exception(self):
         import requests as _requests
+
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "get", side_effect=_requests.Timeout("timeout")):
                 result = github_ops.search_issues("org/repo")
@@ -332,8 +363,13 @@ class TestSearchIssues:
 
     def test_max_results_respected(self):
         items = [
-            {"html_url": f"https://github.com/org/repo/issues/{i}", "title": f"Issue {i}",
-             "state": "open", "created_at": "2026-01-01", "number": i}
+            {
+                "html_url": f"https://github.com/org/repo/issues/{i}",
+                "title": f"Issue {i}",
+                "state": "open",
+                "created_at": "2026-01-01",
+                "number": i,
+            }
             for i in range(20)
         ]
         resp = _mock_response(200, json_data={"total_count": 20, "items": items})
@@ -359,11 +395,14 @@ class TestSearchIssues:
 
 class TestCheckWorkflowRun:
     def test_success(self):
-        resp = _mock_response(200, json_data={
-            "status": "completed",
-            "conclusion": "success",
-            "html_url": "https://github.com/org/repo/actions/runs/99",
-        })
+        resp = _mock_response(
+            200,
+            json_data={
+                "status": "completed",
+                "conclusion": "success",
+                "html_url": "https://github.com/org/repo/actions/runs/99",
+            },
+        )
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "get", return_value=resp):
                 result = github_ops.check_workflow_run("org/repo", 99)
@@ -376,6 +415,7 @@ class TestCheckWorkflowRun:
 
     def test_timeout(self):
         import requests as _requests
+
         with patch.object(github_ops, "get_token", return_value="ghp_test"):
             with patch.object(github_ops.requests, "get", side_effect=_requests.Timeout("timeout")):
                 result = github_ops.check_workflow_run("org/repo", 99)

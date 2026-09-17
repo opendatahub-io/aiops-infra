@@ -320,7 +320,7 @@ def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = No
     raising JiraSearchError - never masked as an empty result.
 
     Supported ``fields`` (any subset; default = key/summary/status/issuetype/assignee):
-        key, summary, status, issuetype, assignee, created, labels,
+        key, summary, status, issuetype, assignee, created, description, labels,
         fixVersions, priority, components, target_versions.
     """
     default_fields = ["key", "summary", "status", "issuetype", "assignee"]
@@ -349,6 +349,8 @@ def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = No
             entry["assignee"] = str(assignee) if assignee else "Unassigned"
         if "created" in requested:
             entry["created"] = str(issue.fields.created)
+        if "description" in requested:
+            entry["description"] = issue.fields.description
         if "labels" in requested:
             entry["labels"] = issue.fields.labels
         if "fixVersions" in requested:
@@ -499,7 +501,7 @@ def main() -> None:
         "--fields",
         default=None,
         help="Comma-separated fields: key,summary,status,issuetype,assignee,created,labels,"
-        "fixVersions,priority,components,target_versions",
+        "fixVersions,priority,components,target_versions,description",
     )
 
     search_user_parser = sub.add_parser("search-user")

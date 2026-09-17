@@ -24,7 +24,7 @@ Step 0 (`init_conforma_run.py`) is the **only command where user input appears o
 
 Key context.yaml integrations:
 - `resolve_release_context.py` reads `user_query` from context.yaml when `--query` is omitted
-- `violations_coverage.py` reads `steps.prerequisites.slack_available` when `--require-slack` is omitted
+- `violations_coverage.py` skips Slack coverage by default; pass `--require-slack true` to enable it
 - `violation_history.py` reads `application.release`, `violation_code`, and `environment` from context.yaml
 
 ## Additional prerequisites

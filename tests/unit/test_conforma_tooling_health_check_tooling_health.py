@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -73,7 +71,15 @@ SAMPLE_CATALOG = {
 }
 
 
-def _make_run(run_id, status="completed", conclusion="success", created="2026-06-17T10:00:00Z", updated="2026-06-17T10:05:00Z", release="rhoai-3.5-ea.1", environment="prod"):
+def _make_run(
+    run_id,
+    status="completed",
+    conclusion="success",
+    created="2026-06-17T10:00:00Z",
+    updated="2026-06-17T10:05:00Z",
+    release="rhoai-3.5-ea.1",
+    environment="prod",
+):
     return {
         "id": run_id,
         "status": status,
@@ -164,33 +170,25 @@ class TestClassifyHealth:
 class TestClassifyFailure:
     def test_matches_auth_expired(self):
         tool_config = SAMPLE_CATALOG["tools"][0]
-        result = check_tooling_health.classify_failure(
-            "Error: Bad credentials for token", tool_config
-        )
+        result = check_tooling_health.classify_failure("Error: Bad credentials for token", tool_config)
         assert result is not None
         assert result["id"] == "auth_expired"
 
     def test_matches_ec_timeout(self):
         tool_config = SAMPLE_CATALOG["tools"][0]
-        result = check_tooling_health.classify_failure(
-            "context deadline exceeded while waiting for EC", tool_config
-        )
+        result = check_tooling_health.classify_failure("context deadline exceeded while waiting for EC", tool_config)
         assert result is not None
         assert result["id"] == "ec_policy_timeout"
 
     def test_falls_back_to_unknown(self):
         tool_config = SAMPLE_CATALOG["tools"][0]
-        result = check_tooling_health.classify_failure(
-            "some completely new error", tool_config
-        )
+        result = check_tooling_health.classify_failure("some completely new error", tool_config)
         assert result is not None
         assert result["id"] == "unknown_failure"
 
     def test_case_insensitive_match(self):
         tool_config = SAMPLE_CATALOG["tools"][0]
-        result = check_tooling_health.classify_failure(
-            "ERROR: BAD CREDENTIALS", tool_config
-        )
+        result = check_tooling_health.classify_failure("ERROR: BAD CREDENTIALS", tool_config)
         assert result is not None
         assert result["id"] == "auth_expired"
 
@@ -251,7 +249,11 @@ class TestFetchWorkflowRuns:
         mock_get.return_value = _api_response(runs)
 
         result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "rhoai-3.5-ea.2", 5, "token123",
+            "org/repo",
+            "workflow.yaml",
+            "rhoai-3.5-ea.2",
+            5,
+            "token123",
             environment="stage",
         )
         assert "runs" in result
@@ -267,7 +269,12 @@ class TestFetchWorkflowRuns:
         mock_get.return_value = _api_response(runs)
 
         result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "rhoai-3.5-ea.2", 5, "token123", "prod",
+            "org/repo",
+            "workflow.yaml",
+            "rhoai-3.5-ea.2",
+            5,
+            "token123",
+            "prod",
         )
         assert "runs" in result
         assert len(result["runs"]) == 1
@@ -287,9 +294,7 @@ class TestFetchWorkflowRuns:
     def test_401_error(self, mock_get):
         mock_get.return_value = MagicMock(status_code=401, text="Unauthorized")
 
-        result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "main", 5, "bad_token", "prod"
-        )
+        result = check_tooling_health._fetch_workflow_runs("org/repo", "workflow.yaml", "main", 5, "bad_token", "prod")
         assert "error" in result
         assert "401" in result["error"]
 
@@ -299,9 +304,7 @@ class TestFetchWorkflowRuns:
 
         mock_get.side_effect = requests.ConnectionError("Connection refused")
 
-        result = check_tooling_health._fetch_workflow_runs(
-            "org/repo", "workflow.yaml", "main", 5, "token123", "prod"
-        )
+        result = check_tooling_health._fetch_workflow_runs("org/repo", "workflow.yaml", "main", 5, "token123", "prod")
         assert "error" in result
         assert "request failed" in result["error"]
 
@@ -319,9 +322,7 @@ class TestCheckAllTools:
         runs = [_make_run(1, conclusion="success")]
         mock_get.return_value = _api_response(runs)
 
-        result = check_tooling_health.check_all_tools(
-            "rhoai-3.5-ea.1", environment="prod", catalog_path=None
-        )
+        result = check_tooling_health.check_all_tools("rhoai-3.5-ea.1", environment="prod", catalog_path=None)
         assert result["release"] == "rhoai-3.5-ea.1"
         assert result["overall_health"] == "healthy"
         assert len(result["tools"]) >= 0
@@ -331,7 +332,11 @@ class TestCheckAllTools:
     @patch("check_tooling_health.requests.get")
     def test_unhealthy_result(self, mock_get, mock_token):
         mock_token.return_value = "ghp_test123"
-        runs = [_make_run(3, conclusion="failure"), _make_run(2, conclusion="failure"), _make_run(1, conclusion="success")]
+        runs = [
+            _make_run(3, conclusion="failure"),
+            _make_run(2, conclusion="failure"),
+            _make_run(1, conclusion="success"),
+        ]
         mock_get.return_value = _api_response(runs)
 
         with patch("check_tooling_health.load_catalog", return_value=SAMPLE_CATALOG):
@@ -522,7 +527,18 @@ class TestCLIOutput:
         output_file = tmp_path / "health.json"
 
         with patch("check_tooling_health.load_catalog", return_value=SAMPLE_CATALOG):
-            with patch("sys.argv", ["check_tooling_health.py", "--release", "rhoai-3.5-ea.1", "--environment", "prod", "--output", str(output_file)]):
+            with patch(
+                "sys.argv",
+                [
+                    "check_tooling_health.py",
+                    "--release",
+                    "rhoai-3.5-ea.1",
+                    "--environment",
+                    "prod",
+                    "--output",
+                    str(output_file),
+                ],
+            ):
                 exit_code = check_tooling_health.main()
 
         assert exit_code == 0
@@ -668,14 +684,24 @@ class TestContextIntegration:
     def test_reads_release_and_env_from_context(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
-            "environment": "prod",
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.1",
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": "prod",
+            },
+        )
         conforma_context_ops.set_active(run_dir)
 
         monkeypatch.setattr("sys.argv", ["check_tooling_health.py"])
-        with patch("check_tooling_health.check_all_tools", return_value={"release": "rhoai-3.5-ea.1", "tools": []}) as mock_check:
+        with patch(
+            "check_tooling_health.check_all_tools", return_value={"release": "rhoai-3.5-ea.1", "tools": []}
+        ) as mock_check:
             rc = check_tooling_health.main()
         assert rc == 0
         mock_check.assert_called_once()
@@ -685,10 +711,18 @@ class TestContextIntegration:
     def test_updates_context_after_check(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
-            "environment": "prod",
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.1",
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": "prod",
+            },
+        )
         conforma_context_ops.set_active(run_dir)
 
         monkeypatch.setattr("sys.argv", ["check_tooling_health.py"])
@@ -702,18 +736,33 @@ class TestContextIntegration:
     def test_cli_overrides_context(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260703-120000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"name": "rhoai", "release": "rhoai-3.5-ea.1", "version": "3.5-ea.1", "konflux_app": "rhoai-v3-5-ea-1"},
-            "environment": "prod",
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {
+                    "name": "rhoai",
+                    "release": "rhoai-3.5-ea.1",
+                    "version": "3.5-ea.1",
+                    "konflux_app": "rhoai-v3-5-ea-1",
+                },
+                "environment": "prod",
+            },
+        )
         conforma_context_ops.set_active(run_dir)
 
-        monkeypatch.setattr("sys.argv", [
-            "check_tooling_health.py",
-            "--release", "rhoai-3.4",
-            "--environment", "stage",
-        ])
-        with patch("check_tooling_health.check_all_tools", return_value={"release": "rhoai-3.4", "tools": []}) as mock_check:
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "check_tooling_health.py",
+                "--release",
+                "rhoai-3.4",
+                "--environment",
+                "stage",
+            ],
+        )
+        with patch(
+            "check_tooling_health.check_all_tools", return_value={"release": "rhoai-3.4", "tools": []}
+        ) as mock_check:
             check_tooling_health.main()
         assert mock_check.call_args[0][0] == "rhoai-3.4"
         assert mock_check.call_args[1]["environment"] == "stage"

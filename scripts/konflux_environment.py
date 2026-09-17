@@ -30,7 +30,6 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from _repo_root import REPO_ROOT as _REPO_ROOT
 DOTENV_PATH = Path.home() / ".conforma" / ".env"
 
 REQUIRED_VARS: list[str] = ["GITLAB_HOST", "KONFLUX_CLUSTER_DOMAIN"]
@@ -250,8 +249,11 @@ def _derive_from_cluster_domain(populated: dict[str, str]) -> None:
         populated[env_var] = value
 
 
-def _populate_from_discovery(ctx, populated: dict[str, str]) -> None:
+def populate_from_discovery(ctx, populated: dict[str, str] | None = None) -> dict[str, str]:
     """Set env vars from discovery result. Never overwrites existing vars."""
+    if populated is None:
+        populated = {}
+
     if not os.environ.get("KONFLUX_CLUSTER_DOMAIN"):
         os.environ["KONFLUX_CLUSTER_DOMAIN"] = ctx.cluster.cluster_domain
         populated["KONFLUX_CLUSTER_DOMAIN"] = ctx.cluster.cluster_domain
@@ -280,6 +282,8 @@ def _populate_from_discovery(ctx, populated: dict[str, str]) -> None:
             slug = ctx.rpa_subdirs[0]
             os.environ["KONFLUX_APPLICATION_SLUG"] = slug
             populated["KONFLUX_APPLICATION_SLUG"] = slug
+
+    return populated
 
 
 def load() -> dict[str, str]:
@@ -315,7 +319,7 @@ def load() -> dict[str, str]:
                 import konflux_tenant_env_discovery
 
                 context = konflux_tenant_env_discovery.discover(tenant, preferred_cluster=preferred)
-                _populate_from_discovery(context, populated)
+                populate_from_discovery(context, populated)
             except konflux_tenant_env_discovery.DiscoveryError as exc:
                 print(f"WARNING: Konflux tenant environment discovery failed: {exc}", file=sys.stderr)
             except Exception as exc:
@@ -460,8 +464,7 @@ def check_connectivity() -> ConnectivityResult:
     if not token:
         result.gitlab_auth = None
         result.error_details["auth"] = (
-            f"No GitLab token found for {host}. "
-            "Set GITLAB_TOKEN or configure glab: glab auth login --hostname " + host
+            f"No GitLab token found for {host}. Set GITLAB_TOKEN or configure glab: glab auth login --hostname " + host
         )
         return result
 
@@ -521,8 +524,7 @@ def _check_konflux_connectivity(result: ConnectivityResult) -> None:
     if not cli:
         result.konflux_reachable = None
         result.error_details["konflux"] = (
-            "Neither 'oc' nor 'kubectl' found on PATH. "
-            "Install one to enable Konflux connectivity checks."
+            "Neither 'oc' nor 'kubectl' found on PATH. Install one to enable Konflux connectivity checks."
         )
         return
 
@@ -601,7 +603,9 @@ def connectivity_confirmed() -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Konflux environment for aiops-infra")
     parser.add_argument("--validate", action="store_true", help="Check all required vars are set and not placeholders")
-    parser.add_argument("--check-connectivity", action="store_true", help="Verify live connectivity to GitLab and Konflux")
+    parser.add_argument(
+        "--check-connectivity", action="store_true", help="Verify live connectivity to GitLab and Konflux"
+    )
     args = parser.parse_args()
 
     populated = load()

@@ -3,19 +3,10 @@
 from __future__ import annotations
 
 from __future__ import annotations
-import argparse
-import getpass
-import json
 import os
-import platform
 import posixpath
 import re
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
-import gitlab_ops
-import konflux_environment
 from exception_mr_text import build_commit_message as _build_commit_message  # noqa: F401 — backward compat re-export
 from exception_mr_text import build_mr_body as _build_mr_body  # noqa: F401 — backward compat re-export
 from exception_mr_text import build_mr_title as _build_mr_title  # noqa: F401 — backward compat re-export
@@ -32,10 +23,7 @@ def _validate_repo_relative_path(path_str: str, context: str = "policy file") ->
     """
     normalized = posixpath.normpath(path_str)
     if normalized.startswith("/") or normalized.startswith(".."):
-        raise ValueError(
-            f"Unsafe {context} path {path_str!r}: "
-            f"resolved to {normalized!r} which is not repo-relative"
-        )
+        raise ValueError(f"Unsafe {context} path {path_str!r}: resolved to {normalized!r} which is not repo-relative")
     return normalized
 
 
@@ -163,13 +151,9 @@ def detect_component_type(components: list[str]) -> str:
 def get_target_file(component_type: str, environment: str, is_self_service: bool) -> str:
     """Determine the target policy file path using discovery or pattern matching."""
     if is_self_service:
-        path = resolve_self_service_file(
-            component_type, environment, _get_discovered_self_service_files()
-        )
+        path = resolve_self_service_file(component_type, environment, _get_discovered_self_service_files())
     else:
-        path = resolve_policy_file(
-            component_type, environment, _get_discovered_ec_files()
-        )
+        path = resolve_policy_file(component_type, environment, _get_discovered_ec_files())
     return _validate_repo_relative_path(path)
 
 
@@ -460,4 +444,3 @@ def append_to_policy_file(file_path: Path, yaml_block: str, is_self_service: boo
         content = content.rstrip() + "\n" + yaml_block
 
     file_path.write_text(content, encoding="utf-8")
-

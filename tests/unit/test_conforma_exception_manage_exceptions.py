@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -168,7 +167,9 @@ class TestScanPermanentExclusions:
         policy_dir.mkdir(parents=True)
         (policy_dir / "registry-rhoai-prod.yaml").write_text(_POLICY_YAML)
 
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             results = scan_permanent_exclusions(tmp_path, "prod")
 
         assert len(results) == 2
@@ -184,14 +185,18 @@ class TestScanPermanentExclusions:
         policy_dir.mkdir(parents=True)
         (policy_dir / "registry-rhoai-prod.yaml").write_text(_POLICY_YAML)
 
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             results = scan_permanent_exclusions(tmp_path, "prod")
 
         rules = [r["rule"] for r in results]
         assert "hermetic_task.hermetic" not in rules
 
     def test_empty_when_no_policy_files(self, tmp_path):
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             results = scan_permanent_exclusions(tmp_path, "prod")
         assert results == []
 
@@ -200,7 +205,9 @@ class TestScanPermanentExclusions:
         policy_dir.mkdir(parents=True)
         (policy_dir / "registry-rhoai-stage.yaml").write_text(_POLICY_YAML)
 
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             results = scan_permanent_exclusions(tmp_path, "prod")
         assert results == []
 
@@ -307,7 +314,9 @@ class TestSearchExceptionsForComponents:
         return tmp_path
 
     def test_finds_volatile_by_component(self, repo_tree):
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             result = search_exceptions_for_components(
                 ["mlflow"],
                 environment="prod",
@@ -319,7 +328,9 @@ class TestSearchExceptionsForComponents:
         assert any("mlflow" in m.get("matched_search_terms", []) for m in component_matches)
 
     def test_finds_permanent_always(self, repo_tree):
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             result = search_exceptions_for_components(
                 ["mlflow"],
                 environment="prod",
@@ -331,7 +342,9 @@ class TestSearchExceptionsForComponents:
         assert len(permanent_matches) == 2
 
     def test_finds_self_service_by_component(self, repo_tree):
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             result = search_exceptions_for_components(
                 ["nemo-guardrails"],
                 environment="prod",
@@ -343,7 +356,9 @@ class TestSearchExceptionsForComponents:
         assert any("nemo-guardrails" in m.get("matched_search_terms", []) for m in ss_matches)
 
     def test_fuzzy_matches_underscore_hyphen(self, repo_tree):
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             result = search_exceptions_for_components(
                 ["nemo_guardrails"],
                 environment="prod",
@@ -355,7 +370,9 @@ class TestSearchExceptionsForComponents:
         assert len(ss_matches) == 1
 
     def test_no_match_returns_only_unscoped_and_permanent(self, repo_tree):
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             result = search_exceptions_for_components(
                 ["nonexistent-component"],
                 environment="prod",
@@ -367,7 +384,9 @@ class TestSearchExceptionsForComponents:
             assert m["scope"] in ("unscoped", "permanent")
 
     def test_summary_counts(self, repo_tree):
-        with patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"):
+        with patch.object(
+            exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"
+        ):
             result = search_exceptions_for_components(
                 ["mlflow"],
                 environment="prod",
@@ -380,7 +399,11 @@ class TestSearchExceptionsForComponents:
 
     def test_refresh_calls_git(self, repo_tree):
         with (
-            patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"),
+            patch.object(
+                exception_scanner,
+                "_get_conforma_policy_dir",
+                return_value="config/stone/product/EnterpriseContractPolicy",
+            ),
             patch.object(exception_scanner, "_refresh_clone") as mock_refresh,
         ):
             search_exceptions_for_components(
@@ -393,7 +416,11 @@ class TestSearchExceptionsForComponents:
 
     def test_no_refresh_skips_git(self, repo_tree):
         with (
-            patch.object(exception_scanner, "_get_conforma_policy_dir", return_value="config/stone/product/EnterpriseContractPolicy"),
+            patch.object(
+                exception_scanner,
+                "_get_conforma_policy_dir",
+                return_value="config/stone/product/EnterpriseContractPolicy",
+            ),
             patch.object(exception_scanner, "_refresh_clone") as mock_refresh,
         ):
             search_exceptions_for_components(

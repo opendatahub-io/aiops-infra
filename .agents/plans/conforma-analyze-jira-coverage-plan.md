@@ -160,7 +160,7 @@ New shared dual-mode script (CLI + importable) per ARCHITECTURE.md. Reuses `jira
 
 **Constants (reuse Phase 1):** discovery projects/labels from `conforma_constants`; create target = `RHOAIENG` + `Task`; `TARGET_VERSION_FIELD = "customfield_10855"`; priority `Blocker`.
 
-**CLI subcommands:** `sync` (workflow), `find` (discovery only), `audit`, `repair`, `prefill-url`. `sync` reads `violations.yaml` + `coverage.json` + `context.yaml` (release/env) via context auto-discovery — NO `--release`/`--run-dir` args. Every Jira write is set-then-verified via a follow-up GET. Output: `jira_sync.json` in run dir + `steps.jira_sync` persisted to `context.yaml`.
+**CLI subcommands:** `create-conforma-jiras` (workflow), `find` (discovery only), `audit`, `repair`, `prefill-url`. `create-conforma-jiras` reads `violations.yaml` + `coverage.json` + `context.yaml` (release/env) via context auto-discovery — NO `--release`/`--run-dir` args. Every Jira write is set-then-verified via a follow-up GET. Output: `jira_sync.json` in run dir + `steps.jira_sync` persisted to `context.yaml`.
 
 ### Step 3.1 — Script skeleton + discovery/match/group/create/link/audit/repair + pre-fill
 Implement, with each unit tested:
@@ -265,7 +265,7 @@ Start point: all tickets with the `conforma` label (7 projects, all statuses; `-
 ### Step 4.3 — Workflow + docs
 - `skills/conforma-analyze/workflows/full-analysis.md`: new **Step 8 "Jira Sync"** between coverage (step 7) and guide generation; old steps 8/9/10 renumber to 9/10/11; update the step-9/10 hard-failure rule cross-references. Command:
   ```bash
-  ~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py sync
+  ~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py create-jiras-for-conforma-violations
   ```
 - `skills/conforma-analyze/SKILL.md`: add the Jira-sync capability to the capability/routing table.
 - `skills/search-conforma-jira-tickets/SKILL.md`: delegate to the new label-first discovery.
@@ -289,6 +289,23 @@ Start point: all tickets with the `conforma` label (7 projects, all statuses; `-
 **Review checkpoint R2** (after C11): same `claude -p` invocation as R1 but scoped to "end-to-end integration, workflow determinism, and the live dry-run result". Paste `.result` into Handover.
 
 **Phase 5 DoD:** full unit suite green (>= baseline), per-script coverage >97% on all touched scripts, pre-commit clean, live `find` confirms RHOAIENG-70681 discovered; commits C11; R2 recorded and non-blocking.
+
+### Phase 5 follow-up — Merge Request-linked exception coverage
+
+The `rhoai-3.6-ea.2` validation exposed an integration gap not covered by the original C11 checklist: a Jira exception referenced by a Merge Request could be fetched but dropped from rule coverage when its rules appeared only in the Jira description, and a single confirmed exception could not cover multiple rules. The follow-up now:
+
+- requests Jira descriptions during discovery and referenced-ticket lookup;
+- recognizes suffixed rule names such as `rpm_signature.allowed:<digest>`;
+- retains Merge Request references through normalization; and
+- permits one confirmed exception ticket to cover multiple rules.
+
+Matching semantics are deliberately different for Jira and Merge Request
+exception entries: Jira tickets with explicit component names require an exact
+version match, while an unversioned `componentNames` entry in a Merge Request
+is a wildcard that covers every version of that component. Versioned Merge
+Request entries remain version-specific.
+
+Regression coverage includes RHOAIENG-88509 and Merge Request !22104. Validation: `2672 passed, 5 skipped`; all four plan coverage targets pass (`99.4%`, `100.0%`, `98.8%`, and `98.4%`).
 
 ---
 ## 15. Key files
@@ -328,7 +345,7 @@ Start point: all tickets with the `conforma` label (7 projects, all statuses; `-
 - **Phase 3:** DONE. C5/C6/C7 landed in `fe2aeaa` (`conforma_jira_ticket_ops` + TargetVersion + guide-URL comment).
 - **Review R1:** PENDING — never recorded (scheduled after C7; C7 landed in `fe2aeaa`, verdict was never recorded).
 - **Phase 4:** DONE. C8 `85b636d` (cutover to label-first discovery), C9 `7e24f82` (renderer: Jira block + JIRAs cell + per-row Jira column + pre-fill links), C10 `10349c0` (workflow Step 8 Jira Sync + docs).
-- **Phase 5:** DONE. C11 (validation) — unit suite 2597 passed / 5 skipped; coverage gate 98.1 / 100.0 / 99.5 / 98.3 (all >97%); `check-script-coverage` pre-commit hook wired + passing; live `find` (read-only) discovered 98 conforma tickets. **Two defects found & fixed in C11:** (1) stale `patch(...)` targets in two tests broken by the in-flight ruff F401 cleanup — fixed by patching the real implementation modules; (2) `find` performed self-heal label **writes by default** (51 `+conforma` writes observed on the live tenant during the first run) — `cmd_find` is now unconditionally read-only. **Open DoD gap:** RHOAIENG-70681 has `labels: []` (live-verified) and is therefore not discoverable by the label-first design; needs product decision (accept / one-time label / keyword pass).
+- **Phase 5:** DONE. C11 (validation) — original validation recorded 2597 passed / 5 skipped; the current full unit suite is 2664 passed / 5 skipped. The coverage gate passes at 99.4 / 100.0 / 99.6 / 98.4 (all >97%); `check-script-coverage` pre-commit hook is wired + passing; live `find` (read-only) discovered 98 conforma tickets. **Defects found & fixed:** (1) stale `patch(...)` targets in two tests broken by the in-flight ruff F401 cleanup — fixed by patching the real implementation modules; (2) `find` performed self-heal label **writes by default** (51 `+conforma` writes observed on the live tenant during the first run) — `cmd_find` is now unconditionally read-only; (3) Jira descriptions were not retrieved for candidate matching, and a confirmed shared exception could not cover multiple rules — fixed in the Phase 5 follow-up above. **Open DoD gap:** RHOAIENG-70681 has `labels: []` (live-verified) and is therefore not discoverable by the label-first design; needs product decision (accept / one-time label / keyword pass).
 - **Review R2:** PENDING — run after C11; paste `claude -p` `.result` here.
 
 **How to resume:** start at the first NOT STARTED step above; each step lists its files, tests, and commit id. Do not skip the commit or the DoD. Do not create real Jira tickets without explicit user confirmation (live `find` in Phase 5 is read-only).

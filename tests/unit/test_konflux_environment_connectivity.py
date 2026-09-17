@@ -60,7 +60,9 @@ class TestCheckConnectivity:
         with patch.dict(os.environ, env_clean, clear=True):
             with patch("socket.getaddrinfo", return_value=[(None, None, None, None, ("1.2.3.4", 443))]):
                 with patch("urllib.request.urlopen", return_value=mock_resp):
-                    with patch.dict("sys.modules", {"gitlab_ops": MagicMock(discover_token=MagicMock(return_value=None))}):
+                    with patch.dict(
+                        "sys.modules", {"gitlab_ops": MagicMock(discover_token=MagicMock(return_value=None))}
+                    ):
                         result = konflux_environment.check_connectivity()
         assert result.gitlab_dns is True
         assert result.gitlab_https is True
@@ -267,7 +269,9 @@ class TestCheckConnectivityCLIExitCodes:
         assert not result.gitlab_dns
 
     def test_exit_4_for_https_failure(self):
-        result = konflux_environment.ConnectivityResult(gitlab_dns=True, gitlab_https=False, error_details={"https": "fail"})
+        result = konflux_environment.ConnectivityResult(
+            gitlab_dns=True, gitlab_https=False, error_details={"https": "fail"}
+        )
         assert result.gitlab_dns and not result.gitlab_https
 
     def test_exit_5_for_auth_failure(self):
@@ -278,7 +282,10 @@ class TestCheckConnectivityCLIExitCodes:
 
     def test_exit_6_for_project_failure(self):
         result = konflux_environment.ConnectivityResult(
-            gitlab_dns=True, gitlab_https=True, gitlab_auth=True, gitlab_project=False,
+            gitlab_dns=True,
+            gitlab_https=True,
+            gitlab_auth=True,
+            gitlab_project=False,
             error_details={"project": "fail"},
         )
         assert result.gitlab_project is False

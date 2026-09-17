@@ -1,4 +1,4 @@
-"""conforma_jira_ticket_ops.py -- Jira sync for conforma-analyze (dual-mode: CLI + importable).
+"""conforma_jira_ticket_ops.py -- Create and update Jira tickets for Conforma violations.
 
 Discovers conforma-related Jira tickets label-first (all statuses, 7 projects),
 self-heals the conforma label index, matches violations to tickets, and creates
@@ -7,7 +7,8 @@ priority Blocker) for violations that have no open ticket. Every Jira write is
 set-then-verified and recorded in jira_sync.json.
 
 Subcommands:
-  sync         Workflow mode: discover -> self-heal -> match -> group -> create/extend -> link -> write jira_sync.json
+  create-jiras-for-conforma-violations
+               Workflow mode: discover -> self-heal -> match -> group -> create/extend -> link -> write jira_sync.json
   find         Discovery only (read-only), prints the ticket table
   audit        Read-only validation of the conforma label index (self-healing labels applied)
   repair       audit + fill deterministically fillable fields
@@ -22,9 +23,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 _scripts_dir = str(Path(__file__).resolve().parent)
 if _scripts_dir not in sys.path:
@@ -34,6 +36,7 @@ import component_catalog_ops  # noqa: E402
 import conforma_constants  # noqa: E402
 import conforma_context_ops  # noqa: E402
 import conforma_jira_ops  # noqa: E402
+import conforma_mr_ops  # noqa: E402
 import jira_ops  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -42,6 +45,9 @@ import jira_ops  # noqa: E402
 CREATE_PROJECT = "RHOAIENG"
 CREATE_PROJECT_ID = "10350"  # numeric project id for pre-filled CreateIssueDetails URLs (RHOAIENG)
 CREATE_ISSUE_TYPE = "Task"
+# CreateIssueDetails expects the numeric Jira issue-type id, not its display
+# name.  Task is 10001 in the RHOAIENG Jira project.
+CREATE_ISSUE_TYPE_ID = "10001"
 TARGET_VERSION_FIELD = "customfield_10855"  # Jira "Target Version" (array), verified live
 CREATE_PRIORITY = "Blocker"
 TICKET_LABELS = ["conforma", "conforma-violation"]
@@ -70,6 +76,25 @@ def build_ticket_summary(rule: str, konflux_components: list[str]) -> str:
     """Deterministic ticket summary: 'Conforma violation: <rule> in <konflux components>'."""
     comps = ", ".join(konflux_components)
     return f"Conforma violation: {rule} in {comps}"
+
+
+def _label_part(value: str) -> str:
+    """Convert a value into a stable Jira-label-safe token."""
+    token = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
+    return token or "unknown"
+
+
+def build_violation_label(release: str, component: str, rule: str) -> str:
+    """Return the unique label for one release/component/violation tuple."""
+    return "conforma-" + "-".join(
+        [_label_part(release), _label_part(strip_version_suffix(component)), _label_part(rule)]
+    )
+
+
+def build_related_search_url(label: str) -> str:
+    """Build a Jira search URL for a unique Conforma violation label."""
+    jql = f'project = {CREATE_PROJECT} AND labels = "{label}" ORDER BY updated DESC'
+    return f"{_JIRA_BASE}/issues/?jql={quote(jql, safe='')}"
 
 
 def strip_version_suffix(name: str) -> str:
@@ -238,6 +263,7 @@ def build_create_fields(
     jira_components: list[str],
     target_version: str | None,
     description: str,
+    release: str = "",
 ) -> dict:
     """Pure builder for the create-issue payload (shared source of truth for the
     actually-created ticket and the pre-filled URL).
@@ -248,7 +274,12 @@ def build_create_fields(
         "project": {"key": CREATE_PROJECT},
         "summary": build_ticket_summary(rule, konflux_components),
         "issuetype": {"name": CREATE_ISSUE_TYPE},
-        "labels": list(TICKET_LABELS),
+        "labels": list(TICKET_LABELS)
+        + (
+            [build_violation_label(release, component, rule) for component in konflux_components]
+            if release
+            else []
+        ),
         "priority": {"name": CREATE_PRIORITY},
         "description": description,
     }
@@ -266,6 +297,7 @@ def build_prefill_url(
     jira_components: list[str],
     target_version: str | None,
     description: str,
+    release: str = "",
 ) -> str:
     """Pure builder for the Jira CreateIssueDetails pre-filled URL.
 
@@ -275,9 +307,16 @@ def build_prefill_url(
     """
     params = {
         "pid": project_id,
-        "issuetype": CREATE_ISSUE_TYPE,
+        "issuetype": CREATE_ISSUE_TYPE_ID,
         "summary": build_ticket_summary(rule, konflux_components),
-        "labels": ",".join(TICKET_LABELS),
+        "labels": ",".join(
+            list(TICKET_LABELS)
+            + (
+                [build_violation_label(release, component, rule) for component in konflux_components]
+                if release
+                else []
+            )
+        ),
         "priority": CREATE_PRIORITY,
         "description": description,
     }
@@ -329,17 +368,43 @@ def plan_self_heal_labels(tickets: list[dict]) -> list[dict]:
 def discover_conforma_tickets(
     projects: list[str] | None = None,
     labels: list[str] | None = None,
+    violations: list[dict] | None = None,
+    release: str = "",
 ) -> list[dict]:
-    """Label-first discovery across all statuses. Propagates jira_ops.JiraSearchError."""
-    jql = conforma_constants.build_label_discovery_jql(
-        projects=projects or conforma_constants.CONFORMA_DISCOVERY_PROJECTS,
+    """Discover Conforma tickets across all statuses.
+
+    The generic label query remains the baseline.  When violation context is
+    available, add exact unique-label and rule/component text candidates so a
+    manually created ticket can be found before it has been self-healed.
+    """
+    project_names = projects or conforma_constants.CONFORMA_DISCOVERY_PROJECTS
+    base_jql = conforma_constants.build_label_discovery_jql(
+        projects=project_names,
         labels=labels or conforma_constants.CONFORMA_DISCOVERY_LABELS,
     )
+    related_clauses: list[str] = []
+    for violation in violations or []:
+        rule = violation.get("rule") or ""
+        rule_text = rule.split(":", 1)[0]
+        components = violation.get("uncovered_components") or violation.get("all_components") or []
+        for component in components:
+            unique_label = build_violation_label(release, component, rule) if release else ""
+            label_clause = f'labels = "{unique_label}" OR ' if unique_label else ""
+            stem = strip_version_suffix(component)
+            if rule_text and stem:
+                related_clauses.append(
+                    f'({label_clause}(summary ~ "{rule_text}" AND (summary ~ "{stem}" OR description ~ "{stem}")))'
+                )
+    if related_clauses:
+        project_clause = f"project in ({', '.join(project_names)})"
+        jql = f"{project_clause} AND ({base_jql.split(' AND ', 1)[1]} OR {' OR '.join(related_clauses)})"
+    else:
+        jql = base_jql
     result = jira_ops.search_issues(
         jql,
         max_results=500,
         # Every field here must be a field search_issues() extracts (see its
-        # docstring): description is NOT one, and audit/_ticket_ref need
+        # docstring): audit/_ticket_ref need
         # assignee/fix_versions/target_versions, so request those instead.
         fields=[
             "key",
@@ -352,9 +417,44 @@ def discover_conforma_tickets(
             "assignee",
             "fixVersions",
             "target_versions",
+            "description",
         ],
     )
-    return result.get("issues", [])
+    tickets = result.get("issues", [])
+    if not violations:
+        return tickets
+
+    # Merge Request descriptions and commit messages are a second, independent
+    # discovery source.  GitLab failures intentionally propagate from this
+    # call; returning Jira-only results would make the report incomplete.
+    mr_references = conforma_mr_ops.discover_jira_references()
+    references_by_key: dict[str, list[dict]] = {}
+    for reference in mr_references:
+        references_by_key.setdefault(reference["key"], []).append(reference)
+    missing_keys = [key for key in references_by_key if not any(t.get("key") == key for t in tickets)]
+    if missing_keys:
+        referenced = jira_ops.search_issues(
+            f"key in ({', '.join(missing_keys)})",
+            max_results=len(missing_keys),
+            fields=[
+                "key",
+                "summary",
+                "status",
+                "issuetype",
+                "labels",
+                "components",
+                "priority",
+                "assignee",
+                "fixVersions",
+                "target_versions",
+                "description",
+            ],
+        )
+        tickets.extend(referenced.get("issues", []))
+    for ticket in tickets:
+        if ticket.get("key") in references_by_key:
+            ticket["merge_request_references"] = references_by_key[ticket["key"]]
+    return tickets
 
 
 def self_heal_labels(tickets: list[dict]) -> list[str]:
@@ -385,16 +485,18 @@ def create_violation_ticket(
     jira_components: list[str],
     target_version: str | None,
     description: str,
+    release: str = "",
 ) -> dict:
     """Create the conforma-violation ticket (TargetVersion, Blocker). Set-then-verify."""
-    fields = build_create_fields(rule, konflux_components, jira_components, target_version, description)
+    fields = build_create_fields(rule, konflux_components, jira_components, target_version, description, release)
+    labels = fields["labels"]
     result = jira_ops.create_issue(
         project=CREATE_PROJECT,
         summary=fields["summary"],
         description=fields["description"],
         issue_type=CREATE_ISSUE_TYPE,
         components=jira_components or None,
-        labels=list(TICKET_LABELS),
+        labels=labels,
         priority=CREATE_PRIORITY,
         extra_fields={TARGET_VERSION_FIELD: fields[TARGET_VERSION_FIELD]} if target_version else None,
     )
@@ -406,7 +508,7 @@ def create_violation_ticket(
     verify: dict = {
         "key": key,
         "url": result["url"],
-        "labels_ok": set(TICKET_LABELS).issubset(set(verified.get("labels") or [])),
+        "labels_ok": set(labels).issubset(set(verified.get("labels") or [])),
         "priority_ok": (verified.get("priority") or "") == CREATE_PRIORITY,
         "components": verified.get("components") or [],
     }
@@ -549,7 +651,9 @@ def _load_catalog() -> list[dict]:
         return []
 
 
-def prepare_violation_groups(violation: dict, tickets: list[dict], catalog: list[dict]) -> dict:
+def prepare_violation_groups(
+    violation: dict, tickets: list[dict], catalog: list[dict], release: str = ""
+) -> dict:
     """Pure: match a violation to tickets and split its uncovered components into Jira groups.
 
     Only uncovered components are grouped (covered components already have exceptions), so
@@ -572,6 +676,10 @@ def prepare_violation_groups(violation: dict, tickets: list[dict], catalog: list
                 "konflux_components": group["konflux_components"],
                 "existing": existing_ref,
                 "prior_issues": prior_refs,
+                "unique_labels": [
+                    build_violation_label(release, component, rule)
+                    for component in group["konflux_components"]
+                ],
             }
         )
     return {
@@ -587,6 +695,7 @@ def _ticket_ref(ticket: dict) -> dict:
         "key": ticket.get("key"),
         "status": ticket.get("status"),
         "url": ticket.get("url"),
+        "components": list(ticket.get("components") or []),
         "release_relevance": conforma_jira_ops.classify_ticket_version_relevance(
             ticket, ticket.get("_analyzed_release", "")
         )
@@ -608,7 +717,7 @@ def sync(dry_run: bool = False) -> dict:
     catalog = _load_catalog()
 
     # discovery
-    tickets = discover_conforma_tickets()
+    tickets = discover_conforma_tickets(violations=violations, release=release)
     for t in tickets:
         t["_analyzed_release"] = release
     if dry_run:
@@ -625,7 +734,7 @@ def sync(dry_run: bool = False) -> dict:
     link_plans: list[tuple[str, str]] = []
 
     for violation in violations:
-        prepared = prepare_violation_groups(violation, tickets, catalog)
+        prepared = prepare_violation_groups(violation, tickets, catalog, release)
         # skip fully covered violations (no uncovered components)
         if not prepared["uncovered_components"]:
             continue
@@ -637,10 +746,15 @@ def sync(dry_run: bool = False) -> dict:
         # blocks creation and only triggers extension for genuinely-missing components.
         existing = groups[0].get("existing")
         prior_issues = groups[0].get("prior_issues") or []
+        for group in groups:
+            if group.get("unique_labels"):
+                group["related_search_url"] = build_related_search_url(group["unique_labels"][0])
         mapped_components = _map_jira_components(groups)
         if existing and not dry_run:
             existing_key = existing.get("key")
-            current_components = _existing_component_names(existing_key)
+            # Discovery already requests Jira components.  Reuse them and only
+            # fetch the issue when an older discovery result omitted the field.
+            current_components = existing.get("components") or _existing_component_names(existing_key)
             missing = [jc for jc in mapped_components if jc not in current_components]
             if missing:
                 ext = extend_partial_match(existing_key, missing)
@@ -676,7 +790,13 @@ def sync(dry_run: bool = False) -> dict:
                     [jc] if jc else [],
                     target_version,
                     description,
+                    release,
                 )
+                group["unique_labels"] = [
+                    build_violation_label(release, component, prepared["rule"])
+                    for component in group["konflux_components"]
+                ]
+                group["related_search_url"] = build_related_search_url(group["unique_labels"][0])
                 if dry_run:
                     group["created"] = {
                         "dry_run": True,
@@ -692,6 +812,7 @@ def sync(dry_run: bool = False) -> dict:
                         [jc] if jc else [],
                         target_version,
                         description,
+                        release,
                     )
                     if result.get("created"):
                         new_key = result["created"]["key"]
@@ -864,10 +985,15 @@ def cmd_prefill_url(rule: str, components_csv: str, project_id: str) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Conforma Jira ticket sync (dual-mode)")
+    parser = argparse.ArgumentParser(
+        description="Create and update Jira tickets for Conforma violations (dual-mode)"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sync_p = sub.add_parser("sync", help="Full workflow sync")
+    sync_p = sub.add_parser(
+        "create-jiras-for-conforma-violations",
+        help="Create or update Jira tickets for the analyzed Conforma violations",
+    )
     sync_p.add_argument("--dry-run", action="store_true", help="No Jira writes (discovery read-only, create planned)")
 
     sub.add_parser("find", help="Discovery only (read-only, no label self-heal)")
@@ -882,7 +1008,7 @@ def main() -> int:
 
     args = parser.parse_args()
     try:
-        if args.command == "sync":
+        if args.command == "create-jiras-for-conforma-violations":
             out = sync(dry_run=args.dry_run)
             print(json.dumps(out, indent=2))
             print(compact_summary(out))

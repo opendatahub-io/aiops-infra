@@ -191,7 +191,9 @@ def build_pending_summary(
     if not pending_rows:
         return ""
 
-    tag_line = f"[~accountid:{assignee}] — please review the open Pull Requests / Merge Requests.\n\n" if assignee else ""
+    tag_line = (
+        f"[~accountid:{assignee}] — please review the open Pull Requests / Merge Requests.\n\n" if assignee else ""
+    )
 
     lines = [
         "||Step||PR / MR||Next action on merge||",

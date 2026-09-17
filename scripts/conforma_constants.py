@@ -29,9 +29,7 @@ NOT_YET_AVAILABLE_TOTAL_VIOLATIONS_NOTE = "set after the violations are analyzed
 
 CONFORMA_REPORTER_REPO = "red-hat-data-services/conforma-reporter"
 CONFORMA_REPORTER_URL = f"https://github.com/{CONFORMA_REPORTER_REPO}"
-CONFORMA_REPORTER_ACTIONS_URL = (
-    f"{CONFORMA_REPORTER_URL}/actions/workflows/conforma-reporter.yaml"
-)
+CONFORMA_REPORTER_ACTIONS_URL = f"{CONFORMA_REPORTER_URL}/actions/workflows/conforma-reporter.yaml"
 
 RAW_DOWNLOAD_BASE = "https://raw.githubusercontent.com"
 GITHUB_API = "https://api.github.com"

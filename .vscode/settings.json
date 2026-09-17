@@ -1,0 +1,7 @@
+{
+  // Required so Pylance can resolve imports from the repository's shared scripts.
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/scripts",
+    "${workspaceFolder}/skills/conforma-analyze/scripts"
+  ]
+}

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -170,12 +169,18 @@ class TestContextIntegration:
         run_dir, work_dir = self._setup_run_with_violations(tmp_path)
         viol_path = run_dir / "violations.yaml"
         monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
-        monkeypatch.setattr("sys.argv", [
-            "check_readiness.py",
-            "--release", "rhoai-3.4",
-            "--violations-input", str(viol_path),
-            "--environment", "stage",
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "check_readiness.py",
+                "--release",
+                "rhoai-3.4",
+                "--violations-input",
+                str(viol_path),
+                "--environment",
+                "stage",
+            ],
+        )
 
         rc = check_readiness.main()
         assert rc in (0, 1)

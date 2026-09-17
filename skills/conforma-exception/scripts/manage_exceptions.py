@@ -44,7 +44,6 @@ import yaml
 from create_gitlab_mr import (
     DEFAULT_BRANCH,
     WORK_DIR,
-    _find_existing_exceptions,
     _get_authenticated_repo_url,
     _run_git,
 )
@@ -70,16 +69,6 @@ from conforma_yaml_ops import quote_strings_recursively as _quote_strings_recurs
 # ---------------------------------------------------------------------------
 # Defensive YAML serialization (self-contained copy, no cross-skill imports)
 # ---------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
 
 
 # ---------------------------------------------------------------------------

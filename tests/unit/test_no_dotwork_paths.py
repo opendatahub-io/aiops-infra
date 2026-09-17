@@ -33,9 +33,7 @@ class TestNoDotworkPaths:
                     preview = line_content[:100] + "..." if len(line_content) > 100 else line_content
                     lines.append(f"  {rel_path}:{line_no}  {preview}")
             lines.append("")
-            lines.append(
-                "Use ~/.conforma/ instead of .work/ for all conforma runtime paths."
-            )
+            lines.append("Use ~/.conforma/ instead of .work/ for all conforma runtime paths.")
             pytest.fail("\n".join(lines))
 
     @pytest.mark.parametrize(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -207,9 +206,7 @@ class TestStageWorkflowOverride:
         assert "prodsec_form_submission" in step_ids
 
     def test_stage_self_service_rule_has_no_remediation(self):
-        result = validate_inputs.validate_all(
-            self._make_args(environment="stage", rule="schedule.weekday_restriction")
-        )
+        result = validate_inputs.validate_all(self._make_args(environment="stage", rule="schedule.weekday_restriction"))
         step_ids = [s.get("step") for s in result["workflow_steps"]]
         assert "rhoaieng_remediation_jira" not in step_ids
         assert "exception_merge_request" in step_ids

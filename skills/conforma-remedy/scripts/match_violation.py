@@ -74,28 +74,24 @@ class ViolationMatcher:
         catalog_path: str | None = None,
         fallback_path: str | None = None,
     ) -> None:
-        violations, self._false_alerts = load_catalog(
-            Path(catalog_path) if catalog_path else _DEFAULT_CATALOG
-        )
-        fallback = load_fallback(
-            Path(fallback_path) if fallback_path else _DEFAULT_FALLBACK
-        )
+        violations, self._false_alerts = load_catalog(Path(catalog_path) if catalog_path else _DEFAULT_CATALOG)
+        fallback = load_fallback(Path(fallback_path) if fallback_path else _DEFAULT_FALLBACK)
 
-        self._match_chain = chain([
-            make_rule_code_matcher(violations),
-            make_alias_matcher(violations),
-            make_symptom_matcher(violations),
-            make_fallback_matcher(fallback),
-        ])
+        self._match_chain = chain(
+            [
+                make_rule_code_matcher(violations),
+                make_alias_matcher(violations),
+                make_symptom_matcher(violations),
+                make_fallback_matcher(fallback),
+            ]
+        )
 
     def match(self, query: str | None) -> MatchResult | None:
         if not query or not query.strip():
             return None
         return self._match_chain(sanitize_query(query))
 
-    def check_false_alerts(
-        self, rule_code: str, component: str | None = None
-    ) -> list[dict]:
+    def check_false_alerts(self, rule_code: str, component: str | None = None) -> list[dict]:
         return find_false_alerts(self._false_alerts, rule_code, component)
 
 

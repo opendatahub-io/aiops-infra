@@ -72,13 +72,8 @@ def extract_environment(raw: str) -> tuple[str, str]:
     return cleaned.strip(), env
 
 
-def parse_query(raw: str) -> str | None:
-    """Normalize user input into a candidate version directory name.
-
-    Returns the candidate (e.g. "v3.5-ea.1") or None if parsing fails.
-    Environment keywords (stage/prod) are stripped before parsing.
-    """
-    text, _ = extract_environment(raw)
+def _normalize_version_candidate(text: str) -> str | None:
+    """Normalize one release-shaped string into a version directory name."""
     text = text.strip().lower()
     if not text:
         return None
@@ -111,6 +106,40 @@ def parse_query(raw: str) -> str | None:
         return None
 
     return f"v{text}"
+
+
+def parse_query(raw: str) -> str | None:
+    """Extract and normalize a release from a user query.
+
+    Accepts both a release-shaped query and prose containing one, such as
+    ``conforma report for rhoai-3.6-ea2``. Returns the candidate version
+    directory name (for example, ``v3.5-ea.1``) or ``None`` if no release is
+    present.
+    """
+    text, _ = extract_environment(raw)
+    text = text.strip().lower()
+    if not text:
+        return None
+
+    # Fast path for the documented release-only forms.
+    normalized = _normalize_version_candidate(text)
+    if normalized:
+        return normalized
+
+    # The workflow stores the original user query in context.yaml. Extract a
+    # release-shaped token here so callers do not need to interpret prose.
+    release_pattern = re.compile(
+        r"(?<![a-z0-9])"
+        r"(?:rhoai[\s.\-]*)?v?\d+(?:[.\-]\d+)"
+        r"(?:[\s.\-]*ea[\s.\-]*\d+)?"
+        r"(?![a-z0-9])",
+        re.IGNORECASE,
+    )
+    for match in release_pattern.finditer(text):
+        normalized = _normalize_version_candidate(match.group(0))
+        if normalized:
+            return normalized
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -290,8 +319,7 @@ def _format_resolved(
         )
     elif not code_freeze_date and upcoming_release_date:
         lines.append(
-            f"| **Code freeze ({version_label})** | Already passed "
-            f"(not found in {release_dates.RELEASE_DATA_LINK}) |"
+            f"| **Code freeze ({version_label})** | Already passed (not found in {release_dates.RELEASE_DATA_LINK}) |"
         )
     if upcoming_release_date:
         upcoming_source_text = f" based on {upcoming_release_source}," if upcoming_release_source else ""
@@ -505,7 +533,14 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
             "available_versions": available,
             "links": links,
             "confirmation_display": display,
-            "question_text": f"Are the above details correct for {release_branch}? If not, select 'No' to fix them.",
+            # Keep the confirmation prompt self-contained. Some agent clients
+            # do not display the preceding intermediate assistant message that
+            # rendered confirmation_display, so the user must receive the
+            # resolved context together with the choices.
+            "question_text": (
+                f"{display}\n\n"
+                f"Are the above details correct for {release_branch}? If not, select 'No' to fix them."
+            ),
             "question_options": ["Yes, continue", "No, something needs to change"],
         }
 

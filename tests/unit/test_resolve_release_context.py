@@ -118,6 +118,12 @@ class TestParseQuery:
     def test_rhoai_ea_no_separator_before_number(self):
         assert mod.parse_query("rhoai-3.5-ea2") == "v3.5-ea.2"
 
+    def test_extracts_release_from_full_sentence(self):
+        assert mod.parse_query("conforma report for rhoai-3.6-ea2") == "v3.6-ea.2"
+
+    def test_extracts_shorthand_release_from_full_sentence(self):
+        assert mod.parse_query("show violations for 3.6ea2 in prod") == "v3.6-ea.2"
+
     def test_ea_no_separators_at_all(self):
         assert mod.parse_query("3.5ea1") == "v3.5-ea.1"
 
@@ -350,6 +356,14 @@ class TestQuestionText:
         assert "question_text" in result
         assert "correct" in result["question_text"].lower()
         assert "rhoai-3.4" in result["question_text"]
+
+    def test_question_contains_context_when_intermediate_display_is_hidden(self, mock_env):
+        with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):
+            result = mod.resolve("3.4")
+
+        assert result["confirmation_display"] in result["question_text"]
+        assert "| **Environment** | prod |" in result["question_text"]
+        assert "| **Konflux Application** |" in result["question_text"]
 
     def test_question_options_offer_continue_or_change(self, mock_env):
         with patch.object(mod, "list_version_dirs", return_value=["v3.4"]):

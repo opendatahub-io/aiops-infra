@@ -300,7 +300,7 @@ def detect_corrections_llm(messages: list[dict[str, Any]]) -> list[ProposedRule]
     for i in range(0, len(user_texts), batch_size):
         batch = user_texts[i : i + batch_size]
         batch_messages = messages[i : i + batch_size]
-        numbered = "\n".join(f"{j+1}. {t}" for j, t in enumerate(batch))
+        numbered = "\n".join(f"{j + 1}. {t}" for j, t in enumerate(batch))
         prompt = LLM_EXTRACTION_PROMPT.format(messages=numbered)
 
         try:
@@ -372,11 +372,13 @@ def _call_llm(prompt: str, api_key: str, provider: str) -> str:
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
         }
-        body = json.dumps({
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": 4096,
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode()
+        body = json.dumps(
+            {
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 4096,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+        ).encode()
     elif provider == "openai" or provider == "cursor":
         url = "https://api.openai.com/v1/chat/completions"
         if provider == "cursor":
@@ -385,11 +387,13 @@ def _call_llm(prompt: str, api_key: str, provider: str) -> str:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
         }
-        body = json.dumps({
-            "model": "gpt-4o-mini",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 4096,
-        }).encode()
+        body = json.dumps(
+            {
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 4096,
+            }
+        ).encode()
     else:
         return ""
 
@@ -490,12 +494,47 @@ def _process_hunk(
             )
 
 
-CODE_TOKENS = frozenset({
-    "True", "False", "None", "self", "cls", "return", "import", "from",
-    "def", "class", "if", "else", "elif", "for", "while", "try", "except",
-    "with", "as", "in", "not", "and", "or", "is", "yield", "pass", "break",
-    "continue", "raise", "assert", "lambda", "0", "1", "2", "3", "4", "5",
-})
+CODE_TOKENS = frozenset(
+    {
+        "True",
+        "False",
+        "None",
+        "self",
+        "cls",
+        "return",
+        "import",
+        "from",
+        "def",
+        "class",
+        "if",
+        "else",
+        "elif",
+        "for",
+        "while",
+        "try",
+        "except",
+        "with",
+        "as",
+        "in",
+        "not",
+        "and",
+        "or",
+        "is",
+        "yield",
+        "pass",
+        "break",
+        "continue",
+        "raise",
+        "assert",
+        "lambda",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+    }
+)
 
 
 def _find_terminology_swaps(removed: str, added: str) -> list[tuple[str, str]]:
@@ -669,13 +708,8 @@ def save_proposals(proposals: list[ProposedRule], output_path: Path) -> None:
         found = False
         for ex in existing:
             has_prefer = new.get("prefer") and ex.get("prefer")
-            prefer_match = has_prefer and (
-                new["prefer"] == ex["prefer"] and new.get("avoid") == ex.get("avoid")
-            )
-            rule_match = (
-                new.get("rule", "") and ex.get("rule", "")
-                and new["rule"][:50] == ex["rule"][:50]
-            )
+            prefer_match = has_prefer and (new["prefer"] == ex["prefer"] and new.get("avoid") == ex.get("avoid"))
+            rule_match = new.get("rule", "") and ex.get("rule", "") and new["rule"][:50] == ex["rule"][:50]
             if prefer_match or rule_match:
                 ex["evidence_count"] = ex.get("evidence_count", 1) + new.get("evidence_count", 1)
                 ex.setdefault("sources", []).extend(new.get("sources", []))
@@ -685,15 +719,11 @@ def save_proposals(proposals: list[ProposedRule], output_path: Path) -> None:
             existing.append(new)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        yaml.dump({"proposed_rules": existing}, default_flow_style=False, sort_keys=False)
-    )
+    output_path.write_text(yaml.dump({"proposed_rules": existing}, default_flow_style=False, sort_keys=False))
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Extract user coding preferences from AI session transcripts."
-    )
+    parser = argparse.ArgumentParser(description="Extract user coding preferences from AI session transcripts.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--all-history",

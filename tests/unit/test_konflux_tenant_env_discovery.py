@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,8 +23,9 @@ def _tree_entry(name: str, entry_type: str = "tree") -> dict:
     return {"name": name, "type": entry_type, "path": name}
 
 
-def _setup_single_cluster_tenant(mock_project, tenant="rhoai-tenant", cluster_id="stone-stg-p01",
-                                  domain="stone-stg-p01.hjvn.p1"):
+def _setup_single_cluster_tenant(
+    mock_project, tenant="rhoai-tenant", cluster_id="stone-stg-p01", domain="stone-stg-p01.hjvn.p1"
+):
     """Set up mock responses for a single cluster with one tenant."""
 
     def tree_side_effect(path="", per_page=100, page=1, ref="main"):
@@ -157,7 +156,9 @@ class TestDiscoverTenantNotFound:
 class TestDiscoverGitLabError:
     def test_exit_9_on_api_error(self, cache_dir):
         with patch.object(
-            konflux_tenant_env_discovery, "_get_gitlab_project", side_effect=konflux_tenant_env_discovery.DiscoveryError("API fail", 9)
+            konflux_tenant_env_discovery,
+            "_get_gitlab_project",
+            side_effect=konflux_tenant_env_discovery.DiscoveryError("API fail", 9),
         ):
             with pytest.raises(konflux_tenant_env_discovery.DiscoveryError) as exc_info:
                 konflux_tenant_env_discovery.discover("rhoai-tenant")

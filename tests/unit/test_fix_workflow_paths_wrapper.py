@@ -11,7 +11,7 @@ class TestRewritePatternA:
     def test_inline_r_prefix(self):
         content = (
             "```bash\n"
-            '_R="$(grep \'^aiops_infra_root:\' ~/.conforma/.conforma-active/context.yaml | cut -d\' \' -f2-)" '
+            "_R=\"$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)\" "
             '&& python3 "$_R/scripts/foo.py" --arg1 val\n'
             "```\n"
         )
@@ -23,7 +23,7 @@ class TestRewritePatternA:
     def test_skills_path(self):
         content = (
             "```bash\n"
-            '_R="$(grep \'^aiops_infra_root:\' ~/.conforma/.conforma-active/context.yaml | cut -d\' \' -f2-)" '
+            "_R=\"$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)\" "
             '&& python3 "$_R/skills/conforma-analyze/scripts/bar.py"\n'
             "```\n"
         )
@@ -34,7 +34,7 @@ class TestRewritePatternA:
     def test_preserves_indentation(self):
         content = (
             "```bash\n"
-            '   _R="$(grep \'^aiops_infra_root:\' ~/.conforma/.conforma-active/context.yaml | cut -d\' \' -f2-)" '
+            "   _R=\"$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)\" "
             '&& python3 "$_R/scripts/foo.py"\n'
             "```\n"
         )
@@ -46,7 +46,7 @@ class TestRewritePatternB:
     def test_step0_bootstrap(self):
         content = (
             "```bash\n"
-            '_R="${AIOPS_INFRA_ROOT:-$(python3 -c \'from _repo_root import REPO_ROOT; '
+            "_R=\"${AIOPS_INFRA_ROOT:-$(python3 -c 'from _repo_root import REPO_ROOT; "
             "print(REPO_ROOT)' 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null)}\"\n"
             'python3 "$_R/scripts/init_conforma_run.py" "<query>"\n'
             "```\n"
@@ -60,7 +60,7 @@ class TestRewritePatternB:
     def test_step0_with_set_args(self):
         content = (
             "```bash\n"
-            '_R="${AIOPS_INFRA_ROOT:-$(python3 -c \'from _repo_root import REPO_ROOT; '
+            "_R=\"${AIOPS_INFRA_ROOT:-$(python3 -c 'from _repo_root import REPO_ROOT; "
             "print(REPO_ROOT)' 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null)}\"\n"
             'python3 "$_R/scripts/init_conforma_run.py" "<text>" --set violation_code "<code>"\n'
             "```\n"
@@ -102,40 +102,28 @@ class TestRewritePatternC:
 
 class TestRewriteBarePaths:
     def test_bare_python3_scripts(self):
-        content = (
-            "```bash\n"
-            "python3 scripts/foo.py --arg\n"
-            "```\n"
-        )
+        content = "```bash\npython3 scripts/foo.py --arg\n```\n"
         result, changes = fwp.rewrite_to_wrapper_in_file(content)
         assert "~/.conforma/bin/conforma_run.sh scripts/foo.py --arg" in result
         assert len(changes) == 1
         assert changes[0][0] == "bare"
 
     def test_bare_python3_skills(self):
-        content = (
-            "```bash\n"
-            "python3 skills/conforma-report-fetch/scripts/fetch.py --output /tmp/out.json\n"
-            "```\n"
-        )
+        content = "```bash\npython3 skills/conforma-report-fetch/scripts/fetch.py --output /tmp/out.json\n```\n"
         result, changes = fwp.rewrite_to_wrapper_in_file(content)
         assert "~/.conforma/bin/conforma_run.sh skills/conforma-report-fetch/scripts/fetch.py" in result
 
 
 class TestSkips:
     def test_already_migrated_skipped(self):
-        content = (
-            "```bash\n"
-            "~/.conforma/bin/conforma_run.sh scripts/foo.py\n"
-            "```\n"
-        )
+        content = "```bash\n~/.conforma/bin/conforma_run.sh scripts/foo.py\n```\n"
         result, changes = fwp.rewrite_to_wrapper_in_file(content)
         assert result == content
         assert len(changes) == 0
 
     def test_outside_code_block_skipped(self):
         content = (
-            '_R="$(grep \'^aiops_infra_root:\' ~/.conforma/.conforma-active/context.yaml | cut -d\' \' -f2-)" '
+            "_R=\"$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)\" "
             '&& python3 "$_R/scripts/foo.py"\n'
         )
         result, changes = fwp.rewrite_to_wrapper_in_file(content)
@@ -143,11 +131,7 @@ class TestSkips:
         assert len(changes) == 0
 
     def test_absolute_path_skipped(self):
-        content = (
-            "```bash\n"
-            "python3 ~/scripts/foo.py --arg\n"
-            "```\n"
-        )
+        content = "```bash\npython3 ~/scripts/foo.py --arg\n```\n"
         result, changes = fwp.rewrite_to_wrapper_in_file(content)
         assert result == content
         assert len(changes) == 0
@@ -158,7 +142,7 @@ class TestValidateWrapper:
         md = tmp_path / "test.md"
         md.write_text(
             "```bash\n"
-            '_R="$(grep \'^aiops_infra_root:\' ~/.conforma/.conforma-active/context.yaml | cut -d\' \' -f2-)" '
+            "_R=\"$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)\" "
             '&& python3 "$_R/scripts/foo.py"\n'
             "```\n"
         )
@@ -175,11 +159,7 @@ class TestValidateWrapper:
 
     def test_passes_clean_file(self, tmp_path):
         md = tmp_path / "test.md"
-        md.write_text(
-            "```bash\n"
-            "~/.conforma/bin/conforma_run.sh scripts/foo.py\n"
-            "```\n"
-        )
+        md.write_text("```bash\n~/.conforma/bin/conforma_run.sh scripts/foo.py\n```\n")
         content = md.read_text()
         in_code = False
         for line in content.split("\n"):
@@ -196,14 +176,14 @@ class TestMultiplePatterns:
         content = (
             "Step 0:\n"
             "```bash\n"
-            '_R="${AIOPS_INFRA_ROOT:-$(python3 -c \'from _repo_root import REPO_ROOT; '
+            "_R=\"${AIOPS_INFRA_ROOT:-$(python3 -c 'from _repo_root import REPO_ROOT; "
             "print(REPO_ROOT)' 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null)}\"\n"
             'python3 "$_R/scripts/init_conforma_run.py" "rhoai-3.5"\n'
             "```\n"
             "\n"
             "Step 1:\n"
             "```bash\n"
-            '_R="$(grep \'^aiops_infra_root:\' ~/.conforma/.conforma-active/context.yaml | cut -d\' \' -f2-)" '
+            "_R=\"$(grep '^aiops_infra_root:' ~/.conforma/.conforma-active/context.yaml | cut -d' ' -f2-)\" "
             '&& python3 "$_R/scripts/resolve_release_context.py"\n'
             "```\n"
         )

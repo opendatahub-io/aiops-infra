@@ -189,13 +189,19 @@ class TestContextIntegration:
         """Context provides environment and rhoai_version when not on CLI."""
         run_dir, work_dir = self._setup_run(tmp_path)
         monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
-        monkeypatch.setattr("sys.argv", [
-            "create_exception.py",
-            "--rule", "hermetic_task.hermetic",
-            "--components", "odh-mlflow-v3-5-ea-2",
-            "--effective-until-date", "2027-06-01",
-            "--dry-run",
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "create_exception.py",
+                "--rule",
+                "hermetic_task.hermetic",
+                "--components",
+                "odh-mlflow-v3-5-ea-2",
+                "--effective-until-date",
+                "2027-06-01",
+                "--dry-run",
+            ],
+        )
 
         mock_validation = {
             "valid": True,
@@ -222,14 +228,21 @@ class TestContextIntegration:
     def test_no_context_requires_environment(self, tmp_path, monkeypatch):
         """Without context and without --environment, main() exits with error."""
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty"))
-        monkeypatch.setattr("sys.argv", [
-            "create_exception.py",
-            "--rule", "hermetic_task.hermetic",
-            "--components", "odh-mlflow-v3-5",
-            "--rhoai-version", "rhoai-3.5",
-            "--effective-until-date", "2027-06-01",
-            "--dry-run",
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "create_exception.py",
+                "--rule",
+                "hermetic_task.hermetic",
+                "--components",
+                "odh-mlflow-v3-5",
+                "--rhoai-version",
+                "rhoai-3.5",
+                "--effective-until-date",
+                "2027-06-01",
+                "--dry-run",
+            ],
+        )
 
         with pytest.raises(SystemExit):
             ce.main()

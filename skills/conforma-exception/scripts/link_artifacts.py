@@ -389,7 +389,6 @@ def ensure_link(from_key: str, to_key: str, link_type: str = "Related", dry_run:
     }
 
 
-
 def delete_link(ticket_key: str, target_key: str, link_type: str | None = None, dry_run: bool = False) -> dict:
     """Delete a link between two Jira tickets by finding its ID via REST API.
 
@@ -467,9 +466,7 @@ def link_all(
     # Backward compat: if rhoaieng_url provided but no violation_jira_url, use it
     effective_violation_url = violation_jira_url or rhoaieng_url
 
-    all_ticket_urls = [
-        u for u in (effective_violation_url, remediation_jira_url, approval_jira_url, psx_url) if u
-    ]
+    all_ticket_urls = [u for u in (effective_violation_url, remediation_jira_url, approval_jira_url, psx_url) if u]
 
     for url in all_ticket_urls:
         ticket_key = _extract_key(url)

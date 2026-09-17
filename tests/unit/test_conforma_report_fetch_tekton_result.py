@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -94,30 +93,35 @@ class TestPipelineRunRegexFiltering:
 
     def test_ga_prefix_matches_ga_run(self):
         import re
+
         prefix = "conforma-registry-rhoai-prod-v3-5"
         regex = re.compile(f"^{re.escape(prefix)}-[a-z0-9]+$")
         assert regex.match("conforma-registry-rhoai-prod-v3-5-abcde")
 
     def test_ga_prefix_does_not_match_ea_run(self):
         import re
+
         prefix = "conforma-registry-rhoai-prod-v3-5"
         regex = re.compile(f"^{re.escape(prefix)}-[a-z0-9]+$")
         assert not regex.match("conforma-registry-rhoai-prod-v3-5-ea-1-fghij")
 
     def test_ea_prefix_matches_ea_run(self):
         import re
+
         prefix = "conforma-registry-rhoai-prod-v3-5-ea-1"
         regex = re.compile(f"^{re.escape(prefix)}-[a-z0-9]+$")
         assert regex.match("conforma-registry-rhoai-prod-v3-5-ea-1-xyz12")
 
     def test_does_not_match_future_suffix(self):
         import re
+
         prefix = "conforma-registry-rhoai-prod-v3-5"
         regex = re.compile(f"^{re.escape(prefix)}-[a-z0-9]+$")
         assert not regex.match("conforma-registry-rhoai-prod-v3-5-future-abc12")
 
     def test_does_not_match_single_component(self):
         import re
+
         prefix = "conforma-registry-rhoai-prod-v3-5"
         regex = re.compile(f"^{re.escape(prefix)}-[a-z0-9]+$")
         assert not regex.match("conforma-registry-rhoai-prod-v3-5-single-component-abc12")
@@ -137,7 +141,9 @@ class TestDiscoverPipelinerun:
         with patch.object(ftr, "_oc_list_pipelineruns", return_value=runs):
             result = ftr.discover_pipelinerun(
                 "conforma-registry-rhoai-prod-v3-5",
-                "rhoai-tenant", "https://api.example.com", "token",
+                "rhoai-tenant",
+                "https://api.example.com",
+                "token",
             )
         assert result == "conforma-registry-rhoai-prod-v3-5-def34"
 
@@ -149,19 +155,22 @@ class TestDiscoverPipelinerun:
         with patch.object(ftr, "_oc_list_pipelineruns", return_value=runs):
             result = ftr.discover_pipelinerun(
                 "conforma-registry-rhoai-prod-v3-5",
-                "rhoai-tenant", "https://api.example.com", "token",
+                "rhoai-tenant",
+                "https://api.example.com",
+                "token",
             )
         assert result == "conforma-registry-rhoai-prod-v3-5-future-def34"
 
     def test_archive_fallback(self):
         with (
             patch.object(ftr, "_oc_list_pipelineruns", return_value=[]),
-            patch.object(ftr, "_search_tekton_api_for_name",
-                         return_value="conforma-registry-rhoai-prod-v3-5-xyz99"),
+            patch.object(ftr, "_search_tekton_api_for_name", return_value="conforma-registry-rhoai-prod-v3-5-xyz99"),
         ):
             result = ftr.discover_pipelinerun(
                 "conforma-registry-rhoai-prod-v3-5",
-                "rhoai-tenant", "https://api.example.com", "token",
+                "rhoai-tenant",
+                "https://api.example.com",
+                "token",
             )
         assert result == "conforma-registry-rhoai-prod-v3-5-xyz99"
 
@@ -172,7 +181,9 @@ class TestDiscoverPipelinerun:
         ):
             result = ftr.discover_pipelinerun(
                 "conforma-registry-rhoai-prod-v3-5",
-                "rhoai-tenant", "https://api.example.com", "token",
+                "rhoai-tenant",
+                "https://api.example.com",
+                "token",
             )
         assert result is None
 
@@ -184,7 +195,9 @@ class TestDiscoverPipelinerun:
         with patch.object(ftr, "_oc_list_pipelineruns", return_value=runs):
             result = ftr.discover_pipelinerun(
                 "conforma-registry-rhoai-prod-v3-5-ea-1",
-                "rhoai-tenant", "https://api.example.com", "token",
+                "rhoai-tenant",
+                "https://api.example.com",
+                "token",
             )
         assert result == "conforma-registry-rhoai-prod-v3-5-ea-1-def34"
 
@@ -197,7 +210,9 @@ class TestDiscoverPipelinerun:
         with patch.object(ftr, "_oc_list_pipelineruns", return_value=runs):
             result = ftr.discover_pipelinerun(
                 "conforma-registry-rhoai-prod-v3-5",
-                "rhoai-tenant", "https://api.example.com", "token",
+                "rhoai-tenant",
+                "https://api.example.com",
+                "token",
             )
         assert result == "conforma-registry-rhoai-prod-v3-5-ccc33"
 
@@ -242,8 +257,8 @@ class TestExtractReportFromLog:
         "step-init :- Initializing...\n"
         "step-init :- Done.\n"
         "step-detailed-report :-\n"
-        "{\"components\": [{\"name\": \"comp-a\"}]}\n"
-        "{\"violations\": [{\"code\": \"hermetic_task.hermetic\"}]}\n"
+        '{"components": [{"name": "comp-a"}]}\n'
+        '{"violations": [{"code": "hermetic_task.hermetic"}]}\n'
         "step-summary :- Summary goes here.\n"
     )
 
@@ -339,6 +354,7 @@ class TestGetToken:
 class TestWriteStepStatus:
     def test_completed_step(self, tmp_path):
         import conforma_context_ops
+
         conforma_context_ops.create(tmp_path, {"steps": {}})
 
         config = {"run_dir": tmp_path, "policy_type": "registry"}
@@ -351,6 +367,7 @@ class TestWriteStepStatus:
 
     def test_failed_step(self, tmp_path):
         import conforma_context_ops
+
         conforma_context_ops.create(tmp_path, {"steps": {}})
 
         config = {"run_dir": tmp_path, "policy_type": "registry"}
@@ -375,16 +392,17 @@ class TestResolvePipelinerunUuid:
         mock_proc = MagicMock(returncode=0, stdout="uuid-1234-5678\n")
         with patch("fetch_conforma_tekton_result.subprocess.run", return_value=mock_proc):
             result = ftr._resolve_pipelinerun_uuid(
-                "run-abc", "rhoai-tenant", "https://api.example.com", "token",
+                "run-abc",
+                "rhoai-tenant",
+                "https://api.example.com",
+                "token",
             )
         assert result == "uuid-1234-5678"
 
     def test_api_fallback(self):
         mock_proc = MagicMock(returncode=1, stdout="")
         mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "records": [{"name": "rhoai-tenant/results/aaa-bbb-ccc/records/ddd"}]
-        }
+        mock_resp.json.return_value = {"records": [{"name": "rhoai-tenant/results/aaa-bbb-ccc/records/ddd"}]}
         mock_resp.raise_for_status = MagicMock()
 
         with (
@@ -392,7 +410,10 @@ class TestResolvePipelinerunUuid:
             patch("fetch_conforma_tekton_result.requests.get", return_value=mock_resp),
         ):
             result = ftr._resolve_pipelinerun_uuid(
-                "run-abc", "rhoai-tenant", "https://api.example.com", "token",
+                "run-abc",
+                "rhoai-tenant",
+                "https://api.example.com",
+                "token",
             )
         assert result == "aaa-bbb-ccc"
 
@@ -407,7 +428,10 @@ class TestResolvePipelinerunUuid:
             patch("fetch_conforma_tekton_result.requests.get", return_value=mock_resp),
         ):
             result = ftr._resolve_pipelinerun_uuid(
-                "run-abc", "rhoai-tenant", "https://api.example.com", "token",
+                "run-abc",
+                "rhoai-tenant",
+                "https://api.example.com",
+                "token",
             )
         assert result is None
 

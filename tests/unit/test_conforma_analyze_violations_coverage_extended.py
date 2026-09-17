@@ -9,10 +9,7 @@ Targets previously uncovered lines:
 
 from __future__ import annotations
 
-import json
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -70,9 +67,7 @@ class TestBuildComponentExceptionDetails:
         gate = self._gate(
             permanent_exclusions=[{"file": "config/x/product/other.yaml", "line": 10}],
         )
-        result = mod._build_component_exception_details(
-            gate, ["comp-a"], policy_files=["config/x/product/rhoai.yaml"]
-        )
+        result = mod._build_component_exception_details(gate, ["comp-a"], policy_files=["config/x/product/rhoai.yaml"])
         assert result[0]["file"] is None
         assert result[0]["url"] is None
 
@@ -247,41 +242,53 @@ def _mock_ec_happy(monkeypatch, tmp_path, ec_violations=None, ec_successes=None,
     """Patch the ec_validate helpers for a happy-path _run_ec_coverage run."""
     monkeypatch.setattr(mod.conforma_ec_validate, "ensure_ec_binary", lambda *a, **k: "/usr/bin/ec")
     monkeypatch.setattr(
-        mod.conforma_ec_validate, "build_snapshot_from_csv",
+        mod.conforma_ec_validate,
+        "build_snapshot_from_csv",
         lambda *a, **k: (str(tmp_path / "spec.json"), [{"name": "odh-a-v3-4", "image": "quay.io/x@sha256:aaa"}]),
     )
     monkeypatch.setattr(
-        mod.conforma_ec_validate, "group_entries_by_base_image",
+        mod.conforma_ec_validate,
+        "group_entries_by_base_image",
         lambda *a, **k: {"quay.io/x": [{"name": "odh-a-v3-4", "image": "quay.io/x@sha256:aaa"}]},
     )
     monkeypatch.setattr(
-        mod.conforma_ec_validate, "prepare_policy_for_local_use",
+        mod.conforma_ec_validate,
+        "prepare_policy_for_local_use",
         lambda *a, **k: str(tmp_path / "policy-local.yaml"),
     )
     monkeypatch.setattr(
-        mod.conforma_ec_validate, "build_snapshot_from_entries",
+        mod.conforma_ec_validate,
+        "build_snapshot_from_entries",
         lambda *a, **k: str(tmp_path / "batch-spec.json"),
     )
     monkeypatch.setattr(
-        mod.conforma_ec_validate, "run_ec_validate",
+        mod.conforma_ec_validate,
+        "run_ec_validate",
         lambda *a, **k: {"violations": {}, "successes": {}},
     )
     monkeypatch.setattr(
-        mod.conforma_ec_validate, "extract_ec_violations",
+        mod.conforma_ec_validate,
+        "extract_ec_violations",
         lambda *a, **k: ec_violations if ec_violations is not None else {"odh-a-v3-4": {"rule.x"}},
     )
     monkeypatch.setattr(
-        mod.conforma_ec_validate, "extract_ec_successes",
+        mod.conforma_ec_validate,
+        "extract_ec_successes",
         lambda *a, **k: ec_successes if ec_successes is not None else {},
     )
     monkeypatch.setattr(mod.conforma_ec_validate, "extract_csv_violations", lambda *a, **k: {})
     monkeypatch.setattr(
-        mod.conforma_ec_validate, "validate_ec_against_csv",
-        lambda *a, **k: validation if validation is not None
-        else {"validated": True, "confirmed_violations": 1, "confirmed_covered": 0, "divergence_count": 0},
+        mod.conforma_ec_validate,
+        "validate_ec_against_csv",
+        lambda *a, **k: (
+            validation
+            if validation is not None
+            else {"validated": True, "confirmed_violations": 1, "confirmed_covered": 0, "divergence_count": 0}
+        ),
     )
     monkeypatch.setattr(
-        mod, "_load_component_policy_mapping",
+        mod,
+        "_load_component_policy_mapping",
         lambda *a, **k: [{"pattern": "odh-*", "policy_prefix": "fbc-"}],
     )
 
@@ -340,7 +347,8 @@ class TestRunEcCoverage:
         clone = _make_clone(tmp_path, monkeypatch, ["fbc-rhoai-prod.yaml"])
         csv = _write_csv(tmp_path)
         _mock_ec_happy(
-            monkeypatch, tmp_path,
+            monkeypatch,
+            tmp_path,
             validation={"validated": False, "confirmed_violations": 0, "confirmed_covered": 0, "divergence_count": 2},
         )
         mod._run_ec_coverage(str(csv), str(clone), ["fbc-rhoai-prod.yaml"], "prod")
@@ -377,12 +385,14 @@ class TestRunEcCoverage:
         clone = _make_clone(tmp_path, monkeypatch, ["fbc-rhoai-prod.yaml"])
         csv = _write_csv(tmp_path)
         _mock_ec_happy(
-            monkeypatch, tmp_path,
+            monkeypatch,
+            tmp_path,
             ec_violations={"odh-a-v3-4": {"rule.x"}},
             ec_successes={"odh-a-v3-4": {"rule.y"}},
         )
         monkeypatch.setattr(
-            mod.conforma_ec_validate, "group_entries_by_base_image",
+            mod.conforma_ec_validate,
+            "group_entries_by_base_image",
             lambda *a, **k: {
                 "quay.io/x": [{"name": "odh-a-v3-4", "image": "quay.io/x@sha256:aaa"}],
                 "quay.io/y": [{"name": "odh-a-v3-4", "image": "quay.io/y@sha256:bbb"}],
@@ -402,7 +412,8 @@ def _write_violations_yaml(tmp_path, rules=None, components=None):
     data = {
         "violation_data": {
             "releases": ["rhoai-3.4"],
-            "violations_by_rule": rules or {
+            "violations_by_rule": rules
+            or {
                 "hermetic_task.hermetic": {
                     "title": "Hermetic",
                     "count": 2,
@@ -429,14 +440,18 @@ def _mock_auth(monkeypatch):
     monkeypatch.setattr(component_alias_ops, "load_aliases", lambda: {})
     monkeypatch.setattr(conforma_policy_ops, "refresh_clone", lambda *a, **k: None)
     monkeypatch.setattr(
-        conforma_policy_ops, "check_existing_exception_gate",
+        conforma_policy_ops,
+        "check_existing_exception_gate",
         lambda *a, **k: {
-            "status": "passed", "permanent_exclusions": [],
-            "active_exceptions": [], "open_merge_requests": [],
+            "status": "passed",
+            "permanent_exclusions": [],
+            "active_exceptions": [],
+            "open_merge_requests": [],
         },
     )
     monkeypatch.setattr(
-        conforma_policy_ops, "search_self_service_exceptions",
+        conforma_policy_ops,
+        "search_self_service_exceptions",
         lambda *a, **k: {"checked": False},
     )
     monkeypatch.setattr(mod.conforma_mr_ops, "GITLAB_HOST", "gitlab.com")
@@ -454,7 +469,12 @@ def _make_run_env(tmp_path, monkeypatch, components=None, ec_result=None):
         ec_result = {
             "violations": {c: {"hermetic_task.hermetic"} for c in comps},
             "successes": {c: set() for c in comps},
-            "validation": {"validated": True, "confirmed_violations": len(comps), "confirmed_covered": 0, "divergence_count": 0},
+            "validation": {
+                "validated": True,
+                "confirmed_violations": len(comps),
+                "confirmed_covered": 0,
+                "divergence_count": 0,
+            },
         }
     monkeypatch.setattr(mod, "_run_ec_coverage", lambda *a, **k: ec_result)
     return str(csv_path), str(clone_dir)
@@ -492,54 +512,177 @@ class TestCheckViolationsCoverageErrors:
         result = mod.check_violations_coverage(vpath, ["fbc.yaml"], "prod", csv_path=None, require_slack=False)
         assert "csv is required" in result["error"]
 
+    def test_ec_validation_can_be_skipped_without_csv(self, tmp_path, monkeypatch):
+        vpath = _write_violations_yaml(tmp_path)
+        _mock_auth(monkeypatch)
+        result = mod.check_violations_coverage(
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            csv_path=None,
+            require_slack=False,
+            run_ec_validation=False,
+        )
+        assert "error" not in result
+        assert result["ec_validation_enabled"] is False
+
+
+class TestDiscoveryArtifacts:
+    def test_round_trip_and_rejects_stale_query(self, tmp_path):
+        path = tmp_path / "merge-request-discovery.json"
+        query = mod._discovery_query(
+            "merge_requests",
+            ["hermetic_task.hermetic"],
+            ["fbc.yaml"],
+            "prod",
+            "rhoai-3.4",
+            {"hermetic_task.hermetic": ["comp-a"]},
+        )
+        data = {"hermetic_task.hermetic": [{"iid": 22104}]}
+
+        mod._save_discovery_artifact(path, query, data)
+
+        assert mod._load_discovery_artifact(path, query) == data
+        stale_query = {**query, "release": "rhoai-3.5"}
+        assert mod._load_discovery_artifact(path, stale_query) is None
+
+    def test_reuses_merge_request_and_jira_artifacts_after_interruption(self, tmp_path, monkeypatch):
+        vpath = _write_violations_yaml(tmp_path, components=["comp-a"])
+        csv_path, clone_dir = _make_run_env(tmp_path, monkeypatch, components=["comp-a"])
+        artifact_dir = tmp_path / "run"
+        _mock_auth(monkeypatch)
+        monkeypatch.setattr(
+            conforma_mr_ops,
+            "prefetch_open_mrs",
+            lambda *a, **k: {"hermetic_task.hermetic": [{"iid": 22104}]},
+        )
+        monkeypatch.setattr(
+            conforma_jira_ops,
+            "prefetch_open_jira_tickets",
+            lambda *a, **k: {
+                "hermetic_task.hermetic": [
+                    {"key": "RHOAIENG-88509", "status": "Open", "url": "https://jira/RHOAIENG-88509"}
+                ]
+            },
+        )
+
+        first = mod.check_violations_coverage(
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            require_slack=False,
+            discovery_dir=artifact_dir,
+        )
+        assert (artifact_dir / "merge-request-discovery.json").is_file()
+        assert (artifact_dir / "jira-discovery.json").is_file()
+        assert first["violations"][0]["open_jira_tickets"][0]["key"] == "RHOAIENG-88509"
+
+        monkeypatch.setattr(conforma_mr_ops, "prefetch_open_mrs", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
+        monkeypatch.setattr(
+            conforma_jira_ops,
+            "prefetch_open_jira_tickets",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError()),
+        )
+        monkeypatch.setattr(jira_ops, "verify_auth", lambda: (_ for _ in ()).throw(AssertionError()))
+
+        resumed = mod.check_violations_coverage(
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            require_slack=False,
+            discovery_dir=artifact_dir,
+        )
+        assert resumed["violations"][0]["open_jira_tickets"][0]["key"] == "RHOAIENG-88509"
+
 
 class TestCheckViolationsCoverageFlow:
     def test_full_flow_with_ec(self, tmp_path, monkeypatch):
         """Happy path with all cross-reference sources populated."""
         vpath = _write_violations_yaml(tmp_path)
         csv_path, clone_dir = _make_run_env(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
             ec_result={
                 "violations": {"comp-a": set(), "comp-b": {"hermetic_task.hermetic"}},
                 "successes": {"comp-a": {"hermetic_task.hermetic"}, "comp-b": set()},
-                "validation": {"validated": True, "confirmed_violations": 1, "confirmed_covered": 1, "divergence_count": 0},
+                "validation": {
+                    "validated": True,
+                    "confirmed_violations": 1,
+                    "confirmed_covered": 1,
+                    "divergence_count": 0,
+                },
             },
         )
         _mock_auth(monkeypatch)
         mr = {
-            "suggestion": "extend_mr", "mr_type": "exception", "iid": 42,
-            "url": "https://gitlab/mr/42", "covered": ["comp-a"],
-            "rules_in_diff": ["hermetic_task.hermetic"], "title_mentions_rule": True,
+            "suggestion": "extend_mr",
+            "mr_type": "exception",
+            "iid": 42,
+            "url": "https://gitlab/mr/42",
+            "covered": ["comp-a"],
+            "rules_in_diff": ["hermetic_task.hermetic"],
+            "title_mentions_rule": True,
         }
         monkeypatch.setattr(
-            conforma_mr_ops, "prefetch_open_mrs",
+            conforma_mr_ops,
+            "prefetch_open_mrs",
             lambda *a, **k: {"hermetic_task.hermetic": [mr]},
         )
         monkeypatch.setattr(
-            conforma_jira_ops, "prefetch_open_jira_tickets",
-            lambda *a, **k: {"hermetic_task.hermetic": [
-                {"key": "RHOAIENG-123", "url": "https://jira/RHOAIENG-123", "status": "Open",
-                 "fix_versions": ["3.5"], "version_relevance": "targets_future"},
-            ]},
+            conforma_jira_ops,
+            "prefetch_open_jira_tickets",
+            lambda *a, **k: {
+                "hermetic_task.hermetic": [
+                    {
+                        "key": "RHOAIENG-123",
+                        "url": "https://jira/RHOAIENG-123",
+                        "status": "Open",
+                        "fix_versions": ["3.5"],
+                        "version_relevance": "targets_future",
+                    },
+                ]
+            },
         )
         monkeypatch.setattr(
-            conforma_slack_ops, "prefetch_open_slack_threads",
-            lambda *a, **k: {"hermetic_task.hermetic": [
-                {"channel": "conforma", "permalink": "https://slack/p", "date": "2026-01-01", "thread_reply_count": 3},
-            ]},
+            conforma_slack_ops,
+            "prefetch_open_slack_threads",
+            lambda *a, **k: {
+                "hermetic_task.hermetic": [
+                    {
+                        "channel": "conforma",
+                        "permalink": "https://slack/p",
+                        "date": "2026-01-01",
+                        "thread_reply_count": 3,
+                    },
+                ]
+            },
         )
         monkeypatch.setattr(conforma_jira_ops, "classify_ticket_version_relevance", lambda *a, **k: "targets_future")
         monkeypatch.setattr(
-            conforma_policy_ops, "check_existing_exception_gate",
+            conforma_policy_ops,
+            "check_existing_exception_gate",
             lambda *a, **k: {
-                "status": "partial", "permanent_exclusions": [], "active_exceptions": [], "open_merge_requests": [mr],
+                "status": "partial",
+                "permanent_exclusions": [],
+                "active_exceptions": [],
+                "open_merge_requests": [mr],
             },
         )
         monkeypatch.setattr(component_alias_ops, "load_aliases", lambda: {"comp-a": ["alias-a"]})
 
         result = mod.check_violations_coverage(
-            vpath, ["fbc.yaml"], "prod", clone_dir=clone_dir, csv_path=csv_path,
-            release="rhoai-3.4", require_jira=True, require_slack=True,
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            release="rhoai-3.4",
+            require_jira=True,
+            require_slack=True,
         )
         assert "error" not in result
         assert result["summary"]["total_violations"] == 1
@@ -560,7 +703,12 @@ class TestCheckViolationsCoverageFlow:
         csv_path, clone_dir = _make_run_env(tmp_path, monkeypatch)
         _mock_auth(monkeypatch)
         result = mod.check_violations_coverage(
-            vpath, ["fbc.yaml"], "prod", clone_dir=clone_dir, csv_path=csv_path, require_slack=False,
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            require_slack=False,
         )
         assert "error" not in result
         assert result["violations"][0]["coverage"] == "no_components"
@@ -569,11 +717,17 @@ class TestCheckViolationsCoverageFlow:
     def _self_service_ec(self, tmp_path, monkeypatch, ss_result):
         vpath = _write_violations_yaml(tmp_path)
         csv_path, clone_dir = _make_run_env(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
             ec_result={
                 "violations": {"comp-a": {"hermetic_task.hermetic"}, "comp-b": {"hermetic_task.hermetic"}},
                 "successes": {"comp-a": set(), "comp-b": set()},
-                "validation": {"validated": True, "confirmed_violations": 2, "confirmed_covered": 0, "divergence_count": 0},
+                "validation": {
+                    "validated": True,
+                    "confirmed_violations": 2,
+                    "confirmed_covered": 0,
+                    "divergence_count": 0,
+                },
             },
         )
         _mock_auth(monkeypatch)
@@ -582,12 +736,23 @@ class TestCheckViolationsCoverageFlow:
 
     def test_self_service_rescues_components(self, tmp_path, monkeypatch):
         vpath, csv_path, clone_dir = self._self_service_ec(
-            tmp_path, monkeypatch,
-            {"checked": True, "covered_components": {"comp-b"}, "has_unscoped": False, "source_files": ["exceptions.yaml"]},
+            tmp_path,
+            monkeypatch,
+            {
+                "checked": True,
+                "covered_components": {"comp-b"},
+                "has_unscoped": False,
+                "source_files": ["exceptions.yaml"],
+            },
         )
         result = mod.check_violations_coverage(
-            vpath, ["fbc.yaml"], "prod", clone_dir=clone_dir, csv_path=csv_path,
-            self_service_files=["exceptions.yaml"], require_slack=False,
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            self_service_files=["exceptions.yaml"],
+            require_slack=False,
         )
         v = result["violations"][0]
         assert v["coverage"] == "partially_covered"
@@ -596,12 +761,18 @@ class TestCheckViolationsCoverageFlow:
 
     def test_self_service_unscoped_rescues_all(self, tmp_path, monkeypatch):
         vpath, csv_path, clone_dir = self._self_service_ec(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
             {"checked": True, "covered_components": set(), "has_unscoped": True, "source_files": ["exceptions.yaml"]},
         )
         result = mod.check_violations_coverage(
-            vpath, ["fbc.yaml"], "prod", clone_dir=clone_dir, csv_path=csv_path,
-            self_service_files=["exceptions.yaml"], require_slack=False,
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            self_service_files=["exceptions.yaml"],
+            require_slack=False,
         )
         v = result["violations"][0]
         assert v["coverage"] == "fully_covered"
@@ -611,31 +782,52 @@ class TestCheckViolationsCoverageFlow:
         """Run check_violations_coverage with a single open MR and given ec result."""
         vpath = _write_violations_yaml(tmp_path)
         csv_path, clone_dir = _make_run_env(
-            tmp_path, monkeypatch, components=["comp-a"],
-            ec_result=ec_result or {
+            tmp_path,
+            monkeypatch,
+            components=["comp-a"],
+            ec_result=ec_result
+            or {
                 "violations": {"comp-a": set()},
                 "successes": {"comp-a": {"hermetic_task.hermetic"}},
-                "validation": {"validated": True, "confirmed_violations": 0, "confirmed_covered": 1, "divergence_count": 0},
+                "validation": {
+                    "validated": True,
+                    "confirmed_violations": 0,
+                    "confirmed_covered": 1,
+                    "divergence_count": 0,
+                },
             },
         )
         _mock_auth(monkeypatch)
         monkeypatch.setattr(conforma_mr_ops, "prefetch_open_mrs", lambda *a, **k: {"hermetic_task.hermetic": [mr]})
         monkeypatch.setattr(
-            conforma_policy_ops, "check_existing_exception_gate",
+            conforma_policy_ops,
+            "check_existing_exception_gate",
             lambda *a, **k: {
-                "status": "blocked", "permanent_exclusions": [], "active_exceptions": [], "open_merge_requests": [mr],
+                "status": "blocked",
+                "permanent_exclusions": [],
+                "active_exceptions": [],
+                "open_merge_requests": [mr],
             },
         )
         return mod.check_violations_coverage(
-            vpath, ["fbc.yaml"], "prod", clone_dir=clone_dir, csv_path=csv_path, require_slack=False,
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            require_slack=False,
         )
 
     def test_mr_discrepancy_code_only(self, tmp_path, monkeypatch):
         """Diff covers rule but title doesn't mention it → code_only."""
         mr = {
-            "suggestion": "extend_mr", "mr_type": "exception", "iid": 10,
-            "url": "https://gitlab/mr/10", "covered": ["comp-a"],
-            "rules_in_diff": ["hermetic_task.hermetic"], "title_mentions_rule": False,
+            "suggestion": "extend_mr",
+            "mr_type": "exception",
+            "iid": 10,
+            "url": "https://gitlab/mr/10",
+            "covered": ["comp-a"],
+            "rules_in_diff": ["hermetic_task.hermetic"],
+            "title_mentions_rule": False,
         }
         result = self._mr_scenario(tmp_path, monkeypatch, mr)
         v = result["violations"][0]
@@ -645,9 +837,13 @@ class TestCheckViolationsCoverageFlow:
     def test_mr_discrepancy_title_only(self, tmp_path, monkeypatch):
         """Title mentions rule but diff doesn't cover it → title_only."""
         mr = {
-            "suggestion": "extend_mr", "mr_type": "exception", "iid": 10,
-            "url": "https://gitlab/mr/10", "covered": ["comp-a"],
-            "rules_in_diff": ["other.rule"], "title_mentions_rule": True,
+            "suggestion": "extend_mr",
+            "mr_type": "exception",
+            "iid": 10,
+            "url": "https://gitlab/mr/10",
+            "covered": ["comp-a"],
+            "rules_in_diff": ["other.rule"],
+            "title_mentions_rule": True,
         }
         result = self._mr_scenario(tmp_path, monkeypatch, mr)
         v = result["violations"][0]
@@ -657,9 +853,13 @@ class TestCheckViolationsCoverageFlow:
     def test_mr_no_discrepancy(self, tmp_path, monkeypatch):
         """Diff and title agree → discrepancy is None."""
         mr = {
-            "suggestion": "extend_mr", "mr_type": "exception", "iid": 10,
-            "url": "https://gitlab/mr/10", "covered": ["comp-a"],
-            "rules_in_diff": ["hermetic_task.hermetic"], "title_mentions_rule": True,
+            "suggestion": "extend_mr",
+            "mr_type": "exception",
+            "iid": 10,
+            "url": "https://gitlab/mr/10",
+            "covered": ["comp-a"],
+            "rules_in_diff": ["hermetic_task.hermetic"],
+            "title_mentions_rule": True,
         }
         result = self._mr_scenario(tmp_path, monkeypatch, mr)
         v = result["violations"][0]
@@ -669,9 +869,13 @@ class TestCheckViolationsCoverageFlow:
 
     def test_mr_fully_covered_label(self, tmp_path, monkeypatch):
         mr = {
-            "suggestion": "fully_covered", "mr_type": "remedy", "iid": 99,
-            "url": "https://gitlab/mr/99", "covered": [],
-            "rules_in_diff": ["hermetic_task.hermetic"], "title_mentions_rule": True,
+            "suggestion": "fully_covered",
+            "mr_type": "remedy",
+            "iid": 99,
+            "url": "https://gitlab/mr/99",
+            "covered": [],
+            "rules_in_diff": ["hermetic_task.hermetic"],
+            "title_mentions_rule": True,
         }
         result = self._mr_scenario(tmp_path, monkeypatch, mr)
         v = result["violations"][0]
@@ -685,7 +889,12 @@ class TestCheckViolationsCoverageFlow:
         csv_path, clone_dir = _make_run_env(tmp_path, monkeypatch, components=many_comps)
         _mock_auth(monkeypatch)
         result = mod.check_violations_coverage(
-            vpath, ["fbc.yaml"], "prod", clone_dir=clone_dir, csv_path=csv_path, require_slack=False,
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            require_slack=False,
         )
         v = result["violations"][0]
         assert "+3 more" in v["display_components"]
@@ -696,15 +905,28 @@ class TestCheckViolationsCoverageFlow:
         csv_path, clone_dir = _make_run_env(tmp_path, monkeypatch)
         _mock_auth(monkeypatch)
         monkeypatch.setattr(
-            conforma_jira_ops, "prefetch_open_jira_tickets",
-            lambda *a, **k: {"hermetic_task.hermetic": [
-                {"key": "PSX-456", "url": "https://jira/PSX-456", "status": "Open",
-                 "fix_versions": ["3.5"], "version_relevance": "targets_future"},
-            ]},
+            conforma_jira_ops,
+            "prefetch_open_jira_tickets",
+            lambda *a, **k: {
+                "hermetic_task.hermetic": [
+                    {
+                        "key": "PSX-456",
+                        "url": "https://jira/PSX-456",
+                        "status": "Open",
+                        "fix_versions": ["3.5"],
+                        "version_relevance": "targets_future",
+                    },
+                ]
+            },
         )
         result = mod.check_violations_coverage(
-            vpath, ["fbc.yaml"], "prod", clone_dir=clone_dir, csv_path=csv_path,
-            release="rhoai-3.4", require_slack=False,
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            release="rhoai-3.4",
+            require_slack=False,
         )
         v = result["violations"][0]
         assert "PSX-456" in v["open_jira_label"]
@@ -716,15 +938,28 @@ class TestCheckViolationsCoverageFlow:
         csv_path, clone_dir = _make_run_env(tmp_path, monkeypatch)
         _mock_auth(monkeypatch)
         monkeypatch.setattr(
-            conforma_jira_ops, "prefetch_open_jira_tickets",
-            lambda *a, **k: {"hermetic_task.hermetic": [
-                {"key": "RHOAIENG-789", "url": "https://jira/RHOAIENG-789", "status": "Open",
-                 "fix_versions": [], "version_relevance": "no_target_version"},
-            ]},
+            conforma_jira_ops,
+            "prefetch_open_jira_tickets",
+            lambda *a, **k: {
+                "hermetic_task.hermetic": [
+                    {
+                        "key": "RHOAIENG-789",
+                        "url": "https://jira/RHOAIENG-789",
+                        "status": "Open",
+                        "fix_versions": [],
+                        "version_relevance": "no_target_version",
+                    },
+                ]
+            },
         )
         result = mod.check_violations_coverage(
-            vpath, ["fbc.yaml"], "prod", clone_dir=clone_dir, csv_path=csv_path,
-            release="rhoai-3.4", require_slack=False,
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            release="rhoai-3.4",
+            require_slack=False,
         )
         v = result["violations"][0]
         assert "no fixVersion" in v["open_jira_label"]
@@ -735,15 +970,36 @@ class TestCheckViolationsCoverageFlow:
         csv_path, clone_dir = _make_run_env(tmp_path, monkeypatch)
         _mock_auth(monkeypatch)
         tickets = [
-            {"key": "RHOAIENG-1", "url": "https://jira/1", "status": "Open", "fix_versions": ["3.4"],
-             "version_relevance": "targets_current", "match_source": "component_inference", "inference_confidence": "confirmed"},
-            {"key": "RHOAIENG-2", "url": "https://jira/2", "status": "Open", "fix_versions": ["3.4"],
-             "version_relevance": "targets_current", "match_source": "component_inference", "inference_confidence": "unconfirmed"},
+            {
+                "key": "RHOAIENG-1",
+                "url": "https://jira/1",
+                "status": "Open",
+                "fix_versions": ["3.4"],
+                "version_relevance": "targets_current",
+                "match_source": "component_inference",
+                "inference_confidence": "confirmed",
+            },
+            {
+                "key": "RHOAIENG-2",
+                "url": "https://jira/2",
+                "status": "Open",
+                "fix_versions": ["3.4"],
+                "version_relevance": "targets_current",
+                "match_source": "component_inference",
+                "inference_confidence": "unconfirmed",
+            },
         ]
-        monkeypatch.setattr(conforma_jira_ops, "prefetch_open_jira_tickets", lambda *a, **k: {"hermetic_task.hermetic": tickets})
+        monkeypatch.setattr(
+            conforma_jira_ops, "prefetch_open_jira_tickets", lambda *a, **k: {"hermetic_task.hermetic": tickets}
+        )
         result = mod.check_violations_coverage(
-            vpath, ["fbc.yaml"], "prod", clone_dir=clone_dir, csv_path=csv_path,
-            release="rhoai-3.4", require_slack=False,
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            release="rhoai-3.4",
+            require_slack=False,
         )
         v = result["violations"][0]
         assert "\U0001f50d?" in v["open_jira_label"]
@@ -777,8 +1033,11 @@ class TestRenderViolationsMarkdownTableVariants:
         return base
 
     def test_source_path_and_url_in_header(self):
-        meta = {"release": "rhoai-3.4", "source_path": "reports/rhoai-3.4.csv",
-                "source_url": "https://git/blob/reports/rhoai-3.4.csv"}
+        meta = {
+            "release": "rhoai-3.4",
+            "source_path": "reports/rhoai-3.4.csv",
+            "source_url": "https://git/blob/reports/rhoai-3.4.csv",
+        }
         md = mod._render_violations_markdown_table([self._row()], self._summary(), report_meta=meta)
         assert "[reports/rhoai-3.4.csv](https://git/blob/reports/rhoai-3.4.csv)" in md
 
@@ -819,8 +1078,15 @@ class TestMainEdgeCases:
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         monkeypatch.setattr(
             "sys.argv",
-            ["violations_coverage.py", "--run-dir", str(tmp_path / "nope"),
-             "--environment", "prod", "--policy-files", "a.yaml"],
+            [
+                "violations_coverage.py",
+                "--run-dir",
+                str(tmp_path / "nope"),
+                "--environment",
+                "prod",
+                "--policy-files",
+                "a.yaml",
+            ],
         )
         with pytest.raises(FileNotFoundError):
             mod.main()
@@ -841,8 +1107,15 @@ class TestMainEdgeCases:
         vpath.write_text("violation_data: {}\n")
         monkeypatch.setattr(
             "sys.argv",
-            ["violations_coverage.py", "--violations-yaml", str(vpath),
-             "--environment", "prod", "--policy-files", "a.yaml"],
+            [
+                "violations_coverage.py",
+                "--violations-yaml",
+                str(vpath),
+                "--environment",
+                "prod",
+                "--policy-files",
+                "a.yaml",
+            ],
         )
         rc = mod.main()
         assert rc == 1
@@ -853,9 +1126,19 @@ class TestMainEdgeCases:
         monkeypatch.setattr(mod, "check_violations_coverage", lambda **_kw: {"error": "boom"})
         monkeypatch.setattr(
             "sys.argv",
-            ["violations_coverage.py", "--violations-yaml", "dummy.yaml",
-             "--csv", "dummy.csv", "--environment", "prod",
-             "--clone-dir", str(tmp_path), "--policy-files", "a.yaml"],
+            [
+                "violations_coverage.py",
+                "--violations-yaml",
+                "dummy.yaml",
+                "--csv",
+                "dummy.csv",
+                "--environment",
+                "prod",
+                "--clone-dir",
+                str(tmp_path),
+                "--policy-files",
+                "a.yaml",
+            ],
         )
         rc = mod.main()
         assert rc == 1
@@ -864,11 +1147,14 @@ class TestMainEdgeCases:
         """context.yaml supplies yaml, csv, release, clone_dir, policy_files."""
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "20260101-000000"
-        conforma_context_ops.create(run_dir, {
-            "application": {"release": "rhoai-3.4", "name": "rhoai", "version": "3.4", "konflux_app": "rhoai-v3-4"},
-            "environment": "prod",
-            "resolve": {"policy_files": ["fbc-rhoai-prod.yaml"]},
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {"release": "rhoai-3.4", "name": "rhoai", "version": "3.4", "konflux_app": "rhoai-v3-4"},
+                "environment": "prod",
+                "resolve": {"policy_files": ["fbc-rhoai-prod.yaml"]},
+            },
+        )
         conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.4.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
         conforma_context_ops.set_active(run_dir)
@@ -880,7 +1166,10 @@ class TestMainEdgeCases:
 
         def mock_check(**kw):
             captured.update(kw)
-            return {"summary": {"total_violations": 0, "fully_covered": 0, "partially_covered": 0, "not_covered": 0}, "violations": []}
+            return {
+                "summary": {"total_violations": 0, "fully_covered": 0, "partially_covered": 0, "not_covered": 0},
+                "violations": [],
+            }
 
         monkeypatch.setattr(mod, "check_violations_coverage", mock_check)
         monkeypatch.setattr("sys.argv", ["violations_coverage.py"])
@@ -890,16 +1179,49 @@ class TestMainEdgeCases:
         assert captured["clone_dir"] == str(tmp_path / "konflux-release-data")
         assert captured["policy_files"] == ["fbc-rhoai-prod.yaml"]
         assert str(run_dir) in captured["csv_path"]
+        assert captured["run_ec_validation"] is False
+
+    def test_explicit_ec_validation_flag_is_forwarded(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        run_dir = tmp_path / "20260101-000000"
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {"release": "rhoai-3.4", "name": "rhoai", "version": "3.4", "konflux_app": "rhoai-v3-4"},
+                "environment": "prod",
+                "resolve": {"policy_files": ["fbc-rhoai-prod.yaml"]},
+            },
+        )
+        conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.4.csv"])
+        conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="violations.yaml")
+        conforma_context_ops.set_active(run_dir)
+        (run_dir / "rhoai-3.4.csv").write_text("h\n")
+        (run_dir / "violations.yaml").write_text("violation_data: {}\n")
+        (tmp_path / "konflux-release-data").mkdir()
+
+        captured = {}
+
+        def mock_check(**kw):
+            captured.update(kw)
+            return {"summary": {}, "violations": []}
+
+        monkeypatch.setattr(mod, "check_violations_coverage", mock_check)
+        monkeypatch.setattr("sys.argv", ["violations_coverage.py", "--run-ec-validation"])
+        assert mod.main() == 0
+        assert captured["run_ec_validation"] is True
 
     def test_successful_run_updates_step(self, tmp_path, monkeypatch):
         """run_dir + no error → update_step('coverage', 'completed')."""
         monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
         run_dir = tmp_path / "run1"
-        conforma_context_ops.create(run_dir, {
-            "application": {"release": "rhoai-3.4", "name": "rhoai", "version": "3.4", "konflux_app": "rhoai-v3-4"},
-            "environment": "prod",
-            "resolve": {"policy_files": ["fbc.yaml"]},
-        })
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {"release": "rhoai-3.4", "name": "rhoai", "version": "3.4", "konflux_app": "rhoai-v3-4"},
+                "environment": "prod",
+                "resolve": {"policy_files": ["fbc.yaml"]},
+            },
+        )
         conforma_context_ops.update_step(run_dir, "fetch", "completed", csv_files=["rhoai-3.4.csv"])
         conforma_context_ops.update_step(run_dir, "parse", "completed", violations_yaml="v.yaml")
         conforma_context_ops.set_active(run_dir)
@@ -908,22 +1230,17 @@ class TestMainEdgeCases:
         clone_dir = tmp_path / "clone"
         clone_dir.mkdir()
 
-        monkeypatch.setattr(mod, "check_violations_coverage", lambda **_kw: {
-            "summary": {"total_violations": 0, "fully_covered": 0, "partially_covered": 0, "not_covered": 0},
-            "violations": [],
-        })
+        monkeypatch.setattr(
+            mod,
+            "check_violations_coverage",
+            lambda **_kw: {
+                "summary": {"total_violations": 0, "fully_covered": 0, "partially_covered": 0, "not_covered": 0},
+                "violations": [],
+            },
+        )
         monkeypatch.setattr("sys.argv", ["violations_coverage.py", "--clone-dir", str(clone_dir)])
         rc = mod.main()
         assert rc == 0
         ctx_data = conforma_context_ops.load(run_dir)
         assert ctx_data["steps"]["coverage"]["status"] == "completed"
         assert ctx_data["steps"]["coverage"]["clone_dir"] is not None
-
-
-
-
-
-
-
-
-

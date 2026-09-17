@@ -21,7 +21,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-from _repo_root import REPO_ROOT as _REPO_ROOT  # noqa: E402
 
 import konflux_environment  # noqa: E402
 
@@ -71,9 +70,7 @@ def _ensure_software_catalog(target: Path) -> None:
     try:
         clone_url = gitlab_ops.authenticated_clone_url(project)
     except ValueError as exc:
-        raise RuntimeError(
-            f"Cannot clone software-catalog: {exc}"
-        ) from exc
+        raise RuntimeError(f"Cannot clone software-catalog: {exc}") from exc
 
     tmp_dir = tempfile.mkdtemp(prefix="software-catalog-")
     try:
@@ -84,8 +81,8 @@ def _ensure_software_catalog(target: Path) -> None:
         src = Path(tmp_dir) / ".claude" / "skills" / "software-catalog-query"
         if not src.is_dir():
             raise RuntimeError(
-                f"software-catalog repo does not contain "
-                f".claude/skills/software-catalog-query/ — layout may have changed"
+                "software-catalog repo does not contain "
+                ".claude/skills/software-catalog-query/ — layout may have changed"
             )
         skill_dest.parent.mkdir(parents=True, exist_ok=True)
         if skill_dest.exists():

@@ -12,11 +12,8 @@ from pathlib import Path
 
 import conforma_mr_ops
 
-from _repo_root import REPO_ROOT as _REPO_ROOT
 WORK_DIR = (
-    Path(os.environ.get("CONFORMA_WORKDIR", ""))
-    if os.environ.get("CONFORMA_WORKDIR")
-    else Path.home() / ".conforma"
+    Path(os.environ.get("CONFORMA_WORKDIR", "")) if os.environ.get("CONFORMA_WORKDIR") else Path.home() / ".conforma"
 )
 
 
@@ -78,6 +75,7 @@ def refresh_clone(clone_dir: str | Path) -> Path | None:
         clone_url = gitlab_ops.authenticated_clone_url(krd_project)
         if target.exists():
             import shutil
+
             shutil.rmtree(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         gitlab_ops.run_git(
@@ -489,9 +487,7 @@ def check_existing_exception_gate(
     # Check permanent exclusions first (defense-in-depth: re-filter by policy_files)
     permanent = existing.get("permanent_exclusions", [])
     env_permanent = [
-        p for p in permanent
-        if f"-{environment}." in Path(p["file"]).name
-        and Path(p["file"]).name in allowed_basenames
+        p for p in permanent if f"-{environment}." in Path(p["file"]).name and Path(p["file"]).name in allowed_basenames
     ]
     if env_permanent:
         return {
@@ -523,6 +519,7 @@ def check_existing_exception_gate(
 
     if _aliases:
         import component_alias_ops
+
         requested_expanded = component_alias_ops.expand_component_set(requested, _aliases)
     else:
         requested_expanded = requested
@@ -654,15 +651,17 @@ def main() -> int:
 
     p_search = sub.add_parser("search-exceptions")
     p_search.add_argument("--rule", required=True)
-    p_search.add_argument("--policy-files", required=True,
-                          help="Comma-separated list of policy file basenames to search")
+    p_search.add_argument(
+        "--policy-files", required=True, help="Comma-separated list of policy file basenames to search"
+    )
     p_search.add_argument("--clone-dir", default=None)
 
     p_gate = sub.add_parser("check-gate")
     p_gate.add_argument("--rule", required=True)
     p_gate.add_argument("--components", required=True)
-    p_gate.add_argument("--policy-files", required=True,
-                        help="Comma-separated list of policy file basenames to scope the gate check")
+    p_gate.add_argument(
+        "--policy-files", required=True, help="Comma-separated list of policy file basenames to scope the gate check"
+    )
     p_gate.add_argument("--clone-dir", default=None)
     p_gate.add_argument("--environment", required=True, choices=["prod", "stage"])
 

@@ -8,7 +8,6 @@ cleaned up automatically when --metadata-file is provided.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -30,16 +29,21 @@ def sample_guide(tmp_path):
 def sample_metadata(tmp_path):
     """Create a sample fetch-metadata.json file."""
     meta = tmp_path / "fetch-metadata.json"
-    meta.write_text(json.dumps({
-        "releases": {
-            "rhoai-3.5-ea.2": {
-                "path": "~/.conforma/20260610/rhoai-3.5-ea.2.csv",
-                "source_path": "prod/future/build_type_latest/conforma-violations-report.csv",
-                "created_at": "2026-06-10T12:00:00Z",
-                "source_sha": "abc123",
+    meta.write_text(
+        json.dumps(
+            {
+                "releases": {
+                    "rhoai-3.5-ea.2": {
+                        "path": "~/.conforma/20260610/rhoai-3.5-ea.2.csv",
+                        "source_path": "prod/future/build_type_latest/conforma-violations-report.csv",
+                        "created_at": "2026-06-10T12:00:00Z",
+                        "source_sha": "abc123",
+                    }
+                }
             }
-        }
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
     return meta
 
 
@@ -211,9 +215,7 @@ class TestResolveOldPath:
         assert mod._resolve_old_path(None, "rhoai-3.5-ea.2") is None
 
     def test_returns_none_for_missing_file(self, tmp_path):
-        result = mod._resolve_old_path(
-            str(tmp_path / "nonexistent.json"), "rhoai-3.5-ea.2"
-        )
+        result = mod._resolve_old_path(str(tmp_path / "nonexistent.json"), "rhoai-3.5-ea.2")
         assert result is None
 
     def test_returns_none_for_missing_release_key(self, sample_metadata):
@@ -333,9 +335,7 @@ class TestContextIntegration:
         branch_resp = MagicMock(status_code=200)
         contents_resp = MagicMock(status_code=404)
         put_resp = MagicMock(status_code=201)
-        put_resp.json.return_value = {
-            "content": {"html_url": "https://github.com/test/blob/guide.md", "sha": "abc"}
-        }
+        put_resp.json.return_value = {"content": {"html_url": "https://github.com/test/blob/guide.md", "sha": "abc"}}
 
         def mock_get(url, **kwargs):
             if "branches" in url:
@@ -360,13 +360,19 @@ class TestContextIntegration:
         guide = tmp_path / "other-guide.md"
         guide.write_text("# Other\n\nContent.", encoding="utf-8")
         monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
-        monkeypatch.setattr("sys.argv", [
-            "submit_resolution_guide.py",
-            "--guide-file", str(guide),
-            "--release", "rhoai-3.4",
-            "--environment", "stage",
-            "--dry-run",
-        ])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "submit_resolution_guide.py",
+                "--guide-file",
+                str(guide),
+                "--release",
+                "rhoai-3.4",
+                "--environment",
+                "stage",
+                "--dry-run",
+            ],
+        )
 
         rc = mod.main()
         assert rc == 0
@@ -406,24 +412,29 @@ class TestLoadCreatedJiraKeys:
         assert mod._load_created_jira_keys(tmp_path) == []
 
     def test_extracts_unique_created_keys(self, tmp_path):
-        self._write_sync(tmp_path, json.dumps({
-            "violations": [
+        self._write_sync(
+            tmp_path,
+            json.dumps(
                 {
-                    "groups": [
-                        {"created": {"key": "RHOAIENG-1", "url": "u1"}},
-                        {"created": {"key": "RHOAIENG-2", "url": "u2"}},
-                        {"created": {"key": "RHOAIENG-1", "url": "u1"}},  # duplicate
-                        {"created": None},
+                    "violations": [
+                        {
+                            "groups": [
+                                {"created": {"key": "RHOAIENG-1", "url": "u1"}},
+                                {"created": {"key": "RHOAIENG-2", "url": "u2"}},
+                                {"created": {"key": "RHOAIENG-1", "url": "u1"}},  # duplicate
+                                {"created": None},
+                            ]
+                        },
+                        {
+                            "groups": [
+                                {"existing": {"key": "RHOAIENG-9", "url": "u9"}},  # not created -> ignored
+                                {"created": "not-a-dict"},  # defensive: ignored
+                            ]
+                        },
                     ]
-                },
-                {
-                    "groups": [
-                        {"existing": {"key": "RHOAIENG-9", "url": "u9"}},  # not created -> ignored
-                        {"created": "not-a-dict"},  # defensive: ignored
-                    ]
-                },
-            ]
-        }))
+                }
+            ),
+        )
         assert mod._load_created_jira_keys(tmp_path) == ["RHOAIENG-1", "RHOAIENG-2"]
 
 
@@ -431,9 +442,10 @@ class TestPostGuideUrlComments:
     """_post_guide_url_comments is non-blocking and only comments created keys."""
 
     def _write_created(self, tmp_path):
-        (tmp_path / "jira_sync.json").write_text(json.dumps({
-            "violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]
-        }), encoding="utf-8")
+        (tmp_path / "jira_sync.json").write_text(
+            json.dumps({"violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]}),
+            encoding="utf-8",
+        )
 
     def test_no_keys_is_noop(self, tmp_path):
         assert mod._post_guide_url_comments(tmp_path, "https://guide") == []
@@ -450,6 +462,7 @@ class TestPostGuideUrlComments:
     def test_import_failure_is_non_blocking(self, tmp_path):
         self._write_created(tmp_path)
         import builtins
+
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
@@ -496,9 +509,7 @@ class TestSubmitGuideUrlCommentIntegration:
         branch_resp = MagicMock(status_code=200)
         contents_resp = MagicMock(status_code=404)
         put_resp = MagicMock(status_code=201)
-        put_resp.json.return_value = {
-            "content": {"html_url": "https://github.com/test/blob/guide.md", "sha": "abc"}
-        }
+        put_resp.json.return_value = {"content": {"html_url": "https://github.com/test/blob/guide.md", "sha": "abc"}}
 
         def mock_get(url, **kwargs):
             if "branches" in url:
@@ -516,9 +527,10 @@ class TestSubmitGuideUrlCommentIntegration:
 
     def test_posts_comment_on_successful_submit(self, tmp_path, monkeypatch):
         run_dir, work_dir = self._setup_run_with_guide(tmp_path)
-        (run_dir / "jira_sync.json").write_text(json.dumps({
-            "violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]
-        }), encoding="utf-8")
+        (run_dir / "jira_sync.json").write_text(
+            json.dumps({"violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]}),
+            encoding="utf-8",
+        )
         monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
         monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py"])
 
@@ -528,15 +540,14 @@ class TestSubmitGuideUrlCommentIntegration:
             rc = mod.main()
 
         assert rc == 0
-        fake.add_guide_url_comment.assert_called_once_with(
-            ["RHOAIENG-1"], "https://github.com/test/blob/guide.md"
-        )
+        fake.add_guide_url_comment.assert_called_once_with(["RHOAIENG-1"], "https://github.com/test/blob/guide.md")
 
     def test_no_comment_when_no_created_keys(self, tmp_path, monkeypatch):
         run_dir, work_dir = self._setup_run_with_guide(tmp_path)
-        (run_dir / "jira_sync.json").write_text(json.dumps(
-            {"violations": [{"groups": [{"existing": {"key": "RHOAIENG-9", "url": "u9"}}]}]}
-        ), encoding="utf-8")
+        (run_dir / "jira_sync.json").write_text(
+            json.dumps({"violations": [{"groups": [{"existing": {"key": "RHOAIENG-9", "url": "u9"}}]}]}),
+            encoding="utf-8",
+        )
         monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
         monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py"])
 
@@ -549,9 +560,10 @@ class TestSubmitGuideUrlCommentIntegration:
 
     def test_dry_run_does_not_post_comment(self, tmp_path, monkeypatch):
         run_dir, work_dir = self._setup_run_with_guide(tmp_path)
-        (run_dir / "jira_sync.json").write_text(json.dumps({
-            "violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]
-        }), encoding="utf-8")
+        (run_dir / "jira_sync.json").write_text(
+            json.dumps({"violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]}),
+            encoding="utf-8",
+        )
         monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
         monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py", "--dry-run"])
 
@@ -564,9 +576,10 @@ class TestSubmitGuideUrlCommentIntegration:
 
     def test_comment_failure_does_not_fail_submit(self, tmp_path, monkeypatch):
         run_dir, work_dir = self._setup_run_with_guide(tmp_path)
-        (run_dir / "jira_sync.json").write_text(json.dumps({
-            "violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]
-        }), encoding="utf-8")
+        (run_dir / "jira_sync.json").write_text(
+            json.dumps({"violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]}),
+            encoding="utf-8",
+        )
         monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
         monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py"])
 
@@ -579,5 +592,3 @@ class TestSubmitGuideUrlCommentIntegration:
         assert rc == 0
         ctx = conforma_context_ops.load(run_dir)
         assert ctx["steps"]["submit"]["status"] == "completed"
-
-

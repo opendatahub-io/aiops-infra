@@ -103,9 +103,7 @@ class TestSearchExistingExceptions:
     def test_returns_not_checked_when_no_env_vars(self, tmp_path, monkeypatch):
         monkeypatch.delenv("KONFLUX_CLUSTER_DOMAIN", raising=False)
         monkeypatch.delenv("KONFLUX_CONFORMA_POLICY_DIR", raising=False)
-        result = mod.search_existing_exceptions(
-            "hermetic_task.hermetic", ["registry-rhoai-prod.yaml"], str(tmp_path)
-        )
+        result = mod.search_existing_exceptions("hermetic_task.hermetic", ["registry-rhoai-prod.yaml"], str(tmp_path))
         assert result["checked"] is False
         assert "KONFLUX_CLUSTER_DOMAIN" in result["reason"]
 
@@ -117,9 +115,7 @@ class TestSearchExistingExceptions:
         policy_file = policy_dir / "registry-rhoai-prod.yaml"
         policy_file.write_text("exclude:\n  - hermetic_task.hermetic\n")
 
-        result = mod.search_existing_exceptions(
-            "hermetic_task.hermetic", ["registry-rhoai-prod.yaml"], str(tmp_path)
-        )
+        result = mod.search_existing_exceptions("hermetic_task.hermetic", ["registry-rhoai-prod.yaml"], str(tmp_path))
         assert result["checked"] is True
         assert result["permanent_count"] == 1
 
@@ -149,8 +145,7 @@ class TestSearchExistingExceptions:
         )
         assert result["checked"] is True
         assert result["count"] >= 1, (
-            "Volatile exceptions not found — _find_existing_exceptions import "
-            "from create_gitlab_mr is likely broken"
+            "Volatile exceptions not found — _find_existing_exceptions import from create_gitlab_mr is likely broken"
         )
         exc = result["existing_exceptions"][0]
         assert exc["componentNames"] == ["odh-foo-v3-5-ea-1"]
@@ -176,9 +171,7 @@ class TestSearchExistingExceptions:
         other_file = policy_dir / "registry-red-hat-desktop-extensions-prod.yaml"
         other_file.write_text("exclude:\n  - hermetic_task.hermetic\n")
 
-        result = mod.search_existing_exceptions(
-            "hermetic_task.hermetic", ["registry-rhoai-prod.yaml"], str(tmp_path)
-        )
+        result = mod.search_existing_exceptions("hermetic_task.hermetic", ["registry-rhoai-prod.yaml"], str(tmp_path))
         assert result["checked"] is True
         assert result["permanent_count"] == 1
         assert result["permanent_exclusions"][0]["file"].endswith("registry-rhoai-prod.yaml")
@@ -193,9 +186,7 @@ class TestSearchExistingExceptions:
         other_file = policy_dir / "registry-red-hat-desktop-extensions-prod.yaml"
         other_file.write_text("exclude:\n  - hermetic_task.hermetic\n")
 
-        result = mod.search_existing_exceptions(
-            "hermetic_task.hermetic", ["registry-rhoai-prod.yaml"], str(tmp_path)
-        )
+        result = mod.search_existing_exceptions("hermetic_task.hermetic", ["registry-rhoai-prod.yaml"], str(tmp_path))
         assert result["checked"] is True
         assert result["permanent_count"] == 0
         assert result["count"] == 0
@@ -206,16 +197,22 @@ class TestSelfServiceRuleMatches:
         assert mod._self_service_rule_matches("schedule.weekday_restriction", "schedule.weekday_restriction") is True
 
     def test_subcode_match(self):
-        assert mod._self_service_rule_matches(
-            "test.no_failed_tests:fbc-target-index-pruning-check",
-            "test.no_failed_tests",
-        ) is True
+        assert (
+            mod._self_service_rule_matches(
+                "test.no_failed_tests:fbc-target-index-pruning-check",
+                "test.no_failed_tests",
+            )
+            is True
+        )
 
     def test_reverse_subcode_match(self):
-        assert mod._self_service_rule_matches(
-            "test.no_failed_tests",
-            "test.no_failed_tests:fbc-target-index-pruning-check",
-        ) is True
+        assert (
+            mod._self_service_rule_matches(
+                "test.no_failed_tests",
+                "test.no_failed_tests:fbc-target-index-pruning-check",
+            )
+            is True
+        )
 
     def test_no_match(self):
         assert mod._self_service_rule_matches("schedule.weekday_restriction", "hermetic_task.hermetic") is False
@@ -254,11 +251,13 @@ class TestSearchSelfServiceExceptions:
     def test_finds_rule_in_flat_yaml(self, tmp_path):
         exc_dir = tmp_path / "exceptions"
         exc_dir.mkdir()
-        (exc_dir / "registry-rhoai-stage.yaml").write_text(textwrap.dedent("""\
+        (exc_dir / "registry-rhoai-stage.yaml").write_text(
+            textwrap.dedent("""\
             ---
             - value: schedule.weekday_restriction
               imageRef: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-        """))
+        """)
+        )
 
         result = mod.search_self_service_exceptions(
             "schedule.weekday_restriction",
@@ -273,11 +272,13 @@ class TestSearchSelfServiceExceptions:
     def test_matches_subcode_rule(self, tmp_path):
         exc_dir = tmp_path / "exceptions"
         exc_dir.mkdir()
-        (exc_dir / "fbc-rhoai-stage.yaml").write_text(textwrap.dedent("""\
+        (exc_dir / "fbc-rhoai-stage.yaml").write_text(
+            textwrap.dedent("""\
             ---
             - value: test.no_failed_tests:fbc-target-index-pruning-check
               imageRef: sha256:abc123
-        """))
+        """)
+        )
 
         result = mod.search_self_service_exceptions(
             "test.no_failed_tests",
@@ -290,11 +291,13 @@ class TestSearchSelfServiceExceptions:
     def test_returns_empty_when_rule_not_present(self, tmp_path):
         exc_dir = tmp_path / "exceptions"
         exc_dir.mkdir()
-        (exc_dir / "registry-rhoai-stage.yaml").write_text(textwrap.dedent("""\
+        (exc_dir / "registry-rhoai-stage.yaml").write_text(
+            textwrap.dedent("""\
             ---
             - value: schedule.weekday_restriction
               imageRef: sha256:fff
-        """))
+        """)
+        )
 
         result = mod.search_self_service_exceptions(
             "hermetic_task.hermetic",
@@ -328,13 +331,15 @@ class TestSearchSelfServiceExceptions:
     def test_cross_references_imageref_with_csv(self, tmp_path):
         exc_dir = tmp_path / "exceptions"
         exc_dir.mkdir()
-        (exc_dir / "fbc-rhoai-prod.yaml").write_text(textwrap.dedent("""\
+        (exc_dir / "fbc-rhoai-prod.yaml").write_text(
+            textwrap.dedent("""\
             ---
             - value: test.no_failed_tests:fbc-target-index-pruning-check
               imageRef: sha256:abc123
             - value: test.no_failed_tests:fbc-target-index-pruning-check
               imageRef: sha256:def456
-        """))
+        """)
+        )
 
         csv_content = textwrap.dedent("""\
             type,component_name,image,code
@@ -357,14 +362,16 @@ class TestSearchSelfServiceExceptions:
     def test_respects_component_names_scoping(self, tmp_path):
         exc_dir = tmp_path / "exceptions"
         exc_dir.mkdir()
-        (exc_dir / "registry-rhoai-stage.yaml").write_text(textwrap.dedent("""\
+        (exc_dir / "registry-rhoai-stage.yaml").write_text(
+            textwrap.dedent("""\
             ---
             - value: hermetic_task.hermetic
               componentNames:
                 - odh-dashboard-v3-5-ea-2
                 - odh-notebook-v3-5-ea-2
               effectiveUntil: "2099-01-01T00:00:00Z"
-        """))
+        """)
+        )
 
         result = mod.search_self_service_exceptions(
             "hermetic_task.hermetic",
@@ -378,11 +385,13 @@ class TestSearchSelfServiceExceptions:
     def test_excludes_expired_entries(self, tmp_path):
         exc_dir = tmp_path / "exceptions"
         exc_dir.mkdir()
-        (exc_dir / "registry-rhoai-stage.yaml").write_text(textwrap.dedent("""\
+        (exc_dir / "registry-rhoai-stage.yaml").write_text(
+            textwrap.dedent("""\
             ---
             - value: hermetic_task.hermetic
               effectiveUntil: "2020-01-01T00:00:00Z"
-        """))
+        """)
+        )
 
         result = mod.search_self_service_exceptions(
             "hermetic_task.hermetic",
@@ -395,10 +404,12 @@ class TestSearchSelfServiceExceptions:
     def test_unscoped_entry_marks_has_unscoped(self, tmp_path):
         exc_dir = tmp_path / "exceptions"
         exc_dir.mkdir()
-        (exc_dir / "registry-rhoai-stage.yaml").write_text(textwrap.dedent("""\
+        (exc_dir / "registry-rhoai-stage.yaml").write_text(
+            textwrap.dedent("""\
             ---
             - value: schedule.weekday_restriction
-        """))
+        """)
+        )
 
         result = mod.search_self_service_exceptions(
             "schedule.weekday_restriction",

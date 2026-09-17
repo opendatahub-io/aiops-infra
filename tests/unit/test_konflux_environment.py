@@ -43,10 +43,11 @@ class TestLoad:
                     konflux_environment.load()
         mock_derive.assert_called_once()
 
-
 class TestValidate:
     def test_passes_when_required_vars_set(self):
-        with patch.dict(os.environ, {"GITLAB_HOST": "real-gitlab.corp.com", "KONFLUX_CLUSTER_DOMAIN": "stone-prod.abc.p1"}):
+        with patch.dict(
+            os.environ, {"GITLAB_HOST": "real-gitlab.corp.com", "KONFLUX_CLUSTER_DOMAIN": "stone-prod.abc.p1"}
+        ):
             result = konflux_environment.validate()
         assert result.ok
         assert result.missing == []

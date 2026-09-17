@@ -101,25 +101,25 @@ def _parse_form_fields(fb_data: list) -> tuple[str, list[dict]]:
             entry_id = str(field_detail[0])
             raw_type = field_detail[3] if len(field_detail) > 3 else -1
             field_type = _FIELD_TYPE_MAP.get(raw_type, f"unknown({raw_type})")
-            required = bool(field_detail[4][0][2]) if (
-                len(field_detail) > 4 and field_detail[4]
-                and field_detail[4][0] and len(field_detail[4][0]) > 2
-            ) else False
+            required = (
+                bool(field_detail[4][0][2])
+                if (len(field_detail) > 4 and field_detail[4] and field_detail[4][0] and len(field_detail[4][0]) > 2)
+                else False
+            )
 
             options = None
             if field_detail[1] and isinstance(field_detail[1], list):
-                options = [
-                    opt[0] for opt in field_detail[1]
-                    if isinstance(opt, list) and opt
-                ]
+                options = [opt[0] for opt in field_detail[1] if isinstance(opt, list) and opt]
 
-            fields.append({
-                "entry_id": entry_id,
-                "question": question_text,
-                "field_type": field_type,
-                "required": required,
-                "options": options,
-            })
+            fields.append(
+                {
+                    "entry_id": entry_id,
+                    "question": question_text,
+                    "field_type": field_type,
+                    "required": required,
+                    "options": options,
+                }
+            )
 
     return form_title, fields
 
@@ -175,8 +175,10 @@ def write_config(config: dict, output_path: Path) -> None:
 # Health check / config validation
 # ---------------------------------------------------------------------------
 
+
 class ConfigHealthWarning:
     """A single health-check warning."""
+
     def __init__(self, level: str, message: str):
         self.level = level  # "warn" or "error"
         self.message = message
@@ -197,12 +199,14 @@ def validate_config(config_path: Path | None = None) -> list[ConfigHealthWarning
     warnings: list[ConfigHealthWarning] = []
 
     if not path.is_file():
-        warnings.append(ConfigHealthWarning(
-            "error",
-            f"Config file not found: {path}. "
-            "Run --discover with a saved form HTML to generate it. "
-            "See references/update-prodsec-form.md for instructions."
-        ))
+        warnings.append(
+            ConfigHealthWarning(
+                "error",
+                f"Config file not found: {path}. "
+                "Run --discover with a saved form HTML to generate it. "
+                "See references/update-prodsec-form.md for instructions.",
+            )
+        )
         return warnings
 
     with open(path) as fh:
@@ -218,40 +222,40 @@ def validate_config(config_path: Path | None = None) -> list[ConfigHealthWarning
             ts = datetime.datetime.fromisoformat(discovered_at)
             age_days = (datetime.datetime.now(datetime.timezone.utc) - ts).days
             if age_days > STALENESS_WARN_DAYS:
-                warnings.append(ConfigHealthWarning(
-                    "warn",
-                    f"Form config is {age_days} days old (discovered {discovered_at}). "
-                    f"The ProdSec form may have changed. "
-                    f"See references/update-prodsec-form.md to refresh."
-                ))
+                warnings.append(
+                    ConfigHealthWarning(
+                        "warn",
+                        f"Form config is {age_days} days old (discovered {discovered_at}). "
+                        f"The ProdSec form may have changed. "
+                        f"See references/update-prodsec-form.md to refresh.",
+                    )
+                )
         except (ValueError, TypeError):
             warnings.append(ConfigHealthWarning("warn", f"Cannot parse discovered_at: {discovered_at}"))
 
     field_mapping = config.get("field_mapping", {})
     mapped_count = sum(1 for v in field_mapping.values() if v is not None)
     if mapped_count == 0:
-        warnings.append(ConfigHealthWarning(
-            "error",
-            "No fields are mapped in field_mapping. "
-            "Edit prodsec_form_config.yaml to map entry IDs to exception data keys."
-        ))
+        warnings.append(
+            ConfigHealthWarning(
+                "error",
+                "No fields are mapped in field_mapping. "
+                "Edit prodsec_form_config.yaml to map entry IDs to exception data keys.",
+            )
+        )
 
-    required_fields = [
-        f for f in config.get("fields", []) if f.get("required")
-    ]
-    mapped_entry_ids = {
-        k.replace("entry_", "") for k, v in field_mapping.items() if v is not None
-    }
-    unmapped_required = [
-        f for f in required_fields if f["entry_id"] not in mapped_entry_ids
-    ]
+    required_fields = [f for f in config.get("fields", []) if f.get("required")]
+    mapped_entry_ids = {k.replace("entry_", "") for k, v in field_mapping.items() if v is not None}
+    unmapped_required = [f for f in required_fields if f["entry_id"] not in mapped_entry_ids]
     if unmapped_required:
         names = ", ".join(f'"{f["question"]}"' for f in unmapped_required)
-        warnings.append(ConfigHealthWarning(
-            "warn",
-            f"Required form fields not mapped: {names}. "
-            f"These will be empty in the pre-fill URL and the user must fill them manually."
-        ))
+        warnings.append(
+            ConfigHealthWarning(
+                "warn",
+                f"Required form fields not mapped: {names}. "
+                f"These will be empty in the pre-fill URL and the user must fill them manually.",
+            )
+        )
 
     return warnings
 
@@ -261,10 +265,18 @@ def validate_config(config_path: Path | None = None) -> list[ConfigHealthWarning
 # ---------------------------------------------------------------------------
 
 _KNOWN_DATA_KEYS = {
-    "rule", "components", "rhoai_version", "effective_until",
-    "exception_scope", "exception_risk", "exception_remediation",
-    "exception_impact", "rhoaieng_url", "vendor_tag",
-    "summary_context", "authorized_party",
+    "rule",
+    "components",
+    "rhoai_version",
+    "effective_until",
+    "exception_scope",
+    "exception_risk",
+    "exception_remediation",
+    "exception_impact",
+    "rhoaieng_url",
+    "vendor_tag",
+    "summary_context",
+    "authorized_party",
 }
 
 
@@ -275,8 +287,7 @@ def _load_config(config_path: Path | None = None) -> dict:
     path = config_path or _DEFAULT_CONFIG_PATH
     if not path.is_file():
         raise FileNotFoundError(
-            f"Config file not found: {path}. "
-            "Run --discover first. See references/update-prodsec-form.md."
+            f"Config file not found: {path}. Run --discover first. See references/update-prodsec-form.md."
         )
     with open(path) as fh:
         return yaml.safe_load(fh)
@@ -312,8 +323,7 @@ def generate_prefill_url(
             base_url = f"https://docs.google.com/forms/d/e/{form_id}/viewform"
         else:
             raise ValueError(
-                "Config must contain 'form_url' or 'form_id'. "
-                "Add the form URL to prodsec_form_config.yaml."
+                "Config must contain 'form_url' or 'form_id'. Add the form URL to prodsec_form_config.yaml."
             )
 
     data_values = {
@@ -381,6 +391,7 @@ def _match_option(value: str, options: list[str]) -> str | None:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate Google Form pre-fill URLs for ProdSec exception requests.",
@@ -393,7 +404,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     mode.add_argument("--generate", action="store_true", help="Generate a pre-fill URL.")
     mode.add_argument(
-        "--validate-config", action="store_true",
+        "--validate-config",
+        action="store_true",
         help="Check config health and exit.",
     )
 

@@ -217,9 +217,8 @@ def workflow_get_step(workflow: list[dict], step_id: str) -> dict | None:
 
 def workflow_is_self_service(workflow: list[dict]) -> bool:
     """A workflow is self-service if it has no ProdSec or OCPEXCEPT step."""
-    return (
-        not workflow_has_step(workflow, "prodsec_form_submission")
-        and not workflow_has_step(workflow, "psx_exception_jira")
+    return not workflow_has_step(workflow, "prodsec_form_submission") and not workflow_has_step(
+        workflow, "psx_exception_jira"
     )
 
 
@@ -248,7 +247,9 @@ def lookup_component_names(
         clone_root = conforma_context_ops.discover_work_dir() / "konflux-release-data"
     else:
         rpa_dir_path = Path(rpa_dir)
-        if rpa_dir_path.name == "rhoai" or KONFLUX_RPA_SUBPATH.endswith(str(rpa_dir_path.relative_to(rpa_dir_path.anchor))):
+        if rpa_dir_path.name == "rhoai" or KONFLUX_RPA_SUBPATH.endswith(
+            str(rpa_dir_path.relative_to(rpa_dir_path.anchor))
+        ):
             clone_root = rpa_dir_path
             while clone_root.name != "konflux-release-data" and clone_root != clone_root.parent:
                 clone_root = clone_root.parent
@@ -262,8 +263,7 @@ def lookup_component_names(
     pds_path = (resolved_root / KONFLUX_PDS_SUBPATH).resolve()
     if not rpa_path.is_relative_to(resolved_root) or not pds_path.is_relative_to(resolved_root):
         raise ValueError(
-            f"Path traversal detected: rpa_path={rpa_path} or pds_path={pds_path} "
-            f"escapes clone_root={resolved_root}"
+            f"Path traversal detected: rpa_path={rpa_path} or pds_path={pds_path} escapes clone_root={resolved_root}"
         )
 
     results: dict[str, list[str]] = {}

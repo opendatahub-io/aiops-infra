@@ -256,11 +256,13 @@ class TestPrefetchDiscoveryBase:
 
         def fake_discover(**kw):
             calls["n"] += 1
+            calls["violations"] = kw.get("violations")
             return []
 
         monkeypatch.setattr("conforma_jira_ticket_ops.discover_conforma_tickets", fake_discover)
         mod.prefetch_open_jira_tickets(["hermetic_task.hermetic"])
         assert calls["n"] == 1
+        assert calls["violations"] == [{"rule": "hermetic_task.hermetic", "uncovered_components": []}]
 
     def test_no_open_tickets(self, monkeypatch):
         _mock_discover(monkeypatch, [])
@@ -355,7 +357,7 @@ class TestPrefetchPass1ExactRule:
 
 class TestPrefetchPass2ComponentInference:
     def test_component_inference_confirmed(self, monkeypatch):
-        issues = [_issue("RHOAIENG-70001", "hermetic build fix in odh-ogx-core")]
+        issues = [_issue("RHOAIENG-70001", "hermetic build fix in odh-ogx-core-v3-5-ea-1")]
         _mock_discover(monkeypatch, issues)
         tickets = mod.prefetch_open_jira_tickets(
             ["hermetic_task.hermetic"],
@@ -367,7 +369,7 @@ class TestPrefetchPass2ComponentInference:
         assert tickets[0]["inference_confidence"] == "confirmed"
 
     def test_component_inference_unconfirmed(self, monkeypatch):
-        issues = [_issue("RHOAIENG-70002", "conforma issue in odh-ogx-core")]
+        issues = [_issue("RHOAIENG-70002", "conforma issue in odh-ogx-core-v3-5-ea-1")]
         _mock_discover(monkeypatch, issues)
         tickets = mod.prefetch_open_jira_tickets(
             ["hermetic_task.hermetic"],
@@ -378,12 +380,12 @@ class TestPrefetchPass2ComponentInference:
         assert tickets[0]["inference_confidence"] == "unconfirmed"
 
     def test_no_rule_to_components_skips_pass2(self, monkeypatch):
-        issues = [_issue("RHOAIENG-70003", "conforma issue in odh-ogx-core")]
+        issues = [_issue("RHOAIENG-70003", "conforma issue in odh-ogx-core-v3-5-ea-1")]
         _mock_discover(monkeypatch, issues)
         assert mod.prefetch_open_jira_tickets(["hermetic_task.hermetic"])["hermetic_task.hermetic"] == []
 
     def test_empty_konflux_components_skipped(self, monkeypatch):
-        issues = [_issue("RHOAIENG-70004", "conforma issue in odh-ogx-core")]
+        issues = [_issue("RHOAIENG-70004", "conforma issue in odh-ogx-core-v3-5-ea-1")]
         _mock_discover(monkeypatch, issues)
         assert (
             mod.prefetch_open_jira_tickets(
@@ -394,7 +396,7 @@ class TestPrefetchPass2ComponentInference:
         )
 
     def test_alias_only_text_match(self, monkeypatch):
-        issues = [_issue("RHOAIENG-70005", "conforma issue in odh-llama-cpp-server")]
+        issues = [_issue("RHOAIENG-70005", "conforma issue in odh-llama-cpp-server-v3-5-ea-1")]
         _mock_discover(monkeypatch, issues)
         aliases = {
             "odh-ogx-core-v3-5-ea-1": {
@@ -414,7 +416,7 @@ class TestPrefetchPass2ComponentInference:
     def test_already_assigned_ticket_not_duplicated(self, monkeypatch):
         # T1 carries the rule code (pass 1 -> rule A) and also names rule B's
         # component -> it is assigned only to A, never duplicated into B.
-        issues = [_issue("RHOAIENG-11111", "hermetic_task.hermetic for odh-ogx-core")]
+        issues = [_issue("RHOAIENG-11111", "hermetic_task.hermetic for odh-ogx-core-v3-5-ea-1")]
         _mock_discover(monkeypatch, issues)
         result = mod.prefetch_open_jira_tickets(
             ["hermetic_task.hermetic", "other.rule"],
@@ -423,8 +425,101 @@ class TestPrefetchPass2ComponentInference:
         assert [t["key"] for t in result["hermetic_task.hermetic"]] == ["RHOAIENG-11111"]
         assert result["other.rule"] == []
 
+    def test_shared_description_matches_multiple_rules(self, monkeypatch):
+        issues = [
+            {
+                **_issue("RHOAIENG-88509", "[Conforma IC] Add prod policy exceptions"),
+                "description": (
+                    "hermetic_task.hermetic — odh-openvino-model-server-v3-6-ea-2\n"
+                    "rpm_signature.allowed:05b555b38483c65d — odh-openvino-model-server-v3-6-ea-2"
+                ),
+                "merge_request_references": [{"mr_iid": 22104, "source": "merge_request_title"}],
+            }
+        ]
+        _mock_discover(monkeypatch, issues)
+
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic", "rpm_signature.allowed"],
+            rule_to_components={
+                "hermetic_task.hermetic": ["odh-openvino-model-server-v3-6-ea-2"],
+                "rpm_signature.allowed": ["odh-openvino-model-server-v3-6-ea-2"],
+            },
+        )
+
+        assert [t["key"] for t in result["hermetic_task.hermetic"]] == ["RHOAIENG-88509"]
+        assert [t["key"] for t in result["rpm_signature.allowed"]] == ["RHOAIENG-88509"]
+        assert result["hermetic_task.hermetic"][0]["inference_confidence"] == "confirmed"
+        assert result["rpm_signature.allowed"][0]["inference_confidence"] == "confirmed"
+        assert result["hermetic_task.hermetic"][0]["merge_request_references"][0]["mr_iid"] == 22104
+
+    def test_explicit_component_scope_does_not_cross_versions(self, monkeypatch):
+        issues = [
+            _issue(
+                "RHOAIENG-88510",
+                "Conforma violation: hermetic_task.hermetic in odh-openvino-model-server-v3-5",
+            ),
+        ]
+        _mock_discover(monkeypatch, issues)
+
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic"],
+            rule_to_components={"hermetic_task.hermetic": ["odh-openvino-model-server-v3-6-ea-2"]},
+        )
+
+        assert result["hermetic_task.hermetic"] == []
+
+    def test_mixed_version_component_scope_matches_requested_version(self, monkeypatch):
+        issues = [
+            _issue(
+                "RHOAIENG-88511",
+                "Conforma violation: hermetic_task.hermetic in odh-openvino-model-server-v3-5, "
+                "odh-openvino-model-server-v3-6-ea-2",
+            ),
+        ]
+        _mock_discover(monkeypatch, issues)
+
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic"],
+            rule_to_components={"hermetic_task.hermetic": ["odh-openvino-model-server-v3-6-ea-2"]},
+        )
+
+        assert [t["key"] for t in result["hermetic_task.hermetic"]] == ["RHOAIENG-88511"]
+
+    def test_freeform_versioned_component_scope_is_strict(self, monkeypatch):
+        issues = [_issue("RHOAIENG-88512", "hermetic_task.hermetic issue for odh-openvino-v3-6")]
+        _mock_discover(monkeypatch, issues)
+
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic"],
+            rule_to_components={"hermetic_task.hermetic": ["odh-openvino-v3-5"]},
+        )
+
+        assert result["hermetic_task.hermetic"] == []
+
+    def test_freeform_unversioned_component_does_not_cover_versioned_violation(self, monkeypatch):
+        issues = [_issue("RHOAIENG-88513", "hermetic_task.hermetic issue for odh-openvino")]
+        _mock_discover(monkeypatch, issues)
+
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic"],
+            rule_to_components={"hermetic_task.hermetic": ["odh-openvino-v3-5"]},
+        )
+
+        assert result["hermetic_task.hermetic"] == []
+
+    def test_freeform_rule_ticket_without_component_scope_is_retained(self, monkeypatch):
+        issues = [_issue("RHOAIENG-88514", "hermetic_task.hermetic remediation")]
+        _mock_discover(monkeypatch, issues)
+
+        result = mod.prefetch_open_jira_tickets(
+            ["hermetic_task.hermetic"],
+            rule_to_components={"hermetic_task.hermetic": ["odh-openvino-v3-5"]},
+        )
+
+        assert [ticket["key"] for ticket in result["hermetic_task.hermetic"]] == ["RHOAIENG-88514"]
+
     def test_component_inference_tagged_shape(self, monkeypatch):
-        issues = [_issue("RHOAIENG-70006", "conforma issue in odh-ogx-core")]
+        issues = [_issue("RHOAIENG-70006", "conforma issue in odh-ogx-core-v3-5-ea-1")]
         _mock_discover(monkeypatch, issues)
         ticket = mod.prefetch_open_jira_tickets(
             ["hermetic_task.hermetic"],
@@ -531,11 +626,11 @@ class TestKonfluxStemsInText:
         assert mod._konflux_stems_in_text({"summary": "anything"}, [], None) == []
 
     def test_direct_stem_in_summary(self):
-        ticket = {"summary": "conforma issue in odh-ogx-core"}
+        ticket = {"summary": "conforma issue in odh-ogx-core-v3-5-ea-1"}
         assert mod._konflux_stems_in_text(ticket, ["odh-ogx-core-v3-5-ea-1"], None) == ["odh-ogx-core"]
 
     def test_alias_expansion(self):
-        ticket = {"summary": "conforma issue in odh-llama-cpp-server"}
+        ticket = {"summary": "conforma issue in odh-llama-cpp-server-v3-5-ea-1"}
         aliases = {
             "odh-ogx-core-v3-5-ea-1": {
                 "odh-ogx-core-v3-5-ea-1",
@@ -546,6 +641,10 @@ class TestKonfluxStemsInText:
 
     def test_no_stem_in_text(self):
         assert mod._konflux_stems_in_text({"summary": "unrelated"}, ["odh-ogx-core-v3-5-ea-1"], None) == []
+
+    def test_unversioned_component_does_not_match(self):
+        ticket = {"summary": "conforma issue in odh-ogx-core"}
+        assert mod._konflux_stems_in_text(ticket, ["odh-ogx-core-v3-5-ea-1"], None) == []
 
 
 class TestPrefetchPass2NoStem:

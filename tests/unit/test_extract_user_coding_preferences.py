@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
-import pytest
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from extract_user_coding_preferences import (
@@ -260,11 +259,7 @@ class TestAppendToAgentsMd:
     def test_appends_terminology_rule(self, tmp_path):
         agents_md = tmp_path / "AGENTS.md"
         agents_md.write_text(
-            "# Project\n\n"
-            "### Terminology\n\n"
-            '- Use "Merge Request" always\n\n'
-            "### Code Style\n\n"
-            "- Some code rule\n"
+            '# Project\n\n### Terminology\n\n- Use "Merge Request" always\n\n### Code Style\n\n- Some code rule\n'
         )
         rules = [
             ProposedRule(
@@ -312,6 +307,7 @@ class TestSaveProposals:
         save_proposals(proposals, output)
         assert output.exists()
         import yaml
+
         data = yaml.safe_load(output.read_text())
         assert len(data["proposed_rules"]) == 1
         assert data["proposed_rules"][0]["rule"] == "Never auto-submit"
@@ -319,12 +315,11 @@ class TestSaveProposals:
     def test_merges_with_existing(self, tmp_path):
         output = tmp_path / "proposals.yaml"
         import yaml
+
         output.write_text(
             yaml.dump({"proposed_rules": [{"category": "behavior", "rule": "Existing rule", "evidence_count": 1}]})
         )
-        proposals = [
-            ProposedRule(category="behavior", rule="New rule", confidence="medium")
-        ]
+        proposals = [ProposedRule(category="behavior", rule="New rule", confidence="medium")]
         save_proposals(proposals, output)
         data = yaml.safe_load(output.read_text())
         assert len(data["proposed_rules"]) == 2
@@ -336,7 +331,10 @@ class TestParseTranscripts:
         tdir.mkdir(parents=True)
         jsonl = tdir / "session-1.jsonl"
         records = [
-            {"role": "user", "message": {"content": [{"type": "text", "text": "<user_query>fix MR to Merge Request</user_query>"}]}},
+            {
+                "role": "user",
+                "message": {"content": [{"type": "text", "text": "<user_query>fix MR to Merge Request</user_query>"}]},
+            },
             {"role": "assistant", "message": {"content": [{"type": "text", "text": "Done."}]}},
             {"role": "user", "message": {"content": [{"type": "text", "text": "<user_query>looks good</user_query>"}]}},
         ]

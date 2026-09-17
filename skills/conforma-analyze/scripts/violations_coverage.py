@@ -21,7 +21,9 @@ import argparse
 import conforma_context_ops
 import fnmatch
 import json
+import os
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -44,6 +46,79 @@ _GATE_STATUS_MAP: dict[str, tuple[str, str | None]] = {
     "skipped": ("not_covered", "not covered — resolve in code first, exception as last resort"),
     "error": ("not_covered", "not covered — exception check failed, manual review needed"),
 }
+
+_DISCOVERY_ARTIFACT_SCHEMA = 1
+_MR_DISCOVERY_FILENAME = "merge-request-discovery.json"
+_JIRA_DISCOVERY_FILENAME = "jira-discovery.json"
+
+
+def _discovery_query(
+    source: str,
+    rules: list[str],
+    policy_files: list[str],
+    environment: str,
+    release: str | None,
+    rule_to_components: dict[str, list[str]],
+    aliases: dict[str, set[str]] | None = None,
+) -> dict:
+    """Return the inputs that make a discovery artifact reusable."""
+    query = {
+        "source": source,
+        "rules": sorted(rules),
+        "policy_files": sorted(policy_files),
+        "environment": environment,
+        "release": release or "",
+        "rule_to_components": {
+            rule: sorted(components) for rule, components in sorted(rule_to_components.items())
+        },
+    }
+    if aliases is not None:
+        query["aliases"] = {name: sorted(values) for name, values in sorted(aliases.items())}
+    return query
+
+
+def _load_discovery_artifact(path: Path, query: dict) -> dict | None:
+    """Load a matching discovery artifact, returning None for stale/corrupt data."""
+    if not path.is_file():
+        return None
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        _log(f"Ignoring unreadable discovery artifact: {path}")
+        return None
+    if (
+        not isinstance(artifact, dict)
+        or
+        artifact.get("schema_version") != _DISCOVERY_ARTIFACT_SCHEMA
+        or artifact.get("query") != query
+        or not isinstance(artifact.get("data"), dict)
+    ):
+        _log(f"Ignoring stale discovery artifact: {path}")
+        return None
+    return artifact["data"]
+
+
+def _save_discovery_artifact(path: Path, query: dict, data: dict) -> None:
+    """Atomically save a discovery result for resumption by later processes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    artifact = {
+        "schema_version": _DISCOVERY_ARTIFACT_SCHEMA,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "query": query,
+        "data": data,
+    }
+    fd, temporary_path = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(artifact, stream, indent=2)
+            stream.write("\n")
+        os.replace(temporary_path, path)
+    except BaseException:
+        try:
+            os.unlink(temporary_path)
+        except OSError:
+            pass
+        raise
 
 
 def _build_component_exception_details(
@@ -447,11 +522,13 @@ def check_violations_coverage(
     environment: str,
     clone_dir: str | None = None,
     require_jira: bool = True,
-    require_slack: bool = True,
+    require_slack: bool = False,
     metadata_file: str | None = None,
     release: str | None = None,
     csv_path: str | None = None,
     self_service_files: list[str] | None = None,
+    discovery_dir: str | Path | None = None,
+    run_ec_validation: bool = True,
 ) -> dict:
     """Batch coverage check: read a violations YAML and check each violation's components
     against existing exceptions in the policy file.
@@ -496,8 +573,39 @@ def check_violations_coverage(
             comps.extend(release_comps)
         rule_to_components[rule] = sorted(set(comps))
 
-    # Verify auth for enabled sources before starting parallel work.
-    if require_jira:
+    analyzed_release = release or (releases[0] if releases else None)
+    artifact_dir = Path(discovery_dir) if discovery_dir else None
+    mr_query = _discovery_query(
+        "merge_requests",
+        all_rules,
+        policy_files,
+        environment,
+        analyzed_release,
+        rule_to_components,
+    )
+    jira_query = _discovery_query(
+        "jira",
+        all_rules,
+        policy_files,
+        environment,
+        analyzed_release,
+        rule_to_components,
+        aliases,
+    )
+    mr_artifact_path = artifact_dir / _MR_DISCOVERY_FILENAME if artifact_dir else None
+    jira_artifact_path = artifact_dir / _JIRA_DISCOVERY_FILENAME if artifact_dir else None
+
+    # Reuse completed source discovery independently. This lets a restarted
+    # process continue with the source that finished before interruption.
+    mr_artifact_data = _load_discovery_artifact(mr_artifact_path, mr_query) if mr_artifact_path else None
+    jira_artifact_data = _load_discovery_artifact(jira_artifact_path, jira_query) if jira_artifact_path else None
+    prefetched_mrs: dict = mr_artifact_data or {}
+    prefetched_jira: dict = jira_artifact_data or {}
+    mrs_cached = mr_artifact_data is not None
+    jira_cached = jira_artifact_data is not None
+
+    # Verify auth for enabled sources that still need remote discovery.
+    if require_jira and not jira_cached:
         jira_auth = jira_ops.verify_auth()
         if not jira_auth["ok"]:
             return {"error": f"Jira auth failed: {jira_auth['error']}"}
@@ -509,12 +617,13 @@ def check_violations_coverage(
             return {"error": f"Slack auth failed: {slack_auth['error']}"}
         slack_team_url = slack_auth.get("team_url", "")
 
-    # Run Merge Request, Jira, and Slack prefetches in parallel — they are independent.
-    prefetched_mrs: dict = {}
-    prefetched_jira: dict = {}
+    # Run missing Merge Request, Jira, and Slack prefetches in parallel — they are independent.
     prefetched_slack: dict = {}
 
     def _fetch_mrs():
+        if mrs_cached:
+            _log(f"  [Merge Requests] Reusing {_MR_DISCOVERY_FILENAME}")
+            return "mrs", prefetched_mrs
         t0 = time.monotonic()
         _log(f"  [Merge Requests] Searching GitLab for {len(all_rules)} rules...")
         result = conforma_mr_ops.prefetch_open_mrs(all_rules, relevant_policy_files=policy_files)
@@ -523,6 +632,9 @@ def check_violations_coverage(
         return "mrs", result
 
     def _fetch_jira():
+        if jira_cached:
+            _log(f"  [Jira] Reusing {_JIRA_DISCOVERY_FILENAME}")
+            return "jira", prefetched_jira
         t0 = time.monotonic()
         _log(f"  [Jira] Searching Jira tickets for {len(all_rules)} rules...")
         result = conforma_jira_ops.prefetch_open_jira_tickets(
@@ -542,27 +654,32 @@ def check_violations_coverage(
         _log(f"  [Slack] Done — {total_threads} thread(s) found ({time.monotonic() - t0:.1f}s)")
         return "slack", result
 
-    tasks = [_fetch_mrs]
-    if require_jira:
+    tasks = []
+    if not mrs_cached:
+        tasks.append(_fetch_mrs)
+    if require_jira and not jira_cached:
         tasks.append(_fetch_jira)
     if require_slack:
         tasks.append(_fetch_slack)
 
-    _log(f"Cross-referencing {len(all_rules)} rules ({len(tasks)} source(s) in parallel)...")
-    t_start = time.monotonic()
-    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
-        futures = {pool.submit(fn): fn.__name__ for fn in tasks}
-        for future in as_completed(futures):
-            key, result = future.result()
-            if key == "mrs":
-                prefetched_mrs = result
-            elif key == "jira":
-                prefetched_jira = result
-            elif key == "slack":
-                prefetched_slack = result
-    _log(f"All prefetches complete ({time.monotonic() - t_start:.1f}s)")
-
-    analyzed_release = release or (releases[0] if releases else None)
+    if tasks:
+        _log(f"Cross-referencing {len(all_rules)} rules ({len(tasks)} source(s) in parallel)...")
+        t_start = time.monotonic()
+        with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+            futures = {pool.submit(fn): fn.__name__ for fn in tasks}
+            for future in as_completed(futures):
+                key, result = future.result()
+                if key == "mrs":
+                    prefetched_mrs = result
+                    if mr_artifact_path:
+                        _save_discovery_artifact(mr_artifact_path, mr_query, result)
+                elif key == "jira":
+                    prefetched_jira = result
+                    if jira_artifact_path:
+                        _save_discovery_artifact(jira_artifact_path, jira_query, result)
+                elif key == "slack":
+                    prefetched_slack = result
+        _log(f"All prefetches complete ({time.monotonic() - t_start:.1f}s)")
 
     # Refresh the policy clone once (not per rule).
     if clone_dir:
@@ -571,19 +688,24 @@ def check_violations_coverage(
         conforma_policy_ops.refresh_clone(clone_dir)
         _log(f"Policy clone refreshed ({time.monotonic() - t0:.1f}s)")
 
-    # Run ec validate image once for authoritative coverage.
+    # Run ec validate image once for authoritative coverage when explicitly
+    # requested. The normal report workflow uses the policy exception gate
+    # below and keeps this expensive, current-policy comparison available for
+    # occasional use through --run-ec-validation.
     ec_violations: dict[str, set[str]] | None = None
     ec_successes: dict[str, set[str]] | None = None
     ec_validation: dict | None = None
-    if csv_path and clone_dir:
+    if run_ec_validation and csv_path and clone_dir:
         t0 = time.monotonic()
         ec_result = _run_ec_coverage(csv_path, clone_dir, policy_files, environment)
         ec_violations = ec_result["violations"]
         ec_successes = ec_result["successes"]
         ec_validation = ec_result["validation"]
         _log(f"ec validate coverage complete ({time.monotonic() - t0:.1f}s)")
-    elif not csv_path:
+    elif run_ec_validation and not csv_path:
         return {"error": "--csv is required for ec-based coverage checking"}
+    else:
+        _log("Skipping ec validate coverage; using the existing policy exception gate")
 
     _log(f"Checking exception coverage for {len(by_rule)} rules...")
     results = []
@@ -616,13 +738,20 @@ def check_violations_coverage(
             )
             continue
 
-        # Coverage from ec validate (authoritative, catches all exception types).
-        covered, uncovered, coverage, coverage_label, rule_divergences = _ec_coverage_for_rule(
-            rule,
-            all_components,
-            ec_violations,
-            ec_successes,
-        )
+        if run_ec_validation:
+            # Coverage from ec validate (authoritative, catches all exception types).
+            covered, uncovered, coverage, coverage_label, rule_divergences = _ec_coverage_for_rule(
+                rule,
+                all_components,
+                ec_violations,
+                ec_successes,
+            )
+        else:
+            covered = []
+            uncovered = list(all_components)
+            coverage = "not_covered"
+            coverage_label = "not covered — resolve in code first, exception as last resort"
+            rule_divergences = []
 
         # Self-service exception coverage (supplements EC, which doesn't see exceptions/ files).
         if self_service_files and uncovered:
@@ -661,6 +790,20 @@ def check_violations_coverage(
             skip_refresh=True,
             aliases=aliases or None,
         )
+
+        if not run_ec_validation:
+            gate_covered = set(gate.get("covered_components", []))
+            covered = sorted(set(covered) | gate_covered)
+            uncovered = sorted(set(all_components) - set(covered))
+            if not uncovered:
+                coverage = "fully_covered"
+                coverage_label = "fully covered (verified by policy exception gate)"
+            elif covered:
+                coverage = "partially_covered"
+                coverage_label = f"{len(uncovered)} of {len(all_components)} without exception coverage"
+            else:
+                coverage = "not_covered"
+                coverage_label = "not covered — resolve in code first, exception as last resort"
 
         exception_expiry = _extract_exception_expiry(gate)
         exception_details = _build_component_exception_details(gate, all_components, policy_files=policy_files)
@@ -846,6 +989,7 @@ def check_violations_coverage(
     }
     if ec_validation:
         output["ec_validation"] = ec_validation
+    output["ec_validation_enabled"] = run_ec_validation
     if component_owners:
         output["component_owners"] = component_owners
     return output
@@ -919,6 +1063,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--violations-yaml", default=None)
     parser.add_argument("--csv", default=None, help="Path to source CSV report (for ec validate image)")
+    parser.add_argument(
+        "--run-ec-validation",
+        action="store_true",
+        help="Run the optional current-policy ec validate comparison (disabled by default)",
+    )
     parser.add_argument("--clone-dir", default=None)
     parser.add_argument("--environment", default=None, choices=["prod", "stage"])
     parser.add_argument("--require-jira", type=lambda v: v.lower() in ("true", "1", "yes"), default=True)
@@ -926,7 +1075,7 @@ def parse_args() -> argparse.Namespace:
         "--require-slack",
         type=lambda v: v.lower() in ("true", "1", "yes"),
         default=None,
-        help="Require Slack search. Auto-detected from context.yaml if omitted.",
+        help="Require Slack search. Disabled by default; set to true to enable it.",
     )
     parser.add_argument("--metadata-file", default=None, help="Path to fetch-metadata.json for report header")
     parser.add_argument(
@@ -1024,10 +1173,8 @@ def main() -> int:
         output_file = str(Path(run_dir) / "coverage.json")
 
     require_slack = args.require_slack
-    if require_slack is None and run_dir:
-        require_slack = conforma_context_ops.get(run_dir, "steps.prerequisites.slack_available", None)
     if require_slack is None:
-        require_slack = True
+        require_slack = False
 
     result = check_violations_coverage(
         violations_yaml_path=violations_yaml,
@@ -1040,6 +1187,8 @@ def main() -> int:
         release=release,
         csv_path=csv_path,
         self_service_files=ssf,
+        discovery_dir=run_dir,
+        run_ec_validation=args.run_ec_validation,
     )
     output_json = json.dumps(result, indent=2)
     if output_file:
@@ -1050,7 +1199,11 @@ def main() -> int:
         print(output_json)
 
     if run_dir and "error" not in result:
-        step_outputs: dict = {"coverage_json": "coverage.json"}
+        step_outputs: dict = {
+            "coverage_json": "coverage.json",
+            "merge_request_discovery": _MR_DISCOVERY_FILENAME,
+            "jira_discovery": _JIRA_DISCOVERY_FILENAME,
+        }
         if clone_dir:
             step_outputs["clone_dir"] = conforma_context_ops.contract_home(Path(clone_dir))
         conforma_context_ops.update_step(run_dir, "coverage", "completed", **step_outputs)

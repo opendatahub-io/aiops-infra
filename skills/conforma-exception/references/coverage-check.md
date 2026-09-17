@@ -37,7 +37,7 @@ No manual clone management is needed — just pass `--clone-dir ~/.conforma/konf
 
 This checks all violations against existing exceptions in the policy file, searches for open Merge Requests, open Jira tickets, and Slack threads — all in one pass.
 
-For CI-only environments (no Slack access), disable with `--require-slack false`. In the interactive conforma-analyze workflow, Slack availability is auto-detected from `steps.prerequisites.slack_available` in context.yaml — no manual flag needed.
+Slack coverage is disabled by default. Enable it explicitly with `--require-slack true`; use `--require-slack false` to make the disabled behavior explicit in CI or other scripted environments.
 
 ## Presenting Results
 

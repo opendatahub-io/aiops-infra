@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, Mock, patch
-import argparse
-import sys
+from unittest.mock import MagicMock, patch
 
 import conforma_mr_ops as mod
 
@@ -54,7 +52,7 @@ class TestGlabGetMrs:
             search="hermetic",
             per_page=20,
             get_all=False,
-            timeout=15,
+            timeout=30,
         )
 
     @patch("conforma_mr_ops._get_project")
@@ -72,8 +70,26 @@ class TestSearchOpenExceptionMrs:
     def test_searches_full_rule_and_suffix(self, mock_glab):
         """Test searches both full rule and suffix after colon."""
         mock_glab.side_effect = [
-            [{"iid": 123, "title": "MR1", "web_url": "url1", "author": "user1", "created_at": "2026-01-01", "description": "desc1"}],
-            [{"iid": 124, "title": "MR2", "web_url": "url2", "author": {"username": "user2"}, "created_at": "2026-01-02", "description": ""}],
+            [
+                {
+                    "iid": 123,
+                    "title": "MR1",
+                    "web_url": "url1",
+                    "author": "user1",
+                    "created_at": "2026-01-01",
+                    "description": "desc1",
+                }
+            ],
+            [
+                {
+                    "iid": 124,
+                    "title": "MR2",
+                    "web_url": "url2",
+                    "author": {"username": "user2"},
+                    "created_at": "2026-01-02",
+                    "description": "",
+                }
+            ],
         ]
 
         result = mod.search_open_exception_mrs("rpm_signature.allowed:8a3872bf")
@@ -92,7 +108,14 @@ class TestSearchOpenExceptionMrs:
     @patch("conforma_mr_ops._glab_get_mrs")
     def test_deduplicates_mrs_by_iid(self, mock_glab):
         """Test deduplicates MRs when both searches return the same MR."""
-        same_mr = {"iid": 123, "title": "MR", "web_url": "url", "author": "user", "created_at": "2026-01-01", "description": ""}
+        same_mr = {
+            "iid": 123,
+            "title": "MR",
+            "web_url": "url",
+            "author": "user",
+            "created_at": "2026-01-01",
+            "description": "",
+        }
         mock_glab.side_effect = [
             [same_mr],
             [same_mr],  # Duplicate from suffix search
@@ -126,7 +149,14 @@ class TestSearchOpenExceptionMrs:
     def test_handles_author_as_dict(self, mock_glab):
         """Test handles author field as dict with username."""
         mock_glab.return_value = [
-            {"iid": 123, "title": "MR", "web_url": "url", "author": {"username": "testuser"}, "created_at": "2026-01-01", "description": ""}
+            {
+                "iid": 123,
+                "title": "MR",
+                "web_url": "url",
+                "author": {"username": "testuser"},
+                "created_at": "2026-01-01",
+                "description": "",
+            }
         ]
 
         result = mod.search_open_exception_mrs("test")
@@ -209,9 +239,7 @@ class TestMainCli:
     @patch("sys.argv", ["conforma_mr_ops.py", "search-open-mrs", "--rule", "hermetic_task.hermetic"])
     def test_search_open_mrs_command(self, mock_search):
         """Test search-open-mrs CLI command."""
-        mock_search.return_value = [
-            {"iid": 123, "title": "Test MR", "url": "https://gitlab.example.com/mr/123"}
-        ]
+        mock_search.return_value = [{"iid": 123, "title": "Test MR", "url": "https://gitlab.example.com/mr/123"}]
 
         with patch("builtins.print") as mock_print:
             mod.main()
@@ -221,13 +249,19 @@ class TestMainCli:
         assert mock_print.called
 
     @patch("conforma_mr_ops.analyze_mr_component_coverage")
-    @patch("sys.argv", [
-        "conforma_mr_ops.py",
-        "analyze-coverage",
-        "--mr-iid", "12345",
-        "--rule", "test.rule",
-        "--components", "comp-a,comp-b",
-    ])
+    @patch(
+        "sys.argv",
+        [
+            "conforma_mr_ops.py",
+            "analyze-coverage",
+            "--mr-iid",
+            "12345",
+            "--rule",
+            "test.rule",
+            "--components",
+            "comp-a,comp-b",
+        ],
+    )
     def test_analyze_coverage_command(self, mock_analyze):
         """Test analyze-coverage CLI command."""
         mock_analyze.return_value = {
@@ -248,14 +282,21 @@ class TestMainCli:
         assert mock_print.called
 
     @patch("conforma_mr_ops.analyze_mr_component_coverage")
-    @patch("sys.argv", [
-        "conforma_mr_ops.py",
-        "analyze-coverage",
-        "--mr-iid", "12345",
-        "--rule", "test.rule",
-        "--components", "comp-a",
-        "--policy-files", "file1.yaml,file2.yaml",
-    ])
+    @patch(
+        "sys.argv",
+        [
+            "conforma_mr_ops.py",
+            "analyze-coverage",
+            "--mr-iid",
+            "12345",
+            "--rule",
+            "test.rule",
+            "--components",
+            "comp-a",
+            "--policy-files",
+            "file1.yaml,file2.yaml",
+        ],
+    )
     def test_analyze_coverage_with_policy_files(self, mock_analyze):
         """Test analyze-coverage with policy files filter."""
         mock_analyze.return_value = {"mr_iid": 12345}

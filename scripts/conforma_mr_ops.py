@@ -8,7 +8,6 @@ import os
 import re
 from pathlib import Path
 import threading
-import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import gitlab_ops
@@ -28,23 +27,77 @@ is classified as an **exception** Merge Request; all others are **remedy**."""
 # suffixes like ``sbom_spdx.allowed_package_sources:https://...``).
 # Unquoted values use a restrictive character class (no ``/``).
 _RULE_VALUE_RE = re.compile(
-    r'^\+\s+-\s+value:\s+(?:'
+    r"^\+\s+-\s+value:\s+(?:"
     r'"([^"]+)"'
     r"|'([^']+)'"
-    r'|([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)'
-    r')',
+    r"|([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)"
+    r")",
     re.MULTILINE,
 )
 _RULE_BARE_RE = re.compile(
-    r'^\+\s+-\s+(?:'
+    r"^\+\s+-\s+(?:"
     r'"([^"]+)"'
     r"|'([^']+)'"
-    r'|([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)'
-    r')\s*$',
+    r"|([a-z][a-z0-9_]*\.[a-z0-9_.:-]+)"
+    r")\s*$",
     re.MULTILINE,
 )
 
 _thread_local = threading.local()
+
+_JIRA_KEY_RE = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9]+-\d+)(?!\d)", re.IGNORECASE)
+
+
+def extract_jira_keys(text: str) -> list[str]:
+    """Extract unique Jira issue keys from Merge Request or commit text."""
+    return list(dict.fromkeys(match.upper() for match in _JIRA_KEY_RE.findall(text or "")))
+
+
+def discover_jira_references() -> list[dict]:
+    """Scan open Merge Request descriptions and commits for Jira references.
+
+    This is deliberately fail-fast: Jira coverage must not silently omit a
+    GitLab source when authentication or retrieval fails.
+    """
+    project = _get_project()
+    merge_requests = gitlab_ops.retry_gitlab_operation(
+        lambda: project.mergerequests.list(
+            state="opened",
+            per_page=100,
+            get_all=True,
+            timeout=gitlab_ops.DEFAULT_GITLAB_TIMEOUT_SECONDS,
+        )
+    )
+    references: list[dict] = []
+    seen: set[tuple[str, int, str]] = set()
+    for merge_request in merge_requests:
+        mr_iid = int(merge_request.iid)
+        mr_url = getattr(merge_request, "web_url", "")
+        title = getattr(merge_request, "title", "")
+        description = getattr(merge_request, "description", "")
+        text_sources = [
+            ("merge_request_title", title if isinstance(title, str) else ""),
+            ("merge_request", description if isinstance(description, str) else ""),
+        ]
+        commits = gitlab_ops.retry_gitlab_operation(merge_request.commits)
+        for commit in commits:
+            message = getattr(commit, "message", "")
+            text_sources.append(("commit", message if isinstance(message, str) else ""))
+        for source, text in text_sources:
+            for key in extract_jira_keys(text):
+                identity = (key, mr_iid, source)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                references.append(
+                    {
+                        "key": key,
+                        "mr_iid": mr_iid,
+                        "mr_url": mr_url,
+                        "source": source,
+                    }
+                )
+    return references
 
 
 def _ensure_gitlab_env() -> None:
@@ -157,16 +210,21 @@ def classify_mr_type(changes: list[dict]) -> str:
     return "remedy"
 
 
-def _glab_get_mrs(search_term: str, timeout: int = 15) -> list[dict]:
+def _glab_get_mrs(
+    search_term: str,
+    timeout: int = gitlab_ops.DEFAULT_GITLAB_TIMEOUT_SECONDS,
+) -> list[dict]:
     """List open Merge Requests matching a search term via python-gitlab."""
     try:
         project = _get_project()
-        mrs = project.mergerequests.list(
-            state="opened",
-            search=search_term,
-            per_page=20,
-            get_all=False,
-            timeout=timeout,
+        mrs = gitlab_ops.retry_gitlab_operation(
+            lambda: project.mergerequests.list(
+                state="opened",
+                search=search_term,
+                per_page=20,
+                get_all=False,
+                timeout=timeout,
+            )
         )
         return [
             {
@@ -313,7 +371,7 @@ def _parse_components_from_diff(
         stripped, is_added = lines[i]
         value = ""
         if stripped.startswith("- value: "):
-            value = stripped[len("- value: "):].strip().strip('"').strip("'")
+            value = stripped[len("- value: ") :].strip().strip('"').strip("'")
         if is_added and value and _matches_rule(value, rule):
             i += 1
             in_component_names = False
@@ -330,7 +388,7 @@ def _parse_components_from_diff(
                     continue
                 if s.startswith("imageUrl:"):
                     has_component_scoping = True
-                    image_url = s[len("imageUrl:"):].strip().strip('"').strip("'")
+                    image_url = s[len("imageUrl:") :].strip().strip('"').strip("'")
                     i += 1
                     continue
                 if in_component_names and s.startswith("- "):
@@ -345,10 +403,7 @@ def _parse_components_from_diff(
             if not has_component_scoping:
                 return GLOBAL_COVERAGE
             if image_url and not components and requested_components:
-                components.extend(
-                    c for c in requested_components
-                    if image_url_covers_component(image_url, c)
-                )
+                components.extend(c for c in requested_components if image_url_covers_component(image_url, c))
         else:
             i += 1
 
@@ -375,7 +430,7 @@ def extract_effective_until_from_diff(diff_text: str, rule: str) -> str | None:
         stripped, is_added = lines[i]
         value = ""
         if stripped.startswith("- value: "):
-            value = stripped[len("- value: "):].strip().strip('"').strip("'")
+            value = stripped[len("- value: ") :].strip().strip('"').strip("'")
         if is_added and value and _matches_rule(value, rule):
             i += 1
             while i < len(lines):
@@ -383,7 +438,7 @@ def extract_effective_until_from_diff(diff_text: str, rule: str) -> str | None:
                 if not s or s.startswith("- value:"):
                     break
                 if s.startswith("effectiveUntil:"):
-                    eu = s[len("effectiveUntil:"):].strip().strip('"').strip("'")
+                    eu = s[len("effectiveUntil:") :].strip().strip('"').strip("'")
                     if eu:
                         return eu[:10]
                 i += 1
@@ -426,7 +481,7 @@ def extract_effective_until_by_component(
         stripped, is_added = lines[i]
         value = ""
         if stripped.startswith("- value: "):
-            value = stripped[len("- value: "):].strip().strip('"').strip("'")
+            value = stripped[len("- value: ") :].strip().strip('"').strip("'")
         if is_added and value and _matches_rule(value, rule):
             # Found a matching rule block - scan for componentNames, imageUrl, effectiveUntil
             i += 1
@@ -444,11 +499,11 @@ def extract_effective_until_by_component(
                     i += 1
                     continue
                 if s.startswith("imageUrl:"):
-                    image_url = s[len("imageUrl:"):].strip().strip('"').strip("'")
+                    image_url = s[len("imageUrl:") :].strip().strip('"').strip("'")
                     i += 1
                     continue
                 if s.startswith("effectiveUntil:"):
-                    eu = s[len("effectiveUntil:"):].strip().strip('"').strip("'")
+                    eu = s[len("effectiveUntil:") :].strip().strip('"').strip("'")
                     if eu:
                         effective_until = eu[:10]
                     i += 1
@@ -581,7 +636,7 @@ def _mr_touches_policy_files(iid: int) -> list[dict] | None:
     try:
         project = _get_project()
         mr = project.mergerequests.get(iid)
-        changes_data = mr.changes()
+        changes_data = gitlab_ops.retry_gitlab_operation(mr.changes)
         changes = changes_data.get("changes", [])
         for change in changes:
             path = change.get("new_path", "")
@@ -604,11 +659,13 @@ def _discover_mrs_by_diff() -> dict[int, dict]:
     """
     try:
         project = _get_project()
-        all_mrs = project.mergerequests.list(
-            state="opened",
-            per_page=100,
-            order_by="updated_at",
-            get_all=True,
+        all_mrs = gitlab_ops.retry_gitlab_operation(
+            lambda: project.mergerequests.list(
+                state="opened",
+                per_page=100,
+                order_by="updated_at",
+                get_all=True,
+            )
         )
     except Exception:
         return {}
@@ -716,17 +773,16 @@ def prefetch_open_mrs(
                 if entry["iid"] == iid:
                     entry["diff_rules"] = diff_rules
 
-        existing_iids_per_rule = {
-            r: {e["iid"] for e in rule_to_mrs.get(r, [])}
-            for r in rules_set
-        }
+        existing_iids_per_rule = {r: {e["iid"] for e in rule_to_mrs.get(r, [])} for r in rules_set}
         for diff_rule in diff_rules:
             base = diff_rule.split(":")[0]
             for requested_rule in rules_set:
                 requested_base = requested_rule.split(":")[0]
                 if diff_rule == requested_rule or base == requested_base:
                     if iid not in existing_iids_per_rule[requested_rule]:
-                        base_info = iid_to_info.get(iid, {"iid": iid, "title": "", "url": "", "author": "", "created_at": "", "description": ""})
+                        base_info = iid_to_info.get(
+                            iid, {"iid": iid, "title": "", "url": "", "author": "", "created_at": "", "description": ""}
+                        )
                         rule_to_mrs.setdefault(requested_rule, []).append(
                             dict(base_info, found_by_text_search=False, diff_rules=diff_rules)
                         )
@@ -747,22 +803,31 @@ def _build_coverage_result(
 ) -> dict:
     """Compute overlap between MR components and requested components.
 
-    When *aliases* is provided, expanded sets are intersected and the
-    result is mapped back to the original requested names.
+    An unversioned component in a Merge Request (for example
+    ``odh-component``) is intentionally a wildcard for all versioned forms of
+    that component. A versioned Merge Request component remains exact. When
+    *aliases* is provided, aliases are expanded before applying those rules.
     """
     mr_set = set(mr_components)
     req_set = set(requested_components)
 
     if aliases:
         import component_alias_ops
+
         mr_expanded = component_alias_ops.expand_component_set(mr_set, aliases)
-        req_expanded = component_alias_ops.expand_component_set(req_set, aliases)
-        expanded_overlap = mr_expanded & req_expanded
-        covered = sorted(expanded_overlap & req_set)
-        missing = sorted(req_set - set(covered))
+        covered = sorted(
+            requested
+            for requested in req_set
+            if any(_merge_request_component_covers(candidate, requested) for candidate in mr_expanded)
+        )
     else:
-        covered = sorted(mr_set & req_set)
-        missing = sorted(req_set - mr_set)
+        covered = sorted(
+            requested
+            for requested in req_set
+            if any(_merge_request_component_covers(candidate, requested) for candidate in mr_set)
+        )
+
+    missing = sorted(req_set - set(covered))
 
     if not covered:
         suggestion = "no_overlap"
@@ -779,6 +844,22 @@ def _build_coverage_result(
         "source": source,
         "suggestion": suggestion,
     }
+
+
+def _merge_request_component_covers(mr_component: str, requested_component: str) -> bool:
+    """Return whether a Merge Request component covers a requested component.
+
+    Merge Request policy entries use an unversioned name to mean all RHOAI
+    versions. Versioned names are scoped to that exact component version.
+    """
+    mr_component = mr_component.strip().lower()
+    requested_component = requested_component.strip().lower()
+    if mr_component == requested_component:
+        return True
+    return (
+        mr_component == _extract_component_base(mr_component)
+        and _extract_component_base(mr_component) == _extract_component_base(requested_component)
+    )
 
 
 def analyze_mr_component_coverage(
@@ -845,7 +926,7 @@ def analyze_mr_component_coverage(
     # the text search didn't surface this MR — combine with rules_in_diff to
     # produce a human-readable discrepancy note.
     mr_text = (result_base.get("title", "") + " " + mr_description).lower()
-    rule_base = rule.split(":")[0]          # strip suffix for loose matching
+    rule_base = rule.split(":")[0]  # strip suffix for loose matching
     title_mentions_rule = rule_base.replace("_", " ") in mr_text or rule_base in mr_text
     result_base["title_mentions_rule"] = title_mentions_rule
 
@@ -859,9 +940,13 @@ def analyze_mr_component_coverage(
         if any(marker in path for marker in EXCEPTION_PATH_MARKERS):
             if relevant_basenames and Path(path).name not in relevant_basenames:
                 continue
-            diff_components.extend(_parse_components_from_diff(
-            change.get("diff", ""), rule, requested_components=requested_components,
-        ))
+            diff_components.extend(
+                _parse_components_from_diff(
+                    change.get("diff", ""),
+                    rule,
+                    requested_components=requested_components,
+                )
+            )
             # Extract per-component effective_until dates
             component_dates = extract_effective_until_by_component(
                 change.get("diff", ""),
@@ -872,9 +957,7 @@ def analyze_mr_component_coverage(
 
             # Fallback for global exceptions: use the old function for backward compat
             if mr_effective_until is None:
-                mr_effective_until = extract_effective_until_from_diff(
-                    change.get("diff", ""), rule
-                )
+                mr_effective_until = extract_effective_until_from_diff(change.get("diff", ""), rule)
 
     # Determine the effective_until field for backward compatibility:
     # - If we have per-component dates, use the earliest one

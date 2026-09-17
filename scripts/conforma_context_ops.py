@@ -126,8 +126,7 @@ def discover_run_dir(explicit: Path | str | None = None) -> Path:
         ctx_file = run_dir / CONTEXT_FILENAME
         if not ctx_file.is_file():
             raise FileNotFoundError(
-                f"No {CONTEXT_FILENAME} in {run_dir}\n"
-                f"Run resolve_release_context.py first to create a run context."
+                f"No {CONTEXT_FILENAME} in {run_dir}\nRun resolve_release_context.py first to create a run context."
             )
         return run_dir
 
@@ -255,9 +254,7 @@ def get(run_dir: Path, dotted_key: str, default: Any = _SENTINEL) -> Any:
             if default is not _SENTINEL:
                 return default
             traversed = ".".join(keys[: i + 1])
-            raise KeyError(
-                f"Key '{traversed}' not found in {_context_path(run_dir)}"
-            )
+            raise KeyError(f"Key '{traversed}' not found in {_context_path(run_dir)}")
         node = node[key]
     return node
 
@@ -313,10 +310,7 @@ def require(run_dir: Path, *dotted_keys: str) -> dict:
         if not found:
             missing.append(dk)
     if missing:
-        raise KeyError(
-            f"Missing required keys in {_context_path(run_dir)}: "
-            + ", ".join(missing)
-        )
+        raise KeyError(f"Missing required keys in {_context_path(run_dir)}: " + ", ".join(missing))
     return data
 
 
@@ -397,9 +391,7 @@ def install_wrapper(repo_root: Path) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Manage conforma run context files."
-    )
+    parser = argparse.ArgumentParser(description="Manage conforma run context files.")
     parser.add_argument(
         "--run-dir",
         default=None,
@@ -409,9 +401,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub_create = sub.add_parser("create", help="Create a new run context")
-    sub_create.add_argument(
-        "--initial", default=None, help="JSON string with initial values"
-    )
+    sub_create.add_argument("--initial", default=None, help="JSON string with initial values")
 
     sub_show = sub.add_parser("show", help="Show the full context")
 

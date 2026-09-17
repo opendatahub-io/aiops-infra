@@ -15,9 +15,7 @@ class TestConstants:
         )
 
     def test_actions_url_derived_from_url(self):
-        assert conforma_constants.CONFORMA_REPORTER_ACTIONS_URL.startswith(
-            conforma_constants.CONFORMA_REPORTER_URL
-        )
+        assert conforma_constants.CONFORMA_REPORTER_ACTIONS_URL.startswith(conforma_constants.CONFORMA_REPORTER_URL)
         assert "actions/workflows" in conforma_constants.CONFORMA_REPORTER_ACTIONS_URL
 
     def test_csv_paths_use_csv_filename(self):
@@ -114,9 +112,8 @@ class TestBuildLabelDiscoveryJql:
     def test_emits_plural_labels_in_across_seven_projects(self):
         jql = conforma_constants.build_label_discovery_jql()
         assert (
-            jql
-            == "project in (RHOAIENG, PSX, OCPEXCEPT, PRODSECRM, RHAI, RHAIENG, AIPCC) "
-               "AND labels in (conforma, conforma-violation, conforma-exception-ai-skill)"
+            jql == "project in (RHOAIENG, PSX, OCPEXCEPT, PRODSECRM, RHAI, RHAIENG, AIPCC) "
+            "AND labels in (conforma, conforma-violation, conforma-exception-ai-skill)"
         )
 
     def test_uses_plural_labels_not_singular(self):

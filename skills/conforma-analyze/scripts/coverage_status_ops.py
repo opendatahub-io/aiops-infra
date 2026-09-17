@@ -3,23 +3,11 @@
 from __future__ import annotations
 
 from __future__ import annotations
-import argparse
-import conforma_context_ops
-import fnmatch
 import json
-import sys
-import time
 import urllib.parse
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-import component_alias_ops
-import conforma_ec_validate
 import conforma_mr_ops
-import conforma_policy_ops
-import conforma_slack_ops
-import jira_ops
-import slack_ops
 from conforma_constants import (
     CONFORMA_REPORTER_URL,
     VERIFY_NEXT_STEP,
@@ -37,9 +25,7 @@ _GATE_STATUS_MAP: dict[str, tuple[str, str | None]] = {
 }
 
 
-def map_gate_status(
-    gate: dict, rule: str, all_components: list, uncovered: list
-) -> tuple[str, str]:
+def map_gate_status(gate: dict, rule: str, all_components: list, uncovered: list) -> tuple[str, str]:
     """Map a gate check status to a coverage classification.
 
     Raises ValueError on unrecognised statuses so new gate statuses are never
@@ -158,8 +144,7 @@ def determine_status_and_next_steps(
     next_steps_short is the concise version (used by the summary table).
     """
     has_exception_mr = any(
-        mr.get("suggestion") in ("fully_covered", "extend_mr")
-        and mr.get("mr_type", "exception") == "exception"
+        mr.get("suggestion") in ("fully_covered", "extend_mr") and mr.get("mr_type", "exception") == "exception"
         for mr in open_mrs
     )
     has_remedy_mr = any(mr.get("mr_type") == "remedy" for mr in open_mrs)
@@ -238,9 +223,7 @@ def load_report_metadata(release: str | None, metadata_file: str | None) -> dict
         source_sha = rel_data.get("source_sha", "")
         if source_path:
             ref = source_sha or release or ""
-            meta["source_url"] = (
-                f"{CONFORMA_REPORTER_URL}/blob/{ref}/{source_path}"
-            )
+            meta["source_url"] = f"{CONFORMA_REPORTER_URL}/blob/{ref}/{source_path}"
             meta["source_path"] = source_path
         if created_at:
             meta["created_at"] = created_at
@@ -248,4 +231,3 @@ def load_report_metadata(release: str | None, metadata_file: str | None) -> dict
         pass
 
     return meta
-

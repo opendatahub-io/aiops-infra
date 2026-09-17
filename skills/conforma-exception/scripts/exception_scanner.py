@@ -3,13 +3,9 @@
 from __future__ import annotations
 
 from __future__ import annotations
-import conforma_context_ops  # noqa: E402
-import argparse
 import os
 import re
 import shutil
-import subprocess
-import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -573,4 +569,3 @@ def _refresh_clone(clone_dir: Path) -> None:
     """Fetch latest main and hard-reset an existing clone."""
     _run_git(["git", "fetch", "origin", DEFAULT_BRANCH], cwd=clone_dir, timeout=120)
     _run_git(["git", "reset", "--hard", f"origin/{DEFAULT_BRANCH}"], cwd=clone_dir, timeout=30)
-

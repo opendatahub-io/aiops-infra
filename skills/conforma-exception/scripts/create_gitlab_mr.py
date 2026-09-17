@@ -200,10 +200,7 @@ def _validate_repo_relative_path(path_str: str, context: str = "policy file") ->
     """
     normalized = posixpath.normpath(path_str)
     if normalized.startswith("/") or normalized.startswith(".."):
-        raise ValueError(
-            f"Unsafe {context} path {path_str!r}: "
-            f"resolved to {normalized!r} which is not repo-relative"
-        )
+        raise ValueError(f"Unsafe {context} path {path_str!r}: resolved to {normalized!r} which is not repo-relative")
     return normalized
 
 
@@ -1185,7 +1182,8 @@ def _run_git(cmd: list[str], cwd: Path | None = None, timeout: int = 60) -> subp
         git_idx = cmd.index("git") if "git" in cmd else 0
         cmd = [
             *cmd[: git_idx + 1],
-            "-c", f"http.extraheader=Authorization: Bearer {token}",
+            "-c",
+            f"http.extraheader=Authorization: Bearer {token}",
             *cmd[git_idx + 1 :],
         ]
     return gitlab_ops.run_git(cmd, cwd=cwd, timeout=timeout, check=True)

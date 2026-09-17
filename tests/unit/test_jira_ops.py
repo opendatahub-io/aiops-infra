@@ -35,6 +35,32 @@ class TestVerifyAuth:
         assert "missing credentials" in result["error"]
 
 
+class TestGetClient:
+    def test_requires_email_and_token(self, monkeypatch):
+        monkeypatch.delenv("JIRA_EMAIL", raising=False)
+        monkeypatch.delenv("JIRA_API_TOKEN", raising=False)
+
+        with pytest.raises(ValueError, match="JIRA_EMAIL"):
+            jira_ops.get_client()
+
+        monkeypatch.setenv("JIRA_EMAIL", "user@example.com")
+        with pytest.raises(ValueError, match="JIRA_API_TOKEN"):
+            jira_ops.get_client()
+
+    def test_constructs_authenticated_client(self, monkeypatch):
+        monkeypatch.setenv("JIRA_EMAIL", "user@example.com")
+        monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+        with patch.object(jira_ops, "JIRA") as jira_class:
+            result = jira_ops.get_client(url="https://jira.example")
+
+        assert result is jira_class.return_value
+        jira_class.assert_called_once_with(
+            server="https://jira.example",
+            basic_auth=("user@example.com", "token"),
+        )
+
+
 class TestGetIssue:
     def test_success_base_fields(self):
         client = _mock_client()
@@ -225,6 +251,17 @@ class TestUpdateIssue:
         assert result == {"key": "ABC-2", "updated": ["summary", "labels"]}
         issue.update.assert_called_once_with(fields={"summary": "Updated", "labels": ["onboarding"]})
 
+    def test_updates_description(self):
+        client = _mock_client()
+        issue = MagicMock()
+        client.issue.return_value = issue
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.update_issue("ABC-2", description="Updated description")
+
+        assert result == {"key": "ABC-2", "updated": ["description"]}
+        issue.update.assert_called_once_with(fields={"description": "Updated description"})
+
     def test_no_fields(self):
         result = jira_ops.update_issue("ABC-2")
         assert result == {"key": "ABC-2", "updated": [], "error": "No fields to update"}
@@ -383,6 +420,24 @@ class TestSearchIssues:
         assert "priority" not in entry
         assert "components" not in entry
         assert "target_versions" not in entry
+
+    def test_description_is_returned_when_requested(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.key = "RHOAIENG-3"
+        issue.fields.summary = "Shared exception"
+        issue.fields.status = MagicMock(__str__=lambda self: "Review")
+        issue.fields.description = "hermetic_task.hermetic for odh-openvino-model-server"
+
+        result_set = MagicMock()
+        result_set.__iter__ = lambda self: iter([issue])
+        result_set.total = 1
+        client.search_issues.return_value = result_set
+
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues("key = RHOAIENG-3", fields=["key", "description"])
+
+        assert result["issues"][0]["description"] == issue.fields.description
 
     def test_error_raises_jira_search_error(self):
         import pytest

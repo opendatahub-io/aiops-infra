@@ -35,9 +35,7 @@ import yaml
 
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent / "feedback_template.yaml"
-_KNOWN_ERRORS_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "references" / "known-infra-errors.yaml"
-)
+_KNOWN_ERRORS_PATH = Path(__file__).resolve().parent.parent.parent / "references" / "known-infra-errors.yaml"
 
 
 def _load_template() -> dict:
@@ -124,10 +122,7 @@ def from_error(
     labels = list(infra.get("labels", []))
 
     if root_cause:
-        root_cause_section = (
-            "## Root Cause Analysis (AI-generated, may need verification)\n\n"
-            + root_cause
-        )
+        root_cause_section = "## Root Cause Analysis (AI-generated, may need verification)\n\n" + root_cause
     else:
         root_cause_section = ""
 
@@ -181,7 +176,9 @@ def search_existing(
     """
     if plat == "github":
         result = github_ops.search_issues(
-            repo_path, labels=labels, title_keywords=title_keywords,
+            repo_path,
+            labels=labels,
+            title_keywords=title_keywords,
         )
         if "error" in result:
             return result
@@ -292,7 +289,11 @@ def submit(
         return github_ops.create_issue(repo_path, title, body, labels=labels)
     elif plat == "gitlab":
         return gitlab_ops.create_issue(
-            repo_path, title, body, labels=labels, instance_url=host,
+            repo_path,
+            title,
+            body,
+            labels=labels,
+            instance_url=host,
         )
     return {"error": f"Unsupported platform: {plat}"}
 

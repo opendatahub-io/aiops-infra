@@ -295,7 +295,7 @@ class TestBuildPrefillUrl:
         url = mod.build_prefill_url("10350", "r.x", ["a", "b"], ["J Comp"], "rhoai-3.6", "line1\nline2")
         assert url.startswith(f"{JIRA_BASE}/secure/CreateIssueDetails!init.jspa?")
         assert "pid=10350" in url
-        assert "issuetype=Task" in url
+        assert "issuetype=10001" in url
         assert "priority=Blocker" in url
         assert "labels=conforma%2Cconforma-violation" in url
         assert "components=J+Comp" in url
@@ -307,6 +307,23 @@ class TestBuildPrefillUrl:
         url = mod.build_prefill_url("10350", "r.x", ["a"], [], None, "desc")
         assert "components" not in url
         assert "customfield_10855" not in url
+
+    def test_uses_unique_label_when_release_is_known(self):
+        url = mod.build_prefill_url("10350", "hermetic_task.hermetic", ["odh-vllm-v3-6"], [], None, "desc", "rhoai-3.6")
+        assert "labels=conforma%2Cconforma-violation%2Cconforma-rhoai-3-6-odh-vllm-hermetic-task-hermetic" in url
+
+
+class TestUniqueViolationLabels:
+    def test_label_is_stable_and_version_stripped(self):
+        assert (
+            mod.build_violation_label("rhoai-3.6-ea.2", "odh-vllm-v3-6-ea-2", "hermetic_task.hermetic")
+            == "conforma-rhoai-3-6-ea-2-odh-vllm-hermetic-task-hermetic"
+        )
+
+    def test_related_search_url_uses_exact_label(self):
+        url = mod.build_related_search_url("conforma-rhoai-3-6-odh-vllm-hermetic-task-hermetic")
+        assert "project%20%3D%20RHOAIENG" in url
+        assert "labels%20%3D%20%22conforma-rhoai-3-6-odh-vllm-hermetic-task-hermetic%22" in url
 
 
 class TestPlanSelfHealLabels:
@@ -371,6 +388,41 @@ class TestDiscoverConformaTickets:
             raise AssertionError("expected JiraSearchError")
         except mod.jira_ops.JiraSearchError:
             pass
+
+    def test_adds_rule_component_candidates_for_related_tickets(self, monkeypatch):
+        captured = {}
+
+        def fake_search(jql, **kwargs):
+            captured["jql"] = jql
+            return {"issues": []}
+
+        monkeypatch.setattr(mod.jira_ops, "search_issues", fake_search)
+        monkeypatch.setattr(mod.conforma_mr_ops, "discover_jira_references", lambda: [])
+        mod.discover_conforma_tickets(violations=[_violation()], release="rhoai-3.6")
+        assert 'summary ~ "rpm_signature.allowed"' in captured["jql"]
+        assert 'summary ~ "odh-ogx-core"' in captured["jql"]
+        assert "conforma-rhoai-3-6-odh-ogx-core-rpm-signature-allowed" in captured["jql"]
+
+    def test_merges_tickets_referenced_by_merge_requests(self, monkeypatch):
+        monkeypatch.setattr(
+            mod.jira_ops,
+            "search_issues",
+            lambda jql, **kwargs: (
+                {"issues": []}
+                if "key in" not in jql
+                else {"issues": [{"key": "RHOAIENG-88509", "summary": "tracked", "status": "Open"}]}
+            ),
+        )
+        monkeypatch.setattr(
+            mod.conforma_mr_ops,
+            "discover_jira_references",
+            lambda: [{"key": "RHOAIENG-88509", "mr_iid": 22104, "source": "merge_request"}],
+        )
+
+        tickets = mod.discover_conforma_tickets(violations=[_violation()], release="rhoai-3.6")
+
+        assert tickets[0]["key"] == "RHOAIENG-88509"
+        assert tickets[0]["merge_request_references"][0]["mr_iid"] == 22104
 
 
 class TestSelfHealLabels:
@@ -1054,7 +1106,7 @@ class TestMain:
         monkeypatch.setattr("sys.argv", ["conforma_jira_ticket_ops.py", *argv])
 
     def test_sync_dry_run_prints_json_and_summary(self, monkeypatch, capsys):
-        self._set_argv(monkeypatch, "sync", "--dry-run")
+        self._set_argv(monkeypatch, "create-jiras-for-conforma-violations", "--dry-run")
         monkeypatch.setattr(mod, "sync", lambda dry_run=False: {"actions": [], "violations": [], "dry_run": dry_run})
         assert mod.main() == 0
         out = capsys.readouterr().out
@@ -1082,7 +1134,7 @@ class TestMain:
         assert mod.main() == 0
 
     def test_search_error_returns_1_with_json(self, monkeypatch, capsys):
-        self._set_argv(monkeypatch, "sync")
+        self._set_argv(monkeypatch, "create-jiras-for-conforma-violations")
         monkeypatch.setattr(
             mod,
             "sync",

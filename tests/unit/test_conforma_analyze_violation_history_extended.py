@@ -6,13 +6,10 @@ the base test file.
 from __future__ import annotations
 
 import json
-import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 import requests
 
-import conforma_context_ops
 import violation_history as mod
 from conforma_constants import csv_paths_for_environment
 
@@ -52,8 +49,10 @@ class TestFindCsvPath:
             assert mod._find_csv_path("rhoai-3.4", "prod") is None
 
     def test_first_path_returns_200(self):
-        with patch.object(mod, "_get_github_token", return_value="tok"), \
-             patch.object(mod.requests, "head", return_value=_mock_resp(200)) as mock_head:
+        with (
+            patch.object(mod, "_get_github_token", return_value="tok"),
+            patch.object(mod.requests, "head", return_value=_mock_resp(200)) as mock_head,
+        ):
             result = mod._find_csv_path("rhoai-3.4", "prod")
         assert result == csv_paths_for_environment("prod")[0]
         mock_head.assert_called_once()
@@ -63,8 +62,10 @@ class TestFindCsvPath:
             _mock_resp(404),
             _mock_resp(200),
         ]
-        with patch.object(mod, "_get_github_token", return_value="tok"), \
-             patch.object(mod.requests, "head", side_effect=responses):
+        with (
+            patch.object(mod, "_get_github_token", return_value="tok"),
+            patch.object(mod.requests, "head", side_effect=responses),
+        ):
             result = mod._find_csv_path("rhoai-3.4", "prod")
         assert result == csv_paths_for_environment("prod")[1]
 
@@ -73,14 +74,18 @@ class TestFindCsvPath:
             requests.RequestException("timeout"),
             _mock_resp(200),
         ]
-        with patch.object(mod, "_get_github_token", return_value="tok"), \
-             patch.object(mod.requests, "head", side_effect=responses):
+        with (
+            patch.object(mod, "_get_github_token", return_value="tok"),
+            patch.object(mod.requests, "head", side_effect=responses),
+        ):
             result = mod._find_csv_path("rhoai-3.4", "prod")
         assert result == csv_paths_for_environment("prod")[1]
 
     def test_all_paths_fail_returns_none(self):
-        with patch.object(mod, "_get_github_token", return_value="tok"), \
-             patch.object(mod.requests, "head", return_value=_mock_resp(404)):
+        with (
+            patch.object(mod, "_get_github_token", return_value="tok"),
+            patch.object(mod.requests, "head", return_value=_mock_resp(404)),
+        ):
             assert mod._find_csv_path("rhoai-3.4", "prod") is None
 
 
@@ -98,10 +103,14 @@ class TestFetchCommits:
         """Pagination continues only when max_commits > 100 (per_page caps at 100)."""
         page1 = [_commit(f"{i:040x}", "2026-01-01T00:00:00Z") for i in range(100)]
         page2 = [_commit(f"f{i:039x}", "2026-01-01T00:00:00Z") for i in range(60)]
-        with patch.object(mod.requests, "get", side_effect=[
-            _mock_resp(200, json_data=page1),
-            _mock_resp(200, json_data=page2),
-        ]) as mock_get:
+        with patch.object(
+            mod.requests,
+            "get",
+            side_effect=[
+                _mock_resp(200, json_data=page1),
+                _mock_resp(200, json_data=page2),
+            ],
+        ) as mock_get:
             result = mod._fetch_commits("rhoai-3.4", "report.csv", 150)
         assert len(result) == 150  # 160 fetched, truncated to max_commits
         assert mock_get.call_count == 2

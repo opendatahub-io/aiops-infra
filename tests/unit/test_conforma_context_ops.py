@@ -192,9 +192,7 @@ class TestLoad:
     def test_expands_tilde_in_run_dir(self, tmp_path):
         run_dir = tmp_path / "run1"
         run_dir.mkdir(parents=True)
-        (run_dir / ctx.CONTEXT_FILENAME).write_text(
-            "run:\n  run_dir: '~/.conforma/run1'\n"
-        )
+        (run_dir / ctx.CONTEXT_FILENAME).write_text("run:\n  run_dir: '~/.conforma/run1'\n")
         data = ctx.load(run_dir)
         assert data["run"]["run_dir"] == str(Path.home() / ".conforma" / "run1")
 
@@ -210,9 +208,7 @@ class TestLoad:
                 }
             },
         }
-        (run_dir / ctx.CONTEXT_FILENAME).write_text(
-            yaml.dump(content, default_flow_style=False)
-        )
+        (run_dir / ctx.CONTEXT_FILENAME).write_text(yaml.dump(content, default_flow_style=False))
         data = ctx.load(run_dir)
         expected = str(Path.home() / ".conforma" / "konflux-release-data")
         assert data["steps"]["coverage"]["clone_dir"] == expected
@@ -335,29 +331,34 @@ class TestResolveArg:
     def test_cli_value_wins(self):
         class Args:
             release = "from-cli"
+
         context = {"application": {"release": "from-context"}}
         assert ctx.resolve_arg(Args(), "release", context, "application.release") == "from-cli"
 
     def test_context_fallback(self):
         class Args:
             release = None
+
         context = {"application": {"release": "from-context"}}
         assert ctx.resolve_arg(Args(), "release", context, "application.release") == "from-context"
 
     def test_both_missing_exits(self):
         class Args:
             release = None
+
         with pytest.raises(SystemExit):
             ctx.resolve_arg(Args(), "release", {}, "application.release")
 
     def test_none_context_with_cli(self):
         class Args:
             release = "from-cli"
+
         assert ctx.resolve_arg(Args(), "release", None, "application.release") == "from-cli"
 
     def test_none_context_missing_cli_exits(self):
         class Args:
             release = None
+
         with pytest.raises(SystemExit):
             ctx.resolve_arg(Args(), "release", None, "application.release")
 
@@ -451,41 +452,56 @@ class TestInstallWrapper:
 class TestValidateCsvConsistency:
     def test_passes_when_csv_files_match_release(self, tmp_path):
         run_dir = tmp_path / "run1"
-        ctx.create(run_dir, {
-            "application": {"release": "rhoai-3.5"},
-            "steps": {"fetch": {"csv_files": ["rhoai-3.5.csv"]}},
-        })
+        ctx.create(
+            run_dir,
+            {
+                "application": {"release": "rhoai-3.5"},
+                "steps": {"fetch": {"csv_files": ["rhoai-3.5.csv"]}},
+            },
+        )
         ctx.validate_csv_consistency(run_dir)
 
     def test_raises_on_stale_csv_files(self, tmp_path):
         run_dir = tmp_path / "run1"
-        ctx.create(run_dir, {
-            "application": {"release": "rhoai-3.5"},
-            "steps": {"fetch": {"csv_files": ["rhoai-3.5-ea.1.csv"]}},
-        })
+        ctx.create(
+            run_dir,
+            {
+                "application": {"release": "rhoai-3.5"},
+                "steps": {"fetch": {"csv_files": ["rhoai-3.5-ea.1.csv"]}},
+            },
+        )
         with pytest.raises(ValueError, match="Stale csv_files.*rhoai-3.5-ea.1.csv.*rhoai-3.5"):
             ctx.validate_csv_consistency(run_dir)
 
     def test_passes_with_warnings_csv(self, tmp_path):
         run_dir = tmp_path / "run1"
-        ctx.create(run_dir, {
-            "application": {"release": "rhoai-3.5"},
-            "steps": {"fetch": {"csv_files": ["rhoai-3.5.csv", "rhoai-3.5-warnings.csv"]}},
-        })
+        ctx.create(
+            run_dir,
+            {
+                "application": {"release": "rhoai-3.5"},
+                "steps": {"fetch": {"csv_files": ["rhoai-3.5.csv", "rhoai-3.5-warnings.csv"]}},
+            },
+        )
         ctx.validate_csv_consistency(run_dir)
 
     def test_no_op_when_release_missing(self, tmp_path):
         run_dir = tmp_path / "run1"
-        ctx.create(run_dir, {
-            "steps": {"fetch": {"csv_files": ["anything.csv"]}},
-        })
+        ctx.create(
+            run_dir,
+            {
+                "steps": {"fetch": {"csv_files": ["anything.csv"]}},
+            },
+        )
         ctx.validate_csv_consistency(run_dir)
 
     def test_no_op_when_csv_files_missing(self, tmp_path):
         run_dir = tmp_path / "run1"
-        ctx.create(run_dir, {
-            "application": {"release": "rhoai-3.5"},
-        })
+        ctx.create(
+            run_dir,
+            {
+                "application": {"release": "rhoai-3.5"},
+            },
+        )
         ctx.validate_csv_consistency(run_dir)
 
     def test_no_op_when_context_file_missing(self, tmp_path):

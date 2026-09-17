@@ -115,6 +115,7 @@ class TestSymptomQuality:
 
     def test_no_placeholder_patterns_in_symptoms(self, catalog):
         import re
+
         placeholder = re.compile(r"\bX{3,}\b|\bY{3,}\b|\bZ{3,}\b", re.IGNORECASE)
         for entry in catalog["violations"]:
             for symptom in entry.get("symptoms", []):
@@ -144,13 +145,9 @@ class TestNoDuplicateAliases:
             for alias in entry.get("aliases", []):
                 key = alias.lower()
                 if key in alias_to_id:
-                    duplicates.append(
-                        f"alias '{alias}' in both '{alias_to_id[key]}' and '{entry['id']}'"
-                    )
+                    duplicates.append(f"alias '{alias}' in both '{alias_to_id[key]}' and '{entry['id']}'")
                 alias_to_id[key] = entry["id"]
-        assert not duplicates, (
-            f"Duplicate aliases cause silent shadowing (first match wins): {duplicates}"
-        )
+        assert not duplicates, f"Duplicate aliases cause silent shadowing (first match wins): {duplicates}"
 
 
 class TestReferenceURLs:
@@ -163,9 +160,7 @@ class TestReferenceURLs:
                 ref = step.get("reference", "")
                 for pattern, desc in FORBIDDEN_PATTERNS:
                     if pattern.search(ref):
-                        violations_with_internal.append(
-                            f"'{entry['id']}' fix_step ref contains [{desc}]: {ref}"
-                        )
+                        violations_with_internal.append(f"'{entry['id']}' fix_step ref contains [{desc}]: {ref}")
         assert not violations_with_internal, (
             f"Internal URLs found in fix_steps (this is a public repo): {violations_with_internal}"
         )
@@ -176,12 +171,8 @@ class TestReferenceURLs:
             ref = entry.get("reference", "")
             for pattern, desc in FORBIDDEN_PATTERNS:
                 if pattern.search(ref):
-                    alerts_with_internal.append(
-                        f"'{entry['id']}' reference contains [{desc}]: {ref}"
-                    )
-        assert not alerts_with_internal, (
-            f"Internal URLs found in known_false_alerts: {alerts_with_internal}"
-        )
+                    alerts_with_internal.append(f"'{entry['id']}' reference contains [{desc}]: {ref}")
+        assert not alerts_with_internal, f"Internal URLs found in known_false_alerts: {alerts_with_internal}"
 
     def test_no_internal_urls_in_fallback_references(self, catalog):
         refs_with_internal = []
@@ -189,12 +180,8 @@ class TestReferenceURLs:
             ref = entry.get("reference", "")
             for pattern, desc in FORBIDDEN_PATTERNS:
                 if pattern.search(ref):
-                    refs_with_internal.append(
-                        f"'{entry.get('code_prefix', '?')}' reference contains [{desc}]: {ref}"
-                    )
-        assert not refs_with_internal, (
-            f"Internal URLs found in fallback_references: {refs_with_internal}"
-        )
+                    refs_with_internal.append(f"'{entry.get('code_prefix', '?')}' reference contains [{desc}]: {ref}")
+        assert not refs_with_internal, f"Internal URLs found in fallback_references: {refs_with_internal}"
 
 
 class TestRuleCodeShadowing:
@@ -202,6 +189,7 @@ class TestRuleCodeShadowing:
 
     def test_shared_rule_codes_have_distinguishing_symptoms_or_aliases(self, catalog):
         from collections import defaultdict
+
         code_to_entries = defaultdict(list)
         for entry in catalog["violations"]:
             for code in entry.get("conforma_rule_codes", []):
@@ -220,9 +208,7 @@ class TestRuleCodeShadowing:
                         f"'{entry['id']}' shares rule_code '{code}' but has no unique "
                         "id, aliases, or symptoms to match via alternative paths"
                     )
-        assert not problems, (
-            f"Entries shadowed by rule_code matching with no alternative path: {problems}"
-        )
+        assert not problems, f"Entries shadowed by rule_code matching with no alternative path: {problems}"
 
 
 class TestKnownFalseAlerts:

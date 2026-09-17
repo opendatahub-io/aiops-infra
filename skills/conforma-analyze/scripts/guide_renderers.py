@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 from __future__ import annotations
-import argparse
-import json
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-import conforma_context_ops  # noqa: E402
 import conforma_counting  # noqa: E402
 import release_dates  # noqa: E402
-import yaml  # noqa: E402
 from parse_violations import build_semantic_detail_lookup  # noqa: E402
 import analyze_csv_report as analysis  # noqa: E402
 from conforma_constants import (  # noqa: E402
@@ -222,9 +218,7 @@ def render_metadata_header(
         if source_created_at:
             lines.append(f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {source_created_at} |")
         else:
-            lines.append(
-                f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {NOT_YET_AVAILABLE_SOURCE_CSV_GENERATED_NOTE} |"
-            )
+            lines.append(f"| **{ROW_LABEL_SOURCE_CSV_GENERATED}** | {NOT_YET_AVAILABLE_SOURCE_CSV_GENERATED_NOTE} |")
         # Keep the same structure as the Step 2 context confirmation table:
         # the raw (unfiltered) row count precedes the deduplicated total, and
         # a value that is not available yet carries a placeholder note.
@@ -241,6 +235,7 @@ def render_metadata_header(
 
     import getpass
     import socket
+
     user_host = f"{getpass.getuser()}@{socket.gethostname()}"
 
     model_suffix = f" (LLM: {ai_model})" if ai_model else ""
@@ -265,19 +260,33 @@ def _find_covering_mr(mrs: list[dict], component: str) -> dict | None:
     return None
 
 
+def _jira_refs_from_merge_request(merge_request: dict | None) -> list[dict]:
+    """Extract Jira issue references from a Merge Request's text.
+
+    Merge Request titles and descriptions are an independent Jira discovery
+    source. Keep those references visible in the guide even when Jira ticket
+    creation is skipped for the run.
+    """
+    if not merge_request:
+        return []
+    text = " ".join(
+        str(merge_request.get(field) or "")
+        for field in ("title", "description")
+    )
+    keys = list(dict.fromkeys(match.upper() for match in re.findall(r"(?<![A-Z0-9])([A-Z][A-Z0-9]+-\d+)(?!\d)", text, re.IGNORECASE)))
+    return [{"key": key, "url": f"https://redhat.atlassian.net/browse/{key}"} for key in keys]
+
+
 def _violation_count(
-    rule: str, component: str,
+    rule: str,
+    component: str,
     by_component_rule: dict[tuple[str, str], int],
 ) -> int:
     """Return the exact violation count for a (rule, component) pair.
 
     Falls back to the base rule (without ``:``) suffix, then to 1.
     """
-    return (
-        by_component_rule.get((rule, component), 0)
-        or by_component_rule.get((rule.split(":")[0], component), 0)
-        or 1
-    )
+    return by_component_rule.get((rule, component), 0) or by_component_rule.get((rule.split(":")[0], component), 0) or 1
 
 
 def _truncate_detail(detail: str, max_len: int = 60) -> str:
@@ -319,10 +328,14 @@ def _compute_violation_buckets(
         uncovered_comps = v.get("uncovered_components", [])
         covered_comps = [c for c in all_components if c not in uncovered_comps]
         covered_violations += conforma_counting.violations_for_components(
-            rule, covered_comps, by_component_rule,
+            rule,
+            covered_comps,
+            by_component_rule,
         )
         not_covered_violations += conforma_counting.violations_for_components(
-            rule, uncovered_comps, by_component_rule,
+            rule,
+            uncovered_comps,
+            by_component_rule,
         )
 
     coverage_pct = (covered_violations / total_violations * 100) if total_violations > 0 else 0
@@ -335,12 +348,14 @@ def _compute_violation_buckets(
         uncovered_comps = v.get("uncovered_components", [])
         mrs = v.get("open_merge_requests", [])
         for comp in uncovered_comps:
-            uncovered_entries.append({
-                "rule": rule,
-                "component": comp,
-                "violation_count": _violation_count(rule, comp, by_component_rule),
-                "mr": _find_covering_mr(mrs, comp),
-            })
+            uncovered_entries.append(
+                {
+                    "rule": rule,
+                    "component": comp,
+                    "violation_count": _violation_count(rule, comp, by_component_rule),
+                    "mr": _find_covering_mr(mrs, comp),
+                }
+            )
 
     no_mr_entries = [e for e in uncovered_entries if not e["mr"]]
     has_mr_entries = [e for e in uncovered_entries if e["mr"]]
@@ -501,7 +516,6 @@ def _compute_violation_buckets(
     }
 
 
-
 def _append_tooling_health_detail(lines: list[str], tooling_health_data: dict) -> None:
     """Append a compact tooling health summary for the TODO #0 healthy case."""
     tools = tooling_health_data.get("tools", [])
@@ -532,10 +546,7 @@ def _append_tooling_health_detail(lines: list[str], tooling_health_data: dict) -
                 f"is **{status}** — [latest run]({run_url}) succeeded on {run_date}."
             )
         else:
-            lines.append(
-                f"The [{name} workflow]({CONFORMA_REPORTER_ACTIONS_URL}) "
-                f"is **{status}**."
-            )
+            lines.append(f"The [{name} workflow]({CONFORMA_REPORTER_ACTIONS_URL}) is **{status}**.")
 
 
 def render_key_takeaways(
@@ -555,7 +566,10 @@ def render_key_takeaways(
     each violation either has an exception or does not.
     """
     buckets = _compute_violation_buckets(
-        coverage_data, analysis_result, by_component_rule, upcoming_release_date,
+        coverage_data,
+        analysis_result,
+        by_component_rule,
+        upcoming_release_date,
     )
 
     no_mr_entries = buckets["no_mr_entries"]
@@ -589,20 +603,25 @@ def render_key_takeaways(
                 _upcoming_post_release.append(w)
 
     # Summary preamble — count non-empty action categories
-    action_count = sum([
-        no_mr_violation_count > 0,
-        sum(e["violation_count"] for e in expiring_no_mr) > 0,
-        sum(e["violation_count"] for e in expiring_mr_insufficient) > 0,
-        has_mr_expires_count > 0,
-        has_mr_ok_count > 0,
-        bool(tooling_health_data and any(
-            t.get("health", {}).get("status") in ("unhealthy", "error")
-            for t in tooling_health_data.get("tools", [])
-        )),
-        bool(expiring_soon),
-        bool(_upcoming_pre_release),
-        bool(_upcoming_post_release),
-    ])
+    action_count = sum(
+        [
+            no_mr_violation_count > 0,
+            sum(e["violation_count"] for e in expiring_no_mr) > 0,
+            sum(e["violation_count"] for e in expiring_mr_insufficient) > 0,
+            has_mr_expires_count > 0,
+            has_mr_ok_count > 0,
+            bool(
+                tooling_health_data
+                and any(
+                    t.get("health", {}).get("status") in ("unhealthy", "error")
+                    for t in tooling_health_data.get("tools", [])
+                )
+            ),
+            bool(expiring_soon),
+            bool(_upcoming_pre_release),
+            bool(_upcoming_post_release),
+        ]
+    )
     lines = ["## TODO", ""]
 
     if action_count == 0:
@@ -610,7 +629,9 @@ def render_key_takeaways(
 
     lines.append("")
 
-    detail_lookup, detail_labels = build_semantic_detail_lookup(violations_yaml_data) if violations_yaml_data else ({}, {})
+    detail_lookup, detail_labels = (
+        build_semantic_detail_lookup(violations_yaml_data) if violations_yaml_data else ({}, {})
+    )
 
     def _format_violation_cell(rule: str, comp: str) -> str:
         base_rule = rule.split(":")[0]
@@ -638,26 +659,28 @@ def render_key_takeaways(
             rows.append(f"|   | +{len(details) - max_show} more {label}s{empty}")
         return rows
 
-    # Per-row Jira column helpers (active only when jira_sync.json was read).
-    # Ticket key(s) if found/created for the (rule, component) pair, else the
-    # Create pre-fill link. No Jira column is added at all when jira_sync is
-    # absent, keeping the TODO tables byte-identical to the pre-sync guide.
-    jira_cell_active = bool(jira_sync)
+    # Per-row Jira column helpers. The Jira column is always rendered so TODO
+    # tables retain a stable schema; an unavailable ticket or synchronization
+    # entry is represented by an em dash in the cell.
+    jira_cell_active = True
 
-    def _jira_cell(rule: str, comp: str) -> str:
+    def _jira_cell(rule: str, comp: str, covering_mr: dict | None = None) -> str:
         sync_entry = _jira_sync_entry(jira_sync, rule)
-        refs, create_url = _sync_component_cells(sync_entry, comp)
+        refs, create_url, related_search_url, related_label = _sync_component_cells(sync_entry, comp)
+        mr_refs = _jira_refs_from_merge_request(covering_mr)
+        existing_keys = {ref.get("key") for ref in refs}
+        refs.extend(ref for ref in mr_refs if ref.get("key") not in existing_keys)
         if not refs and not create_url:
-            return "—"
-        if refs:
-            return ", ".join(
-                f"[{r['key']}]({r['url']})" if r.get("url") else r["key"] for r in refs
-            )
-        return f"[Create]({create_url})"
+            cell = "—"
+        elif refs:
+            cell = ", ".join(f"[{r['key']}]({r['url']})" if r.get("url") else r["key"] for r in refs)
+        else:
+            cell = f"[Create]({create_url})"
+        if related_search_url:
+            cell += f", [Search related Jira (label: `{related_label}`)]({related_search_url})"
+        return cell
 
-    def _detail_continuation_rows_jira(
-        rule: str, comp: str, trailing_empty: int
-    ) -> list[str]:
+    def _detail_continuation_rows_jira(rule: str, comp: str, trailing_empty: int) -> list[str]:
         """Detail continuation rows with an empty Jira cell when the column is active."""
         return _detail_continuation_rows(rule, comp, trailing_empty + (1 if jira_cell_active else 0))
 
@@ -666,7 +689,8 @@ def render_key_takeaways(
 
     # TODO: Tooling health — always pinned first
     unhealthy_tools = [
-        t for t in (tooling_health_data or {}).get("tools", [])
+        t
+        for t in (tooling_health_data or {}).get("tools", [])
         if t.get("health", {}).get("status") in ("unhealthy", "error")
     ]
     tooling_body = []
@@ -708,26 +732,26 @@ def render_key_takeaways(
     tooling_body.append("")
     tooling_body.append("---")
 
-    todo_sections.append({
-        "title": title,
-        "count": count,
-        "body": tooling_body,
-        "pinned": True,  # Always first
-        "priority": 0,  # Tooling always #0
-    })
+    todo_sections.append(
+        {
+            "title": title,
+            "count": count,
+            "body": tooling_body,
+            "pinned": True,  # Always first
+            "priority": 0,  # Tooling always #0
+        }
+    )
 
     # TODO: Violations with no exception and no open Merge Request (highest risk)
     no_mr_body = []
     no_mr_body.append("")
-    no_mr_body.append(
-        "Review each violation — click the violation code to see details and next steps."
-    )
+    no_mr_body.append("Review each violation — click the violation code to see details and next steps.")
     no_mr_body.append("")
     if jira_cell_active:
         no_mr_body.append("| # | Violation | Component | Violations | Jira |")
         no_mr_body.append("|--:|-----------|-----------|:----------:|------|")
         no_mr_empty = "| | No violations | | |  |"
-    else:
+    else:  # pragma: no cover - jira_cell_active is intentionally always enabled
         no_mr_body.append("| # | Violation | Component | Violations |")
         no_mr_body.append("|--:|-----------|-----------|:----------:|")
         no_mr_empty = "| | No violations | | |"
@@ -735,7 +759,7 @@ def render_key_takeaways(
         for row_num, entry in enumerate(no_mr_entries, 1):
             violation_cell = _format_violation_cell(entry["rule"], entry["component"])
             row = f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} |"
-            row += f" {_jira_cell(entry['rule'], entry['component'])} |" if jira_cell_active else " |"
+            row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
             no_mr_body.append(row)
             no_mr_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 2))
     else:
@@ -743,13 +767,15 @@ def render_key_takeaways(
     no_mr_body.append("")
     no_mr_body.append("---")
 
-    todo_sections.append({
-        "title": f"{no_mr_violation_count:,} violations without exception or open Merge Request",
-        "count": no_mr_violation_count,
-        "body": no_mr_body,
-        "pinned": False,
-        "priority": 1,  # Highest priority: uncovered violations
-    })
+    todo_sections.append(
+        {
+            "title": f"{no_mr_violation_count:,} violations without exception or open Merge Request",
+            "count": no_mr_violation_count,
+            "body": no_mr_body,
+            "pinned": False,
+            "priority": 1,  # Highest priority: uncovered violations
+        }
+    )
 
     # TODOs: Exceptions expiring before the upcoming release date
     if upcoming_release_date:
@@ -765,11 +791,15 @@ def render_key_takeaways(
         )
         expiring_no_mr_body.append("")
         if jira_cell_active:
-            expiring_no_mr_body.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Jira |")
+            expiring_no_mr_body.append(
+                "| # | Violation | Component | Violations | Effective Until in Existing Exception | Jira |"
+            )
             expiring_no_mr_body.append("|--:|-----------|-----------|:----------:|-----------------|------|")
             expiring_no_mr_empty = "| | No violations | | | |  |"
-        else:
-            expiring_no_mr_body.append("| # | Violation | Component | Violations | Effective Until in Existing Exception |")
+        else:  # pragma: no cover - jira_cell_active is intentionally always enabled
+            expiring_no_mr_body.append(
+                "| # | Violation | Component | Violations | Effective Until in Existing Exception |"
+            )
             expiring_no_mr_body.append("|--:|-----------|-----------|:----------:|-----------------|")
             expiring_no_mr_empty = "| | No violations | | | |"
         if expiring_no_mr:
@@ -779,7 +809,7 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {entry['effective_until']} |"
                 )
-                row += f" {_jira_cell(entry['rule'], entry['component'])} |" if jira_cell_active else " |"
+                row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
                 expiring_no_mr_body.append(row)
                 expiring_no_mr_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 3))
         else:
@@ -787,13 +817,15 @@ def render_key_takeaways(
         expiring_no_mr_body.append("")
         expiring_no_mr_body.append("---")
 
-        todo_sections.append({
-            "title": f"{expiring_no_mr_count:,} violations with expiring exceptions, no open Merge Request",
-            "count": expiring_no_mr_count,
-            "body": expiring_no_mr_body,
-            "pinned": False,
-            "priority": 2,
-        })
+        todo_sections.append(
+            {
+                "title": f"{expiring_no_mr_count:,} violations with expiring exceptions, no open Merge Request",
+                "count": expiring_no_mr_count,
+                "body": expiring_no_mr_body,
+                "pinned": False,
+                "priority": 2,
+            }
+        )
 
         # TODO: Expiring exceptions with MR but MR expiry also before release
         expiring_mr_insuf_count = sum(e["violation_count"] for e in expiring_mr_insufficient)
@@ -806,12 +838,20 @@ def render_key_takeaways(
         )
         expiring_mr_insuf_body.append("")
         if jira_cell_active:
-            expiring_mr_insuf_body.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request | Jira |")
-            expiring_mr_insuf_body.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|------|")
+            expiring_mr_insuf_body.append(
+                "| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request | Jira |"
+            )
+            expiring_mr_insuf_body.append(
+                "|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|------|"
+            )
             expiring_mr_insuf_empty = "| | No violations | | | | | |  |"
-        else:
-            expiring_mr_insuf_body.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
-            expiring_mr_insuf_body.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
+        else:  # pragma: no cover - jira_cell_active is intentionally always enabled
+            expiring_mr_insuf_body.append(
+                "| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |"
+            )
+            expiring_mr_insuf_body.append(
+                "|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|"
+            )
             expiring_mr_insuf_empty = "| | No violations | | | | | |"
         if expiring_mr_insufficient:
             for row_num, entry in enumerate(expiring_mr_insufficient, 1):
@@ -822,7 +862,7 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
-                row += f" {_jira_cell(entry['rule'], entry['component'])} |" if jira_cell_active else " |"
+                row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
                 expiring_mr_insuf_body.append(row)
                 expiring_mr_insuf_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 5))
         else:
@@ -830,13 +870,15 @@ def render_key_takeaways(
         expiring_mr_insuf_body.append("")
         expiring_mr_insuf_body.append("---")
 
-        todo_sections.append({
-            "title": f"{expiring_mr_insuf_count:,} violations with expiring exceptions, Merge Request also expires before release",
-            "count": expiring_mr_insuf_count,
-            "body": expiring_mr_insuf_body,
-            "pinned": False,
-            "priority": 3,
-        })
+        todo_sections.append(
+            {
+                "title": f"{expiring_mr_insuf_count:,} violations with expiring exceptions, Merge Request also expires before release",
+                "count": expiring_mr_insuf_count,
+                "body": expiring_mr_insuf_body,
+                "pinned": False,
+                "priority": 3,
+            }
+        )
 
         # TODO: Expiring exceptions with MR extending past release (lower risk)
         expiring_mr_suf_count = sum(e["violation_count"] for e in expiring_mr_sufficient)
@@ -848,12 +890,20 @@ def render_key_takeaways(
         )
         expiring_mr_suf_body.append("")
         if jira_cell_active:
-            expiring_mr_suf_body.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request | Jira |")
-            expiring_mr_suf_body.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|------|")
+            expiring_mr_suf_body.append(
+                "| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request | Jira |"
+            )
+            expiring_mr_suf_body.append(
+                "|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|------|"
+            )
             expiring_mr_suf_empty = "| | No violations | | | | | |  |"
-        else:
-            expiring_mr_suf_body.append("| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |")
-            expiring_mr_suf_body.append("|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|")
+        else:  # pragma: no cover - jira_cell_active is intentionally always enabled
+            expiring_mr_suf_body.append(
+                "| # | Violation | Component | Violations | Effective Until in Existing Exception | Exception Effective Until in Open Merge Request | Merge Request |"
+            )
+            expiring_mr_suf_body.append(
+                "|--:|-----------|-----------|:----------:|--------------------------------------|------------------------------------------------|---------------|"
+            )
             expiring_mr_suf_empty = "| | No violations | | | | | |"
         if expiring_mr_sufficient:
             for row_num, entry in enumerate(expiring_mr_sufficient, 1):
@@ -864,7 +914,7 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
-                row += f" {_jira_cell(entry['rule'], entry['component'])} |" if jira_cell_active else " |"
+                row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
                 expiring_mr_suf_body.append(row)
                 expiring_mr_suf_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 5))
         else:
@@ -872,13 +922,15 @@ def render_key_takeaways(
         expiring_mr_suf_body.append("")
         expiring_mr_suf_body.append("---")
 
-        todo_sections.append({
-            "title": f"{expiring_mr_suf_count:,} violations with expiring exceptions, Merge Request extends past release",
-            "count": expiring_mr_suf_count,
-            "body": expiring_mr_suf_body,
-            "pinned": False,
-            "priority": 4,
-        })
+        todo_sections.append(
+            {
+                "title": f"{expiring_mr_suf_count:,} violations with expiring exceptions, Merge Request extends past release",
+                "count": expiring_mr_suf_count,
+                "body": expiring_mr_suf_body,
+                "pinned": False,
+                "priority": 4,
+            }
+        )
 
     # TODO: Violations with no exception, open MR expires before release.
     # Always rendered (like the other expiring-exception sections) when a release
@@ -898,12 +950,20 @@ def render_key_takeaways(
             )
         has_mr_exp_body.append("")
         if jira_cell_active:
-            has_mr_exp_body.append("| # | Violation | Component | Violations | Exception Effective Until in Open Merge Request | Merge Request | Jira |")
-            has_mr_exp_body.append("|--:|-----------|-----------|:----------:|------------------------------------------------|---------------|------|")
+            has_mr_exp_body.append(
+                "| # | Violation | Component | Violations | Exception Effective Until in Open Merge Request | Merge Request | Jira |"
+            )
+            has_mr_exp_body.append(
+                "|--:|-----------|-----------|:----------:|------------------------------------------------|---------------|------|"
+            )
             has_mr_exp_empty = "| | No violations | | | | |  |"
-        else:
-            has_mr_exp_body.append("| # | Violation | Component | Violations | Exception Effective Until in Open Merge Request | Merge Request |")
-            has_mr_exp_body.append("|--:|-----------|-----------|:----------:|------------------------------------------------|---------------|")
+        else:  # pragma: no cover - jira_cell_active is intentionally always enabled
+            has_mr_exp_body.append(
+                "| # | Violation | Component | Violations | Exception Effective Until in Open Merge Request | Merge Request |"
+            )
+            has_mr_exp_body.append(
+                "|--:|-----------|-----------|:----------:|------------------------------------------------|---------------|"
+            )
             has_mr_exp_empty = "| | No violations | | | | |"
         if has_mr_expires_before_release:
             for row_num, entry in enumerate(has_mr_expires_before_release, 1):
@@ -914,7 +974,7 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | `{entry['component']}` "
                     f"| {entry['violation_count']} | {mr_eu_display} | {mr_link} |"
                 )
-                row += f" {_jira_cell(entry['rule'], entry['component'])} |" if jira_cell_active else " |"
+                row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
                 has_mr_exp_body.append(row)
                 has_mr_exp_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 4))
         else:
@@ -922,13 +982,15 @@ def render_key_takeaways(
         has_mr_exp_body.append("")
         has_mr_exp_body.append("---")
 
-        todo_sections.append({
-            "title": f"{has_mr_expires_count:,} violations with open Merge Request expiring before release",
-            "count": has_mr_expires_count,
-            "body": has_mr_exp_body,
-            "pinned": False,
-            "priority": 5,
-        })
+        todo_sections.append(
+            {
+                "title": f"{has_mr_expires_count:,} violations with open Merge Request expiring before release",
+                "count": has_mr_expires_count,
+                "body": has_mr_exp_body,
+                "pinned": False,
+                "priority": 5,
+            }
+        )
 
     # TODO: Violations with no exception but having an open Merge Request (OK expiry)
     has_mr_ok_body = []
@@ -942,7 +1004,7 @@ def render_key_takeaways(
         has_mr_ok_body.append("| # | Violation | Component | Violations | Merge Request | Jira |")
         has_mr_ok_body.append("|--:|-----------|-----------|:----------:|---------------|------|")
         has_mr_ok_empty = "| | No violations | | | |  |"
-    else:
+    else:  # pragma: no cover - jira_cell_active is intentionally always enabled
         has_mr_ok_body.append("| # | Violation | Component | Violations | Merge Request |")
         has_mr_ok_body.append("|--:|-----------|-----------|:----------:|---------------|")
         has_mr_ok_empty = "| | No violations | | | |"
@@ -951,7 +1013,7 @@ def render_key_takeaways(
             violation_cell = _format_violation_cell(entry["rule"], entry["component"])
             mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
             row = f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} | {mr_link} |"
-            row += f" {_jira_cell(entry['rule'], entry['component'])} |" if jira_cell_active else ""
+            row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else ""
             has_mr_ok_body.append(row)
             has_mr_ok_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 3))
     else:
@@ -959,13 +1021,15 @@ def render_key_takeaways(
     has_mr_ok_body.append("")
     has_mr_ok_body.append("---")
 
-    todo_sections.append({
-        "title": f"{has_mr_ok_count:,} violations addressed by open Merge Requests (not yet merged)",
-        "count": has_mr_ok_count,
-        "body": has_mr_ok_body,
-        "pinned": False,
-        "priority": 6,
-    })
+    todo_sections.append(
+        {
+            "title": f"{has_mr_ok_count:,} violations addressed by open Merge Requests (not yet merged)",
+            "count": has_mr_ok_count,
+            "body": has_mr_ok_body,
+            "pinned": False,
+            "priority": 6,
+        }
+    )
 
     # Warnings becoming violations — split by release date
     if analysis_result.upcoming_violations:
@@ -1036,13 +1100,15 @@ def render_key_takeaways(
         pre_warn_body.append("")
         pre_warn_body.append("---")
 
-        todo_sections.append({
-            "title": f"{pre_count:,} warnings becoming violations before release date",
-            "count": pre_count,
-            "body": pre_warn_body,
-            "pinned": False,
-            "priority": 7,
-        })
+        todo_sections.append(
+            {
+                "title": f"{pre_count:,} warnings becoming violations before release date",
+                "count": pre_count,
+                "body": pre_warn_body,
+                "pinned": False,
+                "priority": 7,
+            }
+        )
 
         # TODO: Warnings becoming violations after the release date (within 21 days)
         post_count = sum(1 for _ in post_release)
@@ -1055,9 +1121,7 @@ def render_key_takeaways(
                 f"They will not block this release but should be tracked for the next one."
             )
         else:
-            post_warn_body.append(
-                "All warnings within the 21-day threshold are listed below."
-            )
+            post_warn_body.append("All warnings within the 21-day threshold are listed below.")
         post_warn_body.append("")
         post_warn_body.append("| # | Warning | Component | Count | Deadline | Days Left |")
         post_warn_body.append("|--:|---------|-----------|:-----:|----------|:---------:|")
@@ -1075,13 +1139,15 @@ def render_key_takeaways(
             post_warn_body.append("| | No warnings | | | | |")
         post_warn_body.append("")
 
-        todo_sections.append({
-            "title": f"{post_count:,} warnings becoming violations within 21 days (after release date)",
-            "count": post_count,
-            "body": post_warn_body,
-            "pinned": False,
-            "priority": 8,
-        })
+        todo_sections.append(
+            {
+                "title": f"{post_count:,} warnings becoming violations within 21 days (after release date)",
+                "count": post_count,
+                "body": post_warn_body,
+                "pinned": False,
+                "priority": 8,
+            }
+        )
 
     # Sort TODO sections: pinned first, then non-zero by priority, then zero-count by priority
     def _sort_key(section: dict) -> tuple:
@@ -1158,10 +1224,14 @@ def render_summary(
         covered_comps = [c for c in all_components if c not in uncovered_comps]
 
         covered_violations += conforma_counting.violations_for_components(
-            rule, covered_comps, by_component_rule,
+            rule,
+            covered_comps,
+            by_component_rule,
         )
         not_covered_violations += conforma_counting.violations_for_components(
-            rule, uncovered_comps, by_component_rule,
+            rule,
+            uncovered_comps,
+            by_component_rule,
         )
 
     coverage_pct = (covered_violations / total_violations * 100) if total_violations > 0 else 0
@@ -1222,30 +1292,32 @@ def _jira_sync_entry(jira_sync: dict | None, rule: str) -> dict | None:
         candidates = [v for v in violations if (v.get("rule") or "").split(":")[0] == base_rule]
     for entry in candidates:
         groups = entry.get("groups") or []
-        if entry.get("uncovered_components") or any(
-            g.get("existing") or g.get("created") for g in groups
-        ):
+        if entry.get("uncovered_components") or any(g.get("existing") or g.get("created") for g in groups):
             return entry
     return None
 
 
-def _sync_component_cells(sync_entry: dict | None, component: str) -> tuple[list[dict], str | None]:
+def _sync_component_cells(
+    sync_entry: dict | None, component: str
+) -> tuple[list[dict], str | None, str | None, str | None]:
     """Jira refs + pre-fill link for one component row, from a sync entry.
 
-    Returns ``(ticket_refs, create_url)`` where ``ticket_refs`` is a list of
+    Returns ``(ticket_refs, create_url, related_search_url, related_label)`` where ``ticket_refs`` is a list of
     ``{"key", "url"}`` (open-matched first, then created-this-run, deduped by
     key) and ``create_url`` is the pre-fill Create URL of the first component
     group that has neither an open nor a created ticket (None if none).
     """
     if not sync_entry:
-        return [], None
+        return [], None, None, None
     comp_stem = _component_stem(component)
     ticket_refs: list[dict] = []
     create_url = None
+    related_search_url = None
+    related_label = None
     for group in sync_entry.get("groups") or []:
-        members = [group] if any(
-            comp_stem == _component_stem(kc) for kc in group.get("konflux_components") or []
-        ) else []
+        members = (
+            [group] if any(comp_stem == _component_stem(kc) for kc in group.get("konflux_components") or []) else []
+        )
         for g in members:
             for ref in (g.get("existing"), g.get("created")):
                 if ref and ref.get("key") and all(t["key"] != ref["key"] for t in ticket_refs):
@@ -1254,7 +1326,16 @@ def _sync_component_cells(sync_entry: dict | None, component: str) -> tuple[list
             has_ticket = any(bool(g.get("existing") or g.get("created")) for g in members)
             if not has_ticket:
                 create_url = members[0].get("create_url")
-    return ticket_refs, create_url
+        if members and not related_search_url:
+            related_search_url = members[0].get("related_search_url")
+            labels = members[0].get("unique_labels") or []
+            matching_index = next(
+                (index for index, name in enumerate(members[0].get("konflux_components") or [])
+                 if _component_stem(name) == comp_stem),
+                0,
+            )
+            related_label = labels[matching_index] if matching_index < len(labels) else None
+    return ticket_refs, create_url, related_search_url, related_label
 
 
 def _build_jira_cell(
@@ -1262,6 +1343,8 @@ def _build_jira_cell(
     unscoped_jiras: list[dict],
     sync_refs: list[dict],
     sync_create_url: str | None,
+    sync_related_search_url: str | None = None,
+    sync_related_label: str | None = None,
 ) -> str:
     """Build the per-component **JIRAs** cell for the components table.
 
@@ -1289,10 +1372,14 @@ def _build_jira_cell(
         _add(ref.get("key", ""), ref.get("url") or "", "")
 
     if entries:
-        return ", ".join(f"[{key}]({url}){suffix}" if url else f"{key}{suffix}" for key, url, suffix in entries)
-    if sync_create_url:
-        return f"[Create]({sync_create_url})"
-    return "—"
+        cell = ", ".join(f"[{key}]({url}){suffix}" if url else f"{key}{suffix}" for key, url, suffix in entries)
+    elif sync_create_url:
+        cell = f"[Create]({sync_create_url})"
+    else:
+        cell = "—"
+    if sync_related_search_url:
+        cell += f", [Search related Jira (label: `{sync_related_label}`)]({sync_related_search_url})"
+    return cell
 
 
 def render_jira_tickets(lines: list[str], violation: dict, jira_sync: dict | None) -> None:
@@ -1388,9 +1475,7 @@ def render_coverage_table(coverage_data: dict) -> str:
     return "\n".join(lines)
 
 
-def render_work_scope(
-    lines: list[str], rule: str, work_scope_by_rule: dict[str, dict], source_csv_url: str
-) -> None:
+def render_work_scope(lines: list[str], rule: str, work_scope_by_rule: dict[str, dict], source_csv_url: str) -> None:
     """Render a work-scope line showing unique items to fix and CSV link for details."""
     ws = work_scope_by_rule.get(rule)
     if not ws:
@@ -1420,7 +1505,8 @@ def render_work_scope(
 
 
 def render_resolution_guide(
-    coverage_data: dict, catalog: dict,
+    coverage_data: dict,
+    catalog: dict,
     work_scope_by_rule: dict[str, dict] | None = None,
     source_csv_url: str = "",
     policy_files: list[dict[str, str]] | None = None,
@@ -1452,8 +1538,8 @@ def render_resolution_guide(
 
         anchor = _violation_anchor(rule)
         lines.append(
-            f'### {i}. `{rule}`{detail_suffix} — {total_components} components '
-            f'({covered_count}/{total_components} have exceptions) '
+            f"### {i}. `{rule}`{detail_suffix} — {total_components} components "
+            f"({covered_count}/{total_components} have exceptions) "
             f'<a id="{anchor}"></a>'
         )
         lines.append("")
@@ -1477,7 +1563,9 @@ def render_resolution_guide(
         render_known_false_alerts(lines, rule, v, catalog)
         render_work_scope(lines, rule, work_scope_by_rule or {}, source_csv_url)
         render_components_table(
-            lines, v, component_owners,
+            lines,
+            v,
+            component_owners,
             policy_files=policy_files,
             slack_threads=v.get("open_slack_threads"),
             slack_search_url=v.get("open_slack_search_url", ""),
@@ -1554,7 +1642,7 @@ def render_excepted_violation(lines: list[str], violation: dict) -> None:
     rule = violation.get("rule", "")
     lines.append(
         f"> For the underlying remediation procedure (e.g. after the exception expires), "
-        f"use the `conforma-remedy` skill: *\"How to fix `{rule}`?\"*"
+        f'use the `conforma-remedy` skill: *"How to fix `{rule}`?"*'
     )
     lines.append("")
 
@@ -1701,8 +1789,10 @@ def render_components_table(
             mr_cell = "—"
 
         comp_jiras = jira_by_stem.get(comp_stem, [])
-        sync_refs, sync_create_url = _sync_component_cells(sync_entry, comp)
-        jira_cell = _build_jira_cell(comp_jiras, unscoped_jiras, sync_refs, sync_create_url)
+        sync_refs, sync_create_url, sync_related_search_url, sync_related_label = _sync_component_cells(sync_entry, comp)
+        jira_cell = _build_jira_cell(
+            comp_jiras, unscoped_jiras, sync_refs, sync_create_url, sync_related_search_url, sync_related_label
+        )
 
         row = f"| `{comp}` | {team} | {exc_cell} | {mr_cell} | {jira_cell} |"
         if include_slack:
@@ -1727,9 +1817,7 @@ def render_partial_coverage_header(lines: list[str], violation: dict) -> None:
     lines.append("")
 
 
-def render_known_false_alerts(
-    lines: list[str], rule: str, violation: dict, catalog: dict
-) -> None:
+def render_known_false_alerts(lines: list[str], rule: str, violation: dict, catalog: dict) -> None:
     """Render known false alerts for a violation's components."""
     all_comps = violation.get("uncovered_components", []) + violation.get("covered_components", [])
     false_alert_comps = []
@@ -1895,10 +1983,12 @@ def render_tooling_health(tooling_health_data: dict) -> str:
     unhealthy_tools = [t for t in tools if t.get("health", {}).get("status") in ("unhealthy", "error")]
     if unhealthy_tools:
         names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)
-        lines.extend([
-            "",
-            f"**⚠ WARNING: The violation data in this report may be stale because the {names} workflow is failing.**",
-        ])
+        lines.extend(
+            [
+                "",
+                f"**⚠ WARNING: The violation data in this report may be stale because the {names} workflow is failing.**",
+            ]
+        )
 
     lines.append("")
     return "\n".join(lines)
@@ -1959,4 +2049,3 @@ def write_todo_preview(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     print(f"TODO preview written to {path}", file=sys.stderr)
-

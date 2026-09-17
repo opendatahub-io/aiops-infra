@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 from __future__ import annotations
-import argparse
 import getpass
 import json
 import os
 import platform
-import re
-import sys
-from pathlib import Path
 import jira_ops
-from add_jira_watchers import add_watchers_to_tickets as _add_jira_watchers
 
 
 PROVENANCE_REPO = "opendatahub-io/aiops-infra"
@@ -479,4 +474,3 @@ def build_summary(
     if summary_context:
         return f"{tag_prefix}{purpose_tag}{rule} - {comp_str} - {rhoai_version} - {summary_context}"
     return f"{tag_prefix}{purpose_tag}{rule} - {comp_str} - {rhoai_version}"
-

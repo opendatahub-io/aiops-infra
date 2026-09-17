@@ -27,6 +27,8 @@ Prohibited actions — the agent MUST NEVER:
 
 **Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md). In short: plain-text output goes in a code block (copy-to-clipboard), markdown output is rendered directly. Content is always verbatim — no LLM interpretation. If output is not informative enough, the fix belongs in the script.
 
+**TODO presentation gate**: After generating the resolution guide, always run `present_conforma_report.py`. It validates the required TODO tables and emits the TODO preview between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` markers. Relay only that emitted content verbatim; never reconstruct, summarize, or replace any generated table with prose.
+
 If the user only asks "does a report exist?" — answer the existence question (branch check + fetch attempt) and then **ask** whether to run the full analysis. Never produce partial analysis output as a substitute for the full workflow.
 
 **Violation of this rule is a hard failure.** If you catch yourself about to do any of the above, STOP immediately and follow the workflow from step 1.
@@ -47,7 +49,7 @@ When presenting violation data — whether standalone or when handing off to the
 
 **Output presentation:** Read and follow [`skills/references/script-output-presentation.md`](../references/script-output-presentation.md) — all script output must be presented verbatim using the format rules defined there.
 
-**Step 0 — Initialize run**: Before running any script, initialize a conforma run with `init_conforma_run.py` (see `workflows/full-analysis.md`). This creates `context.yaml` with `aiops_infra_root` and `user_query`, and is the **only command where user input appears on the command line**. All subsequent steps use fixed commands that read parameters from `context.yaml`. The prerequisites check (step 1) persists auth results (including Slack availability) to `context.yaml` via `update_step()`, so downstream scripts like `violations_coverage.py` auto-detect `--require-slack` without any CLI flag. All `python3` commands below use `$_R` as the repo root prefix, resolved from `context.yaml`.
+**Step 0 — Initialize run**: Before running any script, initialize a conforma run with `init_conforma_run.py` (see `workflows/full-analysis.md`). This creates `context.yaml` with `aiops_infra_root` and `user_query`, and is the **only command where user input appears on the command line**. All subsequent steps use fixed commands that read parameters from `context.yaml`. The prerequisites check (step 1) persists auth results, including Slack availability, to `context.yaml` via `update_step()`. Slack coverage is disabled by default; pass `--require-slack true` to `violations_coverage.py` when Slack cross-referencing is explicitly requested. All `python3` commands below use `$_R` as the repo root prefix, resolved from `context.yaml`.
 
 **Always run the unified prerequisite check first**:
 

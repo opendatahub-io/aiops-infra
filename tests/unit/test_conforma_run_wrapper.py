@@ -98,9 +98,7 @@ class TestRepoRootResolution:
         script.parent.mkdir()
         script.write_text('print("hello-from-ctx")\n')
 
-        (run_dir / "context.yaml").write_text(
-            f"aiops_infra_root: {repo}\n"
-        )
+        (run_dir / "context.yaml").write_text(f"aiops_infra_root: {repo}\n")
 
         env = {
             "HOME": str(tmp_path),

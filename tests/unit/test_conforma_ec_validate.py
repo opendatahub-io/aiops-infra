@@ -16,14 +16,16 @@ import conforma_ec_validate
 def csv_file(tmp_path):
     """Create a minimal CSV report file."""
     csv = tmp_path / "report.csv"
-    csv.write_text(textwrap.dedent("""\
+    csv.write_text(
+        textwrap.dedent("""\
         type,component_name,image,message,effective_on,code,title,description,solution
         violation,odh-dashboard-v3-5,quay.io/rhoai/odh-dashboard@sha256:aaa111,msg1,,sbom_spdx.allowed,Title1,Desc1,Sol1
         violation,odh-dashboard-v3-5,quay.io/rhoai/odh-dashboard@sha256:bbb222,msg2,,rpm_packages.unique_version,Title2,Desc2,Sol2
         violation,model-registry-v3-5,quay.io/rhoai/model-registry@sha256:ccc333,msg3,,hermetic_task.hermetic,Title3,Desc3,Sol3
         violation,model-registry-v3-5,quay.io/rhoai/model-registry@sha256:ccc333,msg4,,rpm_signature.allowed,Title4,Desc4,Sol4
         warning,odh-dashboard-v3-5,quay.io/rhoai/odh-dashboard@sha256:aaa111,warn,,some_warning,Warn,Warn,Warn
-    """))
+    """)
+    )
     return str(csv)
 
 
@@ -31,7 +33,8 @@ def csv_file(tmp_path):
 def policy_file(tmp_path):
     """Create a minimal policy YAML file with k8s publicKey."""
     policy = tmp_path / "policy.yaml"
-    policy.write_text(textwrap.dedent("""\
+    policy.write_text(
+        textwrap.dedent("""\
         apiVersion: appstudio.redhat.com/v1alpha1
         kind: EnterpriseContractPolicy
         metadata:
@@ -42,7 +45,8 @@ def policy_file(tmp_path):
             - name: release-policies
               policy:
                 - "oci::quay.io/enterprise-contract/ec-release-policy:latest"
-    """))
+    """)
+    )
     return str(policy)
 
 
@@ -50,7 +54,8 @@ def policy_file(tmp_path):
 def policy_file_no_k8s(tmp_path):
     """Create a policy YAML file without k8s publicKey."""
     policy = tmp_path / "policy-no-k8s.yaml"
-    policy.write_text(textwrap.dedent("""\
+    policy.write_text(
+        textwrap.dedent("""\
         apiVersion: appstudio.redhat.com/v1alpha1
         kind: EnterpriseContractPolicy
         metadata:
@@ -61,7 +66,8 @@ def policy_file_no_k8s(tmp_path):
             - name: release-policies
               policy:
                 - "oci::quay.io/enterprise-contract/ec-release-policy:latest"
-    """))
+    """)
+    )
     return str(policy)
 
 
@@ -85,9 +91,7 @@ class TestBuildSnapshotFromEntries:
 
     def test_empty_entries_raises(self, tmp_path):
         with pytest.raises(conforma_ec_validate.EcValidateError, match="No entries"):
-            conforma_ec_validate.build_snapshot_from_entries(
-                [], str(tmp_path / "spec.json")
-            )
+            conforma_ec_validate.build_snapshot_from_entries([], str(tmp_path / "spec.json"))
 
 
 class TestGroupEntriesByBaseImage:
@@ -150,9 +154,7 @@ class TestBuildSnapshotFromCsv:
         empty = tmp_path / "empty.csv"
         empty.write_text("type,component_name,image,code\n")
         with pytest.raises(conforma_ec_validate.EcValidateError, match="No valid"):
-            conforma_ec_validate.build_snapshot_from_csv(
-                str(empty), str(tmp_path / "out.json")
-            )
+            conforma_ec_validate.build_snapshot_from_csv(str(empty), str(tmp_path / "out.json"))
 
     def test_creates_parent_dirs(self, csv_file, tmp_path):
         output = str(tmp_path / "nested" / "dir" / "spec.json")
@@ -225,12 +227,8 @@ class TestExtractCsvViolations:
 
     def test_groups_by_component(self, csv_file):
         result = conforma_ec_validate.extract_csv_violations(csv_file)
-        assert result["odh-dashboard-v3-5"] == {
-            "sbom_spdx.allowed", "rpm_packages.unique_version"
-        }
-        assert result["model-registry-v3-5"] == {
-            "hermetic_task.hermetic", "rpm_signature.allowed"
-        }
+        assert result["odh-dashboard-v3-5"] == {"sbom_spdx.allowed", "rpm_packages.unique_version"}
+        assert result["model-registry-v3-5"] == {"hermetic_task.hermetic", "rpm_signature.allowed"}
 
 
 class TestExtractEcViolations:
@@ -254,9 +252,7 @@ class TestExtractEcViolations:
         }
         result = conforma_ec_validate.extract_ec_violations(ec_output)
         assert result["odh-dashboard-v3-5"] == {"sbom_spdx.allowed"}
-        assert result["model-registry-v3-5"] == {
-            "hermetic_task.hermetic", "rpm_signature.allowed"
-        }
+        assert result["model-registry-v3-5"] == {"hermetic_task.hermetic", "rpm_signature.allowed"}
 
     def test_normalizes_component_names_with_digest_suffix(self):
         ec_output = {
@@ -300,19 +296,16 @@ class TestExtractEcViolations:
 
 class TestNormalizeEcComponentName:
     def test_strips_sha256_arch_suffix(self):
-        assert conforma_ec_validate._normalize_ec_component_name(
-            "odh-dashboard-v3-5-sha256:abc123def456-amd64"
-        ) == "odh-dashboard-v3-5"
+        assert (
+            conforma_ec_validate._normalize_ec_component_name("odh-dashboard-v3-5-sha256:abc123def456-amd64")
+            == "odh-dashboard-v3-5"
+        )
 
     def test_preserves_plain_name(self):
-        assert conforma_ec_validate._normalize_ec_component_name(
-            "model-registry-v3-5"
-        ) == "model-registry-v3-5"
+        assert conforma_ec_validate._normalize_ec_component_name("model-registry-v3-5") == "model-registry-v3-5"
 
     def test_preserves_name_with_other_hyphens(self):
-        assert conforma_ec_validate._normalize_ec_component_name(
-            "odh-vllm-cpu-v3-5"
-        ) == "odh-vllm-cpu-v3-5"
+        assert conforma_ec_validate._normalize_ec_component_name("odh-vllm-cpu-v3-5") == "odh-vllm-cpu-v3-5"
 
 
 class TestExtractEcSuccesses:
@@ -336,9 +329,7 @@ class TestExtractEcSuccesses:
         }
         result = conforma_ec_validate.extract_ec_successes(ec_output)
         assert result["odh-dashboard-v3-5"] == {"hermetic_task.hermetic"}
-        assert result["model-registry-v3-5"] == {
-            "sbom_spdx.allowed", "rpm_packages.unique_version"
-        }
+        assert result["model-registry-v3-5"] == {"sbom_spdx.allowed", "rpm_packages.unique_version"}
 
     def test_normalizes_component_names(self):
         ec_output = {
@@ -611,9 +602,7 @@ class TestDownloadEcBinary:
 class TestRunEcValidate:
     @patch("subprocess.run")
     def test_hard_fails_on_missing_output(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=1, stderr="failed", stdout=""
-        )
+        mock_run.return_value = MagicMock(returncode=1, stderr="failed", stdout="")
         with pytest.raises(conforma_ec_validate.EcValidateError, match="did not produce"):
             conforma_ec_validate.run_ec_validate(
                 ec_binary=Path("/usr/bin/ec"),
@@ -627,11 +616,15 @@ class TestRunEcValidate:
         out_dir = tmp_path / "output"
         out_dir.mkdir()
         violations_json = out_dir / "ec-violations.json"
-        violations_json.write_text(json.dumps({
-            "components": [
-                {"name": "comp1", "violations": [{"metadata": {"code": "rule.a"}}]},
-            ]
-        }))
+        violations_json.write_text(
+            json.dumps(
+                {
+                    "components": [
+                        {"name": "comp1", "violations": [{"metadata": {"code": "rule.a"}}]},
+                    ]
+                }
+            )
+        )
 
         mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
 

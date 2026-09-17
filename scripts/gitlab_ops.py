@@ -6,16 +6,50 @@ import argparse
 import json
 import os
 import subprocess
+import time
 import warnings
 from pathlib import Path
+from collections.abc import Callable
+from typing import TypeVar
 from urllib.parse import urlparse
 
 import gitlab
+import requests
 import yaml
 from gitlab.exceptions import GitlabAuthenticationError, GitlabError, GitlabGetError
 
 DEFAULT_INSTANCE_HOST = os.environ.get("GITLAB_HOST") or os.environ.get("GL_HOST") or ""
 GLAB_CONFIG_PATH = Path.home() / ".config" / "glab-cli" / "config.yml"
+T = TypeVar("T")
+DEFAULT_GITLAB_TIMEOUT_SECONDS = 30
+DEFAULT_GITLAB_RETRY_BACKOFF_SECONDS = 10.0
+
+
+def retry_gitlab_operation(
+    operation: Callable[[], T],
+    *,
+    max_attempts: int = 5,
+    backoff_seconds: float = DEFAULT_GITLAB_RETRY_BACKOFF_SECONDS,
+) -> T:
+    """Retry a GitLab operation after transient network failures.
+
+    Authentication and API errors are not retried.  Only failures that may
+    resolve without changing the request are retried, such as read timeouts
+    and dropped connections.
+    """
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1")
+
+    transient_errors = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return operation()
+        except transient_errors:
+            if attempt == max_attempts:
+                raise
+            time.sleep(backoff_seconds * (2 ** (attempt - 1)))
+
+    raise AssertionError("retry_gitlab_operation did not execute")
 
 
 def _get_instance_host() -> str:
@@ -107,10 +141,7 @@ def authenticated_clone_url(project: str, instance_url: str | None = None) -> st
     host = _host_from_url(url)
     token = discover_token(url)
     if not token:
-        raise ValueError(
-            f"No GitLab token found for {host}. "
-            "Set GITLAB_TOKEN in ~/.conforma/.env or configure glab."
-        )
+        raise ValueError(f"No GitLab token found for {host}. Set GITLAB_TOKEN in ~/.conforma/.env or configure glab.")
     return f"https://{host}/{project}.git"
 
 
@@ -153,15 +184,25 @@ def get_client(instance_url: str | None = None, token: str | None = None) -> git
 
     ssl_verify = _ssl_verify()
     try:
-        gl = gitlab.Gitlab(url=url, private_token=resolved_token, ssl_verify=ssl_verify, timeout=15)
+        gl = gitlab.Gitlab(
+            url=url,
+            private_token=resolved_token,
+            ssl_verify=ssl_verify,
+            timeout=DEFAULT_GITLAB_TIMEOUT_SECONDS,
+        )
         gl.auth()
         return gl
     except Exception as exc:
         if "CERTIFICATE_VERIFY_FAILED" in str(exc) and ssl_verify:
             warnings.filterwarnings("ignore", message="Unverified HTTPS request")
-            gl = gitlab.Gitlab(url=url, private_token=resolved_token, ssl_verify=False, timeout=15)
-            gl.auth()
-            return gl
+        gl = gitlab.Gitlab(
+            url=url,
+            private_token=resolved_token,
+            ssl_verify=False,
+            timeout=DEFAULT_GITLAB_TIMEOUT_SECONDS,
+        )
+        gl.auth()
+        return gl
         raise
 
 
@@ -220,7 +261,11 @@ def clone_repo(
 
         cmd = ["git", "clone", "--branch", clone_branch, clone_url, str(target)]
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=600, env=git_env(url),
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            env=git_env(url),
         )
         if result.returncode != 0:
             detail = redact((result.stderr or result.stdout).strip())

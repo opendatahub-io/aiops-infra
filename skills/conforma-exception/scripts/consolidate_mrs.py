@@ -560,7 +560,9 @@ def consolidate(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Consolidate per-version exception Merge Requests into a single Merge Request")
+    parser = argparse.ArgumentParser(
+        description="Consolidate per-version exception Merge Requests into a single Merge Request"
+    )
     parser.add_argument(
         "--psx-url",
         required=True,

@@ -4,16 +4,12 @@ list_all, and main() branches missed by the base test file.
 
 from __future__ import annotations
 
-import json
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 import conforma_context_ops
-import gitlab_ops
-import konflux_environment
 import resolve_release_context as mod
 
 
@@ -85,8 +81,10 @@ class TestListAll:
     def test_gitlab_query_error(self, monkeypatch):
         monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test.example.com")
         monkeypatch.setenv("KONFLUX_TENANT", "test-tenant")
-        with patch.object(mod.konflux_environment, "load"), \
-             patch.object(mod, "list_version_dirs", side_effect=Exception("connection refused")):
+        with (
+            patch.object(mod.konflux_environment, "load"),
+            patch.object(mod, "list_version_dirs", side_effect=Exception("connection refused")),
+        ):
             result = mod.list_all()
         assert result["status"] == "error"
         assert "GitLab tree query failed" in result["confirmation_display"]
@@ -95,8 +93,10 @@ class TestListAll:
         monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test.example.com")
         monkeypatch.setenv("KONFLUX_TENANT", "test-tenant")
         versions = ["v3.4", "v3.5", "v3.5-ea.1"]
-        with patch.object(mod.konflux_environment, "load"), \
-             patch.object(mod, "list_version_dirs", return_value=versions):
+        with (
+            patch.object(mod.konflux_environment, "load"),
+            patch.object(mod, "list_version_dirs", return_value=versions),
+        ):
             result = mod.list_all()
         assert result["status"] == "list"
         assert result["available_versions"] == versions
@@ -109,8 +109,7 @@ class TestListAll:
     def test_empty_versions_list(self, monkeypatch):
         monkeypatch.setenv("KONFLUX_CLUSTER_DOMAIN", "test.example.com")
         monkeypatch.setenv("KONFLUX_TENANT", "test-tenant")
-        with patch.object(mod.konflux_environment, "load"), \
-             patch.object(mod, "list_version_dirs", return_value=[]):
+        with patch.object(mod.konflux_environment, "load"), patch.object(mod, "list_version_dirs", return_value=[]):
             result = mod.list_all()
         assert result["status"] == "list"
         assert result["available_versions"] == []
@@ -120,9 +119,12 @@ class TestMainListFlag:
     """Tests for main() with --list flag."""
 
     def test_list_flag_calls_list_all(self, monkeypatch, capsys):
-        mock_result = {"status": "list", "available_versions": ["v3.4"],
-                       "versions": [{"version_dir": "v3.4", "release": "rhoai-3.4", "konflux_app": "rhoai-v3-4"}],
-                       "confirmation_display": "| v3.4 | rhoai-3.4 | rhoai-v3-4 |"}
+        mock_result = {
+            "status": "list",
+            "available_versions": ["v3.4"],
+            "versions": [{"version_dir": "v3.4", "release": "rhoai-3.4", "konflux_app": "rhoai-v3-4"}],
+            "confirmation_display": "| v3.4 | rhoai-3.4 | rhoai-v3-4 |",
+        }
         monkeypatch.setattr(sys, "argv", ["resolve_release_context.py", "--list"])
         with patch.object(mod, "list_all", return_value=mock_result) as mock_la:
             rc = mod.main()
@@ -211,4 +213,3 @@ class TestMainMergeMode:
         monkeypatch.setattr(sys, "argv", ["resolve_release_context.py"])
         with pytest.raises(SystemExit):
             mod.main()
-

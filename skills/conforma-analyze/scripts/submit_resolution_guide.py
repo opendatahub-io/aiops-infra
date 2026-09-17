@@ -17,8 +17,6 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -31,8 +29,6 @@ from conforma_constants import CONFORMA_REPORTER_REPO, GITHUB_API, RESOLUTION_GU
 from github_ops import get_token as _get_github_token  # noqa: F401
 
 DEFAULT_FILENAME = RESOLUTION_GUIDE_FILENAME
-
-
 
 
 def _gh_headers() -> dict[str, str]:
@@ -206,7 +202,9 @@ def submit_resolution_guide(
     old_path = _resolve_old_path(metadata_file, release)
     if old_path and not dry_run:
         cleanup = _delete_file_if_exists(
-            repo, old_path, release,
+            repo,
+            old_path,
+            release,
             f"Remove legacy resolution guide from {old_path}",
         )
         if cleanup:
@@ -215,8 +213,10 @@ def submit_resolution_guide(
     root_legacy = DEFAULT_FILENAME
     if root_legacy != target_path and not dry_run:
         cleanup = _delete_file_if_exists(
-            repo, root_legacy, release,
-            f"Remove legacy resolution guide from repo root",
+            repo,
+            root_legacy,
+            release,
+            "Remove legacy resolution guide from repo root",
         )
         if cleanup:
             cleaned.append(cleanup["deleted"])
@@ -271,8 +271,7 @@ def _post_guide_url_comments(run_dir: str | Path | None, guide_url: str) -> list
     try:
         import conforma_jira_ticket_ops
     except Exception as exc:  # noqa: BLE001 -- non-blocking by design
-        print(f"WARNING: Could not import conforma_jira_ticket_ops for guide-URL "
-              f"comments: {exc}", file=sys.stderr)
+        print(f"WARNING: Could not import conforma_jira_ticket_ops for guide-URL comments: {exc}", file=sys.stderr)
         return []
     try:
         return conforma_jira_ticket_ops.add_guide_url_comment(created_keys, guide_url)
@@ -290,14 +289,20 @@ def main() -> int:
     )
     parser.add_argument("--guide-file", default=None, help="Path to the generated resolution guide markdown")
     parser.add_argument("--release", default=None, help="Branch name (e.g. rhoai-3.5-ea.2)")
-    parser.add_argument("--environment", default=None, choices=["prod", "stage"],
-                        help="Target environment — determines the directory in the repo")
+    parser.add_argument(
+        "--environment",
+        default=None,
+        choices=["prod", "stage"],
+        help="Target environment — determines the directory in the repo",
+    )
     parser.add_argument(
         "--metadata-file",
         default=None,
         help="Path to fetch-metadata.json — used to clean up legacy guide from old location",
     )
-    parser.add_argument("--repo", default=CONFORMA_REPORTER_REPO, help=f"GitHub repo (default: {CONFORMA_REPORTER_REPO})")
+    parser.add_argument(
+        "--repo", default=CONFORMA_REPORTER_REPO, help=f"GitHub repo (default: {CONFORMA_REPORTER_REPO})"
+    )
     parser.add_argument("--message", default=None, help="Commit message")
     parser.add_argument("--dry-run", action="store_true", help="Print what would be done without committing")
     args = parser.parse_args()

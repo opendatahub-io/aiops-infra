@@ -63,9 +63,7 @@ def check_targets(report: dict, targets: list[str], min_pct: float) -> list[dict
     for target in targets:
         match = find_file_in_report(report, target)
         if match is None:
-            results.append(
-                {"target": target, "status": "skip", "pct": None, "covered": 0, "total": 0}
-            )
+            results.append({"target": target, "status": "skip", "pct": None, "covered": 0, "total": 0})
             continue
         _, entry = match
         pct = coverage_pct(entry)
@@ -73,17 +71,11 @@ def check_targets(report: dict, targets: list[str], min_pct: float) -> list[dict
         covered = summary.get("covered_lines", 0)
         total = summary.get("num_statements", 0)
         if pct is None or total == 0:
-            results.append(
-                {"target": target, "status": "skip", "pct": pct, "covered": covered, "total": total}
-            )
+            results.append({"target": target, "status": "skip", "pct": pct, "covered": covered, "total": total})
         elif pct > min_pct:
-            results.append(
-                {"target": target, "status": "PASS", "pct": pct, "covered": covered, "total": total}
-            )
+            results.append({"target": target, "status": "PASS", "pct": pct, "covered": covered, "total": total})
         else:
-            results.append(
-                {"target": target, "status": "FAIL", "pct": pct, "covered": covered, "total": total}
-            )
+            results.append({"target": target, "status": "FAIL", "pct": pct, "covered": covered, "total": total})
     return results
 
 
@@ -139,9 +131,7 @@ def main() -> int:
         # Generate JSON report
         json_cmd = [sys.executable, "-m", "coverage", "json", "-o", str(cov_json)]
         env = {**os.environ, "COVERAGE_FILE": str(cov_data)}
-        json_result = subprocess.run(
-            json_cmd, cwd=str(REPO_ROOT), env=env, capture_output=True, text=True
-        )
+        json_result = subprocess.run(json_cmd, cwd=str(REPO_ROOT), env=env, capture_output=True, text=True)
         if json_result.returncode != 0:
             print("ERROR: coverage json generation failed", file=sys.stderr)
             sys.stderr.write(json_result.stderr)
@@ -156,8 +146,7 @@ def main() -> int:
         if failures:
             for f in failures:
                 print(
-                    f"  {f['target']}: {f['pct']:.1f}% < {args.min}% — "
-                    f"add tests to cover the missing lines.",
+                    f"  {f['target']}: {f['pct']:.1f}% < {args.min}% — add tests to cover the missing lines.",
                     file=sys.stderr,
                 )
             return 1
