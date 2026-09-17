@@ -31,6 +31,32 @@ from github_ops import get_token as _get_github_token  # noqa: F401
 DEFAULT_FILENAME = RESOLUTION_GUIDE_FILENAME
 
 
+def build_submission_prompt(
+    guide_file: str,
+    release: str,
+    environment: str,
+    repo: str = CONFORMA_REPORTER_REPO,
+    message: str | None = None,
+) -> dict:
+    """Build the deterministic, user-facing submission prompt without network access."""
+    guide_path = Path(guide_file)
+    target_path = f"{environment}/{DEFAULT_FILENAME}"
+    commit_message = message or f"Update conforma resolution guide for {release}"
+    return {
+        "url": f"https://github.com/{repo}/blob/{release}/{target_path}",
+        "target_path": target_path,
+        "branch": release,
+        "repo": repo,
+        "message": commit_message,
+        "local_guide_file": str(guide_path),
+        "committed": False,
+        "dry_run": True,
+        "question_text": f"Submit {target_path} to GitHub ({repo}, branch {release})?",
+        "question_options": ["Yes, submit", "No, skip"],
+        "skip_display": f"Skipping submission. The resolution guide is saved locally at [{guide_path.name}]({guide_path}).",
+    }
+
+
 def _gh_headers() -> dict[str, str]:
     token = _get_github_token()
     return {
@@ -124,20 +150,13 @@ def submit_resolution_guide(
     commit_message = message or f"Update conforma resolution guide for {release}"
 
     if dry_run:
-        url = f"https://github.com/{repo}/blob/{release}/{target_path}"
-        return {
-            "url": url,
-            "target_path": target_path,
-            "branch": release,
-            "repo": repo,
-            "message": commit_message,
-            "local_guide_file": str(guide_path),
-            "committed": False,
-            "dry_run": True,
-            "question_text": f"Submit {target_path} to GitHub ({repo}, branch {release})?",
-            "question_options": ["Yes, submit", "No, skip"],
-            "skip_display": f"Skipping submission. The resolution guide is saved locally at [{guide_path.name}]({guide_path}).",
-        }
+        return build_submission_prompt(
+            guide_file=guide_file,
+            release=release,
+            environment=environment,
+            repo=repo,
+            message=message,
+        )
 
     if not _check_branch_exists(repo, release):
         return {

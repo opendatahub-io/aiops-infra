@@ -3,7 +3,9 @@
 
 The generated file is the source of truth. This script only validates its
 required TODO/table structure and wraps the unchanged file content in markers
-so a caller can relay it without reconstructing or summarizing it.
+so a caller can relay it without reconstructing or summarizing it. It also
+emits the deterministic submission question for the active run, so completion
+of the report presentation cannot omit the required submission decision.
 """
 
 from __future__ import annotations
@@ -15,9 +17,12 @@ from pathlib import Path
 
 import _setup_env  # noqa: F401
 import conforma_context_ops
+from submit_resolution_guide import build_submission_prompt
 
 BEGIN_MARKER = "BEGIN_VERBATIM_TODO"
 END_MARKER = "END_VERBATIM_TODO"
+BEGIN_SUBMISSION_MARKER = "BEGIN_SUBMISSION_QUESTION"
+END_SUBMISSION_MARKER = "END_SUBMISSION_QUESTION"
 REQUIRED_TODO_NUMBERS = range(1, 7)
 TODO_HEADING_RE = re.compile(r"^### TODO #(\d+)\b.*$", re.MULTILINE)
 TABLE_HEADER_RE = re.compile(r"^\|[^\n]*\|\s*$", re.MULTILINE)
@@ -79,7 +84,37 @@ def resolve_todo_path(run_dir: Path) -> Path:
     return path if path.is_absolute() else run_dir / path
 
 
-def present_todo(todo_path: Path) -> str:
+def resolve_guide_path(run_dir: Path) -> Path:
+    """Resolve the generated guide path recorded in the active run context."""
+    relative_path = conforma_context_ops.get(
+        run_dir,
+        "steps.resolution_guide.guide_file",
+        "conforma-resolution-guide.md",
+    )
+    path = Path(str(relative_path)).expanduser()
+    return path if path.is_absolute() else run_dir / path
+
+
+def submission_prompt(run_dir: Path) -> str:
+    """Return the deterministic submission question for the active run."""
+    release = conforma_context_ops.get(run_dir, "application.release")
+    environment = conforma_context_ops.get(run_dir, "environment", "prod")
+    guide_path = resolve_guide_path(run_dir)
+    prompt = build_submission_prompt(
+        guide_file=str(guide_path),
+        release=str(release),
+        environment=str(environment),
+    )
+    options = "\n".join(f"- {option}" for option in prompt["question_options"])
+    return (
+        f"{BEGIN_SUBMISSION_MARKER}\n"
+        f"{prompt['question_text']}\n\n"
+        f"{options}\n"
+        f"{END_SUBMISSION_MARKER}\n"
+    )
+
+
+def present_todo(todo_path: Path, run_dir: Path | None = None) -> str:
     """Validate and return marked output containing the TODO file unchanged."""
     content = todo_path.read_text(encoding="utf-8")
     errors = validate_todo_content(content)
@@ -89,7 +124,10 @@ def present_todo(todo_path: Path) -> str:
     output = f"{BEGIN_MARKER}\n{content}"
     if not content.endswith("\n"):
         output += "\n"
-    return output + f"{END_MARKER}\n"
+    output += f"{END_MARKER}\n"
+    if run_dir is not None:
+        output += f"\n{submission_prompt(run_dir)}"
+    return output
 
 
 def main() -> int:
@@ -106,7 +144,7 @@ def main() -> int:
     try:
         run_dir = conforma_context_ops.discover_run_dir(args.run_dir)
         todo_path = resolve_todo_path(run_dir)
-        output = present_todo(todo_path)
+        output = present_todo(todo_path, run_dir)
     except (FileNotFoundError, KeyError, OSError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

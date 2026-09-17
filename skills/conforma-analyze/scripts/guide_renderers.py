@@ -704,6 +704,9 @@ def render_key_takeaways(
             f"depends on are not being refreshed."
         )
         tooling_body.append("")
+        if tooling_health_data:
+            tooling_body.extend(_render_tooling_health_table(tooling_health_data).splitlines())
+            tooling_body.append("")
         tooling_body.append("**Next steps:**")
         tooling_body.append("")
         tooling_body.append(
@@ -723,6 +726,8 @@ def render_key_takeaways(
         tooling_body.append("")
         if tooling_health_data:
             _append_tooling_health_detail(tooling_body, tooling_health_data)
+            tooling_body.append("")
+            tooling_body.extend(_render_tooling_health_table(tooling_health_data).splitlines())
         else:
             tooling_body.append(
                 f"The [conforma-reporter workflow]({CONFORMA_REPORTER_ACTIONS_URL}) "
@@ -1933,25 +1938,16 @@ def render_statistical_breakdown(
     return md
 
 
-def render_tooling_health(tooling_health_data: dict) -> str:
-    """Render the Tooling Health section from tooling-health.json data.
-
-    Prefers the pre-rendered ``display`` field produced by
-    ``check_tooling_health._render_display()`` so the table format is
-    consistent across interactive prompts and the resolution guide.
-    Falls back to inline rendering for older JSON files that lack the field.
-    """
-    display = tooling_health_data.get("display", "")
-    if display:
-        return f"## Tooling Health\n\n{display}"
-
+def _render_tooling_health_table(tooling_health_data: dict) -> str:
+    """Render the tooling-health table shared by TODO #0 and the full guide."""
     tools = tooling_health_data.get("tools", [])
     if not tools:
         return ""
 
-    lines = ["## Tooling Health", ""]
-    lines.append("| Tool | Status | Latest Run | Consecutive Failures | Last Success |")
-    lines.append("|------|--------|------------|---------------------|--------------|")
+    lines = [
+        "| Tool | Status | Latest Run | Consecutive Failures | Last Success |",
+        "|------|--------|------------|---------------------|--------------|",
+    ]
 
     for tool in tools:
         name = tool.get("name", "unknown")
@@ -1980,6 +1976,28 @@ def render_tooling_health(tooling_health_data: dict) -> str:
 
         lines.append(f"| {name} | {status} | {latest_cell} | {consecutive} | {success_cell} |")
 
+    return "\n".join(lines)
+
+
+def render_tooling_health(tooling_health_data: dict) -> str:
+    """Render the Tooling Health section from tooling-health.json data.
+
+    Prefers the pre-rendered ``display`` field produced by
+    ``check_tooling_health._render_display()`` so the table format is
+    consistent across interactive prompts and the resolution guide.
+    Falls back to inline rendering for older JSON files that lack the field.
+    """
+    display = tooling_health_data.get("display", "")
+    if display:
+        return f"## Tooling Health\n\n{display}"
+
+    table = _render_tooling_health_table(tooling_health_data)
+    if not table:
+        return ""
+
+    lines = ["## Tooling Health", "", table]
+
+    tools = tooling_health_data.get("tools", [])
     unhealthy_tools = [t for t in tools if t.get("health", {}).get("status") in ("unhealthy", "error")]
     if unhealthy_tools:
         names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)

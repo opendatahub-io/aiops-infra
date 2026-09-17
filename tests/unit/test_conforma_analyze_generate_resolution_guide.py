@@ -258,6 +258,22 @@ class TestCatalogMatching:
         entry = mod._match_catalog_entry("completely_unknown.rule", catalog)
         assert entry is None
 
+    def test_prefix_match(self):
+        catalog = {"violations": [{"id": "prefix.rule", "conforma_rule_codes": ["prefix"]}]}
+        assert mod._match_catalog_entry("prefix.rule.extra", catalog)["id"] == "prefix.rule"
+
+    def test_find_default_catalog(self):
+        assert mod._find_default_catalog().name == "violation-catalog.yaml"
+
+    def test_find_default_catalog_fallback_and_missing(self):
+        from unittest.mock import patch
+
+        with patch.object(mod.Path, "exists", side_effect=[False, True]):
+            assert mod._find_default_catalog().name == "violation-catalog.yaml"
+        with patch.object(mod.Path, "exists", side_effect=[False, False]):
+            with pytest.raises(FileNotFoundError, match="violation-catalog.yaml"):
+                mod._find_default_catalog()
+
     def test_fallback_exact_prefix(self, sample_catalog):
         catalog = mod._load_catalog(sample_catalog)
         fb = mod._match_fallback_reference("sbom_spdx.disallowed_package_attributes", catalog)
@@ -1969,6 +1985,65 @@ class TestMainAutoExtraction:
 
         assert rc == 1
 
+    @pytest.mark.parametrize("missing", ["coverage", "reports", "catalog"])
+    def test_generate_reports_missing_required_input(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog, missing
+    ):
+        paths = {
+            "violations": str(sample_violations_yaml),
+            "coverage": str(sample_coverage_json),
+            "reports": str(tmp_path),
+            "catalog": str(sample_catalog),
+        }
+        if missing == "coverage":
+            paths["coverage"] = str(tmp_path / "missing-coverage.json")
+        elif missing == "reports":
+            paths["reports"] = str(tmp_path / "missing-reports")
+        else:
+            paths["catalog"] = str(tmp_path / "missing-catalog.yaml")
+
+        with pytest.raises(FileNotFoundError, match=missing):
+            mod.generate_resolution_guide(
+                violations_yaml_path=paths["violations"],
+                coverage_json_path=paths["coverage"],
+                reports_dir=paths["reports"],
+                catalog_path=paths["catalog"],
+                release="rhoai-3.5-ea.2",
+                source_path="report.csv",
+                source_created_at="2026-06-10T05:19:05Z",
+            )
+
+    def test_generate_ignores_invalid_tooling_health_and_reads_work_scope(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog
+    ):
+        csv_content = (
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a-v3-5-ea-2,img:sha,"Not hermetic",,hermetic_task.hermetic,'
+            "Hermetic,desc,Enable hermetic\n"
+        )
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(csv_content)
+        invalid_health = tmp_path / "tooling-health.json"
+        invalid_health.write_text("not-json")
+        violations = yaml.safe_load(sample_violations_yaml.read_text())
+        violations["violation_data"]["violations_by_rule"]["hermetic_task.hermetic"]["work_scope"] = {
+            "team": "component-team"
+        }
+        violations_path = tmp_path / "violations.yaml"
+        violations_path.write_text(yaml.safe_dump(violations))
+
+        content = mod.generate_resolution_guide(
+            violations_yaml_path=str(violations_path),
+            coverage_json_path=str(sample_coverage_json),
+            reports_dir=str(tmp_path),
+            catalog_path=str(sample_catalog),
+            release="rhoai-3.5-ea.2",
+            source_path="report.csv",
+            source_created_at="2026-06-10T05:19:05Z",
+            tooling_health_path=str(invalid_health),
+        )
+
+        assert "Conforma Status and Resolution Guide" in content
+
 
 # ---------------------------------------------------------------------------
 # upcoming_release_date in TODO preview
@@ -2915,6 +2990,117 @@ class TestContextIntegration:
         rc = mod.main()
         assert rc == 1
 
+    def test_explicit_missing_run_dir_is_an_error(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setattr("sys.argv", [
+            "generate_resolution_guide.py",
+            "--run-dir", str(tmp_path / "missing-run"),
+        ])
+        with pytest.raises(FileNotFoundError):
+            mod.main()
+
+    def test_module_entrypoint_help(self, monkeypatch):
+        import runpy
+
+        monkeypatch.setattr("sys.argv", ["generate_resolution_guide.py", "--help"])
+        with pytest.raises(SystemExit) as exc_info:
+            runpy.run_path(mod.__file__, run_name="__main__")
+        assert exc_info.value.code == 0
+
+    @pytest.mark.parametrize(
+        ("extra_args", "message"),
+        [
+            (["--release", "rhoai-3.5-ea.2"], "--violations-yaml"),
+            (["--release", "rhoai-3.5-ea.2", "--violations-yaml", "v.yaml"], "--coverage-json"),
+            (["--release", "rhoai-3.5-ea.2", "--violations-yaml", "v.yaml", "--coverage-json", "c.json"], "--reports-dir"),
+            (["--release", "rhoai-3.5-ea.2", "--violations-yaml", "v.yaml", "--coverage-json", "c.json", "--reports-dir", "r"], "--output"),
+        ],
+    )
+    def test_main_requires_each_context_path(self, tmp_path, monkeypatch, extra_args, message):
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path))
+        monkeypatch.setattr("sys.argv", ["generate_resolution_guide.py", *extra_args])
+        assert mod.main() == 1
+
+    def test_main_handles_invalid_metadata_and_policy_json(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog, monkeypatch
+    ):
+        (tmp_path / "rhoai-3.5-ea.2.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a,img:sha,"Not hermetic",,hermetic_task.hermetic,Hermetic,desc,Fix\n'
+        )
+        bad_metadata = tmp_path / "metadata.json"
+        bad_metadata.write_text("not-json")
+        output = tmp_path / "guide.md"
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "empty-workdir"))
+        monkeypatch.setattr("sys.argv", [
+            "generate_resolution_guide.py",
+            "--violations-yaml", str(sample_violations_yaml),
+            "--coverage-json", str(sample_coverage_json),
+            "--reports-dir", str(tmp_path),
+            "--catalog", str(sample_catalog),
+            "--release", "rhoai-3.5-ea.2",
+            "--metadata-file", str(bad_metadata),
+            "--policy-files-json", "not-json",
+            "--source-path", "report.csv",
+            "--source-created-at", "2026-06-10T05:19:05Z",
+            "--output", str(output),
+        ])
+
+        assert mod.main() == 0
+        assert output.exists()
+
+    def test_main_uses_context_analysis_and_tooling_outputs(
+        self, tmp_path, monkeypatch, sample_catalog
+    ):
+        run_dir = self._setup_run_with_artifacts(tmp_path, monkeypatch, sample_catalog)
+        (run_dir / "conforma-analysis.md").write_text("analysis")
+        (run_dir / "tooling-health.json").write_text(json.dumps({"tools": []}))
+        conforma_context_ops.update_step(
+            run_dir, "tooling_health", "completed", health_json="tooling-health.json"
+        )
+        (run_dir / "fetch-metadata.json").write_text(json.dumps({
+            "releases": {
+                "rhoai-3.5-ea.2": {
+                    "source_path": "report.csv",
+                    "created_at": "2026-06-10T05:19:05Z",
+                    "source_sha": "context-sha",
+                },
+            },
+        }))
+        output = run_dir / "guide-with-context-outputs.md"
+        monkeypatch.setattr("sys.argv", [
+            "generate_resolution_guide.py",
+            "--catalog", str(sample_catalog),
+            "--output", str(output),
+        ])
+
+        assert mod.main() == 0
+        assert output.exists()
+
+    def test_main_reports_generation_file_error(
+        self, tmp_path, sample_violations_yaml, sample_coverage_json, sample_catalog, monkeypatch
+    ):
+        reports = tmp_path / "reports"
+        reports.mkdir()
+        (reports / "rhoai-3.5-ea.2.csv").write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            'violation,comp-a,img:sha,"Not hermetic",,hermetic_task.hermetic,Hermetic,desc,Fix\n'
+        )
+        monkeypatch.setattr(mod, "generate_resolution_guide", lambda **_: (_ for _ in ()).throw(FileNotFoundError("missing")))
+        monkeypatch.setattr("sys.argv", [
+            "generate_resolution_guide.py",
+            "--violations-yaml", str(sample_violations_yaml),
+            "--coverage-json", str(sample_coverage_json),
+            "--reports-dir", str(reports),
+            "--catalog", str(sample_catalog),
+            "--release", "rhoai-3.5-ea.2",
+            "--source-path", "report.csv",
+            "--source-created-at", "2026-06-10T05:19:05Z",
+            "--output", str(tmp_path / "guide.md"),
+        ])
+
+        assert mod.main() == 1
+
 
 # ---------------------------------------------------------------------------
 # Helpers for TODO / violation-bucket tests
@@ -3628,6 +3814,16 @@ class TestKeyTakeawaysToolingTodo:
         assert "Tooling unhealthy" in output
         assert "last success:" in output
 
+    def test_unhealthy_executive_line_without_previous_success(self):
+        line = mod._tooling_health_executive_line({
+            "tools": [{
+                "name": "conforma-reporter",
+                "health": {"status": "unhealthy"},
+            }],
+        })
+
+        assert "last success: unknown" in line
+
     def test_multiple_unhealthy_tools_joined_in_heading(self):
         coverage = _make_coverage_data()
         result = _make_analysis_result(total_violations=0)
@@ -3698,6 +3894,19 @@ class TestKeyTakeawaysToolingTodo:
         output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
         assert "[latest run](https://gh/run/1)" in output
         assert "2026-08-05" in output
+
+    def test_healthy_todo_0_includes_tooling_health_table(self):
+        coverage = _make_coverage_data()
+        result = _make_analysis_result(total_violations=0)
+        tooling = {"tools": [{"name": "conforma-reporter", "health": {
+            "status": "healthy", "consecutive_failures": 0,
+            "last_success": {"id": 1, "url": "https://gh/run/1", "completed_at": "2026-08-05"},
+        }, "latest_run": {"id": 2, "url": "https://gh/run/2", "conclusion": "success", "updated_at": "2026-08-06"}}]}
+
+        output = render_key_takeaways(coverage, result, {}, tooling_health_data=tooling)
+
+        assert "| Tool | Status | Latest Run | Consecutive Failures | Last Success |" in output
+        assert "| conforma-reporter | HEALTHY | [#2](https://gh/run/2) -- success (2026-08-06) | 0 | [#1](https://gh/run/1) (2026-08-05) |" in output
 
     def test_healthy_todo_0_no_executive_line(self):
         coverage = _make_coverage_data()

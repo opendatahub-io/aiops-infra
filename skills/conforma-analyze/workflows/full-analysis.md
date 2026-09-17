@@ -239,7 +239,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
    **⛔ HARD FAILURE RULES FOR STEP 10 — READ THESE BEFORE PROCEEDING:**
 
    **RULE 1 — TODO PREVIEW ONLY (no full guide in chat):**
-   The agent MUST run the deterministic presentation command below and relay the content between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` **verbatim into the response text**. The presentation script validates that every required TODO subsection has a Markdown table before emitting anything. The agent MUST NOT read and reconstruct the file manually. This file contains the metadata header (context confirmation) and the TODO section with summary preamble and all TODO #N subsections. The agent MUST NOT:
+   The agent MUST run the deterministic presentation command below and relay the content between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` **verbatim into the response text**. The presentation script validates that every required TODO subsection has a Markdown table before emitting anything, and emits the mandatory submission question between `BEGIN_SUBMISSION_QUESTION` and `END_SUBMISSION_QUESTION`. The agent MUST relay that question and its options verbatim after the TODO content. The agent MUST NOT read and reconstruct the file manually. This file contains the metadata header (context confirmation) and the TODO section with summary preamble and all TODO #N subsections. The agent MUST NOT:
    - Paste the full resolution guide (`conforma-resolution-guide.md`) into the chat
    - Paste the full analysis output (`conforma-analysis.md`) into the chat
    - Summarize, paraphrase, or abbreviate the TODO content
@@ -257,7 +257,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
    If this command exits non-zero, stop and report the validation error. Do NOT present a partial TODO preview. Do NOT rely on the tool result alone — the marked TODO content must appear as literal text in the agent's response. Render it as markdown (not in a code block), preserving every heading, table, link, and line exactly.
 
    **RULE 2 — ORDERING (present THEN ask):**
-   The TODO content must appear in the agent's response text BEFORE the AskQuestion call for step 11. Never call AskQuestion in the same tool-call batch that reads the file. The sequence is: (a) read TODO file → (b) paste its content into response → (c) THEN in a SEPARATE subsequent turn, ask about submission. This ensures the user sees the action items before being asked to submit.
+   The TODO content must appear in the agent's response text BEFORE the submission question. Never call AskQuestion in the same tool-call batch that runs the presentation command. The sequence is: (a) run the presentation command → (b) paste the TODO content verbatim into the response → (c) relay the emitted submission question and options verbatim in the subsequent user-visible turn. This ensures the user sees the action items before being asked to submit.
 
    **RULE 3 — MUST PROCEED TO STEP 11:**
    After rendering the TODO, the agent MUST immediately proceed to step 11 (submission) in the same response — do NOT stop, wait for user input, or end the turn after presenting the TODO. The workflow is not complete until the user has been asked about submission. Stopping after the TODO without proceeding to step 11 is a hard failure.
@@ -266,7 +266,9 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    ---
 
-11. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 10)*: After the TODO has been rendered in the previous response, run the submit script in dry-run mode with Bash description: `"Preview submission of resolution guide (dry run)"`, then use AskQuestion with `question_text` and `question_options` from the dry-run JSON verbatim. Do NOT auto-submit. Only run without `--dry-run` if the user confirms.
+11. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 10)*: The presentation command has already generated the exact submission question and options from the active run context. Relay those emitted values verbatim and wait for the user's confirmation. Do NOT auto-submit. Only run the submit script without `--dry-run` if the user confirms.
+
+   The dry-run command remains available when the submission prompt must be regenerated or inspected independently:
 
 ```bash
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/submit_resolution_guide.py --dry-run

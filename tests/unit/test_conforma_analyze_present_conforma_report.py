@@ -27,6 +27,15 @@ def test_validate_accepts_all_required_tables():
     assert mod.validate_todo_content(content) == []
 
 
+def test_validate_rejects_prose_only_todo_zero():
+    content = "## TODO\n\n### TODO #0 — Tooling status: healthy\n\nTooling is healthy.\n\n"
+    content += "\n".join(
+        f"### TODO #{number}\n\n{_table()}" for number in range(1, 7)
+    )
+
+    assert mod.validate_todo_content(content) == ["TODO #0 is missing its Markdown table"]
+
+
 def test_validate_checks_optional_zero_count_sections():
     content = _todo("status", *([_table()] * 6))
     content += "\n\n### TODO #7 — 0 warnings becoming violations\n\nNo warnings were found.\n"
@@ -67,6 +76,45 @@ def test_present_todo_preserves_content_inside_markers(tmp_path: Path):
     output = mod.present_todo(path)
 
     assert output == f"{mod.BEGIN_MARKER}\n{content}{mod.END_MARKER}\n"
+
+
+def test_submission_prompt_is_deterministic_from_context(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "context.yaml").write_text(
+        "application:\n  release: rhoai-3.6-ea.2\nenvironment: prod\n"
+        "steps:\n  resolution_guide:\n    guide_file: conforma-resolution-guide.md\n",
+        encoding="utf-8",
+    )
+
+    prompt = mod.submission_prompt(run_dir)
+
+    assert prompt == (
+        "BEGIN_SUBMISSION_QUESTION\n"
+        "Submit prod/conforma-resolution-guide.md to GitHub "
+        "(red-hat-data-services/conforma-reporter, branch rhoai-3.6-ea.2)?\n\n"
+        "- Yes, submit\n"
+        "- No, skip\n"
+        "END_SUBMISSION_QUESTION\n"
+    )
+
+
+def test_present_todo_includes_submission_prompt(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "context.yaml").write_text(
+        "application:\n  release: rhoai-3.6-ea.2\nenvironment: prod\n"
+        "steps:\n  resolution_guide:\n    guide_file: conforma-resolution-guide.md\n",
+        encoding="utf-8",
+    )
+    content = _todo("status", *([_table()] * 6)) + "\n"
+    path = run_dir / "conforma-todo.md"
+    path.write_text(content, encoding="utf-8")
+
+    output = mod.present_todo(path, run_dir)
+
+    assert output.endswith(mod.submission_prompt(run_dir))
+    assert "Submit prod/conforma-resolution-guide.md to GitHub" in output
 
 
 def test_present_todo_fails_before_output_for_invalid_content(tmp_path: Path):

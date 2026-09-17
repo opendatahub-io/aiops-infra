@@ -303,7 +303,6 @@ def generate_resolution_guide(
         source_csv_rows=effective_source_csv_rows,
         ai_model=ai_model,
     )
-    tooling_health = _render_tooling_health(tooling_health_data) if tooling_health_data else ""
     key_takeaways = _render_key_takeaways(
         coverage_data,
         analysis_result,
@@ -321,7 +320,6 @@ def generate_resolution_guide(
         metadata_header,
         key_takeaways,
         summary_metrics,
-        tooling_health,
         _render_coverage_table(coverage_data),
         _render_resolution_guide(
             coverage_data,

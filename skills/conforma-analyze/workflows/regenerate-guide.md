@@ -34,9 +34,11 @@ The active run must already contain completed inputs. If the `.conforma-active` 
 
    This is the complete command — it takes no arguments. On failure (missing inputs, unreadable context.yaml), report the exact error and stop; do not fall back to manual guide composition.
 
-2. **Present the TODO preview (same rules as full-analysis step 9)**: Read `conforma-todo.md` from the active run directory with the Read tool and copy its ENTIRE content verbatim into the response text, rendered as markdown (not in a code block). The agent MUST NOT paste the full guide, summarize, or add commentary. The TODO content must appear in the response BEFORE the submission question, and the question MUST be asked in a subsequent turn (display-before-question rule).
+2. **Present the TODO preview and deterministic submission question (same rules as full-analysis step 9)**: Run `present_conforma_report.py`. Copy the content between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` verbatim into the response text, rendered as markdown (not in a code block), followed by the question and options between `BEGIN_SUBMISSION_QUESTION` and `END_SUBMISSION_QUESTION`. The agent MUST NOT paste the full guide, summarize, or add commentary. The TODO content must appear before the submission question, and the question MUST be asked in a subsequent turn (display-before-question rule).
 
-3. **Offer re-submission** (requires user confirmation — separate turn after step 2): Run the submit script in dry-run mode with Bash description: `"Preview submission of regenerated resolution guide (dry run)"`, then use AskQuestion with `question_text` and `question_options` from the dry-run JSON verbatim. Do NOT auto-submit.
+3. **Offer re-submission** (requires user confirmation — separate turn after step 2): Use the deterministic question emitted by `present_conforma_report.py`. Do NOT auto-submit.
+
+   The dry-run command remains available when the submission prompt must be regenerated or inspected independently:
 
    ```bash
    ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/submit_resolution_guide.py --dry-run

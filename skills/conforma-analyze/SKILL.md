@@ -27,7 +27,7 @@ Prohibited actions — the agent MUST NEVER:
 
 **Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md). In short: plain-text output goes in a code block (copy-to-clipboard), markdown output is rendered directly. Content is always verbatim — no LLM interpretation. If output is not informative enough, the fix belongs in the script.
 
-**TODO presentation gate**: After generating the resolution guide, always run `present_conforma_report.py`. It validates the required TODO tables and emits the TODO preview between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` markers. Relay only that emitted content verbatim; never reconstruct, summarize, or replace any generated table with prose.
+**TODO presentation gate**: After generating the resolution guide, always run `present_conforma_report.py`. It validates the required TODO tables and emits the TODO preview between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` markers, followed by the mandatory GitHub submission question between `BEGIN_SUBMISSION_QUESTION` and `END_SUBMISSION_QUESTION`. Relay both emitted sections verbatim; never stop after the TODO marker, reconstruct, summarize, or replace any generated table with prose.
 
 If the user only asks "does a report exist?" — answer the existence question (branch check + fetch attempt) and then **ask** whether to run the full analysis. Never produce partial analysis output as a substitute for the full workflow.
 
