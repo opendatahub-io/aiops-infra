@@ -378,3 +378,206 @@ class TestContextIntegration:
 
         with pytest.raises(SystemExit):
             mod.main()
+
+
+class TestLoadCreatedJiraKeys:
+    """_load_created_jira_keys defensively extracts created keys from jira_sync.json."""
+
+    def _write_sync(self, tmp_path, payload):
+        (tmp_path / "jira_sync.json").write_text(payload, encoding="utf-8")
+        return tmp_path
+
+    def test_none_run_dir(self):
+        assert mod._load_created_jira_keys(None) == []
+
+    def test_missing_file(self, tmp_path):
+        assert mod._load_created_jira_keys(tmp_path) == []
+
+    def test_malformed_json(self, tmp_path):
+        self._write_sync(tmp_path, "{not valid json")
+        assert mod._load_created_jira_keys(tmp_path) == []
+
+    def test_non_dict_payload(self, tmp_path):
+        self._write_sync(tmp_path, "[1, 2, 3]")
+        assert mod._load_created_jira_keys(tmp_path) == []
+
+    def test_no_violations(self, tmp_path):
+        self._write_sync(tmp_path, json.dumps({"violations": []}))
+        assert mod._load_created_jira_keys(tmp_path) == []
+
+    def test_extracts_unique_created_keys(self, tmp_path):
+        self._write_sync(tmp_path, json.dumps({
+            "violations": [
+                {
+                    "groups": [
+                        {"created": {"key": "RHOAIENG-1", "url": "u1"}},
+                        {"created": {"key": "RHOAIENG-2", "url": "u2"}},
+                        {"created": {"key": "RHOAIENG-1", "url": "u1"}},  # duplicate
+                        {"created": None},
+                    ]
+                },
+                {
+                    "groups": [
+                        {"existing": {"key": "RHOAIENG-9", "url": "u9"}},  # not created -> ignored
+                        {"created": "not-a-dict"},  # defensive: ignored
+                    ]
+                },
+            ]
+        }))
+        assert mod._load_created_jira_keys(tmp_path) == ["RHOAIENG-1", "RHOAIENG-2"]
+
+
+class TestPostGuideUrlComments:
+    """_post_guide_url_comments is non-blocking and only comments created keys."""
+
+    def _write_created(self, tmp_path):
+        (tmp_path / "jira_sync.json").write_text(json.dumps({
+            "violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]
+        }), encoding="utf-8")
+
+    def test_no_keys_is_noop(self, tmp_path):
+        assert mod._post_guide_url_comments(tmp_path, "https://guide") == []
+
+    def test_posts_for_created_keys(self, tmp_path):
+        self._write_created(tmp_path)
+        fake = MagicMock()
+        fake.add_guide_url_comment.return_value = ["guide-commented RHOAIENG-1"]
+        with patch.dict("sys.modules", {"conforma_jira_ticket_ops": fake}):
+            actions = mod._post_guide_url_comments(tmp_path, "https://guide")
+        fake.add_guide_url_comment.assert_called_once_with(["RHOAIENG-1"], "https://guide")
+        assert actions == ["guide-commented RHOAIENG-1"]
+
+    def test_import_failure_is_non_blocking(self, tmp_path):
+        self._write_created(tmp_path)
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "conforma_jira_ticket_ops":
+                raise ImportError("blocked")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=fake_import):
+            assert mod._post_guide_url_comments(tmp_path, "https://guide") == []
+
+    def test_comment_exception_is_non_blocking(self, tmp_path):
+        self._write_created(tmp_path)
+        fake = MagicMock()
+        fake.add_guide_url_comment.side_effect = RuntimeError("jira down")
+        with patch.dict("sys.modules", {"conforma_jira_ticket_ops": fake}):
+            assert mod._post_guide_url_comments(tmp_path, "https://guide") == []
+
+
+class TestSubmitGuideUrlCommentIntegration:
+    """main() posts the guide URL only after a successful (committed) submit."""
+
+    def _setup_run_with_guide(self, tmp_path):
+        run_dir = tmp_path / "20260703-120000"
+        run_dir.mkdir()
+        (run_dir / "conforma-resolution-guide.md").write_text("# Guide\n\nContent.", encoding="utf-8")
+        context = {
+            "application": {"release": "rhoai-3.5-ea.2"},
+            "environment": "prod",
+            "run": {"run_dir": conforma_context_ops.contract_home(run_dir)},
+            "steps": {
+                "resolution_guide": {
+                    "status": "completed",
+                    "guide_file": "conforma-resolution-guide.md",
+                },
+            },
+        }
+        (run_dir / "context.yaml").write_text(yaml.dump(context), encoding="utf-8")
+        work_dir = tmp_path / ".conforma"
+        work_dir.mkdir(exist_ok=True)
+        (work_dir / ".conforma-active").symlink_to(run_dir)
+        return run_dir, work_dir
+
+    def _committed_submit_context(self):
+        branch_resp = MagicMock(status_code=200)
+        contents_resp = MagicMock(status_code=404)
+        put_resp = MagicMock(status_code=201)
+        put_resp.json.return_value = {
+            "content": {"html_url": "https://github.com/test/blob/guide.md", "sha": "abc"}
+        }
+
+        def mock_get(url, **kwargs):
+            if "branches" in url:
+                return branch_resp
+            return contents_resp
+
+        from contextlib import ExitStack
+
+        stack = ExitStack()
+        stack.enter_context(patch.object(mod, "_get_github_token", return_value="token"))
+        stack.enter_context(patch.object(mod.requests, "get", side_effect=mock_get))
+        stack.enter_context(patch.object(mod.requests, "put", return_value=put_resp))
+        stack.enter_context(patch.object(mod.requests, "delete", return_value=MagicMock(status_code=404)))
+        return stack
+
+    def test_posts_comment_on_successful_submit(self, tmp_path, monkeypatch):
+        run_dir, work_dir = self._setup_run_with_guide(tmp_path)
+        (run_dir / "jira_sync.json").write_text(json.dumps({
+            "violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]
+        }), encoding="utf-8")
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py"])
+
+        fake = MagicMock()
+        fake.add_guide_url_comment.return_value = ["guide-commented RHOAIENG-1"]
+        with self._committed_submit_context(), patch.dict("sys.modules", {"conforma_jira_ticket_ops": fake}):
+            rc = mod.main()
+
+        assert rc == 0
+        fake.add_guide_url_comment.assert_called_once_with(
+            ["RHOAIENG-1"], "https://github.com/test/blob/guide.md"
+        )
+
+    def test_no_comment_when_no_created_keys(self, tmp_path, monkeypatch):
+        run_dir, work_dir = self._setup_run_with_guide(tmp_path)
+        (run_dir / "jira_sync.json").write_text(json.dumps(
+            {"violations": [{"groups": [{"existing": {"key": "RHOAIENG-9", "url": "u9"}}]}]}
+        ), encoding="utf-8")
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py"])
+
+        fake = MagicMock()
+        with self._committed_submit_context(), patch.dict("sys.modules", {"conforma_jira_ticket_ops": fake}):
+            rc = mod.main()
+
+        assert rc == 0
+        fake.add_guide_url_comment.assert_not_called()
+
+    def test_dry_run_does_not_post_comment(self, tmp_path, monkeypatch):
+        run_dir, work_dir = self._setup_run_with_guide(tmp_path)
+        (run_dir / "jira_sync.json").write_text(json.dumps({
+            "violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]
+        }), encoding="utf-8")
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py", "--dry-run"])
+
+        fake = MagicMock()
+        with patch.dict("sys.modules", {"conforma_jira_ticket_ops": fake}):
+            rc = mod.main()
+
+        assert rc == 0
+        fake.add_guide_url_comment.assert_not_called()
+
+    def test_comment_failure_does_not_fail_submit(self, tmp_path, monkeypatch):
+        run_dir, work_dir = self._setup_run_with_guide(tmp_path)
+        (run_dir / "jira_sync.json").write_text(json.dumps({
+            "violations": [{"groups": [{"created": {"key": "RHOAIENG-1", "url": "u1"}}]}]
+        }), encoding="utf-8")
+        monkeypatch.setenv("CONFORMA_WORKDIR", str(work_dir))
+        monkeypatch.setattr("sys.argv", ["submit_resolution_guide.py"])
+
+        fake = MagicMock()
+        fake.add_guide_url_comment.side_effect = RuntimeError("jira down")
+        with self._committed_submit_context(), patch.dict("sys.modules", {"conforma_jira_ticket_ops": fake}):
+            rc = mod.main()
+
+        # The submit succeeds even though commenting failed.
+        assert rc == 0
+        ctx = conforma_context_ops.load(run_dir)
+        assert ctx["steps"]["submit"]["status"] == "completed"
+
+

@@ -200,6 +200,7 @@ def generate_resolution_guide(
     policy_dir_url: str = "",
     policy_files: list[dict[str, str]] | None = None,
     tooling_health_path: str | None = None,
+    jira_sync_path: str | None = None,
     todo_file: str | None = None,
     analysis_output_file: str | None = None,
     end_of_support: str = "",
@@ -253,6 +254,19 @@ def generate_resolution_guide(
             except (json.JSONDecodeError, OSError):
                 pass
 
+    # Load Jira sync data if provided (absent/invalid file => graceful fallback
+    # to the pre-sync guide: no Jira column, no Jira tickets block).
+    jira_sync: dict | None = None
+    if jira_sync_path:
+        js_path = Path(jira_sync_path)
+        if js_path.exists():
+            try:
+                loaded = json.loads(js_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    jira_sync = loaded
+            except (json.JSONDecodeError, OSError):
+                pass
+
     # Run statistical analysis
     records = analysis.load_reports_dir(reports)
     warnings = analysis.load_warnings_dir(reports)
@@ -280,7 +294,7 @@ def generate_resolution_guide(
 
     metadata_header = _render_metadata_header(release, source_path, source_created_at, source_sha, policy_dir_url, policy_files, end_of_support=end_of_support, confirmation_display=confirmation_display, environment=environment, code_freeze_date=code_freeze_date, upcoming_release_date=upcoming_release_date, total_violations=counts.violations, source_csv_rows=effective_source_csv_rows, ai_model=ai_model)
     tooling_health = _render_tooling_health(tooling_health_data) if tooling_health_data else ""
-    key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files, release=release)
+    key_takeaways = _render_key_takeaways(coverage_data, analysis_result, counts.by_component_rule, tooling_health_data, violations_yaml_data=viol_data, upcoming_release_date=upcoming_release_date, policy_files=policy_files, release=release, jira_sync=jira_sync)
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
 
     sections = [
@@ -289,7 +303,7 @@ def generate_resolution_guide(
         summary_metrics,
         tooling_health,
         _render_coverage_table(coverage_data),
-        _render_resolution_guide(coverage_data, catalog, work_scope_by_rule, source_csv_url, policy_files=policy_files, detail_lookup=build_semantic_detail_lookup(viol_data)[0] if viol_data else None),
+        _render_resolution_guide(coverage_data, catalog, work_scope_by_rule, source_csv_url, policy_files=policy_files, detail_lookup=build_semantic_detail_lookup(viol_data)[0] if viol_data else None, jira_sync=jira_sync),
         _render_warnings_section(analysis_result, component_owners),
         _render_statistical_breakdown(analysis_result, component_owners),
     ]
@@ -576,6 +590,14 @@ def main() -> int:
         )
         return 1
 
+    # Jira sync data (from the jira_sync step, if it ran). Absent file => the
+    # guide renders without Jira columns/ticket blocks (graceful fallback).
+    jira_sync_path = None
+    if run_dir:
+        js_candidate = Path(run_dir) / "jira_sync.json"
+        if js_candidate.exists():
+            jira_sync_path = str(js_candidate)
+
     try:
         content = generate_resolution_guide(
             violations_yaml_path=violations_yaml,
@@ -589,6 +611,7 @@ def main() -> int:
             policy_dir_url=policy_dir_url,
             policy_files=policy_files,
             tooling_health_path=tooling_health_json,
+            jira_sync_path=jira_sync_path,
             todo_file=todo_file,
             analysis_output_file=analysis_output_file,
             end_of_support=end_of_support,

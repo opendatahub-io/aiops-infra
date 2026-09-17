@@ -227,6 +227,60 @@ def submit_resolution_guide(
     return result_dict
 
 
+def _load_created_jira_keys(run_dir: str | Path | None) -> list[str]:
+    """Collect the Jira ticket keys created by the jira_sync step.
+
+    Reads ``jira_sync.json`` from the run directory and returns the unique
+    ``groups[].created.key`` values. Defensive: returns an empty list when the
+    file is absent, unreadable, or malformed — the guide-URL comment step is
+    simply a no-op in that case.
+    """
+    if not run_dir:
+        return []
+    sync_path = Path(run_dir) / "jira_sync.json"
+    if not sync_path.exists():
+        return []
+    try:
+        data = json.loads(sync_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    if not isinstance(data, dict):
+        return []
+
+    keys: list[str] = []
+    for violation in data.get("violations") or []:
+        for group in violation.get("groups") or []:
+            created = group.get("created")
+            if isinstance(created, dict):
+                key = created.get("key")
+                if key and key not in keys:
+                    keys.append(key)
+    return keys
+
+
+def _post_guide_url_comments(run_dir: str | Path | None, guide_url: str) -> list[str]:
+    """Comment the submitted guide URL on the created Jira tickets.
+
+    Non-blocking by design: any failure (missing module, no keys, Jira error)
+    is reported to stderr and never fails the submit workflow. Returns the
+    action log produced by ``conforma_jira_ticket_ops.add_guide_url_comment``.
+    """
+    created_keys = _load_created_jira_keys(run_dir)
+    if not created_keys:
+        return []
+    try:
+        import conforma_jira_ticket_ops
+    except Exception as exc:  # noqa: BLE001 -- non-blocking by design
+        print(f"WARNING: Could not import conforma_jira_ticket_ops for guide-URL "
+              f"comments: {exc}", file=sys.stderr)
+        return []
+    try:
+        return conforma_jira_ticket_ops.add_guide_url_comment(created_keys, guide_url)
+    except Exception as exc:  # noqa: BLE001 -- non-blocking by design
+        print(f"WARNING: Guide-URL comments failed: {exc}", file=sys.stderr)
+        return []
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Submit a Conforma Resolution Guide to GitHub")
     parser.add_argument(
@@ -300,6 +354,13 @@ def main() -> int:
     else:
         action = "Updated" if result.get("overwritten") else "Created"
         print(f"{action}: {result['url']}", file=sys.stderr)
+
+    # After a successful (committed, non-dry-run) submit only: comment the
+    # guide URL on any Jira tickets created by the jira_sync step. Non-blocking
+    # — a comment failure is reported but never fails the submit.
+    if run_dir and not args.dry_run and result.get("committed"):
+        for action in _post_guide_url_comments(run_dir, result.get("url", "")):
+            print(action, file=sys.stderr)
 
     if run_dir and not args.dry_run:
         conforma_context_ops.update_step(run_dir, "submit", "completed")
