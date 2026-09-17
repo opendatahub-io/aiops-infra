@@ -165,7 +165,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/parse_violations.py --no-catalog
 ```
 
-6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations"`. **Save the output to a file** — do NOT present the analysis in the chat (the TODO preview in step 9 shows the action items; the full analysis is in the resolution guide):
+6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations"`. **Save the output to a file** — do NOT present the analysis in the chat (the TODO preview in step 10 shows the action items; the full analysis is in the resolution guide):
 
 ```bash
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/analyze_csv_report.py --format markdown
@@ -214,11 +214,19 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
     If `status` is `failed`, read `<run_dir>/coverage.log` and report the error before continuing.
 
-    The coverage table is the primary deliverable and is included in the TODO preview (step 9). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
+    The coverage table is the primary deliverable and is included in the TODO preview (step 10). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
 
-8. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **TODO preview** is presented in the chat — the full guide is submitted to GitHub. See step 9 for the generation command and presentation rules.
+8. **Jira Sync**: Use Bash description: `"Sync violations to Jira tickets"`. After the coverage check, run the Jira sync step. This performs label-first discovery of existing conforma Jira tickets across the discovery projects, self-heals missing labels, and matches tickets to uncovered violations by rule + component. For each uncovered violation with no open ticket it either **creates** a pre-filled Jira ticket (TargetVersion, Jira component, team) or records a **Create** pre-fill URL. The result is written to `jira_sync.json` in the run directory, which the resolution-guide step (step 10) reads to surface Jira tickets in the TODO tables, the components table, and the per-violation Jira blocks.
 
-9. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide"`. Run the resolution guide generator on the intermediate outputs from steps 3-7. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
+```bash
+~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py sync
+```
+
+   The script reads release, environment, coverage violations, and output path from `context.yaml` automatically. To run discovery without any Jira writes (creates are planned but not written and `jira_sync.json` is not written, so the guide falls back to the pre-sync rendering), add `--dry-run`.
+
+9. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **TODO preview** is presented in the chat — the full guide is submitted to GitHub. See step 10 for the generation command and presentation rules.
+
+10. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide"`. Run the resolution guide generator on the intermediate outputs from steps 3-8. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
 
 ```bash
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/generate_resolution_guide.py
@@ -228,7 +236,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    ---
 
-   **⛔ HARD FAILURE RULES FOR STEP 9 — READ THESE BEFORE PROCEEDING:**
+   **⛔ HARD FAILURE RULES FOR STEP 10 — READ THESE BEFORE PROCEEDING:**
 
    **RULE 1 — TODO PREVIEW ONLY (no full guide in chat):**
    The agent MUST read `conforma-todo.md` from the active run directory (printed by the script) with the Read tool and then **copy its ENTIRE content verbatim into the response text**. This file contains the metadata header (context confirmation) and the TODO section with summary preamble and all TODO #N subsections. The agent MUST NOT:
@@ -243,16 +251,16 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
    Do NOT rely on the Read tool result alone — tool results are agent context and may not be displayed to the user. The TODO content must appear as literal text in the agent's response. Render as markdown (not in a code block).
 
    **RULE 2 — ORDERING (present THEN ask):**
-   The TODO content must appear in the agent's response text BEFORE the AskQuestion call for step 10. Never call AskQuestion in the same tool-call batch that reads the file. The sequence is: (a) read TODO file → (b) paste its content into response → (c) THEN in a SEPARATE subsequent turn, ask about submission. This ensures the user sees the action items before being asked to submit.
+   The TODO content must appear in the agent's response text BEFORE the AskQuestion call for step 11. Never call AskQuestion in the same tool-call batch that reads the file. The sequence is: (a) read TODO file → (b) paste its content into response → (c) THEN in a SEPARATE subsequent turn, ask about submission. This ensures the user sees the action items before being asked to submit.
 
-   **RULE 3 — MUST PROCEED TO STEP 10:**
-   After rendering the TODO, the agent MUST immediately proceed to step 10 (submission) in the same response — do NOT stop, wait for user input, or end the turn after presenting the TODO. The workflow is not complete until the user has been asked about submission. Stopping after the TODO without proceeding to step 10 is a hard failure.
+   **RULE 3 — MUST PROCEED TO STEP 11:**
+   After rendering the TODO, the agent MUST immediately proceed to step 11 (submission) in the same response — do NOT stop, wait for user input, or end the turn after presenting the TODO. The workflow is not complete until the user has been asked about submission. Stopping after the TODO without proceeding to step 11 is a hard failure.
 
    **Violating any of these rules is a hard failure regardless of model size, context window, or token budget.**
 
    ---
 
-10. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 9)*: After the TODO has been rendered in the previous response, run the submit script in dry-run mode with Bash description: `"Preview submission of resolution guide (dry run)"`, then use AskQuestion with `question_text` and `question_options` from the dry-run JSON verbatim. Do NOT auto-submit. Only run without `--dry-run` if the user confirms.
+11. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 10)*: After the TODO has been rendered in the previous response, run the submit script in dry-run mode with Bash description: `"Preview submission of resolution guide (dry run)"`, then use AskQuestion with `question_text` and `question_options` from the dry-run JSON verbatim. Do NOT auto-submit. Only run without `--dry-run` if the user confirms.
 
 ```bash
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/submit_resolution_guide.py --dry-run

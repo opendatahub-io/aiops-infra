@@ -7,7 +7,7 @@ user-invocable: true
 
 # Search Conforma Jira Tickets
 
-Batch search for open Jira tickets with the `conforma-violation` label across RHOAIENG, PSX, OCPEXCEPT, and PRODSECRM projects. Matches tickets to violation rules by summary text with optional release version filtering. PRODSECRM is the successor to PSX; both are searched for backward compatibility.
+Batch search for open Jira tickets related to conforma violations. Discovery is **label-first**: a single JQL query finds tickets carrying the conforma discovery labels across the RHOAIENG, PSX, OCPEXCEPT, and PRODSECRM projects (all statuses), then open tickets are matched to the requested rules. PRODSECRM is the successor to PSX; both are searched for backward compatibility. This is the same label-first discovery the conforma-analyze coverage and Jira-sync steps use (see `scripts/conforma_jira_ticket_ops.py`).
 
 ## Usage
 
