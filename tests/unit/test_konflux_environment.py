@@ -43,6 +43,7 @@ class TestLoad:
                     konflux_environment.load()
         mock_derive.assert_called_once()
 
+
 class TestValidate:
     def test_passes_when_required_vars_set(self):
         with patch.dict(

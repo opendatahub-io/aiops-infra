@@ -106,12 +106,7 @@ def submission_prompt(run_dir: Path) -> str:
         environment=str(environment),
     )
     options = "\n".join(f"- {option}" for option in prompt["question_options"])
-    return (
-        f"{BEGIN_SUBMISSION_MARKER}\n"
-        f"{prompt['question_text']}\n\n"
-        f"{options}\n"
-        f"{END_SUBMISSION_MARKER}\n"
-    )
+    return f"{BEGIN_SUBMISSION_MARKER}\n{prompt['question_text']}\n\n{options}\n{END_SUBMISSION_MARKER}\n"
 
 
 def present_todo(todo_path: Path, run_dir: Path | None = None) -> str:
@@ -131,9 +126,7 @@ def present_todo(todo_path: Path, run_dir: Path | None = None) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Validate and present the generated Conforma TODO preview verbatim"
-    )
+    parser = argparse.ArgumentParser(description="Validate and present the generated Conforma TODO preview verbatim")
     parser.add_argument(
         "--run-dir",
         default=None,

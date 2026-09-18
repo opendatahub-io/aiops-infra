@@ -68,9 +68,7 @@ def _discovery_query(
         "policy_files": sorted(policy_files),
         "environment": environment,
         "release": release or "",
-        "rule_to_components": {
-            rule: sorted(components) for rule, components in sorted(rule_to_components.items())
-        },
+        "rule_to_components": {rule: sorted(components) for rule, components in sorted(rule_to_components.items())},
     }
     if aliases is not None:
         query["aliases"] = {name: sorted(values) for name, values in sorted(aliases.items())}
@@ -88,8 +86,7 @@ def _load_discovery_artifact(path: Path, query: dict) -> dict | None:
         return None
     if (
         not isinstance(artifact, dict)
-        or
-        artifact.get("schema_version") != _DISCOVERY_ARTIFACT_SCHEMA
+        or artifact.get("schema_version") != _DISCOVERY_ARTIFACT_SCHEMA
         or artifact.get("query") != query
         or not isinstance(artifact.get("data"), dict)
     ):

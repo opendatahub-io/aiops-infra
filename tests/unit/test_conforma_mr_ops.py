@@ -37,9 +37,10 @@ class TestEnsureGitlabEnv:
 
 class TestJiraReferenceDiscovery:
     def test_extracts_keys_from_urls_and_plain_text(self):
-        assert mod.extract_jira_keys(
-            "See https://redhat.atlassian.net/browse/RHOAIENG-88509 and PSX-11."
-        ) == ["RHOAIENG-88509", "PSX-11"]
+        assert mod.extract_jira_keys("See https://redhat.atlassian.net/browse/RHOAIENG-88509 and PSX-11.") == [
+            "RHOAIENG-88509",
+            "PSX-11",
+        ]
 
     def test_scans_merge_request_description_and_commits(self, monkeypatch):
         project = MagicMock()
@@ -64,9 +65,7 @@ class TestJiraReferenceDiscovery:
             ("RHOAIENG-88509", "commit"),
             ("PSX-11", "commit"),
         ]
-        project.mergerequests.list.assert_called_once_with(
-            state="opened", per_page=100, get_all=True, timeout=30
-        )
+        project.mergerequests.list.assert_called_once_with(state="opened", per_page=100, get_all=True, timeout=30)
 
     def test_retries_merge_request_listing_after_timeout(self, monkeypatch):
         project = MagicMock()

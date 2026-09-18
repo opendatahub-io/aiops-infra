@@ -664,9 +664,7 @@ def main() -> int:
             upcoming_release_date=upcoming_release_date,
             code_freeze_date=code_freeze_date,
             ai_model=ai_model,
-            konflux_application=conforma_context_ops.get(run_dir, "application.konflux_app", "")
-            if context
-            else "",
+            konflux_application=conforma_context_ops.get(run_dir, "application.konflux_app", "") if context else "",
         )
     except FileNotFoundError as e:
         print(f"ERROR: {e}", file=sys.stderr)

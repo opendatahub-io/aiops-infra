@@ -579,7 +579,9 @@ class TestDiscoveryArtifacts:
         assert (artifact_dir / "jira-discovery.json").is_file()
         assert first["violations"][0]["open_jira_tickets"][0]["key"] == "RHOAIENG-88509"
 
-        monkeypatch.setattr(conforma_mr_ops, "prefetch_open_mrs", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
+        monkeypatch.setattr(
+            conforma_mr_ops, "prefetch_open_mrs", lambda *a, **k: (_ for _ in ()).throw(AssertionError())
+        )
         monkeypatch.setattr(
             conforma_jira_ops,
             "prefetch_open_jira_tickets",

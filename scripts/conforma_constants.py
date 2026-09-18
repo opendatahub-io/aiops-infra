@@ -85,6 +85,7 @@ def is_open_jira_status(status: str | None) -> bool:
         return True
     return status.strip().lower() not in CLOSED_STATUS_NAMES
 
+
 VERIFY_NEXT_STEP = (
     f"Run [conforma-reporter]({CONFORMA_REPORTER_ACTIONS_URL})"
     " or `conforma-violations-scan` AI skill"

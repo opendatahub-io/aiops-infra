@@ -12,9 +12,7 @@ import present_conforma_report as mod
 def _todo(*sections: str) -> str:
     if sections and sections[0] == "status":
         sections = ("status\n\n" + _table(), *sections[1:])
-    return "## TODO\n\n" + "\n\n".join(
-        f"### TODO #{number}\n\n{body}" for number, body in enumerate(sections)
-    )
+    return "## TODO\n\n" + "\n\n".join(f"### TODO #{number}\n\n{body}" for number, body in enumerate(sections))
 
 
 def _table() -> str:
@@ -29,9 +27,7 @@ def test_validate_accepts_all_required_tables():
 
 def test_validate_rejects_prose_only_todo_zero():
     content = "## TODO\n\n### TODO #0 — Tooling status: healthy\n\nTooling is healthy.\n\n"
-    content += "\n".join(
-        f"### TODO #{number}\n\n{_table()}" for number in range(1, 7)
-    )
+    content += "\n".join(f"### TODO #{number}\n\n{_table()}" for number in range(1, 7))
 
     assert mod.validate_todo_content(content) == ["TODO #0 is missing its Markdown table"]
 
