@@ -70,7 +70,20 @@ STAGE_WARNINGS_CSV_PATHS = [
 # closed tickets — closed ones are prior-issue context).
 # ---------------------------------------------------------------------------
 CONFORMA_DISCOVERY_PROJECTS = ["RHOAIENG", "PSX", "OCPEXCEPT", "PRODSECRM", "RHAI", "RHAIENG", "AIPCC"]
-CONFORMA_DISCOVERY_LABELS = ["conforma", "conforma-violation", "conforma-exception-ai-skill"]
+CONFORMA_LABEL = "conforma"
+VIOLATION_LABEL = "conforma-violation"
+LEGACY_EXCEPTION_LABEL = "conforma-exception-ai-skill"
+CONFORMA_DISCOVERY_LABELS = [CONFORMA_LABEL, VIOLATION_LABEL, LEGACY_EXCEPTION_LABEL]
+# Jira status names that represent terminal work. Unknown or missing statuses
+# remain open so discovery cannot silently discard incomplete evidence.
+CLOSED_STATUS_NAMES = frozenset({"done", "closed", "canceled", "cancelled"})
+
+
+def is_open_jira_status(status: str | None) -> bool:
+    """Classify a Jira status consistently across discovery and labelling."""
+    if not status:
+        return True
+    return status.strip().lower() not in CLOSED_STATUS_NAMES
 
 VERIFY_NEXT_STEP = (
     f"Run [conforma-reporter]({CONFORMA_REPORTER_ACTIONS_URL})"

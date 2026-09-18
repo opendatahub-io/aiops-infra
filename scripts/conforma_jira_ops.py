@@ -6,10 +6,12 @@ import argparse
 import json
 import re
 
+import conforma_constants
+
 # Terminal/closed status names (case-insensitive). Anything else counts as open.
 # Mirrors conforma_jira_ticket_ops.CLOSED_STATUS_NAMES (kept local because this
 # module is the primitive layer and must not import the ticket-ops layer).
-CLOSED_STATUS_NAMES = {"done", "closed", "canceled", "cancelled"}
+CLOSED_STATUS_NAMES = conforma_constants.CLOSED_STATUS_NAMES
 
 _VERSION_SUFFIX_RE = re.compile(r"-v\d+-\d+(-ea-\d+)?$")
 
@@ -151,9 +153,7 @@ def is_open(status: str | None) -> bool:
     Unknown/empty status is treated as open (do not silently drop a ticket).
     Mirrors conforma_jira_ticket_ops.is_open.
     """
-    if not status:
-        return True
-    return status.strip().lower() not in CLOSED_STATUS_NAMES
+    return conforma_constants.is_open_jira_status(status)
 
 
 def _summary_component_names(summary: str) -> list[str]:

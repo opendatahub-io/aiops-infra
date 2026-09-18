@@ -7,6 +7,14 @@ import json
 import pytest
 
 import conforma_jira_ops as mod
+import conforma_constants
+
+
+def test_shared_jira_status_classifier_is_used_for_unknown_and_terminal_statuses():
+    assert conforma_constants.is_open_jira_status("In Progress") is True
+    assert conforma_constants.is_open_jira_status("Closed") is False
+    assert mod.is_open("cancelled") is False
+    assert mod.is_open(None) is True
 
 
 class TestExtractRuleFromSummary:

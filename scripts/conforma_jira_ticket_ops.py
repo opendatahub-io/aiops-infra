@@ -52,13 +52,13 @@ CREATE_ISSUE_TYPE = "Task"
 CREATE_ISSUE_TYPE_ID = "10001"
 TARGET_VERSION_FIELD = "customfield_10855"  # Jira "Target Version" (array), verified live
 CREATE_PRIORITY = "Blocker"
-TICKET_LABELS = ["conforma", "conforma-violation"]
-LEGACY_EXCEPTION_LABEL = "conforma-exception-ai-skill"
-CONFORMA_LABEL = "conforma"
-VIOLATION_LABEL = "conforma-violation"
+TICKET_LABELS = [conforma_constants.CONFORMA_LABEL, conforma_constants.VIOLATION_LABEL]
+LEGACY_EXCEPTION_LABEL = conforma_constants.LEGACY_EXCEPTION_LABEL
+CONFORMA_LABEL = conforma_constants.CONFORMA_LABEL
+VIOLATION_LABEL = conforma_constants.VIOLATION_LABEL
 
 # Terminal/closed status names (case-insensitive). Anything else counts as open.
-CLOSED_STATUS_NAMES = {"done", "closed", "canceled", "cancelled"}
+CLOSED_STATUS_NAMES = conforma_constants.CLOSED_STATUS_NAMES
 
 
 # ---------------------------------------------------------------------------
@@ -69,9 +69,7 @@ def is_open(status: str | None) -> bool:
 
     Unknown/empty status is treated as open (do not silently drop a ticket).
     """
-    if not status:
-        return True
-    return status.strip().lower() not in CLOSED_STATUS_NAMES
+    return conforma_constants.is_open_jira_status(status)
 
 
 def build_ticket_summary(rule: str, konflux_components: list[str]) -> str:
