@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import runpy
+import sys
 
 import conforma_jira_ticket_ops as mod
 import pytest
@@ -138,7 +140,15 @@ class TestComponentsOverlap:
         assert mod.components_overlap(ticket, ["zzz-unknown"], ["Unrelated"]) is False
 
     def test_empty_stem_ignored(self):
-        ticket = {"summary": "", "description": "", "components": []}
+        ticket = {"summary": "Conforma violation: r - -v3-6 - rhoai-3.6", "description": "", "components": []}
+        # Keep the defensive empty-stem branch covered even if the summary
+        # parser tightens its accepted component syntax in the future.
+        original = mod.conforma_jira_ops._extract_component_stems
+        mod.conforma_jira_ops._extract_component_stems = lambda *args: [""]
+        try:
+            assert mod.components_overlap(ticket, ["odh-ogx-core"], []) is False
+        finally:
+            mod.conforma_jira_ops._extract_component_stems = original
         assert mod.components_overlap(ticket, ["", " "], ["None"]) is False
 
 
@@ -175,8 +185,46 @@ class TestMatchViolationToTickets:
         result = mod.match_violation_to_tickets(violation, [OPEN_TICKET])
         assert result["existing"]["key"] == "RHOAIENG-80001"
 
+    def test_release_gate_rejects_possible_match(self):
+        ticket = {**OPEN_TICKET, "target_versions": ["RHOAI 3.7"]}
+        result = mod.match_violation_to_tickets(_violation(), [ticket], analyzed_release="rhoai-3.6")
+        assert result == {"existing": None, "prior_issues": []}
+
+    def test_rule_match_still_requires_component_overlap(self):
+        ticket = {
+            "summary": "Conforma violation: rpm_signature.allowed:1234567890abcdef",
+            "description": "",
+            "components": ["Other"],
+            "status": "Open",
+        }
+        result = mod.match_violation_to_tickets(
+            _violation(uncovered_components=["missing"], all_components=["missing"], jira_components=["Unknown"]),
+            [ticket],
+        )
+        assert result == {"existing": None, "prior_issues": []}
+
 
 class TestC14EvidenceGate:
+    def test_empty_release_has_no_version_evidence(self):
+        assert mod._version_evidence(OPEN_TICKET, "") == []
+
+    def test_component_identity_and_release_mismatches_are_rejected(self):
+        unrelated = {
+            **OPEN_TICKET,
+            "summary": "manual ticket for another-component-v3-6",
+            "description": "Components: another-component-v3-6",
+            "components": [],
+        }
+        wrong_release = {
+            **OPEN_TICKET,
+            "summary": "manual ticket for odh-ogx-core-v3-7",
+            "description": "Components: odh-ogx-core-v3-7",
+            "components": [],
+            "target_versions": [],
+        }
+        assert mod.classify_ticket_evidence(unrelated, _violation(), "rhoai-3.6")["component_match"] is False
+        assert mod.classify_ticket_evidence(wrong_release, _violation(), "rhoai-3.6")["component_match"] is False
+
     def test_versioned_component_and_target_version_confirm_match(self):
         ticket = {
             **OPEN_TICKET,
@@ -226,6 +274,237 @@ class TestC14EvidenceGate:
         result = mod.classify_ticket_evidence(ticket, _violation(), "rhoai-3.6-ea.2")
         assert result["classification"] == "confirmed_conforma_violation"
         assert any(item["field"] == "comments" for item in result["version_evidence"])
+
+    def test_history_and_jira_component_can_supply_evidence(self):
+        ticket = {
+            "summary": "manual remediation",
+            "description": "",
+            "components": ["AI-Guardrails"],
+            "target_versions": ["RHOAI 3.6"],
+            "history": [{"items": [{"field": "summary", "to": "hermetic_task.hermetic"}]}],
+        }
+        violation = {**_violation(), "rule": "hermetic_task.hermetic", "uncovered_components": []}
+        result = mod.classify_ticket_evidence(ticket, violation, "rhoai-3.6")
+        assert result["classification"] == "confirmed_conforma_violation"
+        assert result["component_evidence"][0]["field"] == "jira_components"
+
+    def test_unparseable_release_and_field_errors_are_reported(self):
+        result = mod.classify_ticket_evidence(
+            {
+                "summary": "unrelated",
+                "description": "",
+                "field_errors": ["versions unavailable"],
+                "target_versions": ["not-a-release"],
+            },
+            _violation(),
+            "rhoai-3.6",
+        )
+        assert result["classification"] == "unrelated"
+        assert "versions unavailable" in result["missing_evidence"]
+
+
+class TestC14CandidateDetails:
+    def test_candidate_details_record_direct_references_and_access_failures(self, monkeypatch):
+        calls = []
+
+        def search(jql, **kwargs):
+            calls.append(jql)
+            if jql.startswith("key in"):
+                return {
+                    "issues": [{**OPEN_TICKET, "key": "RHOAIENG-2"}],
+                    "total": 1,
+                    "pages": [{"start_at": 0, "count": 1, "total": 1}],
+                    "complete": True,
+                }
+            return {
+                "issues": [dict(OPEN_TICKET), {"summary": "missing key"}],
+                "total": 2,
+                "pages": [{"start_at": 0, "count": 2, "total": 2}],
+                "complete": True,
+            }
+
+        monkeypatch.setattr(mod.jira_ops, "search_issues_paginated", search)
+        monkeypatch.setattr(
+            mod.conforma_mr_ops,
+            "discover_jira_references",
+            lambda: [{"key": "RHOAIENG-2", "source": "merge_request"}],
+        )
+        monkeypatch.setattr(mod.jira_ops, "get_comments", lambda key: {"ok": False, "error": "denied"})
+        monkeypatch.setattr(mod.jira_ops, "get_issue_history", lambda key: {"ok": False, "error": "hidden"})
+        result = mod.discover_conforma_candidates([_violation()], "rhoai-3.6", include_details=True)
+        assert {ticket["key"] for ticket in result["tickets"]} == {"RHOAIENG-80001", "RHOAIENG-2"}
+        direct = next(ticket for ticket in result["tickets"] if ticket["key"] == "RHOAIENG-2")
+        assert "direct_reference" in direct["match_sources"]
+        assert direct["comment_evidence_status"] == "unavailable"
+        assert direct["history_evidence_status"] == "unavailable"
+        assert len(result["audit"]) == 5
+        assert len(calls) == 5
+
+    def test_incomplete_candidate_pass_is_a_hard_error(self, monkeypatch):
+        monkeypatch.setattr(
+            mod.jira_ops,
+            "search_issues_paginated",
+            lambda *args, **kwargs: {
+                "issues": [],
+                "total": 1,
+                "pages": [],
+                "complete": False,
+            },
+        )
+        monkeypatch.setattr(mod.conforma_mr_ops, "discover_jira_references", lambda: [])
+        with pytest.raises(RuntimeError, match="candidate pass incomplete"):
+            mod.discover_conforma_candidates([_violation()], "rhoai-3.6")
+
+    def test_unknown_project_and_unsupported_mapping_fields_are_rejected(self, monkeypatch):
+        with pytest.raises(ValueError, match="No Jira field mapping"):
+            mod.discover_conforma_candidates([_violation()], "rhoai-3.6", projects=["UNKNOWN"])
+
+        monkeypatch.setattr(
+            mod.conforma_jira_mapping_ops,
+            "load_project_mapping",
+            lambda: {
+                "mapping_version": "test",
+                "projects": {"RHOAIENG": {"field_paths": {"unsupported": ["fields.foo"]}}},
+            },
+        )
+        with pytest.raises(ValueError, match="Unsupported Jira mapping field"):
+            mod.discover_conforma_candidates([_violation()], "rhoai-3.6", projects=["RHOAIENG"])
+
+    def test_direct_reference_pass_requires_complete_results_and_keys(self, monkeypatch):
+        def incomplete_direct(jql, **kwargs):
+            if jql.startswith("key in"):
+                return {"issues": [], "total": 1, "pages": [], "complete": False}
+            return {"issues": [], "total": 0, "pages": [], "complete": True}
+
+        monkeypatch.setattr(mod.jira_ops, "search_issues_paginated", incomplete_direct)
+        monkeypatch.setattr(
+            mod.conforma_mr_ops,
+            "discover_jira_references",
+            lambda: [{"key": "RHOAIENG-2", "source": "merge_request"}],
+        )
+        with pytest.raises(RuntimeError, match="direct_reference"):
+            mod.discover_conforma_candidates([_violation()], "rhoai-3.6")
+
+        def missing_direct_key(jql, **kwargs):
+            return {
+                "issues": [{"summary": "missing key"}] if jql.startswith("key in") else [],
+                "total": 1 if jql.startswith("key in") else 0,
+                "pages": [],
+                "complete": True,
+            }
+
+        monkeypatch.setattr(mod.jira_ops, "search_issues_paginated", missing_direct_key)
+        result = mod.discover_conforma_candidates([_violation()], "rhoai-3.6")
+        assert result["tickets"] == []
+
+    def test_returned_ticket_without_a_known_project_mapping_is_explicitly_incomplete(self, monkeypatch):
+        monkeypatch.setattr(
+            mod.jira_ops,
+            "search_issues_paginated",
+            lambda *args, **kwargs: {
+                "issues": [{"key": "UNKNOWN-1"}],
+                "total": 1,
+                "pages": [],
+                "complete": True,
+            },
+        )
+        monkeypatch.setattr(mod.conforma_mr_ops, "discover_jira_references", lambda: [])
+        result = mod.discover_conforma_candidates([_violation()], "rhoai-3.6")
+        ticket = result["tickets"][0]
+        assert ticket["jira_field_mapping_status"] == "unavailable"
+        assert "No Jira field mapping exists for returned ticket project UNKNOWN" in ticket["field_errors"]
+
+    def test_evidence_records_label_rule_component_and_direct_reference_sources(self, monkeypatch):
+        ticket = {
+            **OPEN_TICKET,
+            "merge_request_references": [{"key": OPEN_TICKET["key"], "source": "merge_request"}],
+        }
+        monkeypatch.setattr(mod, "discover_conforma_tickets", lambda **kwargs: [ticket])
+        evidence = mod.discover_conforma_evidence([_violation()], "rhoai-3.6")
+        assert evidence[0]["match_sources"] == ["component_version", "direct_reference", "label", "rule_text"]
+
+    def test_independent_ticket_discovery_attaches_audit(self, monkeypatch):
+        audit = [{"pass": "label", "complete": True}]
+        monkeypatch.setattr(
+            mod,
+            "discover_conforma_candidates",
+            lambda *args, **kwargs: {"tickets": [dict(OPEN_TICKET)], "audit": audit},
+        )
+        tickets = mod.discover_conforma_tickets(violations=[_violation()], release="rhoai-3.6", independent=True)
+        assert tickets[0]["discovery_audit"] == audit
+
+    def test_legacy_discovery_marks_unknown_returned_project_incomplete(self, monkeypatch):
+        monkeypatch.setattr(mod.jira_ops, "search_issues", lambda *args, **kwargs: {"issues": [{"key": "UNKNOWN-1"}]})
+        tickets = mod.discover_conforma_tickets()
+        assert tickets[0]["jira_field_mapping_status"] == "unavailable"
+
+    def test_unmapped_project_cannot_be_confirmed_by_advisory_evidence(self):
+        ticket = {
+            **OPEN_TICKET,
+            "jira_field_mapping_status": "unavailable",
+            "field_errors": ["mapping unavailable"],
+        }
+        result = mod.classify_ticket_evidence(ticket, _violation(), "rhoai-3.6")
+        assert result["classification"] == "possible_conforma_related"
+        assert "jira_field_mapping" in result["missing_evidence"]
+
+    def test_evidence_adjudicator_can_confirm_only_after_gate(self, monkeypatch):
+        ticket = {
+            "summary": "manual follow-up for odh-ogx-core-v3-6",
+            "description": "Target RHOAI 3.6",
+            "target_versions": [],
+        }
+        monkeypatch.setattr(mod, "discover_conforma_tickets", lambda **kwargs: [ticket])
+        result = mod.discover_conforma_evidence(
+            [_violation(rule="not-extracted")],
+            "rhoai-3.6",
+            adjudicator=lambda payload: {
+                "decision": "violation",
+                "confidence": "high",
+                "evidence_references": ["summary"],
+            },
+        )
+        assert result[0]["classification"] == "confirmed_conforma_violation"
+        assert result[0]["adjudication"]["status"] == "adjudicated_violation"
+
+    def test_single_ticket_audit_confirms_unlabelled_freeform_evidence(self, monkeypatch):
+        ticket = {
+            "key": "RHOAIENG-70681",
+            "summary": "Conforma violation: rpm_packages.unique_version in guardrails-detectors HuggingFace runtime",
+            "description": (
+                "The odh-guardrails-detector-huggingface-runtime-rhel9 component fails "
+                "rpm_packages.unique_version on rhoai-3.5-ea.2."
+            ),
+            "status": "Closed",
+            "labels": [],
+            "components": [],
+            "fix_versions": [],
+            "target_versions": [],
+            "affected_versions": [],
+        }
+        monkeypatch.setattr(mod.jira_ops, "search_issues", lambda *args, **kwargs: {"issues": [dict(ticket)]})
+        monkeypatch.setattr(mod.jira_ops, "get_comments", lambda key: {"ok": True, "comments": []})
+        monkeypatch.setattr(mod.jira_ops, "get_issue_history", lambda key: {"ok": True, "history": []})
+        result = mod.audit_ticket_evidence(
+            "RHOAIENG-70681",
+            {
+                "rule": "rpm_packages.unique_version",
+                "uncovered_components": ["odh-guardrails-detector-huggingface-runtime-v3-5-ea-2"],
+                "jira_components": [],
+            },
+            "rhoai-3.5-ea.2",
+        )
+        assert result["status"] == "audited"
+        assert result["ticket"]["labels"] == []
+        assert result["evidence"]["classification"] == "confirmed_conforma_violation"
+
+    def test_single_ticket_audit_reports_not_found(self, monkeypatch):
+        monkeypatch.setattr(mod.jira_ops, "search_issues", lambda *args, **kwargs: {"issues": []})
+        assert mod.audit_ticket_evidence("RHOAIENG-1", _violation(), "rhoai-3.6") == {
+            "key": "RHOAIENG-1",
+            "status": "not_found",
+            "evidence": None,
+        }
 
 
 class TestGroupComponentsByJira:
@@ -414,6 +693,17 @@ class TestPlanSelfHealLabels:
             }
         ]
         assert mod.plan_self_heal_labels(tickets) == []
+
+    def test_confirmed_only_skips_unconfirmed_evidence(self):
+        tickets = [
+            {
+                "key": "K-1",
+                "labels": [],
+                "summary": "Conforma violation: r in a",
+                "c14_evidence": [{"classification": "possible_conforma_related"}],
+            }
+        ]
+        assert mod.plan_self_heal_labels(tickets, confirmed_only=True) == []
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +921,52 @@ class TestIndependentLabelling:
         assert result["actions"][0] == {"key": "K-1", "status": "failed", "error": "denied"}
         assert result["actions"][1] == {"key": "K-2", "status": "labeled", "added": ["conforma"]}
 
+    def test_existing_coverage_is_loaded_and_apply_records_skip_and_verification_failure(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(mod, "_load_context", lambda: (tmp_path, {"application": {"release": "rhoai-3.6"}}))
+        (tmp_path / "coverage.json").write_text(json.dumps({"violations": [_violation()]}))
+        monkeypatch.setattr(
+            mod,
+            "_load_coverage_violations",
+            lambda run_dir: [_violation()],
+        )
+        monkeypatch.setattr(
+            mod,
+            "discover_conforma_tickets",
+            lambda **kwargs: [{"key": "K-1", "labels": [], "summary": "Conforma violation: r in a"}],
+        )
+        monkeypatch.setattr(
+            mod,
+            "plan_self_heal_labels",
+            lambda tickets, confirmed_only=False: [{"key": "MISSING", "add": ["conforma"], "current": []}],
+        )
+        monkeypatch.setattr(mod.jira_ops, "update_issue", lambda *args, **kwargs: {"updated": ["labels"]})
+        monkeypatch.setattr(mod.jira_ops, "get_issue", lambda *args, **kwargs: {"labels": []})
+        monkeypatch.setattr(mod.conforma_context_ops, "update_step", lambda *args, **kwargs: {})
+        result = mod.label_conforma_tickets(apply=True)
+        assert result["actions"] == [
+            {"key": "MISSING", "status": "skipped", "reason": "ticket not in discovery result"}
+        ]
+
+    def test_apply_records_verification_failure(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(mod, "_load_context", lambda: (tmp_path, {}))
+        monkeypatch.setattr(
+            mod,
+            "discover_conforma_tickets",
+            lambda **kwargs: [{"key": "K-1", "labels": [], "summary": "Conforma issue"}],
+        )
+        monkeypatch.setattr(
+            mod,
+            "plan_self_heal_labels",
+            lambda tickets, confirmed_only=False: [{"key": "K-1", "add": ["conforma"], "current": []}],
+        )
+        monkeypatch.setattr(mod.jira_ops, "update_issue", lambda *args, **kwargs: {"updated": ["labels"]})
+        monkeypatch.setattr(mod.jira_ops, "get_issue", lambda *args, **kwargs: {"labels": []})
+        monkeypatch.setattr(mod.conforma_context_ops, "update_step", lambda *args, **kwargs: {})
+        result = mod.label_conforma_tickets(apply=True)
+        assert result["actions"] == [
+            {"key": "K-1", "status": "verification_failed", "expected": ["conforma"], "actual": []}
+        ]
+
 
 class TestCreateViolationTicket:
     def test_creates_with_target_version_and_verifies(self, monkeypatch):
@@ -799,6 +1135,18 @@ class TestAuditConformaIndex:
 
     def test_empty_tickets(self):
         assert mod.audit_conforma_index([], "") == {"checked": 0, "gaps": []}
+
+    def test_violation_without_violation_label_is_reported(self):
+        ticket = {
+            "key": "K-3",
+            "summary": "Conforma violation: r in a",
+            "labels": ["conforma"],
+            "components": ["J"],
+            "priority": "Blocker",
+            "target_versions": ["RHOAI 3.6"],
+            "assignee": "Bob",
+        }
+        assert "conforma-violation" in mod.audit_conforma_index([ticket], "rhoai-3.6")["gaps"][0]["missing"]
 
 
 class TestRepairIndex:
@@ -1018,6 +1366,18 @@ class TestSync:
         assert updates["components"] == ["Old", "New Comp"]
         assert any(a.startswith("extended RHOAIENG-80001") for a in out["actions"])
 
+    def test_existing_partial_match_extension_failure_is_recorded(self, monkeypatch, tmp_path):
+        _patch_sync_env(monkeypatch, tmp_path, tickets=[OPEN_TICKET], violations=[_violation()])
+        monkeypatch.setattr(
+            mod.component_catalog_ops,
+            "resolve_jira_components",
+            lambda names, catalog: {n: "New Comp" for n in names},
+        )
+        monkeypatch.setattr(mod.jira_ops, "get_issue", lambda key, fields=None: {"key": key, "components": ["Old"]})
+        monkeypatch.setattr(mod.jira_ops, "update_issue", lambda *args, **kwargs: {"error": "denied"})
+        out = mod.sync()
+        assert any(a.startswith("extend-failed RHOAIENG-80001") for a in out["actions"])
+
     def test_dry_run_with_existing_ticket_emits_no_create(self, monkeypatch, tmp_path):
         _patch_sync_env(monkeypatch, tmp_path, tickets=[OPEN_TICKET], violations=[_violation()])
         out = mod.sync(dry_run=True)
@@ -1235,6 +1595,46 @@ class TestCmdAudit:
         assert "Audited 1 tickets" in out
         assert "with gaps:" in out
 
+    def test_prints_gap_details(self, monkeypatch, capsys):
+        ticket = {**OPEN_TICKET, "labels": ["conforma"]}
+        monkeypatch.setattr(mod, "discover_conforma_tickets", lambda **k: [ticket])
+        monkeypatch.setattr(mod, "self_heal_labels", lambda tickets: [])
+        assert mod.cmd_audit() == 0
+        assert "RHOAIENG-80001: missing=" in capsys.readouterr().out
+
+
+class TestCmdAuditTicket:
+    def test_prints_single_ticket_evidence(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            mod,
+            "audit_ticket_evidence",
+            lambda key, violation, release: {
+                "key": key,
+                "status": "audited",
+                "evidence": {"classification": "possible"},
+            },
+        )
+        assert mod.cmd_audit_ticket("K-1", "rule", "component-v3-6", "rhoai-3.6") == 0
+        assert '"status": "audited"' in capsys.readouterr().out
+
+
+class TestModuleEntryPoint:
+    def test_script_entry_point_runs_help(self, monkeypatch, capsys):
+        script_path = str(Path(mod.__file__).resolve())
+        scripts_dir = str(Path(script_path).parent)
+        original_path = list(sys.path)
+        original_argv = list(sys.argv)
+        sys.path[:] = [item for item in sys.path if item != scripts_dir]
+        sys.argv[:] = [script_path, "--help"]
+        try:
+            with pytest.raises(SystemExit) as exc_info:
+                runpy.run_path(script_path, run_name="__main__")
+            assert exc_info.value.code == 0
+        finally:
+            sys.path[:] = original_path
+            sys.argv[:] = original_argv
+        assert "usage:" in capsys.readouterr().out
+
 
 class TestCmdRepair:
     def test_prints_actions(self, monkeypatch, tmp_path, capsys):
@@ -1290,6 +1690,22 @@ class TestMain:
     def test_find_dispatch(self, monkeypatch, capsys):
         self._set_argv(monkeypatch, "find")
         monkeypatch.setattr(mod, "cmd_find", lambda: 0)
+        assert mod.main() == 0
+
+    def test_audit_ticket_dispatch(self, monkeypatch):
+        self._set_argv(
+            monkeypatch,
+            "audit-ticket",
+            "--key",
+            "K-1",
+            "--rule",
+            "rule",
+            "--components",
+            "component-v3-6",
+            "--release",
+            "rhoai-3.6",
+        )
+        monkeypatch.setattr(mod, "cmd_audit_ticket", lambda key, rule, components, release: 0)
         assert mod.main() == 0
 
     def test_label_dispatch(self, monkeypatch):

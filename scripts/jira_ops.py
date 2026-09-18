@@ -20,6 +20,7 @@ import konflux_environment  # noqa: E402
 konflux_environment.load()
 
 DEFAULT_JIRA_URL = "https://redhat.atlassian.net"
+JIRA_REQUEST_TIMEOUT_SECONDS = 30
 
 
 class JiraSearchError(RuntimeError):
@@ -59,7 +60,11 @@ def get_client(url: str | None = None, email: str | None = None, token: str | No
             "then add to ~/.conforma/.env: JIRA_API_TOKEN=ATATT3x..."
         )
 
-    return JIRA(server=resolved_url, basic_auth=(resolved_email, resolved_token))
+    return JIRA(
+        server=resolved_url,
+        basic_auth=(resolved_email, resolved_token),
+        timeout=JIRA_REQUEST_TIMEOUT_SECONDS,
+    )
 
 
 get_jira_client = get_client

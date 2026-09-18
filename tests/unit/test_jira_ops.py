@@ -58,6 +58,7 @@ class TestGetClient:
         jira_class.assert_called_once_with(
             server="https://jira.example",
             basic_auth=("user@example.com", "token"),
+            timeout=jira_ops.JIRA_REQUEST_TIMEOUT_SECONDS,
         )
 
 
@@ -376,6 +377,35 @@ class TestIssueHistory:
         with patch.object(jira_ops, "get_client", return_value=client):
             result = jira_ops.search_issues("project = A", fields=["key", "target_versions"])
         assert "customfield_10855 unavailable" in result["issues"][0]["field_errors"]
+
+    def test_affected_versions_and_links_are_extracted(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.key = "A-2"
+        version = MagicMock()
+        version.name = "RHOAI 3.6"
+        issue.fields.versions = [version]
+        link = MagicMock()
+        link.type.name = "Relates"
+        link.outwardIssue.key = "A-3"
+        issue.fields.issuelinks = [link]
+        result_set = MagicMock()
+        result_set.__iter__ = lambda self: iter([issue])
+        result_set.total = 1
+        client.search_issues.return_value = result_set
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues("project = A", fields=["key", "affected_versions", "issuelinks"])
+        assert result["issues"][0]["affected_versions"] == ["RHOAI 3.6"]
+        assert result["issues"][0]["links"][0]["key"] == "A-3"
+
+    def test_history_and_comments_report_unexpected_failures(self, monkeypatch):
+        monkeypatch.setattr(jira_ops, "get_client", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
+        assert jira_ops.get_comments("A-1")["ok"] is False
+        assert jira_ops.get_issue_history("A-1")["ok"] is False
+
+    def test_pagination_rejects_non_positive_page_size(self):
+        with pytest.raises(ValueError, match="positive"):
+            jira_ops.search_issues_paginated("project = A", max_results=0)
 
     def test_search_issues_paginated_fetches_all_pages(self, monkeypatch):
         pages = [

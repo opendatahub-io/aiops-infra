@@ -165,6 +165,8 @@ def rule_matches(ticket: dict, rule: str) -> bool:
         str(item.get("to", "")) for change in ticket.get("history") or [] for item in change.get("items", [])
     )
     text = " ".join([ticket.get("summary", "") or "", ticket.get("description", "") or "", comments, history])
+    if rule and rule.lower() in text.lower():
+        return True
     return conforma_jira_ops._infer_rule_from_text(text, rule) == "confirmed"
 
 
@@ -291,7 +293,8 @@ def classify_ticket_evidence(ticket: dict, violation: dict, analyzed_release: st
     rule_match = rule_matches(ticket, violation["rule"])
     labels = set(ticket.get("labels") or [])
     label_match = bool(labels & {CONFORMA_LABEL, VIOLATION_LABEL, LEGACY_EXCEPTION_LABEL})
-    if rule_match and component_match and version_match:
+    mapping_available = ticket.get("jira_field_mapping_status", "available") == "available"
+    if rule_match and component_match and version_match and mapping_available:
         classification = "confirmed_conforma_violation"
     elif rule_match or label_match or component_match:
         classification = "possible_conforma_related"
@@ -304,6 +307,8 @@ def classify_ticket_evidence(ticket: dict, violation: dict, analyzed_release: st
         missing.append("version_match")
     if not rule_match:
         missing.append("rule_match")
+    if not mapping_available:
+        missing.append("jira_field_mapping")
     missing.extend(ticket.get("field_errors") or [])
     return {
         "classification": classification,
@@ -479,9 +484,14 @@ def discover_conforma_candidates(
     for ticket in candidates.values():
         project = (ticket.get("key") or "").split("-", 1)[0]
         if project not in mapping["projects"]:
-            raise ValueError(f"No Jira field mapping exists for returned ticket project {project or '<unknown>'}")
-        ticket["jira_field_mapping_version"] = mapping["mapping_version"]
-        ticket["jira_field_mapping_project"] = project
+            mapping_error = f"No Jira field mapping exists for returned ticket project {project or '<unknown>'}"
+            ticket.setdefault("field_errors", []).append(mapping_error)
+            ticket["jira_field_mapping_status"] = "unavailable"
+            ticket["jira_field_mapping_error"] = mapping_error
+        else:
+            ticket["jira_field_mapping_version"] = mapping["mapping_version"]
+            ticket["jira_field_mapping_project"] = project
+            ticket["jira_field_mapping_status"] = "available"
         ticket["match_sources"] = sorted(ticket["match_sources"])
         if include_details:
             comments = jira_ops.get_comments(ticket["key"])
@@ -788,9 +798,14 @@ def discover_conforma_tickets(
     def annotate_mapping(ticket: dict) -> None:
         project = (ticket.get("key") or "").split("-", 1)[0]
         if project not in mapping["projects"]:
-            raise ValueError(f"No Jira field mapping exists for returned ticket project {project or '<unknown>'}")
-        ticket["jira_field_mapping_version"] = mapping["mapping_version"]
-        ticket["jira_field_mapping_project"] = project
+            mapping_error = f"No Jira field mapping exists for returned ticket project {project or '<unknown>'}"
+            ticket.setdefault("field_errors", []).append(mapping_error)
+            ticket["jira_field_mapping_status"] = "unavailable"
+            ticket["jira_field_mapping_error"] = mapping_error
+        else:
+            ticket["jira_field_mapping_version"] = mapping["mapping_version"]
+            ticket["jira_field_mapping_project"] = project
+            ticket["jira_field_mapping_status"] = "available"
 
     for ticket in tickets:
         annotate_mapping(ticket)
@@ -831,6 +846,60 @@ def discover_conforma_tickets(
         if ticket.get("key") in references_by_key:
             ticket["merge_request_references"] = references_by_key[ticket["key"]]
     return tickets
+
+
+def audit_ticket_evidence(ticket_key: str, violation: dict, analyzed_release: str) -> dict:
+    """Retrieve and classify one ticket for a read-only C14 acceptance audit."""
+    result = jira_ops.search_issues(
+        f"key = {ticket_key}",
+        max_results=1,
+        fields=[
+            "key",
+            "summary",
+            "status",
+            "issuetype",
+            "labels",
+            "components",
+            "fixVersions",
+            "target_versions",
+            "affected_versions",
+            "description",
+            "issuelinks",
+        ],
+    )
+    tickets = result.get("issues", [])
+    if not tickets:
+        return {"key": ticket_key, "status": "not_found", "evidence": None}
+
+    ticket = tickets[0]
+    mapping = conforma_jira_mapping_ops.load_project_mapping()
+    project = (ticket.get("key") or "").split("-", 1)[0]
+    if project in mapping["projects"]:
+        ticket["jira_field_mapping_version"] = mapping["mapping_version"]
+        ticket["jira_field_mapping_project"] = project
+        ticket["jira_field_mapping_status"] = "available"
+    else:
+        mapping_error = f"No Jira field mapping exists for returned ticket project {project or '<unknown>'}"
+        ticket.setdefault("field_errors", []).append(mapping_error)
+        ticket["jira_field_mapping_status"] = "unavailable"
+        ticket["jira_field_mapping_error"] = mapping_error
+
+    comments = jira_ops.get_comments(ticket_key)
+    history = jira_ops.get_issue_history(ticket_key)
+    ticket["comments"] = comments.get("comments", [])
+    ticket["comment_evidence_status"] = "available" if comments.get("ok") else "unavailable"
+    if not comments.get("ok"):
+        ticket["comment_evidence_error"] = comments.get("error", "unknown error")
+    ticket["history"] = history.get("history", [])
+    ticket["history_evidence_status"] = "available" if history.get("ok") else "unavailable"
+    if not history.get("ok"):
+        ticket["history_evidence_error"] = history.get("error", "unknown error")
+    return {
+        "key": ticket_key,
+        "status": "audited",
+        "ticket": ticket,
+        "evidence": classify_ticket_evidence(ticket, violation, analyzed_release),
+    }
 
 
 def self_heal_labels(tickets: list[dict], confirmed_only: bool = False) -> list[str]:
@@ -1383,6 +1452,23 @@ def cmd_find() -> int:
     return 0
 
 
+def cmd_audit_ticket(ticket_key: str, rule: str, components_csv: str, release: str) -> int:
+    """Print deterministic evidence for one ticket without performing Jira writes."""
+    components = [component.strip() for component in components_csv.split(",") if component.strip()]
+    result = audit_ticket_evidence(
+        ticket_key,
+        {
+            "rule": rule,
+            "uncovered_components": components,
+            "all_components": components,
+            "jira_components": [],
+        },
+        release,
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def cmd_label(apply: bool = False) -> int:
     """Plan or apply independent Conforma labels and print JSON output."""
     output = label_conforma_tickets(apply=apply)
@@ -1460,6 +1546,15 @@ def main() -> int:
 
     sub.add_parser("find", help="Discovery only (read-only, no label self-heal)")
 
+    audit_ticket_p = sub.add_parser(
+        "audit-ticket",
+        help="Audit one Jira ticket against a rule, component, and release without writes",
+    )
+    audit_ticket_p.add_argument("--key", required=True)
+    audit_ticket_p.add_argument("--rule", required=True)
+    audit_ticket_p.add_argument("--components", required=True, help="Comma-separated versioned component names")
+    audit_ticket_p.add_argument("--release", required=True)
+
     label_p = sub.add_parser(
         "label-conforma-tickets",
         help="Plan or apply Conforma labels independently of Jira ticket sync",
@@ -1482,6 +1577,8 @@ def main() -> int:
             print(compact_summary(out))
         elif args.command == "find":
             return cmd_find()
+        elif args.command == "audit-ticket":
+            return cmd_audit_ticket(args.key, args.rule, args.components, args.release)
         elif args.command == "label-conforma-tickets":
             return cmd_label(apply=args.apply)
         elif args.command == "audit":
