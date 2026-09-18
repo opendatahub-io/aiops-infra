@@ -1,6 +1,6 @@
 # C14 — Hybrid discovery of Conforma-related Jira tickets
 
-Status: **IN PROGRESS**
+Status: **DONE**
 
 Depends on: C11; integrates with C13 independent labelling
 
@@ -20,7 +20,7 @@ for candidates that deterministic rules cannot classify confidently.
 
 ## Current state
 
-The existing `conforma_jira_ticket_ops.py` implementation provides part of the
+The completed `conforma_jira_ticket_ops.py` implementation provides the full
 deterministic foundation:
 
 - label-first discovery across the configured Jira projects and statuses;
@@ -29,23 +29,23 @@ deterministic foundation:
 - exact unique violation-label searches;
 - Merge Request-reference lookup and retrieval of referenced Jira tickets;
 - deterministic rule-plus-component matching;
-- unit-test coverage containing RHOAIENG-70681 as a closed prior issue.
-
-The following pieces are missing:
-
-- standalone broad discovery of label-less tickets;
-- Jira comment and issue-history evidence retrieval;
-- a normalized evidence bundle with source and match explanations;
-- confidence and ambiguity handling;
-- large-language-model adjudication for genuinely ambiguous candidates;
-- independent presentation and confirmation of proposed labels.
+- unit-test and live read-only coverage containing RHOAIENG-70681 as a closed
+  prior issue, including its empty-label state.
+- independent label, rule-label, rule-text, component/version, and direct
+  Merge Request-reference candidate passes across all configured projects;
+- mapping-driven field extraction, pagination completeness, comments/history
+  evidence, and explicit incomplete-source errors;
+- deterministic component-and-product-version classification with an optional
+  advisory adjudication contract that cannot override the gate;
+- independent read-only labelling plans with explicit confirmation before
+  additive, set-then-verified writes.
 
 ## Audit findings and implementation handover (2026-09-18)
 
 The first implementation slices centralized Jira labels/statuses and added a
-validated project mapping. A follow-up audit found that C14 is not complete;
-the remaining gaps below are implementation requirements, not optional
-refactoring:
+validated project mapping. The follow-up audit converted each gap below into
+an implementation requirement. All listed gaps are now closed; the table is
+retained as the durable audit trail:
 
 | Gap | Impact | Required implementation |
 |---|---|---|
@@ -72,7 +72,7 @@ refactoring:
 | [Phase 2.2 — Deterministic evidence classification](#phase-22--deterministic-evidence-classification) | Component/version gate and classifications | DONE |
 | [Phase 2.3 — C8 coverage cutover](#phase-23--c8-coverage-cutover) | Replace legacy prefetch and update coverage | DONE |
 | [Phase 3.1 — Independent labelling integration](#phase-31--independent-labelling-integration) | Report, confirmation, additive writes, verification | DONE |
-| [Phase 3.2 — Read-only acceptance and handover](#phase-32--read-only-acceptance-and-handover) | RHOAIENG-70681, full tests, live read-only audit | IN PROGRESS |
+| [Phase 3.2 — Read-only acceptance and handover](#phase-32--read-only-acceptance-and-handover) | RHOAIENG-70681, full tests, live read-only audit | DONE |
 
 The phase headings below are the durable handover points. Each completed phase
 must record its commit, tests, coverage result, and remaining risks here before
@@ -185,9 +185,10 @@ Definition of Done:
 Handover: the optional adjudication contract is implemented in
 `scripts/conforma_jira_adjudication_ops.py`. It is disabled by default,
 validates structured responses, reports provider failures explicitly, and
-cannot override the component/version gate. Remaining acceptance work is the
-read-only RHOAIENG-70681 audit, full-suite coverage validation, and any
-provider choice or live credentials requiring user attention.
+cannot override the component/version gate. Unknown returned Jira projects
+remain visible with explicit incomplete mapping evidence and cannot be
+confirmed automatically. Jira requests have a bounded timeout so evidence
+retrieval cannot hang the workflow.
 
 ## Phase 3.2 — Read-only acceptance and handover
 
@@ -199,7 +200,37 @@ Definition of Done:
 - A live read-only audit is recorded without creating or labelling tickets.
 - This document records commits, tests, coverage, and remaining risks.
 
-Handover: not started.
+Handover: complete.
+
+The deterministic read-only command
+`~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py audit-ticket`
+retrieved RHOAIENG-70681 without relying on labels. The live result on
+2026-09-18 was:
+
+- status: `Closed` (therefore prior-issue context, not an open-ticket blocker);
+- labels: `[]`;
+- rule: `rpm_packages.unique_version` matched in the summary, description,
+  comments, and history;
+- component: `odh-guardrails-detector-huggingface-runtime-v3-5-ea-2` matched
+  through the freeform component identity and release-bearing evidence;
+- release: `rhoai-3.5-ea.2`, classified as `targets_current`;
+- comments and history: available;
+- classification: `confirmed_conforma_violation`;
+- structured Target Version and affected-version fields: unavailable, retained
+  as explicit evidence gaps rather than treated as empty matches.
+
+The general label-only `find` command also completed read-only and returned 98
+tickets; it did not include RHOAIENG-70681 because that command intentionally
+does not run violation-context candidate passes. The targeted `audit-ticket`
+command is the C14 acceptance path for this historical label-less case.
+
+Final validation:
+
+- `2782 passed, 5 skipped` unit tests;
+- per-script coverage gate: `jira_ops.py` 98.4%, `conforma_jira_ops.py` 97.4%,
+  and `conforma_jira_ticket_ops.py` 99.3% (all above the required threshold);
+- Ruff lint and formatting checks passed;
+- implementation commit: `d75b80d`.
 
 ## Legacy four-pass analysis and repurposing decision
 
@@ -537,3 +568,11 @@ success, verification failure, and API failure separately.
   insufficient evidence, with tests covering the outcome.
 - Read-only audit, confirmation, additive writes, and set-then-verify behavior
   are documented and tested.
+
+## Remaining human-attention items
+
+- The optional large-language-model adjudicator remains disabled by default;
+  selecting a provider, credentials, and any comment/history redaction policy
+  is a separate human decision.
+- Applying any proposed labels still requires an explicit confirmation and the
+  `--apply` flag. No labels or tickets were written during C14 acceptance.

@@ -1,15 +1,14 @@
 # C8 — Cutover discovery (no shim)
 
-Status: **NOT STARTED**
+Status: **DONE — delivered through C14**
 Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../../../.agents/plans/conforma-analyze-jira-coverage-plan.md) → Phase 4, Step 4.1
 Jira: [RHAIENG-6190 — improve conforma-analyze skill](https://redhat.atlassian.net/browse/RHAIENG-6190)
 Depends on: `fe2aeaa` (Phase 3 done)
 
-> **Superseded by C14.** Do not implement or mark C8 complete in isolation.
-> C8's original label-first, open-ticket-only cutover is now a historical
-> input to the broader C14 discovery-engine design. Any remaining cutover work
-> must be delivered as part of C14 and must satisfy C14's all-status,
-> multi-project, component-and-product-version matching requirements.
+> **Delivered through C14.** C8 was not implemented as an isolated
+> label-first, open-ticket-only change. Its cutover requirements were delivered
+> through C14's all-status, multi-project, component-and-product-version
+> discovery engine.
 
 ## Goal
 
@@ -49,4 +48,9 @@ candidate sources are repurposed under C14's normalized evidence model.
 - Old 4-pass discovery deleted (no shim, no dead code path).
 - Coverage workflow's Jira prefetch produces the same open-ticket table as before (open-status-filtered, release-relevance classified).
 - All affected unit tests green; coverage gate green.
-- Commit `C8` with message including `Jira: RHAIENG-6190 (https://redhat.atlassian.net/browse/RHAIENG-6190)`.
+- C14 implementation commit: `d75b80d`.
+- Full validation: `2782 passed, 5 skipped`; Ruff checks passed; the per-script
+  coverage gate passed at 98.4% for `jira_ops.py`, 97.4% for
+  `conforma_jira_ops.py`, and 99.3% for `conforma_jira_ticket_ops.py`.
+- The old four-pass matching body is removed, and coverage consumes the C14
+  adapter while preserving open matches and closed prior-issue context.

@@ -37,7 +37,7 @@ The `conforma-analyze` skill resolves Conforma violations and generates a resolu
 
 ## 4. Root cause of the specific discovery gap (verified live)
 
-RHOAIENG-70681 — "Conforma violation: rpm_packages.unique_version in guardrails-detectors HuggingFace runtime" — is **Closed**, type **Bug**, and has **no `conforma-violation` label**. The current `conforma_jira_ops.prefetch_open_jira_tickets` only searches **open** tickets and its component pass runs only for zero-finding rules => this ticket is invisible. The label-first, all-statuses design below fixes it.
+RHOAIENG-70681 — "Conforma violation: rpm_packages.unique_version in guardrails-detectors HuggingFace runtime" — is **Closed**, type **Bug**, and has **no `conforma-violation` label**. The original label-first design could not find it; the completed C14 targeted evidence path retrieves it without labels and applies the component-and-release gate.
 
 ## 5. Flow
 
@@ -76,6 +76,7 @@ flowchart TD
 | 4.2 | Integration | renderer: Jira block + JIRAs cell + per-row Jira col + pre-fill URL | C9 | — |
 | 4.3 | Integration | workflow Step 8 + SKILL.md + search-conforma-jira-tickets + TODO.md | C10 | — |
 | 5.1 | Validation | full unit suite + per-script coverage + pre-commit + live dry-run | C11 | R2 |
+| 6.1 | Consolidation | C14 hybrid discovery, evidence gate, independent labelling, and targeted live acceptance | d75b80d | — |
 ## 7. Phase 0 — Clean tree (commit pre-existing in-flight work)
 
 The working tree has unrelated in-flight work. Commit it under RHAIENG-6190 first; all later phases start from a clean tree.
@@ -283,12 +284,20 @@ Start point: all tickets with the `conforma` label (7 projects, all statuses; `-
 - `python tests/check_script_coverage.py` (all 4 plan-touched scripts >97% — jira_ops and conforma_jira_ops must have been brought over 97% in Phases 3/4).
 - **Wire the coverage gate into pre-commit** (deferred from C4, see Phase 2): add a `check-script-coverage` local hook to `.pre-commit-config.yaml` (`entry: python tests/check_script_coverage.py`, `language: system`, `pass_filenames: false`, `always_run: true`). This is safe now only because all four targets are >97%.
 - Full pre-commit: `pre-commit run --all-files` (all hooks green, including the new coverage gate).
-- **Live dry validation** on the active run (`~/.conforma/.conforma-active/`, rhoai-3.6-ea.2, prod): run `scripts/conforma_jira_ticket_ops.py find` (discovery only, READ-ONLY, no writes) and confirm RHOAIENG-70681 is found as a prior issue. Do NOT create real tickets (user guard).
+- **Historical live acceptance:** the label-only `find` command remains
+  read-only and returns 98 tickets, but does not find label-less
+  RHOAIENG-70681. C14 replaces this narrow check with the targeted,
+  read-only `audit-ticket` command, which retrieves and confirms the ticket
+  through its rule, component, and release evidence. Do NOT create real Jira
+  tickets or apply labels without explicit user confirmation.
 - **Commit C11** (pre-commit wiring + any fixes from validation).
 
 **Review checkpoint R2** (after C11): same `claude -p` invocation as R1 but scoped to "end-to-end integration, workflow determinism, and the live dry-run result". Paste `.result` into Handover.
 
-**Phase 5 DoD:** full unit suite green (>= baseline), per-script coverage >97% on all touched scripts, pre-commit clean, live `find` confirms RHOAIENG-70681 discovered; commits C11; R2 recorded and non-blocking.
+**Phase 5 DoD:** full unit suite green (>= baseline), per-script coverage
+>97% on all touched scripts, pre-commit clean, and the read-only live
+validation recorded. The original label-only check's RHOAIENG-70681
+assumption is superseded by C14's targeted acceptance.
 
 ### Phase 5 follow-up — Merge Request-linked exception coverage
 
@@ -307,13 +316,32 @@ Request entries remain version-specific.
 
 Regression coverage includes RHOAIENG-88509 and Merge Request !22104. Validation: `2672 passed, 5 skipped`; all four plan coverage targets pass (`99.4%`, `100.0%`, `98.8%`, and `98.4%`).
 
+### Phase 6 follow-up — C14 consolidated discovery
+
+C14 is complete in `d75b80d` and archived in
+`skills/conforma-analyze/done/C14-hybrid-jira-relatedness-discovery.md`.
+It closes the label-less discovery gap with independent candidate passes,
+mapping-driven evidence, canonical release/component matching, explicit
+pagination and field failures, optional advisory adjudication, independent
+labelling, and the C8 coverage cutover. Unknown returned projects remain
+visible as incomplete evidence rather than aborting the report, and Jira
+requests have an explicit timeout.
+
+The live read-only targeted audit of RHOAIENG-70681 on 2026-09-18 found a
+closed, empty-label ticket and classified it as
+`confirmed_conforma_violation` for `rhoai-3.5-ea.2`, with comments and history
+available. Its structured Target Version and affected-version fields were
+unavailable and remained explicit evidence gaps. Final validation is `2782
+passed, 5 skipped`; coverage is 98.4%, 97.4%, and 99.3% for the three touched
+Jira-related coverage targets and all required checks pass.
+
 ---
 ## 15. Key files
 
 | File | Change |
 |---|---|
-| `scripts/conforma_jira_ticket_ops.py` | **NEW** — discover, self-heal, match, group, create (TargetVersion), extend, link, audit, repair, pre-fill, guide-URL comment |
-| `scripts/jira_ops.py` | `search_issues` raises `JiraSearchError` (no silent empty); returns priority/components/target_versions |
+| `scripts/conforma_jira_ticket_ops.py` | discover, evidence-classify, self-heal, match, group, create (TargetVersion), extend, link, audit, repair, pre-fill, guide-URL comment |
+| `scripts/jira_ops.py` | `search_issues` raises `JiraSearchError` (no silent empty); returns priority/components/target_versions and uses bounded requests |
 | `scripts/conforma_constants.py` | 7-project discovery projects/labels + `build_label_discovery_jql` |
 | `scripts/conforma_jira_ops.py` | discovery removed (moved); version-relevance helpers stay |
 | `tests/check_script_coverage.py` | **NEW** — per-script >97% gate |
@@ -339,14 +367,15 @@ Regression coverage includes RHOAIENG-88509 and Merge Request !22104. Validation
 
 ## 17. Handover (fresh-model ready) — update after each phase
 
-- **Phase 0:** DONE. C0 = `0b466cc` — committed the original in-flight work under RHAIENG-6190. The coverage-work commits are on branch `skill/conforma` and have been pushed to `origin/skill/conforma` through `e4f91ee`; subsequent local documentation changes are separate and uncommitted.
+- **Phase 0:** DONE. C0 = `0b466cc` — committed the original in-flight work under RHAIENG-6190. The coverage-work commits are on branch `skill/conforma` and have been pushed to `origin/skill/conforma` through `e4f91ee`; subsequent C14 implementation is local in `d75b80d`.
 - **Phase 1:** DONE. C1 `5f52f49` (conforma_constants 7-project JQL + tests), C2 `1da82ee` (search_issues raises JiraSearchError, no silent empty; CLI catches + exit 1), C3 `041f569` (search_issues returns priority/components/target_versions). Full suite 2364 passed.
 - **Phase 2:** DONE. C4 `ba1cf50` — `tests/check_script_coverage.py` (coverage run + json, per-target >97% strict, skip-on-absent) + `tests/unit/test_check_script_coverage.py` (14 tests). Baseline at C4: conforma_constants 100%, ticket_ops skip, jira_ops 58.5%, conforma_jira_ops 85.8%. **Pre-commit wiring deferred to Step 5.1** (would block C5–C10 otherwise).
 - **Phase 3:** DONE. C5/C6/C7 landed in `fe2aeaa` (`conforma_jira_ticket_ops` + TargetVersion + guide-URL comment).
 - **Review R1:** PENDING — never recorded (scheduled after C7; C7 landed in `fe2aeaa`, verdict was never recorded).
 - **Phase 4:** DONE. C8 `85b636d` (cutover to label-first discovery), C9 `7e24f82` (renderer: Jira block + JIRAs cell + per-row Jira column + pre-fill links), C10 `10349c0` (workflow Step 8 Jira Sync + docs).
-- **Phase 5:** DONE. C11 (validation) — original validation recorded 2597 passed / 5 skipped; the current full unit suite is 2664 passed / 5 skipped. The coverage gate passes at 99.4 / 100.0 / 99.6 / 98.4 (all >97%); `check-script-coverage` pre-commit hook is wired + passing; live `find` (read-only) discovered 98 conforma tickets. **Defects found & fixed:** (1) stale `patch(...)` targets in two tests broken by the in-flight ruff F401 cleanup — fixed by patching the real implementation modules; (2) `find` performed self-heal label **writes by default** (51 `+conforma` writes observed on the live tenant during the first run) — `cmd_find` is now unconditionally read-only; (3) Jira descriptions were not retrieved for candidate matching, and a confirmed shared exception could not cover multiple rules — fixed in the Phase 5 follow-up above. **Open DoD gap:** RHOAIENG-70681 has `labels: []` (live-verified) and is therefore not discoverable by the label-first design; needs product decision (accept / one-time label / keyword pass).
+- **Phase 5:** DONE. C11 (validation) — the label-only live `find` remains read-only and discovered 98 Conforma tickets, but did not discover label-less RHOAIENG-70681. C14 supersedes that narrow acceptance with a targeted read-only evidence audit.
+- **Phase 6 / C14:** DONE. Commit `d75b80d`; C14 is archived in `skills/conforma-analyze/done/C14-hybrid-jira-relatedness-discovery.md`. The targeted live audit retrieved RHOAIENG-70681 with empty labels, available comments/history, and classified it as `confirmed_conforma_violation` for the supplied rule, component, and `rhoai-3.5-ea.2` release. Final validation is `2782 passed, 5 skipped`; coverage is 98.4%, 97.4%, and 99.3% for the touched Jira-related coverage targets.
 - **Review R2:** PENDING — run after C11; paste `claude -p` `.result` here.
-- **Administrative follow-up:** Branch push is complete. The Jira work-update comment for RHAIENG-6190 remains pending because the external write requires explicit approval of the exact comment payload. New independent TODOs for default Jira creation and Conforma Jira labelling are tracked in `skills/conforma-analyze/todo/C12-default-jira-creation.md` and `skills/conforma-analyze/todo/C13-independent-conforma-jira-labelling.md`.
+- **Administrative follow-up:** Branch push is complete. The Jira work-update comment for RHAIENG-6190 remains pending because the external write requires explicit approval of the exact comment payload. C12 remains the next implementation item; R1 and R2 remain pending review checkpoints. C13 is complete and archived.
 
 **How to resume:** start at the first NOT STARTED step above; each step lists its files, tests, and commit id. Do not skip the commit or the DoD. Do not create real Jira tickets or apply Jira labels without explicit user confirmation (live `find` in Phase 5 is read-only).
