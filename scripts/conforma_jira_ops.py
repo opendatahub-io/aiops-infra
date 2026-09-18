@@ -7,13 +7,12 @@ import json
 import re
 
 import conforma_constants
+import conforma_release_component_ops
 
 # Terminal/closed status names (case-insensitive). Anything else counts as open.
 # Mirrors conforma_jira_ticket_ops.CLOSED_STATUS_NAMES (kept local because this
 # module is the primitive layer and must not import the ticket-ops layer).
 CLOSED_STATUS_NAMES = conforma_constants.CLOSED_STATUS_NAMES
-
-_VERSION_SUFFIX_RE = re.compile(r"-v\d+-\d+(-ea-\d+)?$")
 
 _TICKET_SUMMARY_PREFIX = "Conforma violation: "
 
@@ -57,7 +56,7 @@ def _extract_rule_from_summary(summary: str) -> str | None:
 
 def _strip_version_suffix(name: str) -> str:
     """Strip Konflux version suffix: -v3-5, -v3-5-ea-1, -v2-25, etc."""
-    return _VERSION_SUFFIX_RE.sub("", name)
+    return conforma_release_component_ops.component_stem(name)
 
 
 _PLUS_N_MORE_RE = re.compile(r"\s*\(\+\d+\s+more\)\s*$")
@@ -123,7 +122,9 @@ def _infer_rule_from_text(text: str, rule: str) -> str:
     extracted = _extract_rule_from_summary(text)
     if extracted and extracted == rule:
         return "confirmed"
-    if extracted and (extracted.startswith(rule + ":") or (":" in rule and extracted.startswith(rule.split(":", 1)[0] + ":"))):
+    if extracted and (
+        extracted.startswith(rule + ":") or (":" in rule and extracted.startswith(rule.split(":", 1)[0] + ":"))
+    ):
         return "confirmed"
 
     text_lower = text.lower()
@@ -362,8 +363,8 @@ def _build_release_version_patterns(releases: list[str]) -> list[str]:
 
 
 def _normalize_version(version: str) -> str:
-    """Normalize a version string for comparison (lowercase, strip whitespace)."""
-    return version.strip().lower()
+    """Normalize a release through the shared canonical parser."""
+    return conforma_release_component_ops.normalize_release(version) or version.strip().lower()
 
 
 def classify_ticket_version_relevance(ticket: dict, analyzed_release: str) -> str:
@@ -378,12 +379,9 @@ def classify_ticket_version_relevance(ticket: dict, analyzed_release: str) -> st
     if not fix_versions:
         return "no_target_version"
 
-    release_patterns = _build_release_version_patterns([analyzed_release])
     for fv in fix_versions:
-        fv_norm = _normalize_version(fv)
-        for pattern in release_patterns:
-            if pattern in fv_norm or fv_norm in pattern:
-                return "targets_current"
+        if conforma_release_component_ops.release_matches(fv, analyzed_release):
+            return "targets_current"
     return "targets_future"
 
 

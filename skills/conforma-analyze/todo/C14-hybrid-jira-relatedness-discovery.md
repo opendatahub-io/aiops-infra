@@ -1,6 +1,6 @@
 # C14 — Hybrid discovery of Conforma-related Jira tickets
 
-Status: **NOT STARTED**
+Status: **IN PROGRESS**
 
 Depends on: C11; integrates with C13 independent labelling
 
@@ -39,6 +39,151 @@ The following pieces are missing:
 - confidence and ambiguity handling;
 - large-language-model adjudication for genuinely ambiguous candidates;
 - independent presentation and confirmation of proposed labels.
+
+## Audit findings and implementation handover (2026-09-18)
+
+The first implementation slices centralized Jira labels/statuses and added a
+validated project mapping. A follow-up audit found that C14 is not complete;
+the remaining gaps below are implementation requirements, not optional
+refactoring:
+
+| Gap | Impact | Required implementation |
+|---|---|---|
+| No component-and-product-version gate | A ticket for the wrong or unknown release can suppress current ticket creation | Add canonical release and component identities, then require both signals before a confirmed match |
+| Jira version matching uses lowercase/substring checks | Equivalent spellings are missed and unrelated versions can match | Replace `_normalize_version()` and pattern matching with one structured parser shared by release context, coverage, Jira, and component callers |
+| Legacy `prefetch_open_jira_tickets()` still owns matching passes | C8 has not been cut over and two discovery contracts can diverge | Move all candidate passes into the normalized C14 engine, update coverage callers, then delete the old matching body |
+| Discovery returns raw tickets rather than evidence | Results cannot be audited or safely classified | Produce field-level evidence, match sources, missing evidence, release relevance, and deterministic classifications |
+| Candidate passes are one OR query | The report cannot explain which pass found a ticket or merge evidence | Execute bounded independent passes, record query/result/pagination metadata, deduplicate by key, and merge sources/evidence |
+| No pagination or incomplete-source state | A 500-result cap can silently omit candidates | Add pagination and distinguish successful empty results from incomplete or failed searches |
+| Comments/history are not retrieved | Relevant release/component evidence can be missed | Fetch permitted comments/history and record unavailable fields explicitly |
+| Project mapping is validation-only | Project-specific target/affected/fix versions are not extracted | Add typed field descriptors, extraction paths, JQL capabilities, and mapping-driven extraction errors |
+| Shared component parsing is not migrated | Jira, catalog, Slack, Merge Request, and renderer callers can disagree | Migrate callers to shared full-name, identity, and comparison primitives; preserve specialized transformations separately |
+| Mapping metadata is absent on referenced tickets | Evidence records are inconsistent across discovery sources | Normalize every ticket, including direct Merge Request references, through the mapping/evidence builder |
+| New mapping module lacks the dual-mode command-line interface | It does not meet repository `*_ops.py` conventions | Add deterministic `--help` and validation/load subcommands with JSON output |
+
+### Proposed C14 execution phases
+
+| Phase | Scope | Status |
+|---|---|---|
+| [Phase 1.1 — Audit and handover](#audit-findings-and-implementation-handover-2026-09-18) | Record gaps, invariants, and continuation state | DONE |
+| [Phase 1.2 — Shared release/component primitives](#phase-12--shared-releasecomponent-primitives) | Canonical parsing, identities, and regression coverage | IN PROGRESS |
+| [Phase 1.3 — Mapping-driven Jira field extraction](#phase-13--mapping-driven-jira-field-extraction) | Typed mapping, field extraction, and explicit failures | NOT STARTED |
+| [Phase 2.1 — Independent candidate passes](#phase-21--independent-candidate-passes) | Queries, pagination, deduplication, and evidence sources | NOT STARTED |
+| [Phase 2.2 — Deterministic evidence classification](#phase-22--deterministic-evidence-classification) | Component/version gate and classifications | NOT STARTED |
+| [Phase 2.3 — C8 coverage cutover](#phase-23--c8-coverage-cutover) | Replace legacy prefetch and update coverage | NOT STARTED |
+| [Phase 3.1 — Independent labelling integration](#phase-31--independent-labelling-integration) | Report, confirmation, additive writes, verification | NOT STARTED |
+| [Phase 3.2 — Read-only acceptance and handover](#phase-32--read-only-acceptance-and-handover) | RHOAIENG-70681, full tests, live read-only audit | NOT STARTED |
+
+The phase headings below are the durable handover points. Each completed phase
+must record its commit, tests, coverage result, and remaining risks here before
+the next phase begins.
+
+### Proposed architecture
+
+```mermaid
+flowchart TD
+    violations[Conforma violations + analyzed release] --> passes[Independent Jira candidate passes]
+    passes --> dedupe[Keyed candidate deduplication]
+    dedupe --> fields[Mapping-driven field extraction]
+    fields --> evidence[Normalized evidence bundle]
+    evidence --> gate[Component + product-version gate]
+    gate --> classify[Deterministic classification]
+    classify --> report[Read-only report and proposed labels]
+    report --> confirm[Explicit confirmation]
+    confirm --> label[C13 additive label + set-then-verify]
+    classify --> coverage[C8 coverage adapter: open matches and prior issues]
+```
+
+## Phase 1.2 — Shared release/component primitives
+
+Definition of Done:
+
+- One tested parser returns a canonical release structure plus original
+  evidence text.
+- One tested component primitive preserves the full versioned name, derives a
+  release-independent identity, and compares identities explicitly.
+- Jira version relevance and ticket component matching use these primitives.
+- Existing context and coverage behavior remains compatible, with regression
+  tests for supported release spellings.
+- Changed code has the repository-required coverage threshold.
+
+Handover: the shared primitive now exists in
+`scripts/conforma_release_component_ops.py`. It parses product family,
+major/minor release, stage, and stage number; rejects a bare `ea 2` fragment
+without context; and exposes component stem/identity comparison. Jira version
+relevance and Jira component suffix stripping now use it. Commit and test
+details will be added after this phase is committed. Remaining work in this
+phase is migrating release-context, coverage, catalog, Slack, Merge Request,
+renderer, and exception callers and adding their regression coverage.
+
+## Phase 1.3 — Mapping-driven Jira field extraction
+
+Definition of Done:
+
+- The mapping validates field descriptor types and source metadata.
+- Jira search/get operations extract target, fix, affected, component, label,
+  and link evidence using the mapping rather than hardcoded project branches.
+- Unknown projects, unsupported fields, and permission failures are explicit
+  incomplete evidence, never empty matches.
+- The mapping module provides tested JSON-producing command-line validation.
+
+Handover: not started.
+
+## Phase 2.1 — Independent candidate passes
+
+Definition of Done:
+
+- Label, rule-label, rule-text, component/version, and direct-reference passes
+  execute independently across all configured projects and statuses.
+- Each pass records its query, result count, pagination state, and failures.
+- Duplicate keys merge all match sources and field evidence deterministically.
+
+Handover: not started.
+
+## Phase 2.2 — Deterministic evidence classification
+
+Definition of Done:
+
+- Confirmed matches require both component and product-version evidence.
+- Missing, mismatched, future, and ambiguous release evidence have distinct
+  classifications and explanations.
+- Comments/history limitations remain visible in the evidence bundle.
+
+Handover: not started.
+
+## Phase 2.3 — C8 coverage cutover
+
+Definition of Done:
+
+- `prefetch_open_jira_tickets()` is a thin adapter over C14 output or is
+  removed when coverage consumes the normalized API directly.
+- The old four-pass matching implementation is deleted.
+- Coverage continues to show open matches while retaining closed tickets as
+  prior-issue evidence without allowing them to suppress current work.
+
+Handover: not started.
+
+## Phase 3.1 — Independent labelling integration
+
+Definition of Done:
+
+- C13 consumes the C14 report independently of ticket creation and sync.
+- No label write occurs before explicit confirmation.
+- Additive writes, verification failures, and API failures are distinct.
+
+Handover: not started.
+
+## Phase 3.2 — Read-only acceptance and handover
+
+Definition of Done:
+
+- RHOAIENG-70681 is confirmed with evidence or reported as insufficient
+  evidence, never guessed.
+- Unit tests, coverage checks, and workflow-reference checks pass.
+- A live read-only audit is recorded without creating or labelling tickets.
+- This document records commits, tests, coverage, and remaining risks.
+
+Handover: not started.
 
 ## Legacy four-pass analysis and repurposing decision
 
