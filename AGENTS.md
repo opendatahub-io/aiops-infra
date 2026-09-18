@@ -20,6 +20,10 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for how to write scripts, add tests, str
 
 Durable feature/work plans (implementation plans, design records for in-flight work) SHOULD be saved in `.agents/plans/` in this repository — a plain, tool-agnostic location any AI harness can read and write, so plans stay portable across tools (unlike harness-local plan storage such as `~/.claude/plans/`). This is a soft rule: ephemeral single-session scratch plans may still live in the harness's own plan area, but any plan worth reusing or reviewing belongs in `.agents/plans/` and is version-controlled with the work it describes.
 
+### TODO documents (hard rule)
+
+Every TODO or outstanding work item for a skill MUST have its own separate Markdown document in that skill's `todo/` directory: `skills/<skill-name>/todo/<item>.md`. Do not combine multiple independent TODO items in one document. The skill's `todo/README.md` MAY provide an index, status summary, dependencies, and execution order, but it MUST link to the separate document for each item.
+
 ## Secrets Policy
 
 **NEVER ask the user to paste tokens, API keys, or credentials into the chat window.** Always instruct them to write secrets to the project's designated env file directly (using their editor or terminal). See [CONTRIBUTING.md](CONTRIBUTING.md#secrets-and-credentials-policy) for details.
