@@ -34,7 +34,7 @@ End-to-end validation, wire the per-script >97% coverage gate into pre-commit (d
 
 - Full unit suite green (≥ baseline), per-script coverage >97% on all four targets, `pre-commit run --all-files` clean, live `find` confirms RHOAIENG-70681 discovered.
 - Commit `C11` (pre-commit wiring + any fixes from validation) with message including `Jira: RHAIENG-6190 (https://redhat.atlassian.net/browse/RHAIENG-6190)`.
-- Then run review checkpoint R2 — see [R2-cross-model-review.md](R2-cross-model-review.md).
+- Then run review checkpoint R2 — see [R2-cross-model-review.md](../todo/R2-cross-model-review.md).
 
 ## Results (2026-09-17)
 

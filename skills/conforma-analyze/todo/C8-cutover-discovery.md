@@ -5,9 +5,20 @@ Plan: [`.agents/plans/conforma-analyze-jira-coverage-plan.md`](../../../.agents/
 Jira: [RHAIENG-6190 — improve conforma-analyze skill](https://redhat.atlassian.net/browse/RHAIENG-6190)
 Depends on: `fe2aeaa` (Phase 3 done)
 
+> **Superseded by C14.** Do not implement or mark C8 complete in isolation.
+> C8's original label-first, open-ticket-only cutover is now a historical
+> input to the broader C14 discovery-engine design. Any remaining cutover work
+> must be delivered as part of C14 and must satisfy C14's all-status,
+> multi-project, component-and-product-version matching requirements.
+
 ## Goal
 
-Move Jira ticket discovery from the legacy 4-pass heuristic in `scripts/conforma_jira_ops.py` to the new label-first discovery in `scripts/conforma_jira_ticket_ops.py`, and repoint the coverage workflow at it. The old 4-pass is **removed, not shimmed** (repo rule: no backward-compatibility shims unless requested).
+The original goal was to move Jira ticket discovery from the legacy 4-pass
+heuristic in `scripts/conforma_jira_ops.py` to label-first discovery. That
+cutover must not be performed as a standalone change: C14 now owns the
+consolidated discovery engine. The old 4-pass is **removed, not shimmed** (repo
+rule: no backward-compatibility shims unless requested), while its useful
+candidate sources are repurposed under C14's normalized evidence model.
 
 ## Changes
 

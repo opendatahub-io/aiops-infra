@@ -22,7 +22,11 @@ Durable feature/work plans (implementation plans, design records for in-flight w
 
 ### TODO documents (hard rule)
 
-Every TODO or outstanding work item for a skill MUST have its own separate Markdown document in that skill's `todo/` directory: `skills/<skill-name>/todo/<item>.md`. Do not combine multiple independent TODO items in one document. The skill's `todo/README.md` MAY provide an index, status summary, dependencies, and execution order, but it MUST link to the separate document for each item.
+Every TODO or outstanding work item for a skill MUST have its own separate Markdown document in that skill's `todo/` directory: `skills/<skill-name>/todo/<item>.md`. Do not combine multiple independent TODO items in one document. The `todo/README.md` MAY provide an index, status summary, dependencies, and execution order, but it MUST contain only active or outstanding work and MUST link to each item document.
+
+### Completed TODO documents (hard rule)
+
+When a TODO or outstanding work item is completed, its document MUST be moved to the adjacent `done/` directory: `skills/<skill-name>/done/<item>.md`. Completed documents MUST remain as durable implementation and validation records. The `done/README.md` MUST index completed work.
 
 ## Secrets Policy
 
