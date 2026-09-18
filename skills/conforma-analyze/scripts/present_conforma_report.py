@@ -24,6 +24,7 @@ END_MARKER = "END_VERBATIM_TODO"
 BEGIN_SUBMISSION_MARKER = "BEGIN_SUBMISSION_QUESTION"
 END_SUBMISSION_MARKER = "END_SUBMISSION_QUESTION"
 REQUIRED_TODO_NUMBERS = range(1, 7)
+CONTEXT_CONFIRMATION_HEADING = "### Conforma Workflow — Context Confirmation"
 TODO_HEADING_RE = re.compile(r"^### TODO #(\d+)\b.*$", re.MULTILINE)
 TABLE_HEADER_RE = re.compile(r"^\|[^\n]*\|\s*$", re.MULTILINE)
 TABLE_SEPARATOR_RE = re.compile(r"^\|\s*:?-{1,}:?\s*(?:\|\s*:?-{1,}:?\s*)+\|\s*$", re.MULTILINE)
@@ -58,6 +59,19 @@ def validate_todo_content(content: str) -> list[str]:
 
     if "## TODO" not in content:
         errors.append("TODO preview is missing the '## TODO' section")
+
+    context_start = content.find(CONTEXT_CONFIRMATION_HEADING)
+    todo_start = content.find("## TODO")
+    if context_start == -1:
+        errors.append("TODO preview is missing the context confirmation section")
+    elif todo_start == -1 or context_start > todo_start:
+        errors.append("Context confirmation section must appear before the TODO section")
+    else:
+        context_body = content[context_start + len(CONTEXT_CONFIRMATION_HEADING) : todo_start]
+        if not TABLE_HEADER_RE.search(context_body):
+            errors.append("Context confirmation section is missing its Markdown table")
+        elif not TABLE_SEPARATOR_RE.search(context_body):
+            errors.append("Context confirmation section is missing its Markdown table separator")
 
     for number in REQUIRED_TODO_NUMBERS:
         body = sections.get(number)

@@ -12,7 +12,13 @@ import present_conforma_report as mod
 def _todo(*sections: str) -> str:
     if sections and sections[0] == "status":
         sections = ("status\n\n" + _table(), *sections[1:])
-    return "## TODO\n\n" + "\n\n".join(f"### TODO #{number}\n\n{body}" for number, body in enumerate(sections))
+    context = (
+        "### Conforma Workflow — Context Confirmation\n\n"
+        "| Field | Value |\n|---|---|\n| Release | rhoai-3.6 |\n\n"
+    )
+    return context + "## TODO\n\n" + "\n\n".join(
+        f"### TODO #{number}\n\n{body}" for number, body in enumerate(sections)
+    )
 
 
 def _table() -> str:
@@ -26,7 +32,8 @@ def test_validate_accepts_all_required_tables():
 
 
 def test_validate_rejects_prose_only_todo_zero():
-    content = "## TODO\n\n### TODO #0 — Tooling status: healthy\n\nTooling is healthy.\n\n"
+    content = _todo("status", *([_table()] * 6))
+    content = content.replace("### TODO #0\n\nstatus\n\n" + _table(), "### TODO #0 — Tooling status: healthy\n\nTooling is healthy.")
     content += "\n".join(f"### TODO #{number}\n\n{_table()}" for number in range(1, 7))
 
     assert mod.validate_todo_content(content) == ["TODO #0 is missing its Markdown table"]
@@ -119,3 +126,23 @@ def test_present_todo_fails_before_output_for_invalid_content(tmp_path: Path):
 
     with pytest.raises(ValueError, match="TODO #2 is missing its Markdown table"):
         mod.present_todo(path)
+
+
+def test_validate_rejects_missing_context_confirmation():
+    content = "## TODO\n\n" + "\n\n".join(
+        f"### TODO #{number}\n\n{_table()}" for number in range(7)
+    )
+
+    assert mod.validate_todo_content(content) == [
+        "TODO preview is missing the context confirmation section"
+    ]
+
+
+def test_validate_rejects_context_confirmation_without_table():
+    content = "### Conforma Workflow — Context Confirmation\n\nContext is present.\n\n" + _todo(
+        "status", *([_table()] * 6)
+    ).split("## TODO", 1)[1]
+
+    assert mod.validate_todo_content(content) == [
+        "Context confirmation section is missing its Markdown table"
+    ]
