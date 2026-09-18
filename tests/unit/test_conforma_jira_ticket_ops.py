@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 import conforma_jira_ticket_ops as mod
+import pytest
 
 JIRA_BASE = "https://redhat.atlassian.net"
 
@@ -71,6 +72,11 @@ def _violation(**overrides):
 
 def _search_result(*tickets):
     return {"issues": [dict(t) for t in tickets], "total": len(tickets)}
+
+
+def test_discovery_rejects_projects_without_a_field_mapping(monkeypatch):
+    with pytest.raises(ValueError, match="No Jira field mapping"):
+        mod.discover_conforma_tickets(projects=["UNKNOWN"])
 
 
 # ---------------------------------------------------------------------------

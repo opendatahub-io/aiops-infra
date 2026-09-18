@@ -1,0 +1,59 @@
+mapping_version: 1
+source: "C14 grounded Jira field contract"
+projects:
+  RHOAIENG:
+    issue_types: [Task]
+    discovery_only: false
+    target_version_fields: [customfield_10855]
+    fix_version_fields: [fixVersions]
+    affected_version_fields: [versions]
+    component_fields: [components]
+    closed_prior_context: true
+  RHAIENG:
+    issue_types: [Task]
+    discovery_only: false
+    target_version_fields: [customfield_10855]
+    fix_version_fields: [fixVersions]
+    affected_version_fields: [versions]
+    component_fields: [components]
+    closed_prior_context: true
+  RHAI:
+    issue_types: [Task]
+    discovery_only: false
+    target_version_fields: [customfield_10855]
+    fix_version_fields: [fixVersions]
+    affected_version_fields: [versions]
+    component_fields: [components]
+    closed_prior_context: true
+  AIPCC:
+    issue_types: [Task]
+    discovery_only: false
+    target_version_fields: [customfield_10855]
+    fix_version_fields: [fixVersions]
+    affected_version_fields: [versions]
+    component_fields: [components]
+    closed_prior_context: true
+  OCPEXCEPT:
+    issue_types: [Task]
+    discovery_only: false
+    target_version_fields: []
+    fix_version_fields: [fixVersions]
+    affected_version_fields: [versions]
+    component_fields: [components]
+    closed_prior_context: true
+  PSX:
+    issue_types: []
+    discovery_only: true
+    target_version_fields: []
+    fix_version_fields: [fixVersions]
+    affected_version_fields: [versions]
+    component_fields: [components]
+    closed_prior_context: true
+  PRODSECRM:
+    issue_types: []
+    discovery_only: true
+    target_version_fields: []
+    fix_version_fields: [fixVersions]
+    affected_version_fields: [versions]
+    component_fields: [components]
+    closed_prior_context: true

@@ -38,6 +38,7 @@ import component_catalog_ops  # noqa: E402
 import conforma_constants  # noqa: E402
 import conforma_context_ops  # noqa: E402
 import conforma_jira_ops  # noqa: E402
+import conforma_jira_mapping_ops  # noqa: E402
 import conforma_mr_ops  # noqa: E402
 import jira_ops  # noqa: E402
 
@@ -378,6 +379,10 @@ def discover_conforma_tickets(
     manually created ticket can be found before it has been self-healed.
     """
     project_names = projects or conforma_constants.CONFORMA_DISCOVERY_PROJECTS
+    mapping = conforma_jira_mapping_ops.load_project_mapping()
+    unknown_projects = sorted(set(project_names) - set(mapping["projects"]))
+    if unknown_projects:
+        raise ValueError(f"No Jira field mapping exists for project(s): {', '.join(unknown_projects)}")
     base_jql = conforma_constants.build_label_discovery_jql(
         projects=project_names,
         labels=labels or conforma_constants.CONFORMA_DISCOVERY_LABELS,
@@ -421,6 +426,10 @@ def discover_conforma_tickets(
         ],
     )
     tickets = result.get("issues", [])
+    for ticket in tickets:
+        project = (ticket.get("key") or "").split("-", 1)[0]
+        ticket["jira_field_mapping_version"] = mapping["mapping_version"]
+        ticket["jira_field_mapping_project"] = project
     if not violations:
         return tickets
 
