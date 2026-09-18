@@ -68,8 +68,8 @@ refactoring:
 | [Phase 1.1 — Audit and handover](#audit-findings-and-implementation-handover-2026-09-18) | Record gaps, invariants, and continuation state | DONE |
 | [Phase 1.2 — Shared release/component primitives](#phase-12--shared-releasecomponent-primitives) | Canonical parsing, identities, and regression coverage | IN PROGRESS |
 | [Phase 1.3 — Mapping-driven Jira field extraction](#phase-13--mapping-driven-jira-field-extraction) | Typed mapping, field extraction, and explicit failures | NOT STARTED |
-| [Phase 2.1 — Independent candidate passes](#phase-21--independent-candidate-passes) | Queries, pagination, deduplication, and evidence sources | NOT STARTED |
-| [Phase 2.2 — Deterministic evidence classification](#phase-22--deterministic-evidence-classification) | Component/version gate and classifications | NOT STARTED |
+| [Phase 2.1 — Independent candidate passes](#phase-21--independent-candidate-passes) | Queries, pagination, deduplication, and evidence sources | IN PROGRESS |
+| [Phase 2.2 — Deterministic evidence classification](#phase-22--deterministic-evidence-classification) | Component/version gate and classifications | IN PROGRESS |
 | [Phase 2.3 — C8 coverage cutover](#phase-23--c8-coverage-cutover) | Replace legacy prefetch and update coverage | NOT STARTED |
 | [Phase 3.1 — Independent labelling integration](#phase-31--independent-labelling-integration) | Report, confirmation, additive writes, verification | NOT STARTED |
 | [Phase 3.2 — Read-only acceptance and handover](#phase-32--read-only-acceptance-and-handover) | RHOAIENG-70681, full tests, live read-only audit | NOT STARTED |
@@ -127,7 +127,9 @@ Definition of Done:
   incomplete evidence, never empty matches.
 - The mapping module provides tested JSON-producing command-line validation.
 
-Handover: not started.
+Handover: the mapping loader now has deterministic `validate` and `project`
+commands and rejects unknown returned projects. Mapping-driven extraction of
+all version fields and typed descriptors remains outstanding.
 
 ## Phase 2.1 — Independent candidate passes
 
@@ -138,7 +140,10 @@ Definition of Done:
 - Each pass records its query, result count, pagination state, and failures.
 - Duplicate keys merge all match sources and field evidence deterministically.
 
-Handover: not started.
+Handover: `classify_ticket_evidence()` now records component/version evidence,
+release relevance, missing evidence, and a confirmation classification. The
+production sync path applies the gate. Independent query passes, comments and
+history evidence, and complete source metadata remain outstanding.
 
 ## Phase 2.2 — Deterministic evidence classification
 

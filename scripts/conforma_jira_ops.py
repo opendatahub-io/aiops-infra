@@ -389,6 +389,7 @@ def prefetch_open_jira_tickets(
     rules: list[str],
     rule_to_components: dict[str, list[str]] | None = None,
     aliases: dict[str, set[str]] | None = None,
+    analyzed_release: str = "",
 ) -> dict[str, list[dict]]:
     """Discover open conforma-violation tickets and match them to the given rules.
 
@@ -418,7 +419,9 @@ def prefetch_open_jira_tickets(
         }
         for rule in rules
     ]
-    discovered = conforma_jira_ticket_ops.discover_conforma_tickets(violations=discovery_violations)
+    discovered = conforma_jira_ticket_ops.discover_conforma_tickets(
+        violations=discovery_violations, release=analyzed_release
+    )
     open_tickets = [t for t in discovered if is_open(t.get("status"))]
     base_by_key = {t.get("key", ""): _normalize_ticket(t) for t in open_tickets}
 
@@ -437,6 +440,14 @@ def prefetch_open_jira_tickets(
                 requested_components = (rule_to_components or {}).get(rule) or []
                 if requested_components and not _ticket_has_component_overlap(ticket, requested_components, aliases):
                     continue
+                if analyzed_release:
+                    evidence = conforma_jira_ticket_ops.classify_ticket_evidence(
+                        ticket,
+                        {"rule": rule, "uncovered_components": requested_components},
+                        analyzed_release,
+                    )
+                    if evidence["classification"] != "confirmed_conforma_violation":
+                        continue
                 rule_to_tickets[rule].append(base_by_key[key])
                 assigned_keys.add(key)
                 break
@@ -459,6 +470,14 @@ def prefetch_open_jira_tickets(
                     continue
                 if not _konflux_stems_in_text(ticket, konflux_components, aliases):
                     continue
+                if analyzed_release:
+                    evidence = conforma_jira_ticket_ops.classify_ticket_evidence(
+                        ticket,
+                        {"rule": rule, "uncovered_components": konflux_components},
+                        analyzed_release,
+                    )
+                    if evidence["classification"] != "confirmed_conforma_violation":
+                        continue
                 tagged = _normalize_ticket(
                     ticket,
                     match_source="component_inference",

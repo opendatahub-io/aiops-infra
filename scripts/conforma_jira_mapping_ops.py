@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 from pathlib import Path
 
 import yaml_ops
@@ -47,3 +49,23 @@ def project_config(project: str, path: str | Path = MAPPING_PATH) -> dict:
     if project not in projects:
         raise ValueError(f"No Jira field mapping exists for project {project}")
     return projects[project]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Validate and inspect the C14 Jira project-field mapping")
+    sub = parser.add_subparsers(dest="command", required=True)
+    validate_parser = sub.add_parser("validate", help="Validate the mapping and print it as JSON")
+    validate_parser.add_argument("--path", default=str(MAPPING_PATH))
+    project_parser = sub.add_parser("project", help="Print one project mapping as JSON")
+    project_parser.add_argument("--project", required=True)
+    project_parser.add_argument("--path", default=str(MAPPING_PATH))
+    args = parser.parse_args()
+    if args.command == "validate":
+        result = load_project_mapping(args.path)
+    else:
+        result = project_config(args.project, args.path)
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

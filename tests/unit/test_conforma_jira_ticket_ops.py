@@ -52,7 +52,7 @@ CLOSED_TICKET = {
     "components": ["AI-Guardrails"],
     "priority": "Blocker",
     "assignee": None,
-    "target_versions": ["RHOAI 3.5"],
+    "target_versions": ["RHOAI 3.6"],
     "url": f"{JIRA_BASE}/browse/RHOAIENG-70681",
 }
 
@@ -174,6 +174,40 @@ class TestMatchViolationToTickets:
         violation = _violation(uncovered_components=[])
         result = mod.match_violation_to_tickets(violation, [OPEN_TICKET])
         assert result["existing"]["key"] == "RHOAIENG-80001"
+
+
+class TestC14EvidenceGate:
+    def test_versioned_component_and_target_version_confirm_match(self):
+        ticket = {
+            **OPEN_TICKET,
+            "summary": "Conforma violation: rpm_signature.allowed:1234567890abcdef in odh-ogx-core-v3-6-ea-2",
+            "description": "Components: odh-ogx-core-v3-6-ea-2",
+            "target_versions": ["RHOAI 3.6"],
+        }
+        result = mod.classify_ticket_evidence(ticket, _violation(), "rhoai-3.6-ea.2")
+        assert result["classification"] == "confirmed_conforma_violation"
+        assert result["component_match"] is True
+        assert result["version_match"] is True
+
+    def test_unversioned_component_needs_separate_matching_version(self):
+        ticket = {
+            **OPEN_TICKET,
+            "summary": "Conforma violation: rpm_signature.allowed:1234567890abcdef in odh-ogx-core",
+            "description": "Components: odh-ogx-core",
+            "target_versions": ["RHOAI 3.6"],
+        }
+        result = mod.classify_ticket_evidence(ticket, _violation(), "rhoai-3.6")
+        assert result["classification"] == "confirmed_conforma_violation"
+
+    def test_missing_or_future_version_cannot_confirm_match(self):
+        missing = mod.classify_ticket_evidence({**OPEN_TICKET, "target_versions": []}, _violation(), "rhoai-3.6-ea.2")
+        future = mod.classify_ticket_evidence(
+            {**OPEN_TICKET, "target_versions": ["RHOAI 3.7"]}, _violation(), "rhoai-3.6-ea.2"
+        )
+        assert missing["classification"] == "possible_conforma_related"
+        assert "version_match" in missing["missing_evidence"]
+        assert future["classification"] == "possible_conforma_related"
+        assert future["version_match"] is False
 
 
 class TestGroupComponentsByJira:
@@ -543,7 +577,9 @@ class TestIndependentLabelling:
         monkeypatch.setattr(
             mod.jira_ops,
             "update_issue",
-            lambda key, labels=None: {"key": key, "error": "denied"} if key == "K-1" else {"key": key, "updated": ["labels"]},
+            lambda key, labels=None: (
+                {"key": key, "error": "denied"} if key == "K-1" else {"key": key, "updated": ["labels"]}
+            ),
         )
         monkeypatch.setattr(mod.jira_ops, "get_issue", lambda key, fields=None: {"labels": ["conforma"]})
         monkeypatch.setattr(mod.conforma_context_ops, "update_step", lambda *args, **kwargs: {})

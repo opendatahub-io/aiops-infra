@@ -641,6 +641,7 @@ def check_violations_coverage(
             all_rules,
             rule_to_components=rule_to_components,
             aliases=aliases,
+            analyzed_release=analyzed_release or "",
         )
         total_tickets = sum(len(v) for v in result.values())
         _log(f"  [Jira] Done — {total_tickets} open ticket(s) found ({time.monotonic() - t0:.1f}s)")

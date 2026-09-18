@@ -40,6 +40,7 @@ import conforma_context_ops  # noqa: E402
 import conforma_jira_ops  # noqa: E402
 import conforma_jira_mapping_ops  # noqa: E402
 import conforma_mr_ops  # noqa: E402
+import conforma_release_component_ops  # noqa: E402
 import jira_ops  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -148,7 +149,157 @@ def rule_matches(ticket: dict, rule: str) -> bool:
     return conforma_jira_ops._infer_rule_from_text(text, rule) == "confirmed"
 
 
-def match_violation_to_tickets(violation: dict, tickets: list[dict]) -> dict:
+def _version_values(ticket: dict) -> list[tuple[str, str]]:
+    """Return structured Jira version fields while preserving their sources."""
+    values: list[tuple[str, str]] = []
+    for field in ("fix_versions", "target_versions", "affected_versions"):
+        for value in ticket.get(field) or []:
+            if isinstance(value, str) and value.strip():
+                values.append((field, value))
+    return values
+
+
+def _version_evidence(ticket: dict, analyzed_release: str) -> list[dict]:
+    """Extract matching release evidence from structured fields and components."""
+    evidence: list[dict] = []
+    if not analyzed_release:
+        return evidence
+    for field, value in _version_values(ticket):
+        parsed = conforma_release_component_ops.parse_release(value)
+        if parsed:
+            evidence.append(
+                {
+                    "field": field,
+                    "value": value,
+                    "canonical": parsed["canonical"],
+                    "matches": conforma_release_component_ops.release_matches(value, analyzed_release),
+                }
+            )
+    for field, text in (("summary", ticket.get("summary", "")), ("description", ticket.get("description", ""))):
+        for token in re.findall(
+            r"(?:[a-z]+[- .])?v?\d+[-.]\d+(?:[-. ](?:ea|ga|rc)[-. ]?\d+)?", text or "", re.IGNORECASE
+        ):
+            parsed = conforma_release_component_ops.parse_release(token)
+            if parsed:
+                evidence.append(
+                    {
+                        "field": field,
+                        "value": token,
+                        "canonical": parsed["canonical"],
+                        "matches": conforma_release_component_ops.release_matches(token, analyzed_release),
+                    }
+                )
+    for name in conforma_jira_ops._ticket_component_names(ticket):
+        parsed = conforma_release_component_ops.parse_component(name).get("release")
+        if parsed:
+            evidence.append(
+                {
+                    "field": "component",
+                    "value": name,
+                    "canonical": parsed["canonical"],
+                    "matches": conforma_release_component_ops.release_matches(parsed["canonical"], analyzed_release),
+                }
+            )
+    return evidence
+
+
+def classify_ticket_evidence(ticket: dict, violation: dict, analyzed_release: str) -> dict:
+    """Classify one candidate with an auditable component/version evidence gate."""
+    requested_components = violation.get("uncovered_components") or violation.get("all_components") or []
+    ticket_names = conforma_jira_ops._ticket_component_names(ticket)
+    version_evidence = _version_evidence(ticket, analyzed_release)
+    version_match = any(item["matches"] for item in version_evidence)
+    component_match = False
+    component_evidence: list[dict] = []
+    for requested in requested_components:
+        for candidate in ticket_names:
+            if conforma_release_component_ops.component_identity(
+                candidate
+            ) != conforma_release_component_ops.component_identity(requested):
+                continue
+            candidate_release = conforma_release_component_ops.parse_component(candidate).get("release")
+            if candidate_release and not conforma_release_component_ops.component_matches(candidate, requested):
+                continue
+            if candidate_release or version_match:
+                component_match = True
+                component_evidence.append({"field": "summary_or_description", "value": candidate})
+    if not component_match and requested_components and version_match:
+        # A freeform unversioned component plus a separate structured product
+        # version is an allowed C14 match.
+        ticket_text = f"{ticket.get('summary', '')} {ticket.get('description', '')}".lower()
+        for requested in requested_components:
+            if conforma_release_component_ops.component_identity(requested) in ticket_text:
+                component_match = True
+                component_evidence.append({"field": "freeform", "value": requested})
+                break
+    if not component_match and ticket.get("components") and version_match:
+        jira_components = {str(value).lower() for value in ticket.get("components") or []}
+        requested_jira = {str(value).lower() for value in violation.get("jira_components") or []}
+        if jira_components & requested_jira:
+            component_match = True
+            component_evidence.append({"field": "jira_components", "value": sorted(jira_components & requested_jira)})
+    rule_match = rule_matches(ticket, violation["rule"])
+    labels = set(ticket.get("labels") or [])
+    label_match = bool(labels & {CONFORMA_LABEL, VIOLATION_LABEL, LEGACY_EXCEPTION_LABEL})
+    if rule_match and component_match and version_match:
+        classification = "confirmed_conforma_violation"
+    elif rule_match or label_match or component_match:
+        classification = "possible_conforma_related"
+    else:
+        classification = "unrelated"
+    missing = []
+    if not component_match:
+        missing.append("component_match")
+    if not version_match:
+        missing.append("version_match")
+    if not rule_match:
+        missing.append("rule_match")
+    return {
+        "classification": classification,
+        "component_match": component_match,
+        "version_match": version_match,
+        "rule_match": rule_match,
+        "label_match": label_match,
+        "release_relevance": (
+            "targets_current" if version_match else "targets_future" if version_evidence else "no_target_version"
+        ),
+        "component_evidence": component_evidence,
+        "version_evidence": version_evidence,
+        "missing_evidence": missing,
+    }
+
+
+def discover_conforma_evidence(
+    violations: list[dict], analyzed_release: str, projects: list[str] | None = None
+) -> list[dict]:
+    """Return normalized evidence for every candidate/violation pair."""
+    tickets = discover_conforma_tickets(projects=projects, violations=violations, release=analyzed_release)
+    evidence: list[dict] = []
+    for ticket in tickets:
+        for violation in violations:
+            classification = classify_ticket_evidence(ticket, violation, analyzed_release)
+            sources = []
+            if set(ticket.get("labels") or []) & set(conforma_constants.CONFORMA_DISCOVERY_LABELS):
+                sources.append("label")
+            text = f"{ticket.get('summary', '')} {ticket.get('description', '')}".lower()
+            if violation.get("rule", "").lower() in text:
+                sources.append("rule_text")
+            if classification["component_evidence"]:
+                sources.append("component_version")
+            if ticket.get("merge_request_references"):
+                sources.append("direct_reference")
+            evidence.append(
+                {
+                    "ticket": ticket,
+                    "violation": violation,
+                    "match_sources": sorted(set(sources)),
+                    **classification,
+                }
+            )
+    return evidence
+
+
+def match_violation_to_tickets(violation: dict, tickets: list[dict], analyzed_release: str = "") -> dict:
     """Match a violation to discovered tickets.
 
     Returns {"existing": ticket|None, "prior_issues": [ticket, ...]}.
@@ -160,6 +311,11 @@ def match_violation_to_tickets(violation: dict, tickets: list[dict]) -> dict:
     existing = None
     prior_issues: list[dict] = []
     for ticket in tickets:
+        if analyzed_release:
+            evidence = classify_ticket_evidence(ticket, violation, analyzed_release)
+            ticket["c14_evidence"] = evidence
+            if evidence["classification"] != "confirmed_conforma_violation":
+                continue
         if not rule_matches(ticket, violation["rule"]):
             continue
         if not components_overlap(ticket, konflux, jira_comps):
@@ -276,11 +432,7 @@ def build_create_fields(
         "summary": build_ticket_summary(rule, konflux_components),
         "issuetype": {"name": CREATE_ISSUE_TYPE},
         "labels": list(TICKET_LABELS)
-        + (
-            [build_violation_label(release, component, rule) for component in konflux_components]
-            if release
-            else []
-        ),
+        + ([build_violation_label(release, component, rule) for component in konflux_components] if release else []),
         "priority": {"name": CREATE_PRIORITY},
         "description": description,
     }
@@ -312,11 +464,7 @@ def build_prefill_url(
         "summary": build_ticket_summary(rule, konflux_components),
         "labels": ",".join(
             list(TICKET_LABELS)
-            + (
-                [build_violation_label(release, component, rule) for component in konflux_components]
-                if release
-                else []
-            )
+            + ([build_violation_label(release, component, rule) for component in konflux_components] if release else [])
         ),
         "priority": CREATE_PRIORITY,
         "description": description,
@@ -426,10 +574,16 @@ def discover_conforma_tickets(
         ],
     )
     tickets = result.get("issues", [])
-    for ticket in tickets:
+
+    def annotate_mapping(ticket: dict) -> None:
         project = (ticket.get("key") or "").split("-", 1)[0]
+        if project not in mapping["projects"]:
+            raise ValueError(f"No Jira field mapping exists for returned ticket project {project or '<unknown>'}")
         ticket["jira_field_mapping_version"] = mapping["mapping_version"]
         ticket["jira_field_mapping_project"] = project
+
+    for ticket in tickets:
+        annotate_mapping(ticket)
     if not violations:
         return tickets
 
@@ -459,7 +613,10 @@ def discover_conforma_tickets(
                 "description",
             ],
         )
-        tickets.extend(referenced.get("issues", []))
+        referenced_tickets = referenced.get("issues", [])
+        for ticket in referenced_tickets:
+            annotate_mapping(ticket)
+        tickets.extend(referenced_tickets)
     for ticket in tickets:
         if ticket.get("key") in references_by_key:
             ticket["merge_request_references"] = references_by_key[ticket["key"]]
@@ -542,8 +699,7 @@ def label_conforma_tickets(apply: bool = False) -> dict:
     }
     if not apply:
         output["display"] = (
-            f"Discovered {len(tickets)} Conforma-related Jira tickets. "
-            f"Proposed label updates: {len(plan)}."
+            f"Discovered {len(tickets)} Conforma-related Jira tickets. Proposed label updates: {len(plan)}."
         )
         output["user_question"] = {
             "question_text": f"Apply the {len(plan)} proposed Conforma Jira label update(s)?",
@@ -735,9 +891,7 @@ def _load_catalog() -> list[dict]:
         return []
 
 
-def prepare_violation_groups(
-    violation: dict, tickets: list[dict], catalog: list[dict], release: str = ""
-) -> dict:
+def prepare_violation_groups(violation: dict, tickets: list[dict], catalog: list[dict], release: str = "") -> dict:
     """Pure: match a violation to tickets and split its uncovered components into Jira groups.
 
     Only uncovered components are grouped (covered components already have exceptions), so
@@ -747,7 +901,7 @@ def prepare_violation_groups(
     all_components = violation.get("all_components") or []
     uncovered = violation.get("uncovered_components") or all_components
     rule = violation["rule"]
-    match = match_violation_to_tickets(violation, tickets)
+    match = match_violation_to_tickets(violation, tickets, analyzed_release=release)
     existing_ref = _ticket_ref(match["existing"]) if match["existing"] else None
     prior_refs = [_ticket_ref(p) for p in match["prior_issues"]]
     groups = []
@@ -761,8 +915,7 @@ def prepare_violation_groups(
                 "existing": existing_ref,
                 "prior_issues": prior_refs,
                 "unique_labels": [
-                    build_violation_label(release, component, rule)
-                    for component in group["konflux_components"]
+                    build_violation_label(release, component, rule) for component in group["konflux_components"]
                 ],
             }
         )
@@ -1076,9 +1229,7 @@ def cmd_prefill_url(rule: str, components_csv: str, project_id: str) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Create and update Jira tickets for Conforma violations (dual-mode)"
-    )
+    parser = argparse.ArgumentParser(description="Create and update Jira tickets for Conforma violations (dual-mode)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sync_p = sub.add_parser(
