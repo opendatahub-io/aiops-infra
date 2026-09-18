@@ -12,6 +12,7 @@ import conforma_counting  # noqa: E402
 import release_dates  # noqa: E402
 from parse_violations import build_semantic_detail_lookup  # noqa: E402
 import analyze_csv_report as analysis  # noqa: E402
+import conforma_release_component_ops  # noqa: E402
 from conforma_constants import (  # noqa: E402
     CONFORMA_REPORTER_ACTIONS_URL,
     CONFORMA_REPORTER_URL,
@@ -270,11 +271,12 @@ def _jira_refs_from_merge_request(merge_request: dict | None) -> list[dict]:
     """
     if not merge_request:
         return []
-    text = " ".join(
-        str(merge_request.get(field) or "")
-        for field in ("title", "description")
+    text = " ".join(str(merge_request.get(field) or "") for field in ("title", "description"))
+    keys = list(
+        dict.fromkeys(
+            match.upper() for match in re.findall(r"(?<![A-Z0-9])([A-Z][A-Z0-9]+-\d+)(?!\d)", text, re.IGNORECASE)
+        )
     )
-    keys = list(dict.fromkeys(match.upper() for match in re.findall(r"(?<![A-Z0-9])([A-Z][A-Z0-9]+-\d+)(?!\d)", text, re.IGNORECASE)))
     return [{"key": key, "url": f"https://redhat.atlassian.net/browse/{key}"} for key in keys]
 
 
@@ -575,16 +577,11 @@ def render_key_takeaways(
     )
 
     no_mr_entries = buckets["no_mr_entries"]
-    has_mr_entries = buckets["has_mr_entries"]
     has_mr_expires_before_release = buckets["has_mr_expires_before_release"]
     has_mr_ok = buckets["has_mr_ok"]
     no_mr_violation_count = sum(e["violation_count"] for e in no_mr_entries)
-    has_mr_violation_count = sum(e["violation_count"] for e in has_mr_entries)
     has_mr_expires_count = sum(e["violation_count"] for e in has_mr_expires_before_release)
     has_mr_ok_count = sum(e["violation_count"] for e in has_mr_ok)
-    covered_violations = buckets["covered_violations"]
-    total_violations = buckets["total_violations"]
-    coverage_pct = buckets["coverage_pct"]
     expiring_no_mr = buckets["expiring_no_mr"]
     expiring_mr_insufficient = buckets["expiring_mr_insufficient"]
     expiring_mr_sufficient = buckets["expiring_mr_sufficient"]
@@ -823,7 +820,9 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} "
                     f"| {entry['violation_count']} | {entry['effective_until']} |"
                 )
-                row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
+                row += (
+                    f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
+                )
                 expiring_no_mr_body.append(row)
                 expiring_no_mr_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 3))
         else:
@@ -876,7 +875,9 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
-                row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
+                row += (
+                    f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
+                )
                 expiring_mr_insuf_body.append(row)
                 expiring_mr_insuf_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 5))
         else:
@@ -928,7 +929,9 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
-                row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
+                row += (
+                    f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
+                )
                 expiring_mr_suf_body.append(row)
                 expiring_mr_suf_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 5))
         else:
@@ -988,7 +991,9 @@ def render_key_takeaways(
                     f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} "
                     f"| {entry['violation_count']} | {mr_eu_display} | {mr_link} |"
                 )
-                row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
+                row += (
+                    f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
+                )
                 has_mr_exp_body.append(row)
                 has_mr_exp_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 4))
         else:
@@ -1344,8 +1349,11 @@ def _sync_component_cells(
             related_search_url = members[0].get("related_search_url")
             labels = members[0].get("unique_labels") or []
             matching_index = next(
-                (index for index, name in enumerate(members[0].get("konflux_components") or [])
-                 if _component_stem(name) == comp_stem),
+                (
+                    index
+                    for index, name in enumerate(members[0].get("konflux_components") or [])
+                    if _component_stem(name) == comp_stem
+                ),
                 0,
             )
             related_label = labels[matching_index] if matching_index < len(labels) else None
@@ -1675,7 +1683,7 @@ def _component_stem(name: str) -> str:
         odh-pipeline-runtime-py312-v2-25      -> odh-pipeline-runtime-py312
         odh-generic-tool (no suffix)          -> odh-generic-tool  (unchanged)
     """
-    return re.sub(r"-v\d+-\d+.*$", "", name)
+    return conforma_release_component_ops.component_stem(name)
 
 
 def build_konflux_component_link_base(cluster_domain: str, tenant: str, application: str) -> str:
@@ -1812,7 +1820,9 @@ def render_components_table(
             mr_cell = "—"
 
         comp_jiras = jira_by_stem.get(comp_stem, [])
-        sync_refs, sync_create_url, sync_related_search_url, sync_related_label = _sync_component_cells(sync_entry, comp)
+        sync_refs, sync_create_url, sync_related_search_url, sync_related_label = _sync_component_cells(
+            sync_entry, comp
+        )
         jira_cell = _build_jira_cell(
             comp_jiras, unscoped_jiras, sync_refs, sync_create_url, sync_related_search_url, sync_related_label
         )

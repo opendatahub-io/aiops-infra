@@ -23,6 +23,8 @@ REQUIRED_PROJECT_FIELDS = {
     "affected_version_fields",
     "component_fields",
     "closed_prior_context",
+    "field_paths",
+    "jql",
 }
 
 
@@ -40,6 +42,10 @@ def load_project_mapping(path: str | Path = MAPPING_PATH) -> dict:
         missing = REQUIRED_PROJECT_FIELDS - set(config)
         if missing:
             raise ValueError(f"Jira mapping for {project} missing fields: {sorted(missing)}")
+        if not isinstance(config["field_paths"], dict) or not isinstance(config["jql"], dict):
+            raise ValueError(f"Jira mapping for {project} field_paths and jql must be mappings")
+        if any(not isinstance(value, list) for value in config["field_paths"].values()):
+            raise ValueError(f"Jira mapping for {project} field_paths values must be lists")
     return mapping
 
 

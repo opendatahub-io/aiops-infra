@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 import conforma_context_ops
+import conforma_release_component_ops
 import gitlab_ops
 import konflux_environment
 import release_dates
@@ -74,38 +75,11 @@ def extract_environment(raw: str) -> tuple[str, str]:
 
 def _normalize_version_candidate(text: str) -> str | None:
     """Normalize one release-shaped string into a version directory name."""
-    text = text.strip().lower()
-    if not text:
+    parsed = conforma_release_component_ops.parse_release(text)
+    if not parsed:
         return None
-
-    # Strip leading "rhoai" with optional separator (dash, dot, space, or combination)
-    text = re.sub(r"^rhoai[\s.\-]*", "", text)
-
-    # Strip leading "v" if present
-    text = re.sub(r"^v", "", text)
-
-    # Normalize major-minor separator: "3-5" -> "3.5"
-    # Users sometimes write "rhoai-3-5" where the dash between major and minor
-    # is ambiguous with the rhoai- prefix separator.
-    text = re.sub(r"^(\d+)-(\d+)", r"\1.\2", text)
-
-    # Normalize EA patterns:
-    #   "3.5 ea 1"   -> "3.5-ea.1"
-    #   "3.5-ea-1"   -> "3.5-ea.1"
-    #   "3.5-ea.1"   -> "3.5-ea.1" (already correct)
-    #   "3.5.ea.1"   -> "3.5-ea.1"
-    #   "3.5-ea2"    -> "3.5-ea.2" (no separator before number)
-    #   "3.5ea1"     -> "3.5-ea.1" (no separators at all)
-    #   "3-5.ea2"    -> "3.5-ea.2" (dash-separated major-minor, after normalization above)
-    ea_match = re.match(r"^(\d+\.\d+)[\s.\-]*ea[\s.\-]*(\d+)$", text)
-    if ea_match:
-        text = f"{ea_match.group(1)}-ea.{ea_match.group(2)}"
-
-    # Validate: must be X.Y or X.Y-ea.N
-    if not re.match(r"^\d+\.\d+(-ea\.\d+)?$", text):
-        return None
-
-    return f"v{text}"
+    canonical = parsed["canonical"].removeprefix("rhoai-")
+    return f"v{canonical}"
 
 
 def parse_query(raw: str) -> str | None:
@@ -538,8 +512,7 @@ def resolve(query: str, environment_override: str | None = None) -> dict:
             # rendered confirmation_display, so the user must receive the
             # resolved context together with the choices.
             "question_text": (
-                f"{display}\n\n"
-                f"Are the above details correct for {release_branch}? If not, select 'No' to fix them."
+                f"{display}\n\nAre the above details correct for {release_branch}? If not, select 'No' to fix them."
             ),
             "question_options": ["Yes, continue", "No, something needs to change"],
         }

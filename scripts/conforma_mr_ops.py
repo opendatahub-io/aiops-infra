@@ -11,6 +11,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import gitlab_ops
+import conforma_release_component_ops
 
 GITLAB_HOST = os.environ.get("GITLAB_HOST", "")
 GITLAB_PROJECT = os.environ.get("GITLAB_PROJECT", "releng/konflux-release-data")
@@ -141,7 +142,7 @@ def _extract_component_base(component_name: str) -> str:
     odh-mlmd-grpc-server-v2-25 -> odh-mlmd-grpc-server
     odh-vllm-cpu-v3-5-ea-1 -> odh-vllm-cpu
     """
-    return re.sub(r"-v\d+-\d+(?:-[a-z]+-\d+)?$", "", component_name)
+    return conforma_release_component_ops.component_stem(component_name)
 
 
 def image_url_covers_component(image_url: str, component_name: str) -> bool:
@@ -856,10 +857,9 @@ def _merge_request_component_covers(mr_component: str, requested_component: str)
     requested_component = requested_component.strip().lower()
     if mr_component == requested_component:
         return True
-    return (
-        mr_component == _extract_component_base(mr_component)
-        and _extract_component_base(mr_component) == _extract_component_base(requested_component)
-    )
+    return mr_component == _extract_component_base(mr_component) and _extract_component_base(
+        mr_component
+    ) == _extract_component_base(requested_component)
 
 
 def analyze_mr_component_coverage(

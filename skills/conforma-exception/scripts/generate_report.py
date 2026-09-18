@@ -18,6 +18,7 @@ from __future__ import annotations
 import _setup_env  # noqa: F401 -- adds shared scripts/ to sys.path
 
 import conforma_context_ops  # noqa: E402
+import conforma_release_component_ops  # noqa: E402
 
 import argparse
 import json
@@ -124,9 +125,7 @@ def _strip_version_suffix(name: str) -> str:
 
     E.g. 'odh-mlflow-v3-3' -> 'odh-mlflow', 'odh-dashboard-v3-5-ea-1' -> 'odh-dashboard'.
     """
-    import re
-
-    return re.sub(r"-v\d+[-.\d]*(-(ea|rc|beta)[-.\d]*)?$", "", name)
+    return conforma_release_component_ops.component_stem(name)
 
 
 def _component_cell(exc: dict) -> str:

@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 
 import slack_ops
-
-_VERSION_SUFFIX_RE = re.compile(r"-v\d+[-.\d\w]*$")
+import conforma_release_component_ops
 
 
 def _component_search_stems(component: str) -> list[str]:
@@ -23,7 +21,7 @@ def _component_search_stems(component: str) -> list[str]:
     prefix-stripped form catches shorthand references.
     """
     stems = [component]
-    base = _VERSION_SUFFIX_RE.sub("", component)
+    base = conforma_release_component_ops.component_stem(component)
     if base != component:
         stems.append(base)
     if base.startswith("odh-"):

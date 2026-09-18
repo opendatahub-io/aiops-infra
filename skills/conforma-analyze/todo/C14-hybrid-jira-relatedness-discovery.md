@@ -66,12 +66,12 @@ refactoring:
 | Phase | Scope | Status |
 |---|---|---|
 | [Phase 1.1 — Audit and handover](#audit-findings-and-implementation-handover-2026-09-18) | Record gaps, invariants, and continuation state | DONE |
-| [Phase 1.2 — Shared release/component primitives](#phase-12--shared-releasecomponent-primitives) | Canonical parsing, identities, and regression coverage | IN PROGRESS |
-| [Phase 1.3 — Mapping-driven Jira field extraction](#phase-13--mapping-driven-jira-field-extraction) | Typed mapping, field extraction, and explicit failures | NOT STARTED |
-| [Phase 2.1 — Independent candidate passes](#phase-21--independent-candidate-passes) | Queries, pagination, deduplication, and evidence sources | IN PROGRESS |
-| [Phase 2.2 — Deterministic evidence classification](#phase-22--deterministic-evidence-classification) | Component/version gate and classifications | IN PROGRESS |
-| [Phase 2.3 — C8 coverage cutover](#phase-23--c8-coverage-cutover) | Replace legacy prefetch and update coverage | NOT STARTED |
-| [Phase 3.1 — Independent labelling integration](#phase-31--independent-labelling-integration) | Report, confirmation, additive writes, verification | NOT STARTED |
+| [Phase 1.2 — Shared release/component primitives](#phase-12--shared-releasecomponent-primitives) | Canonical parsing, identities, and regression coverage | DONE |
+| [Phase 1.3 — Mapping-driven Jira field extraction](#phase-13--mapping-driven-jira-field-extraction) | Typed mapping, field extraction, and explicit failures | DONE |
+| [Phase 2.1 — Independent candidate passes](#phase-21--independent-candidate-passes) | Queries, pagination, deduplication, and evidence sources | DONE |
+| [Phase 2.2 — Deterministic evidence classification](#phase-22--deterministic-evidence-classification) | Component/version gate and classifications | DONE |
+| [Phase 2.3 — C8 coverage cutover](#phase-23--c8-coverage-cutover) | Replace legacy prefetch and update coverage | DONE |
+| [Phase 3.1 — Independent labelling integration](#phase-31--independent-labelling-integration) | Report, confirmation, additive writes, verification | IN PROGRESS |
 | [Phase 3.2 — Read-only acceptance and handover](#phase-32--read-only-acceptance-and-handover) | RHOAIENG-70681, full tests, live read-only audit | NOT STARTED |
 
 The phase headings below are the durable handover points. Each completed phase
@@ -107,14 +107,13 @@ Definition of Done:
   tests for supported release spellings.
 - Changed code has the repository-required coverage threshold.
 
-Handover: the shared primitive now exists in
+Handover: the shared primitive exists in
 `scripts/conforma_release_component_ops.py`. It parses product family,
 major/minor release, stage, and stage number; rejects a bare `ea 2` fragment
 without context; and exposes component stem/identity comparison. Jira version
-relevance and Jira component suffix stripping now use it. Commit and test
-details will be added after this phase is committed. Remaining work in this
-phase is migrating release-context, coverage, catalog, Slack, Merge Request,
-renderer, and exception callers and adding their regression coverage.
+relevance, release-context parsing, catalog, Slack, Merge Request, renderer,
+and exception component suffix stripping now use it. Regression coverage is
+green in the phase test suite.
 
 ## Phase 1.3 — Mapping-driven Jira field extraction
 
@@ -127,9 +126,9 @@ Definition of Done:
   incomplete evidence, never empty matches.
 - The mapping module provides tested JSON-producing command-line validation.
 
-Handover: the mapping loader now has deterministic `validate` and `project`
-commands and rejects unknown returned projects. Mapping-driven extraction of
-all version fields and typed descriptors remains outstanding.
+Handover: the mapping loader has deterministic `validate` and `project`
+commands, typed descriptor validation, mapping-driven requested Jira fields,
+link extraction, and explicit unavailable-field errors.
 
 ## Phase 2.1 — Independent candidate passes
 
@@ -140,10 +139,11 @@ Definition of Done:
 - Each pass records its query, result count, pagination state, and failures.
 - Duplicate keys merge all match sources and field evidence deterministically.
 
-Handover: `classify_ticket_evidence()` now records component/version evidence,
-release relevance, missing evidence, and a confirmation classification. The
-production sync path applies the gate. Independent query passes, comments and
-history evidence, and complete source metadata remain outstanding.
+Handover: independent label, rule-label, rule-text, component/version, and
+direct-reference passes now record query/result/pagination metadata and merge
+sources by Jira key. Candidate detail retrieval records comments/history
+availability. `classify_ticket_evidence()` records component/version evidence,
+release relevance, missing evidence, and the confirmation classification.
 
 ## Phase 2.2 — Deterministic evidence classification
 
@@ -154,7 +154,10 @@ Definition of Done:
   classifications and explanations.
 - Comments/history limitations remain visible in the evidence bundle.
 
-Handover: not started.
+Handover: the coverage adapter now passes the analyzed release into the C14
+discovery path, and `prefetch_open_jira_tickets()` no longer owns the former
+separate discovery passes. Open confirmed matches remain coverage matches;
+closed confirmed matches remain prior-issue context. Regression tests pass.
 
 ## Phase 2.3 — C8 coverage cutover
 

@@ -61,6 +61,20 @@ VIOLATION_LABEL = conforma_constants.VIOLATION_LABEL
 
 # Terminal/closed status names (case-insensitive). Anything else counts as open.
 CLOSED_STATUS_NAMES = conforma_constants.CLOSED_STATUS_NAMES
+DISCOVERY_FIELDS = [
+    "key",
+    "summary",
+    "status",
+    "issuetype",
+    "labels",
+    "components",
+    "priority",
+    "assignee",
+    "fixVersions",
+    "target_versions",
+    "affected_versions",
+    "description",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +159,11 @@ def rule_matches(ticket: dict, rule: str) -> bool:
     extracted = conforma_jira_ops._extract_rule_from_summary(ticket.get("summary", "") or "")
     if extracted == rule:
         return True
-    text = (ticket.get("summary", "") or "") + " " + (ticket.get("description", "") or "")
+    comments = " ".join(str(comment.get("body", "")) for comment in ticket.get("comments") or [])
+    history = " ".join(
+        str(item.get("to", "")) for change in ticket.get("history") or [] for item in change.get("items", [])
+    )
+    text = " ".join([ticket.get("summary", "") or "", ticket.get("description", "") or "", comments, history])
     return conforma_jira_ops._infer_rule_from_text(text, rule) == "confirmed"
 
 
@@ -175,9 +193,18 @@ def _version_evidence(ticket: dict, analyzed_release: str) -> list[dict]:
                     "matches": conforma_release_component_ops.release_matches(value, analyzed_release),
                 }
             )
-    for field, text in (("summary", ticket.get("summary", "")), ("description", ticket.get("description", ""))):
+    comments = " ".join(str(comment.get("body", "")) for comment in ticket.get("comments") or [])
+    history = " ".join(
+        str(item.get("to", "")) for change in ticket.get("history") or [] for item in change.get("items", [])
+    )
+    text_fields = [("summary", ticket.get("summary", "")), ("description", ticket.get("description", ""))]
+    if comments:
+        text_fields.append(("comments", comments))
+    if history:
+        text_fields.append(("history", history))
+    for field, text in text_fields:
         for token in re.findall(
-            r"(?:[a-z]+[- .])?v?\d+[-.]\d+(?:[-. ](?:ea|ga|rc)[-. ]?\d+)?", text or "", re.IGNORECASE
+            r"(?:rhoai[- .])?v?\d+[-.]\d+(?:[-. ](?:ea|ga|rc)[-. ]?\d+)?", text or "", re.IGNORECASE
         ):
             parsed = conforma_release_component_ops.parse_release(token)
             if parsed:
@@ -187,6 +214,22 @@ def _version_evidence(ticket: dict, analyzed_release: str) -> list[dict]:
                         "value": token,
                         "canonical": parsed["canonical"],
                         "matches": conforma_release_component_ops.release_matches(token, analyzed_release),
+                    }
+                )
+        for token in re.findall(
+            r"[a-z0-9][a-z0-9_.-]*-v\d+[-.]\d+(?:[-.](?:ea|ga|rc)[-.]?\d+)?", text or "", re.IGNORECASE
+        ):
+            parsed_component = conforma_release_component_ops.parse_component(token)
+            parsed = parsed_component.get("release")
+            if parsed:
+                evidence.append(
+                    {
+                        "field": field,
+                        "value": token,
+                        "canonical": parsed["canonical"],
+                        "matches": conforma_release_component_ops.release_matches(
+                            parsed["canonical"], analyzed_release
+                        ),
                     }
                 )
     for name in conforma_jira_ops._ticket_component_names(ticket):
@@ -226,7 +269,13 @@ def classify_ticket_evidence(ticket: dict, violation: dict, analyzed_release: st
     if not component_match and requested_components and version_match:
         # A freeform unversioned component plus a separate structured product
         # version is an allowed C14 match.
-        ticket_text = f"{ticket.get('summary', '')} {ticket.get('description', '')}".lower()
+        ticket_text = " ".join(
+            [
+                ticket.get("summary", "") or "",
+                ticket.get("description", "") or "",
+                " ".join(str(comment.get("body", "")) for comment in ticket.get("comments") or []),
+            ]
+        ).lower()
         for requested in requested_components:
             if conforma_release_component_ops.component_identity(requested) in ticket_text:
                 component_match = True
@@ -254,6 +303,7 @@ def classify_ticket_evidence(ticket: dict, violation: dict, analyzed_release: st
         missing.append("version_match")
     if not rule_match:
         missing.append("rule_match")
+    missing.extend(ticket.get("field_errors") or [])
     return {
         "classification": classification,
         "component_match": component_match,
@@ -273,7 +323,9 @@ def discover_conforma_evidence(
     violations: list[dict], analyzed_release: str, projects: list[str] | None = None
 ) -> list[dict]:
     """Return normalized evidence for every candidate/violation pair."""
-    tickets = discover_conforma_tickets(projects=projects, violations=violations, release=analyzed_release)
+    tickets = discover_conforma_tickets(
+        projects=projects, violations=violations, release=analyzed_release, independent=True
+    )
     evidence: list[dict] = []
     for ticket in tickets:
         for violation in violations:
@@ -297,6 +349,144 @@ def discover_conforma_evidence(
                 }
             )
     return evidence
+
+
+def _jql_text(value: str) -> str:
+    """Escape user-derived text before placing it in a Jira text clause."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def discover_conforma_candidates(
+    violations: list[dict],
+    analyzed_release: str,
+    projects: list[str] | None = None,
+    include_details: bool = False,
+) -> dict:
+    """Run independent C14 candidate passes and merge evidence by issue key."""
+    project_names = projects or conforma_constants.CONFORMA_DISCOVERY_PROJECTS
+    mapping = conforma_jira_mapping_ops.load_project_mapping()
+    unknown = sorted(set(project_names) - set(mapping["projects"]))
+    if unknown:
+        raise ValueError(f"No Jira field mapping exists for project(s): {', '.join(unknown)}")
+    mapped_fields = {"key", "summary", "status", "issuetype", "labels", "components", "description"}
+    semantic_fields = {
+        "target_version": "target_versions",
+        "fix_versions": "fixVersions",
+        "affected_versions": "affected_versions",
+        "components": "components",
+        "labels": "labels",
+        "links": "issuelinks",
+    }
+    for project in project_names:
+        for semantic, field_paths in mapping["projects"][project]["field_paths"].items():
+            if semantic not in semantic_fields:
+                raise ValueError(f"Unsupported Jira mapping field {semantic} for project {project}")
+            if field_paths:
+                mapped_fields.add(semantic_fields[semantic])
+    mapped_fields.update({"priority", "assignee"})
+    project_clause = f"project in ({', '.join(project_names)})"
+    pass_specs: list[tuple[str, str]] = [
+        (
+            "label",
+            f"{project_clause} AND labels in ({', '.join(conforma_constants.CONFORMA_DISCOVERY_LABELS)})",
+        )
+    ]
+    rules = sorted({str(item.get("rule") or "") for item in violations if item.get("rule")})
+    rule_labels = sorted({_label_part(rule) for rule in rules} | {f"conforma-{_label_part(rule)}" for rule in rules})
+    if rule_labels:
+        pass_specs.append(("rule_label", f"{project_clause} AND labels in ({', '.join(rule_labels)})"))
+    rule_clauses = []
+    component_clauses = []
+    for violation in violations:
+        rule = _jql_text(str(violation.get("rule") or ""))
+        if rule:
+            rule_family = _jql_text(rule.split(":", 1)[0])
+            rule_clauses.append(f'(summary ~ "{rule_family}" OR description ~ "{rule_family}")')
+        for component in violation.get("uncovered_components") or violation.get("all_components") or []:
+            stem = _jql_text(conforma_release_component_ops.component_stem(component))
+            if stem:
+                component_clauses.append(f'(summary ~ "{stem}" OR description ~ "{stem}")')
+    if rule_clauses:
+        pass_specs.append(("rule_text", f"{project_clause} AND ({' OR '.join(sorted(set(rule_clauses)))})"))
+    if component_clauses:
+        release_text = _jql_text(analyzed_release)
+        version_clause = f' AND (summary ~ "{release_text}" OR description ~ "{release_text}")' if release_text else ""
+        pass_specs.append(
+            (
+                "component_version",
+                f"{project_clause} AND ({' OR '.join(sorted(set(component_clauses)))}){version_clause}",
+            )
+        )
+
+    candidates: dict[str, dict] = {}
+    audit: list[dict] = []
+    for pass_name, jql in pass_specs:
+        result = jira_ops.search_issues_paginated(jql, max_results=100, fields=sorted(mapped_fields))
+        audit.append(
+            {
+                "pass": pass_name,
+                "query": jql,
+                "result_count": result["total"],
+                "pages": result["pages"],
+                "complete": result["complete"],
+            }
+        )
+        if not result["complete"]:
+            raise RuntimeError(f"Jira candidate pass incomplete: {pass_name}")
+        for ticket in result["issues"]:
+            key = ticket.get("key")
+            if not key:
+                continue
+            current = candidates.setdefault(key, {**ticket, "match_sources": []})
+            if pass_name not in current["match_sources"]:
+                current["match_sources"].append(pass_name)
+
+    references = conforma_mr_ops.discover_jira_references()
+    reference_keys = sorted({reference["key"] for reference in references if reference.get("key")})
+    if reference_keys:
+        direct_jql = f"key in ({', '.join(reference_keys)})"
+        result = jira_ops.search_issues_paginated(direct_jql, max_results=100, fields=sorted(mapped_fields))
+        audit.append(
+            {
+                "pass": "direct_reference",
+                "query": direct_jql,
+                "result_count": result["total"],
+                "pages": result["pages"],
+                "complete": result["complete"],
+            }
+        )
+        if not result["complete"]:
+            raise RuntimeError("Jira candidate pass incomplete: direct_reference")
+        refs_by_key: dict[str, list[dict]] = {}
+        for reference in references:
+            refs_by_key.setdefault(reference["key"], []).append(reference)
+        for ticket in result["issues"]:
+            key = ticket.get("key")
+            if not key:
+                continue
+            current = candidates.setdefault(key, {**ticket, "match_sources": []})
+            current.setdefault("merge_request_references", refs_by_key.get(key, []))
+            if "direct_reference" not in current["match_sources"]:
+                current["match_sources"].append("direct_reference")
+    for ticket in candidates.values():
+        project = (ticket.get("key") or "").split("-", 1)[0]
+        if project not in mapping["projects"]:
+            raise ValueError(f"No Jira field mapping exists for returned ticket project {project or '<unknown>'}")
+        ticket["jira_field_mapping_version"] = mapping["mapping_version"]
+        ticket["jira_field_mapping_project"] = project
+        ticket["match_sources"] = sorted(ticket["match_sources"])
+        if include_details:
+            comments = jira_ops.get_comments(ticket["key"])
+            history = jira_ops.get_issue_history(ticket["key"])
+            ticket["comments"] = comments.get("comments", [])
+            ticket["comment_evidence_status"] = "available" if comments.get("ok") else "unavailable"
+            if not comments.get("ok"):
+                ticket["comment_evidence_error"] = comments.get("error", "unknown error")
+            ticket["history"] = history.get("history", [])
+            ticket["history_evidence_status"] = "available" if history.get("ok") else "unavailable"
+            if not history.get("ok"):
+                ticket["history_evidence_error"] = history.get("error", "unknown error")
+    return {"tickets": list(candidates.values()), "audit": audit}
 
 
 def match_violation_to_tickets(violation: dict, tickets: list[dict], analyzed_release: str = "") -> dict:
@@ -485,7 +675,7 @@ def _jira_base() -> str:
 _JIRA_BASE = _jira_base()
 
 
-def plan_self_heal_labels(tickets: list[dict]) -> list[dict]:
+def plan_self_heal_labels(tickets: list[dict], confirmed_only: bool = False) -> list[dict]:
     """Pure plan: which labels each ticket needs added (no Jira calls).
 
     Rules:
@@ -498,6 +688,10 @@ def plan_self_heal_labels(tickets: list[dict]) -> list[dict]:
     """
     plan = []
     for ticket in tickets:
+        if confirmed_only and "c14_evidence" in ticket:
+            evidence = ticket.get("c14_evidence") or []
+            if not any(item.get("classification") == "confirmed_conforma_violation" for item in evidence):
+                continue
         current = list(ticket.get("labels") or [])
         add: list[str] = []
         if CONFORMA_LABEL not in current:
@@ -519,6 +713,7 @@ def discover_conforma_tickets(
     labels: list[str] | None = None,
     violations: list[dict] | None = None,
     release: str = "",
+    independent: bool = False,
 ) -> list[dict]:
     """Discover Conforma tickets across all statuses.
 
@@ -526,6 +721,13 @@ def discover_conforma_tickets(
     available, add exact unique-label and rule/component text candidates so a
     manually created ticket can be found before it has been self-healed.
     """
+    if independent:
+        candidate_result = discover_conforma_candidates(
+            violations or [], release, projects=projects, include_details=True
+        )
+        for ticket in candidate_result["tickets"]:
+            ticket["discovery_audit"] = candidate_result["audit"]
+        return candidate_result["tickets"]
     project_names = projects or conforma_constants.CONFORMA_DISCOVERY_PROJECTS
     mapping = conforma_jira_mapping_ops.load_project_mapping()
     unknown_projects = sorted(set(project_names) - set(mapping["projects"]))
@@ -623,10 +825,15 @@ def discover_conforma_tickets(
     return tickets
 
 
-def self_heal_labels(tickets: list[dict]) -> list[str]:
+def self_heal_labels(tickets: list[dict], confirmed_only: bool = False) -> list[str]:
     """Apply the pure self-heal plan (set-then-verified). Returns an action log."""
     actions: list[str] = []
-    for item in plan_self_heal_labels(tickets):
+    plan = (
+        plan_self_heal_labels(tickets, confirmed_only=confirmed_only)
+        if confirmed_only
+        else plan_self_heal_labels(tickets)
+    )
+    for item in plan:
         ticket = next((t for t in tickets if t.get("key") == item["key"]), None)
         if ticket is None:
             continue
@@ -660,8 +867,11 @@ def label_conforma_tickets(apply: bool = False) -> dict:
     if violations_path.is_file():
         violations = _load_coverage_violations(run_dir)
 
-    tickets = discover_conforma_tickets(violations=violations or None, release=release)
-    plan = plan_self_heal_labels(tickets)
+    tickets = discover_conforma_tickets(violations=violations or None, release=release, independent=True)
+    if violations:
+        for ticket in tickets:
+            ticket["c14_evidence"] = [classify_ticket_evidence(ticket, violation, release) for violation in violations]
+    plan = plan_self_heal_labels(tickets, confirmed_only=bool(violations))
     actions: list[dict] = []
     if apply:
         for item in plan:
@@ -954,15 +1164,17 @@ def sync(dry_run: bool = False) -> dict:
     catalog = _load_catalog()
 
     # discovery
-    tickets = discover_conforma_tickets(violations=violations, release=release)
+    tickets = discover_conforma_tickets(violations=violations, release=release, independent=True)
+    for ticket in tickets:
+        ticket["c14_evidence"] = [classify_ticket_evidence(ticket, violation, release) for violation in violations]
     for t in tickets:
         t["_analyzed_release"] = release
     if dry_run:
         self_heal_actions: list[str] = [
-            f"[dry-run] plan: {p['add']} -> {p['key']}" for p in plan_self_heal_labels(tickets)
+            f"[dry-run] plan: {p['add']} -> {p['key']}" for p in plan_self_heal_labels(tickets, confirmed_only=True)
         ]
     else:
-        self_heal_actions = self_heal_labels(tickets)
+        self_heal_actions = self_heal_labels(tickets, confirmed_only=True)
 
     target_version = resolve_target_version(release)
     violations_out: list[dict] = []

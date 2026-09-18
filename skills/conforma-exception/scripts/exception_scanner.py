@@ -6,9 +6,16 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+_shared_scripts = str(Path(__file__).resolve().parents[3] / "scripts")
+if _shared_scripts not in sys.path:
+    sys.path.insert(0, _shared_scripts)
+
+import conforma_release_component_ops
 import yaml
 from create_gitlab_mr import (
     DEFAULT_BRANCH,
@@ -19,9 +26,6 @@ from create_gitlab_mr import (
 )
 
 
-_VERSION_SUFFIX_RE = re.compile(r"-v\d+-\d+(?:-[a-z]+-\d+)?$")
-
-
 def strip_version_suffix(name: str) -> str:
     """Strip Konflux version suffix from a component name.
 
@@ -29,7 +33,7 @@ def strip_version_suffix(name: str) -> str:
     odh-mlflow-v3-3          -> odh-mlflow
     odh-vllm-cpu-v3-5-ea-1   -> odh-vllm-cpu
     """
-    return _VERSION_SUFFIX_RE.sub("", name)
+    return conforma_release_component_ops.component_stem(name)
 
 
 def extract_image_base(image_url: str) -> str:

@@ -162,6 +162,35 @@ def get_comments(issue_key: str) -> dict:
         return {"ok": False, "comments": [], "error": str(exc)}
 
 
+def get_issue_history(issue_key: str) -> dict:
+    """Get available Jira changelog evidence without treating access failure as empty."""
+    try:
+        client = get_client()
+        issue = client.issue(issue_key, expand="changelog")
+        histories = []
+        for history in getattr(getattr(issue, "changelog", None), "histories", []) or []:
+            histories.append(
+                {
+                    "id": str(getattr(history, "id", "")),
+                    "author": getattr(getattr(history, "author", None), "displayName", ""),
+                    "created": str(getattr(history, "created", "")),
+                    "items": [
+                        {
+                            "field": getattr(item, "field", ""),
+                            "from": getattr(item, "fromString", None),
+                            "to": getattr(item, "toString", None),
+                        }
+                        for item in getattr(history, "items", []) or []
+                    ],
+                }
+            )
+        return {"ok": True, "history": histories}
+    except JIRAError as exc:
+        return {"ok": False, "history": [], "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "history": [], "error": str(exc)}
+
+
 def add_comment(issue_key: str, body: str) -> dict:
     """Add a comment to an issue.
 
@@ -312,7 +341,7 @@ def search_user(display_name: str) -> dict:
         }
 
 
-def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = None) -> dict:
+def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = None, start_at: int = 0) -> dict:
     """Search issues via JQL. Returns {"issues": list[dict], "total": int}.
 
     A genuine zero-match result is returned as {"issues": [], "total": 0} with NO
@@ -321,7 +350,7 @@ def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = No
 
     Supported ``fields`` (any subset; default = key/summary/status/issuetype/assignee):
         key, summary, status, issuetype, assignee, created, description, labels,
-        fixVersions, priority, components, target_versions.
+        fixVersions, priority, components, target_versions, affected_versions.
     """
     default_fields = ["key", "summary", "status", "issuetype", "assignee"]
     requested = fields if fields else default_fields
@@ -329,7 +358,7 @@ def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = No
 
     client = get_client()
     try:
-        issues = client.search_issues(jql, maxResults=max_results, fields=field_str)
+        issues = client.search_issues(jql, maxResults=max_results, startAt=start_at, fields=field_str)
     except JIRAError as exc:
         raise JiraSearchError(message=str(exc), jql=jql, status=getattr(exc, "status_code", None)) from exc
     except Exception as exc:
@@ -362,11 +391,65 @@ def search_issues(jql: str, max_results: int = 50, fields: list[str] | None = No
             components = issue.fields.components
             entry["components"] = [c.name for c in components] if components else []
         if "target_versions" in requested:
-            target_versions = getattr(issue.fields, "customfield_10855", None)
-            entry["target_versions"] = [v.name for v in target_versions] if target_versions else []
+            missing = object()
+            target_versions = getattr(issue.fields, "customfield_10855", missing)
+            if target_versions is missing:
+                entry.setdefault("field_errors", []).append("customfield_10855 unavailable")
+                entry["target_versions"] = []
+            else:
+                entry["target_versions"] = [v.name for v in target_versions] if target_versions else []
+        if "affected_versions" in requested:
+            missing = object()
+            affected_versions = getattr(issue.fields, "versions", missing)
+            if affected_versions is missing:
+                entry.setdefault("field_errors", []).append("versions unavailable")
+                entry["affected_versions"] = []
+            else:
+                entry["affected_versions"] = [v.name for v in affected_versions] if affected_versions else []
+        if "issuelinks" in requested:
+            entry["links"] = [
+                {
+                    "type": getattr(getattr(link, "type", None), "name", ""),
+                    "direction": "outward" if hasattr(link, "outwardIssue") else "inward",
+                    "key": getattr(
+                        getattr(link, "outwardIssue", None) or getattr(link, "inwardIssue", None),
+                        "key",
+                        "",
+                    ),
+                }
+                for link in getattr(issue.fields, "issuelinks", []) or []
+            ]
         results.append(entry)
 
-    return {"issues": results, "total": issues.total}
+    return {"issues": results, "total": issues.total, "start_at": start_at, "max_results": max_results}
+
+
+def search_issues_paginated(jql: str, max_results: int = 100, fields: list[str] | None = None) -> dict:
+    """Fetch every Jira result and retain auditable pagination metadata."""
+    if max_results <= 0:
+        raise ValueError("max_results must be positive")
+    all_issues: list[dict] = []
+    total: int | None = None
+    pages: list[dict] = []
+    start_at = 0
+    while total is None or start_at < total:
+        page = search_issues(jql, max_results=max_results, fields=fields, start_at=start_at)
+        page_total = int(page.get("total", 0))
+        if total is None:
+            total = page_total
+        page_issues = page.get("issues", [])
+        all_issues.extend(page_issues)
+        pages.append({"start_at": start_at, "count": len(page_issues), "total": page_total})
+        if not page_issues or len(page_issues) < max_results:
+            break
+        start_at += len(page_issues)
+    complete = total is not None and len(all_issues) >= total
+    return {
+        "issues": all_issues,
+        "total": total or 0,
+        "complete": complete,
+        "pages": pages,
+    }
 
 
 def link_issues(from_key: str, to_key: str, link_type: str = "Related") -> dict:

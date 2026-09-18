@@ -420,72 +420,54 @@ def prefetch_open_jira_tickets(
         for rule in rules
     ]
     discovered = conforma_jira_ticket_ops.discover_conforma_tickets(
-        violations=discovery_violations, release=analyzed_release
+        violations=discovery_violations,
+        release=analyzed_release,
+        independent=bool(analyzed_release),
     )
     open_tickets = [t for t in discovered if is_open(t.get("status"))]
-    base_by_key = {t.get("key", ""): _normalize_ticket(t) for t in open_tickets}
-
     rule_to_tickets: dict[str, list[dict]] = {r: [] for r in rules}
-    assigned_keys: set[str] = set()
+    exact_keys: set[str] = set()
+    assigned: set[tuple[str, str]] = set()
 
-    # Pass 1: exact rule code in the summary (strong deterministic signal -- the
-    # deterministic ``Conforma violation: {rule} in ...`` format always carries the
-    # rule code). No inference tag. Each ticket is assigned to at most one rule
-    # (the first rule whose code appears in its summary).
     for ticket in open_tickets:
         key = ticket.get("key", "")
-        extracted = _extract_rule_from_summary(ticket.get("summary", "") or "")
         for rule in rules:
-            if extracted == rule:
-                requested_components = (rule_to_components or {}).get(rule) or []
-                if requested_components and not _ticket_has_component_overlap(ticket, requested_components, aliases):
-                    continue
-                if analyzed_release:
-                    evidence = conforma_jira_ticket_ops.classify_ticket_evidence(
-                        ticket,
-                        {"rule": rule, "uncovered_components": requested_components},
-                        analyzed_release,
-                    )
-                    if evidence["classification"] != "confirmed_conforma_violation":
-                        continue
-                rule_to_tickets[rule].append(base_by_key[key])
-                assigned_keys.add(key)
-                break
-
-    # Pass 2: component overlap for rules still without a ticket. A ticket that
-    # names one of the rule's konflux components (or an alias) in its text is an
-    # inferred match -- tagged match_source="component_inference" with a
-    # confidence based on whether the text also references the rule.
-    component_map = rule_to_components or {}
-    if component_map:
-        for rule in rules:
-            if rule_to_tickets[rule]:
+            requested_components = (rule_to_components or {}).get(rule) or []
+            exact = _extract_rule_from_summary(ticket.get("summary", "") or "") == rule
+            component = bool(requested_components) and _konflux_stems_in_text(ticket, requested_components, aliases)
+            if not exact and not component:
                 continue
-            konflux_components = component_map.get(rule) or []
-            if not konflux_components:
+            if (
+                exact
+                and requested_components
+                and not _ticket_has_component_overlap(ticket, requested_components, aliases)
+            ):
                 continue
-            for ticket in open_tickets:
-                key = ticket.get("key", "")
-                if key in assigned_keys and not rule_matches(ticket, rule):
-                    continue
-                if not _konflux_stems_in_text(ticket, konflux_components, aliases):
-                    continue
-                if analyzed_release:
-                    evidence = conforma_jira_ticket_ops.classify_ticket_evidence(
-                        ticket,
-                        {"rule": rule, "uncovered_components": konflux_components},
-                        analyzed_release,
-                    )
-                    if evidence["classification"] != "confirmed_conforma_violation":
-                        continue
-                tagged = _normalize_ticket(
+            if analyzed_release:
+                evidence = conforma_jira_ticket_ops.classify_ticket_evidence(
                     ticket,
-                    match_source="component_inference",
-                    inference_confidence="confirmed" if rule_matches(ticket, rule) else "unconfirmed",
+                    {"rule": rule, "uncovered_components": requested_components},
+                    analyzed_release,
                 )
-                rule_to_tickets[rule].append(tagged)
-                assigned_keys.add(key)
-                break
+                if evidence["classification"] != "confirmed_conforma_violation":
+                    continue
+            normalized = _normalize_ticket(
+                ticket,
+                match_source=None if exact else "component_inference",
+                inference_confidence=None if exact else ("confirmed" if rule_matches(ticket, rule) else "unconfirmed"),
+            )
+            if exact:
+                exact_keys.add(key)
+            if (rule, key) not in assigned:
+                rule_to_tickets[rule].append(normalized)
+                assigned.add((rule, key))
+
+    for rule in rules:
+        rule_to_tickets[rule] = [
+            ticket
+            for ticket in rule_to_tickets[rule]
+            if ticket.get("key") not in exact_keys or _extract_rule_from_summary(ticket.get("summary", "")) == rule
+        ]
 
     return rule_to_tickets
 

@@ -23,6 +23,7 @@ from pathlib import Path
 
 
 import konflux_environment  # noqa: E402
+import conforma_release_component_ops  # noqa: E402
 
 konflux_environment.load()
 _DEFAULT_CLONE_DIR = (
@@ -33,7 +34,6 @@ _DEFAULT_CLONE_DIR = (
 _DEFAULT_PROJECT = "data-hub/component-maturity"
 _SOFTWARE_CATALOG_PROJECT = "data-hub/software-catalog"
 
-_VERSION_SUFFIX_RE = re.compile(r"-v\d+-\d+(-ea-\d+)?$")
 _OS_SUFFIX_RE = re.compile(r"-(?:rhel|ubi)\d+$")
 
 _QUERY_SKILL_SUBPATH = Path(".claude") / "skills" / "software-catalog-query" / "scripts" / "query.py"
@@ -99,7 +99,7 @@ def ensure_catalog_repo(clone_dir: Path | None = None) -> dict:
     """
     target = clone_dir or _DEFAULT_CLONE_DIR
     target = Path(target)
-    host = _gitlab_host()
+    _gitlab_host()
     project = _catalog_project()
 
     import gitlab_ops
@@ -202,7 +202,7 @@ def load_catalog(clone_dir: Path | None = None) -> list[dict]:
 
 def _strip_version_suffix(name: str) -> str:
     """Strip Konflux version suffix: -v3-5, -v3-5-ea-1, -v2-25, etc."""
-    return _VERSION_SUFFIX_RE.sub("", name)
+    return conforma_release_component_ops.component_stem(name)
 
 
 def _strip_os_suffix(name: str) -> str:

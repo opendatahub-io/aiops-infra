@@ -209,6 +209,24 @@ class TestC14EvidenceGate:
         assert future["classification"] == "possible_conforma_related"
         assert future["version_match"] is False
 
+    def test_comment_can_supply_rule_component_and_version_evidence(self):
+        ticket = {
+            "key": "RHOAIENG-99",
+            "summary": "Conforma follow-up",
+            "description": "",
+            "status": "Open",
+            "labels": [],
+            "comments": [
+                {
+                    "body": "rpm_signature.allowed:1234567890abcdef affects odh-ogx-core-v3-6-ea-2",
+                }
+            ],
+            "target_versions": [],
+        }
+        result = mod.classify_ticket_evidence(ticket, _violation(), "rhoai-3.6-ea.2")
+        assert result["classification"] == "confirmed_conforma_violation"
+        assert any(item["field"] == "comments" for item in result["version_evidence"])
+
 
 class TestGroupComponentsByJira:
     def test_groups_by_jira_component_and_team(self, monkeypatch):
@@ -464,6 +482,30 @@ class TestDiscoverConformaTickets:
         assert tickets[0]["key"] == "RHOAIENG-88509"
         assert tickets[0]["merge_request_references"][0]["mr_iid"] == 22104
 
+    def test_independent_candidates_merge_pass_sources_and_pagination(self, monkeypatch):
+        calls = []
+
+        def fake_search(jql, **kwargs):
+            calls.append(jql)
+            return {
+                "issues": [dict(OPEN_TICKET)],
+                "total": 1,
+                "complete": True,
+                "pages": [{"start_at": 0, "count": 1, "total": 1}],
+            }
+
+        monkeypatch.setattr(mod.jira_ops, "search_issues_paginated", fake_search)
+        monkeypatch.setattr(mod.conforma_mr_ops, "discover_jira_references", lambda: [])
+        result = mod.discover_conforma_candidates([_violation()], "rhoai-3.6")
+        assert len(calls) >= 3
+        assert result["tickets"][0]["match_sources"] == [
+            "component_version",
+            "label",
+            "rule_label",
+            "rule_text",
+        ]
+        assert all(entry["complete"] is True for entry in result["audit"])
+
 
 class TestSelfHealLabels:
     def test_labels_and_verifies(self, monkeypatch):
@@ -532,7 +574,7 @@ class TestIndependentLabelling:
 
         assert result["apply"] is False
         assert result["actions"] == [{"key": "K-1", "status": "planned", "add": ["conforma", "conforma-violation"]}]
-        assert captured == {"violations": None, "release": "rhoai-3.6"}
+        assert captured == {"violations": None, "release": "rhoai-3.6", "independent": True}
         assert json.loads((tmp_path / "jira_labelling.json").read_text())["planned"] == 1
 
     def test_apply_adds_labels_and_set_then_verifies(self, monkeypatch, tmp_path):

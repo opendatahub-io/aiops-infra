@@ -346,6 +346,48 @@ class TestSearchIssues:
         assert result["issues"][0]["assignee"] == "Unassigned"
         assert result["issues"][0]["url"] == "https://redhat.atlassian.net/browse/PSX-100"
 
+
+class TestIssueHistory:
+    def test_history_is_normalized(self):
+        client = _mock_client()
+        issue = MagicMock()
+        history = MagicMock(id="1", created="2026-01-01", author=MagicMock(displayName="A"))
+        history.items = [MagicMock(field="Target Version", fromString="3.5", toString="3.6")]
+        issue.changelog.histories = [history]
+        client.issue.return_value = issue
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.get_issue_history("A-1")
+        assert result["ok"] is True
+        assert result["history"][0]["items"][0]["to"] == "3.6"
+
+    def test_unavailable_target_field_is_explicit(self):
+        client = _mock_client()
+        issue = MagicMock()
+        issue.key = "A-1"
+        issue.fields.summary = "Test"
+        issue.fields.status = MagicMock(__str__=lambda self: "Open")
+        issue.fields.issuetype = MagicMock(__str__=lambda self: "Task")
+        issue.fields.assignee = None
+        del issue.fields.customfield_10855
+        result_set = MagicMock()
+        result_set.__iter__ = lambda self: iter([issue])
+        result_set.total = 1
+        client.search_issues.return_value = result_set
+        with patch.object(jira_ops, "get_client", return_value=client):
+            result = jira_ops.search_issues("project = A", fields=["key", "target_versions"])
+        assert "customfield_10855 unavailable" in result["issues"][0]["field_errors"]
+
+    def test_search_issues_paginated_fetches_all_pages(self, monkeypatch):
+        pages = [
+            {"issues": [{"key": "A-1"}], "total": 2, "start_at": 0, "max_results": 1},
+            {"issues": [{"key": "A-2"}], "total": 2, "start_at": 1, "max_results": 1},
+        ]
+        monkeypatch.setattr(jira_ops, "search_issues", lambda *args, **kwargs: pages.pop(0))
+        result = jira_ops.search_issues_paginated("project = A", max_results=1)
+        assert [issue["key"] for issue in result["issues"]] == ["A-1", "A-2"]
+        assert result["complete"] is True
+        assert len(result["pages"]) == 2
+
     def test_custom_fields(self):
         client = _mock_client()
         issue = MagicMock()
