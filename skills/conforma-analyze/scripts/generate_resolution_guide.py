@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -54,6 +55,7 @@ from guide_renderers import render_warnings_section as _render_warnings_section 
 from guide_renderers import render_statistical_breakdown as _render_statistical_breakdown  # noqa: F401 — backward compat re-export
 from guide_renderers import render_tooling_health as _render_tooling_health  # noqa: F401 — backward compat re-export
 from guide_renderers import write_todo_preview as _write_todo_preview  # noqa: F401 — backward compat re-export
+from guide_renderers import build_konflux_component_link_base
 
 
 def _load_catalog(catalog_path: Path) -> dict:
@@ -207,6 +209,7 @@ def generate_resolution_guide(
     upcoming_release_date: str = "",
     source_csv_rows: int | None = None,
     ai_model: str = "",
+    konflux_application: str = "",
 ) -> str:
     """Generate the full resolution guide markdown content.
 
@@ -313,6 +316,11 @@ def generate_resolution_guide(
         policy_files=policy_files,
         release=release,
         jira_sync=jira_sync,
+        component_link_base=build_konflux_component_link_base(
+            os.environ.get("KONFLUX_CLUSTER_DOMAIN", ""),
+            os.environ.get("KONFLUX_TENANT", ""),
+            konflux_application,
+        ),
     )
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
 
@@ -656,6 +664,9 @@ def main() -> int:
             upcoming_release_date=upcoming_release_date,
             code_freeze_date=code_freeze_date,
             ai_model=ai_model,
+            konflux_application=conforma_context_ops.get(run_dir, "application.konflux_app", "")
+            if context
+            else "",
         )
     except FileNotFoundError as e:
         print(f"ERROR: {e}", file=sys.stderr)

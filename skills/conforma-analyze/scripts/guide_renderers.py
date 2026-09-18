@@ -5,6 +5,7 @@ from __future__ import annotations
 from __future__ import annotations
 import re
 import sys
+from urllib.parse import quote
 from datetime import datetime, timezone
 from pathlib import Path
 import conforma_counting  # noqa: E402
@@ -559,6 +560,7 @@ def render_key_takeaways(
     policy_files: list[dict[str, str]] | None = None,
     release: str = "",
     jira_sync: dict | None = None,
+    component_link_base: str = "",
 ) -> str:
     """Render the violations breakdown — exact violation counts, no approximation.
 
@@ -643,6 +645,13 @@ def render_key_takeaways(
         if len(details) == 1:
             return f"{rule_link} ({_truncate_detail(details[0])})"
         return rule_link
+
+    def _format_component_cell(component: str) -> str:
+        """Link a single TODO-table component to its Konflux UI page when configured."""
+        label = f"`{component}`"
+        if not component_link_base:
+            return label
+        return f"[{label}]({component_link_base}/{quote(component, safe='-._~')})"
 
     def _detail_continuation_rows(rule: str, comp: str, trailing_empty: int) -> list[str]:
         base_rule = rule.split(":")[0]
@@ -763,7 +772,7 @@ def render_key_takeaways(
     if no_mr_entries:
         for row_num, entry in enumerate(no_mr_entries, 1):
             violation_cell = _format_violation_cell(entry["rule"], entry["component"])
-            row = f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} |"
+            row = f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} | {entry['violation_count']} |"
             row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
             no_mr_body.append(row)
             no_mr_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 2))
@@ -811,7 +820,7 @@ def render_key_takeaways(
             for row_num, entry in enumerate(expiring_no_mr, 1):
                 violation_cell = _format_violation_cell(entry["rule"], entry["component"])
                 row = (
-                    f"| {row_num} | {violation_cell} | `{entry['component']}` "
+                    f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} "
                     f"| {entry['violation_count']} | {entry['effective_until']} |"
                 )
                 row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
@@ -864,7 +873,7 @@ def render_key_takeaways(
                 mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
                 mr_eu_display = entry.get("mr_effective_until") or "unknown"
                 row = (
-                    f"| {row_num} | {violation_cell} | `{entry['component']}` "
+                    f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
                 row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
@@ -916,7 +925,7 @@ def render_key_takeaways(
                 mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
                 mr_eu_display = entry.get("mr_effective_until") or "unknown"
                 row = (
-                    f"| {row_num} | {violation_cell} | `{entry['component']}` "
+                    f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} "
                     f"| {entry['violation_count']} | {entry['effective_until']} | {mr_eu_display} | {mr_link} |"
                 )
                 row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
@@ -976,7 +985,7 @@ def render_key_takeaways(
                 mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
                 mr_eu_display = entry.get("mr_effective_until") or "unknown"
                 row = (
-                    f"| {row_num} | {violation_cell} | `{entry['component']}` "
+                    f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} "
                     f"| {entry['violation_count']} | {mr_eu_display} | {mr_link} |"
                 )
                 row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else " |"
@@ -1017,7 +1026,7 @@ def render_key_takeaways(
         for row_num, entry in enumerate(has_mr_ok, 1):
             violation_cell = _format_violation_cell(entry["rule"], entry["component"])
             mr_link = f"[!{entry['mr']['iid']}]({entry['mr']['url']})"
-            row = f"| {row_num} | {violation_cell} | `{entry['component']}` | {entry['violation_count']} | {mr_link} |"
+            row = f"| {row_num} | {violation_cell} | {_format_component_cell(entry['component'])} | {entry['violation_count']} | {mr_link} |"
             row += f" {_jira_cell(entry['rule'], entry['component'], entry.get('mr'))} |" if jira_cell_active else ""
             has_mr_ok_body.append(row)
             has_mr_ok_body.extend(_detail_continuation_rows_jira(entry["rule"], entry["component"], 3))
@@ -1098,7 +1107,7 @@ def render_key_takeaways(
                 if detail:
                     warning_cell += f" ({detail})"
                 pre_warn_body.append(
-                    f"| {row_num} | {warning_cell} | `{component}` | {info['count']} | {info['effective_on']} | {urgency} |"
+                    f"| {row_num} | {warning_cell} | {_format_component_cell(component)} | {info['count']} | {info['effective_on']} | {urgency} |"
                 )
         else:
             pre_warn_body.append("| | No warnings | | | | |")
@@ -1138,7 +1147,7 @@ def render_key_takeaways(
                 if detail:
                     warning_cell += f" ({detail})"
                 post_warn_body.append(
-                    f"| {row_num} | {warning_cell} | `{component}` | {info['count']} | {info['effective_on']} | {urgency} |"
+                    f"| {row_num} | {warning_cell} | {_format_component_cell(component)} | {info['count']} | {info['effective_on']} | {urgency} |"
                 )
         else:
             post_warn_body.append("| | No warnings | | | | |")
@@ -1667,6 +1676,15 @@ def _component_stem(name: str) -> str:
         odh-generic-tool (no suffix)          -> odh-generic-tool  (unchanged)
     """
     return re.sub(r"-v\d+-\d+.*$", "", name)
+
+
+def build_konflux_component_link_base(cluster_domain: str, tenant: str, application: str) -> str:
+    """Build the shared Konflux UI path used by component links."""
+    values = (cluster_domain.strip(), tenant.strip(), application.strip())
+    if not all(values):
+        return ""
+    encoded = [quote(value, safe="-._~") for value in values]
+    return f"https://konflux-ui.apps.{encoded[0]}/ns/{encoded[1]}/applications/{encoded[2]}/components"
 
 
 def render_components_table(

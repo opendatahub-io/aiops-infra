@@ -29,6 +29,12 @@ for _skill_dir in sorted((REPO_ROOT / "skills").iterdir()):
 # ── Shared fixtures ──────────────────────────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def isolated_conforma_workdir(tmp_path, monkeypatch):
+    """Keep unit-test Conforma state out of the developer's real home directory."""
+    monkeypatch.setenv("CONFORMA_WORKDIR", str(tmp_path / "conforma"))
+
+
 @pytest.fixture
 def tmp_csv(tmp_path):
     """Create a temporary CSV file with sample violation data."""

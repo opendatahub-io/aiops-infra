@@ -472,6 +472,82 @@ class TestSelfHealLabels:
         assert calls == {}
 
 
+class TestIndependentLabelling:
+    def test_read_only_plan_does_not_depend_on_sync_output(self, monkeypatch, tmp_path):
+        captured = {}
+        monkeypatch.setattr(
+            mod,
+            "_load_context",
+            lambda: (tmp_path, {"application": {"release": "rhoai-3.6"}, "environment": "prod"}),
+        )
+
+        def discover(**kwargs):
+            captured.update(kwargs)
+            return [{"key": "K-1", "labels": [], "summary": "Conforma violation: r in a"}]
+
+        monkeypatch.setattr(mod, "discover_conforma_tickets", discover)
+        monkeypatch.setattr(mod.conforma_context_ops, "update_step", lambda *args, **kwargs: {})
+
+        result = mod.label_conforma_tickets()
+
+        assert result["apply"] is False
+        assert result["actions"] == [{"key": "K-1", "status": "planned", "add": ["conforma", "conforma-violation"]}]
+        assert captured == {"violations": None, "release": "rhoai-3.6"}
+        assert json.loads((tmp_path / "jira_labelling.json").read_text())["planned"] == 1
+
+    def test_apply_adds_labels_and_set_then_verifies(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            mod,
+            "_load_context",
+            lambda: (tmp_path, {"application": {"release": "rhoai-3.6"}}),
+        )
+        monkeypatch.setattr(
+            mod,
+            "discover_conforma_tickets",
+            lambda **kwargs: [{"key": "K-1", "labels": ["other"], "summary": "Conforma violation: r in a"}],
+        )
+        calls = []
+        monkeypatch.setattr(
+            mod.jira_ops,
+            "update_issue",
+            lambda key, labels=None: calls.append((key, labels)) or {"key": key, "updated": ["labels"]},
+        )
+        monkeypatch.setattr(
+            mod.jira_ops,
+            "get_issue",
+            lambda key, fields=None: {"key": key, "labels": ["other", "conforma", "conforma-violation"]},
+        )
+        monkeypatch.setattr(mod.conforma_context_ops, "update_step", lambda *args, **kwargs: {})
+
+        result = mod.label_conforma_tickets(apply=True)
+
+        assert calls == [("K-1", ["other", "conforma", "conforma-violation"])]
+        assert result["actions"] == [{"key": "K-1", "status": "labeled", "added": ["conforma", "conforma-violation"]}]
+
+    def test_apply_records_update_failure_without_losing_other_candidates(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(mod, "_load_context", lambda: (tmp_path, {}))
+        monkeypatch.setattr(
+            mod,
+            "discover_conforma_tickets",
+            lambda **kwargs: [
+                {"key": "K-1", "labels": [], "summary": "Conforma violation: r in a"},
+                {"key": "K-2", "labels": [], "summary": "Conforma issue"},
+            ],
+        )
+        monkeypatch.setattr(
+            mod.jira_ops,
+            "update_issue",
+            lambda key, labels=None: {"key": key, "error": "denied"} if key == "K-1" else {"key": key, "updated": ["labels"]},
+        )
+        monkeypatch.setattr(mod.jira_ops, "get_issue", lambda key, fields=None: {"labels": ["conforma"]})
+        monkeypatch.setattr(mod.conforma_context_ops, "update_step", lambda *args, **kwargs: {})
+
+        result = mod.label_conforma_tickets(apply=True)
+
+        assert result["actions"][0] == {"key": "K-1", "status": "failed", "error": "denied"}
+        assert result["actions"][1] == {"key": "K-2", "status": "labeled", "added": ["conforma"]}
+
+
 class TestCreateViolationTicket:
     def test_creates_with_target_version_and_verifies(self, monkeypatch):
         created_mock = {"key": "RHOAIENG-90000", "url": f"{JIRA_BASE}/browse/RHOAIENG-90000"}
@@ -1051,6 +1127,20 @@ class TestCmdFind:
         assert "Discovered 1" in capsys.readouterr().out
 
 
+class TestCmdLabel:
+    def test_prints_json_and_passes_apply_flag(self, monkeypatch, capsys):
+        captured = {}
+        monkeypatch.setattr(
+            mod,
+            "label_conforma_tickets",
+            lambda apply=False: captured.update(apply=apply) or {"apply": apply, "actions": []},
+        )
+
+        assert mod.cmd_label(apply=True) == 0
+        assert captured == {"apply": True}
+        assert '"apply": true' in capsys.readouterr().out
+
+
 class TestCmdAudit:
     def test_reports_gaps(self, monkeypatch, capsys):
         monkeypatch.setattr(mod, "discover_conforma_tickets", lambda **k: [dict(OPEN_TICKET)])
@@ -1116,6 +1206,11 @@ class TestMain:
     def test_find_dispatch(self, monkeypatch, capsys):
         self._set_argv(monkeypatch, "find")
         monkeypatch.setattr(mod, "cmd_find", lambda: 0)
+        assert mod.main() == 0
+
+    def test_label_dispatch(self, monkeypatch):
+        self._set_argv(monkeypatch, "label-conforma-tickets", "--apply")
+        monkeypatch.setattr(mod, "cmd_label", lambda apply=False: 0 if apply else 1)
         assert mod.main() == 0
 
     def test_audit_dispatch(self, monkeypatch):

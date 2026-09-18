@@ -31,6 +31,20 @@ from guide_renderers import render_csv_source_fields
 from guide_renderers import render_known_false_alerts
 from guide_renderers import render_tooling_health
 from guide_renderers import render_warnings_section
+from guide_renderers import build_konflux_component_link_base
+
+
+def test_build_konflux_component_link_base():
+    base = build_konflux_component_link_base("cluster.example.p1", "rhoai-tenant", "rhoai-v3-6-ea-2")
+
+    assert base == (
+        "https://konflux-ui.apps.cluster.example.p1/ns/rhoai-tenant/"
+        "applications/rhoai-v3-6-ea-2/components"
+    )
+
+
+def test_build_konflux_component_link_base_requires_all_parts():
+    assert build_konflux_component_link_base("cluster.example.p1", "", "rhoai-v3-6") == ""
 
 
 @pytest.fixture

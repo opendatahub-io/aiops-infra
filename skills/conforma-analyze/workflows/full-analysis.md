@@ -214,9 +214,23 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
     If `status` is `failed`, read `<run_dir>/coverage.log` and report the error before continuing.
 
-    The coverage table is the primary deliverable and is included in the TODO preview (step 10). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
+    The coverage table is the primary deliverable and is included in the TODO preview (step 11). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
 
-8. **Create or update Jira tickets for Conforma violations**: Use Bash description: `"Create or update Jira tickets for Conforma violations"`. After the coverage check, run the Jira ticket step. This performs label-first discovery of existing Jira tickets across the discovery projects, self-heals missing labels, and matches tickets to uncovered violations by violation code + component. For each uncovered violation with no open ticket it either **creates** a pre-filled Jira ticket (TargetVersion, Jira component, team) or records a **Create** pre-fill URL. The result is written to `jira_sync.json` in the run directory, which the resolution-guide step (step 10) reads to surface Jira tickets in the TODO tables, the components table, and the per-violation Jira blocks.
+8. **Plan independent Conforma Jira labelling**: Use Bash description: `"Plan independent Conforma Jira labelling"`. This action is independent of ticket creation and Jira sync. It discovers the currently available Conforma-related tickets, plans additive `conforma` and `conforma-violation` labels, and writes `jira_labelling.json` plus `steps.jira_labelling` to the run context. It is read-only until the user confirms the exact `user_question` emitted by the script.
+
+```bash
+~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py label-conforma-tickets
+```
+
+   Render the script's `display` field, then relay its `user_question.question_text` and `user_question.question_options` verbatim. If the user confirms, run the apply command with Bash description: `"Apply confirmed Conforma Jira labels"`:
+
+```bash
+~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py label-conforma-tickets --apply
+```
+
+   If the user declines, continue with the remaining analysis. Label planning and application errors must be reported independently and must not prevent the Jira ticket step from running.
+
+9. **Create or update Jira tickets for Conforma violations**: Use Bash description: `"Create or update Jira tickets for Conforma violations"`. After the independent labelling action, run the Jira ticket step. This performs label-first discovery of existing Jira tickets across the discovery projects, self-heals missing labels, and matches tickets to uncovered violations by violation code + component. For each uncovered violation with no open ticket it either **creates** a pre-filled Jira ticket (TargetVersion, Jira component, team) or records a **Create** pre-fill URL. The result is written to `jira_sync.json` in the run directory, which the resolution-guide step (step 11) reads to surface Jira tickets in the TODO tables, the components table, and the per-violation Jira blocks.
 
 ```bash
 ~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py create-jiras-for-conforma-violations
@@ -224,9 +238,9 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    The script reads release, environment, coverage violations, and output path from `context.yaml` automatically. To run discovery without any Jira writes (creates are planned but not written and `jira_sync.json` is not written, so the guide falls back to the pre-sync rendering), add `--dry-run`.
 
-9. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **TODO preview** is presented in the chat — the full guide is submitted to GitHub. See step 10 for the generation command and presentation rules.
+10. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **TODO preview** is presented in the chat — the full guide is submitted to GitHub. See step 11 for the generation command and presentation rules.
 
-10. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide"`. Run the resolution guide generator on the intermediate outputs from steps 3-8. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
+11. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide"`. Run the resolution guide generator on the intermediate outputs from steps 3-9. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
 
 ```bash
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/generate_resolution_guide.py
@@ -236,7 +250,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    ---
 
-   **⛔ HARD FAILURE RULES FOR STEP 10 — READ THESE BEFORE PROCEEDING:**
+   **⛔ HARD FAILURE RULES FOR STEP 11 — READ THESE BEFORE PROCEEDING:**
 
    **RULE 1 — TODO PREVIEW ONLY (no full guide in chat):**
    The agent MUST run the deterministic presentation command below and relay the content between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` **verbatim into the response text**. The presentation script validates that every required TODO subsection has a Markdown table before emitting anything, and emits the mandatory submission question between `BEGIN_SUBMISSION_QUESTION` and `END_SUBMISSION_QUESTION`. The agent MUST relay that question and its options verbatim after the TODO content. The agent MUST NOT read and reconstruct the file manually. This file contains the metadata header (context confirmation) and the TODO section with summary preamble and all TODO #N subsections. The agent MUST NOT:
@@ -259,14 +273,14 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
    **RULE 2 — ORDERING (present THEN ask):**
    The TODO content must appear in the agent's response text BEFORE the submission question. Never call AskQuestion in the same tool-call batch that runs the presentation command. The sequence is: (a) run the presentation command → (b) paste the TODO content verbatim into the response → (c) relay the emitted submission question and options verbatim in the subsequent user-visible turn. This ensures the user sees the action items before being asked to submit.
 
-   **RULE 3 — MUST PROCEED TO STEP 11:**
-   After rendering the TODO, the agent MUST immediately proceed to step 11 (submission) in the same response — do NOT stop, wait for user input, or end the turn after presenting the TODO. The workflow is not complete until the user has been asked about submission. Stopping after the TODO without proceeding to step 11 is a hard failure.
+   **RULE 3 — MUST PROCEED TO STEP 12:**
+   After rendering the TODO, the agent MUST immediately proceed to step 12 (submission) in the same response — do NOT stop, wait for user input, or end the turn after presenting the TODO. The workflow is not complete until the user has been asked about submission. Stopping after the TODO without proceeding to step 12 is a hard failure.
 
    **Violating any of these rules is a hard failure regardless of model size, context window, or token budget.**
 
    ---
 
-11. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 10)*: The presentation command has already generated the exact submission question and options from the active run context. Relay those emitted values verbatim and wait for the user's confirmation. Do NOT auto-submit. Only run the submit script without `--dry-run` if the user confirms.
+12. **Submit to GitHub** *(requires user confirmation — MUST be a separate turn after step 11)*: The presentation command has already generated the exact submission question and options from the active run context. Relay those emitted values verbatim and wait for the user's confirmation. Do NOT auto-submit. Only run the submit script without `--dry-run` if the user confirms.
 
    The dry-run command remains available when the submission prompt must be regenerated or inspected independently:
 

@@ -10,6 +10,8 @@ Subcommands:
   create-jiras-for-conforma-violations
                Workflow mode: discover -> self-heal -> match -> group -> create/extend -> link -> write jira_sync.json
   find         Discovery only (read-only), prints the ticket table
+  label-conforma-tickets
+               Independently plan or apply Conforma labels to discovered tickets
   audit        Read-only validation of the conforma label index (self-healing labels applied)
   repair       audit + fill deterministically fillable fields
   prefill-url  Print the pre-filled Jira CreateIssueDetails URL for one rule + component group
@@ -479,6 +481,81 @@ def self_heal_labels(tickets: list[dict]) -> list[str]:
     return actions
 
 
+def label_conforma_tickets(apply: bool = False) -> dict:
+    """Plan or apply labels independently of Jira ticket creation and sync.
+
+    Discovery uses the current violation context when available, but never
+    reads ``jira_sync.json`` or depends on a ticket-creation result.  The
+    default is read-only; callers must explicitly pass ``apply=True`` before
+    Jira labels are changed.
+    """
+    run_dir, context = _load_context()
+    release = _release_from_context(context)
+    violations_path = run_dir / "coverage.json"
+    violations: list[dict] = []
+    if violations_path.is_file():
+        violations = _load_coverage_violations(run_dir)
+
+    tickets = discover_conforma_tickets(violations=violations or None, release=release)
+    plan = plan_self_heal_labels(tickets)
+    actions: list[dict] = []
+    if apply:
+        for item in plan:
+            ticket = next((t for t in tickets if t.get("key") == item["key"]), None)
+            if ticket is None:
+                actions.append({"key": item["key"], "status": "skipped", "reason": "ticket not in discovery result"})
+                continue
+            updated = jira_ops.update_issue(item["key"], labels=item["current"] + item["add"])
+            if "error" in updated:
+                actions.append({"key": item["key"], "status": "failed", "error": updated["error"]})
+                continue
+            verified = jira_ops.get_issue(item["key"], fields=["labels"])
+            got_labels = set(verified.get("labels") or [])
+            if all(label in got_labels for label in item["add"]):
+                actions.append({"key": item["key"], "status": "labeled", "added": item["add"]})
+            else:
+                actions.append(
+                    {
+                        "key": item["key"],
+                        "status": "verification_failed",
+                        "expected": item["add"],
+                        "actual": sorted(got_labels),
+                    }
+                )
+    else:
+        actions = [{"key": item["key"], "status": "planned", "add": item["add"]} for item in plan]
+
+    status = "completed" if apply else "pending_confirmation"
+    output = {
+        "discovered": len(tickets),
+        "planned": len(plan),
+        "actions": actions,
+        "apply": apply,
+        "release": release,
+    }
+    if not apply:
+        output["display"] = (
+            f"Discovered {len(tickets)} Conforma-related Jira tickets. "
+            f"Proposed label updates: {len(plan)}."
+        )
+        output["user_question"] = {
+            "question_text": f"Apply the {len(plan)} proposed Conforma Jira label update(s)?",
+            "question_options": ["Yes, apply labels", "No, skip labelling"],
+        }
+    report_path = run_dir / "jira_labelling.json"
+    report_path.write_text(json.dumps(output, indent=2))
+    conforma_context_ops.update_step(
+        run_dir,
+        "jira_labelling",
+        status,
+        jira_labelling_json="jira_labelling.json",
+        discovered=len(tickets),
+        planned=len(plan),
+        applied=sum(action.get("status") == "labeled" for action in actions),
+    )
+    return output
+
+
 def create_violation_ticket(
     rule: str,
     konflux_components: list[str],
@@ -926,6 +1003,13 @@ def cmd_find() -> int:
     return 0
 
 
+def cmd_label(apply: bool = False) -> int:
+    """Plan or apply independent Conforma labels and print JSON output."""
+    output = label_conforma_tickets(apply=apply)
+    print(json.dumps(output, indent=2))
+    return 0
+
+
 def cmd_audit() -> int:
     """Audit the conforma index (self-heal labels applied)."""
     tickets = discover_conforma_tickets()
@@ -998,6 +1082,12 @@ def main() -> int:
 
     sub.add_parser("find", help="Discovery only (read-only, no label self-heal)")
 
+    label_p = sub.add_parser(
+        "label-conforma-tickets",
+        help="Plan or apply Conforma labels independently of Jira ticket sync",
+    )
+    label_p.add_argument("--apply", action="store_true", help="Apply the planned labels after explicit confirmation")
+
     sub.add_parser("audit", help="Audit the conforma index")
     sub.add_parser("repair", help="Audit + repair")
 
@@ -1014,6 +1104,8 @@ def main() -> int:
             print(compact_summary(out))
         elif args.command == "find":
             return cmd_find()
+        elif args.command == "label-conforma-tickets":
+            return cmd_label(apply=args.apply)
         elif args.command == "audit":
             return cmd_audit()
         elif args.command == "repair":

@@ -143,7 +143,10 @@ class TestCreate:
         assert result["run"]["run_dir"] is not None
         assert "my-run" in result["run"]["run_dir"]
 
-    def test_contracts_home_in_run_dir(self, tmp_path):
+    def test_contracts_home_in_run_dir(self, tmp_path, monkeypatch):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
         home = Path.home()
         run_dir = home / ".conforma" / "test-run"
         run_dir.mkdir(parents=True, exist_ok=True)

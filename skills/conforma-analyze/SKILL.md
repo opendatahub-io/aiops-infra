@@ -23,7 +23,7 @@ Prohibited actions — the agent MUST NEVER:
 - Interpret, reformat, or summarize script output
 - Write its own version of the resolution guide instead of rendering the script-generated file verbatim
 - Show only a subset of violations (e.g. only "uncovered" ones) — the FULL guide for ALL violations must be presented
-- Ask the user about submission (step 10) before the full guide content has been rendered in a response
+- Ask the user about submission (step 12) before the full guide content has been rendered in a response
 
 **Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md). In short: plain-text output goes in a code block (copy-to-clipboard), markdown output is rendered directly. Content is always verbatim — no LLM interpretation. If output is not informative enough, the fix belongs in the script.
 
