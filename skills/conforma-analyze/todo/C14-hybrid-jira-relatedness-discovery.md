@@ -71,8 +71,8 @@ refactoring:
 | [Phase 2.1 — Independent candidate passes](#phase-21--independent-candidate-passes) | Queries, pagination, deduplication, and evidence sources | DONE |
 | [Phase 2.2 — Deterministic evidence classification](#phase-22--deterministic-evidence-classification) | Component/version gate and classifications | DONE |
 | [Phase 2.3 — C8 coverage cutover](#phase-23--c8-coverage-cutover) | Replace legacy prefetch and update coverage | DONE |
-| [Phase 3.1 — Independent labelling integration](#phase-31--independent-labelling-integration) | Report, confirmation, additive writes, verification | IN PROGRESS |
-| [Phase 3.2 — Read-only acceptance and handover](#phase-32--read-only-acceptance-and-handover) | RHOAIENG-70681, full tests, live read-only audit | NOT STARTED |
+| [Phase 3.1 — Independent labelling integration](#phase-31--independent-labelling-integration) | Report, confirmation, additive writes, verification | DONE |
+| [Phase 3.2 — Read-only acceptance and handover](#phase-32--read-only-acceptance-and-handover) | RHOAIENG-70681, full tests, live read-only audit | IN PROGRESS |
 
 The phase headings below are the durable handover points. Each completed phase
 must record its commit, tests, coverage result, and remaining risks here before
@@ -169,7 +169,10 @@ Definition of Done:
 - Coverage continues to show open matches while retaining closed tickets as
   prior-issue evidence without allowing them to suppress current work.
 
-Handover: not started.
+Handover: C13 labelling now consumes independent C14 discovery in the standard
+workflow and filters proposed violation labels to confirmed deterministic
+evidence when a violation context is available. Writes remain additive and
+set-then-verified.
 
 ## Phase 3.1 — Independent labelling integration
 
@@ -179,7 +182,12 @@ Definition of Done:
 - No label write occurs before explicit confirmation.
 - Additive writes, verification failures, and API failures are distinct.
 
-Handover: not started.
+Handover: the optional adjudication contract is implemented in
+`scripts/conforma_jira_adjudication_ops.py`. It is disabled by default,
+validates structured responses, reports provider failures explicitly, and
+cannot override the component/version gate. Remaining acceptance work is the
+read-only RHOAIENG-70681 audit, full-suite coverage validation, and any
+provider choice or live credentials requiring user attention.
 
 ## Phase 3.2 — Read-only acceptance and handover
 

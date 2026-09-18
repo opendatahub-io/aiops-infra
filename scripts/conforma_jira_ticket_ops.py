@@ -41,6 +41,7 @@ import conforma_jira_ops  # noqa: E402
 import conforma_jira_mapping_ops  # noqa: E402
 import conforma_mr_ops  # noqa: E402
 import conforma_release_component_ops  # noqa: E402
+import conforma_jira_adjudication_ops  # noqa: E402
 import jira_ops  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -320,7 +321,10 @@ def classify_ticket_evidence(ticket: dict, violation: dict, analyzed_release: st
 
 
 def discover_conforma_evidence(
-    violations: list[dict], analyzed_release: str, projects: list[str] | None = None
+    violations: list[dict],
+    analyzed_release: str,
+    projects: list[str] | None = None,
+    adjudicator=None,
 ) -> list[dict]:
     """Return normalized evidence for every candidate/violation pair."""
     tickets = discover_conforma_tickets(
@@ -340,14 +344,18 @@ def discover_conforma_evidence(
                 sources.append("component_version")
             if ticket.get("merge_request_references"):
                 sources.append("direct_reference")
-            evidence.append(
-                {
-                    "ticket": ticket,
-                    "violation": violation,
-                    "match_sources": sorted(set(sources)),
-                    **classification,
-                }
-            )
+            item = {
+                "ticket": ticket,
+                "violation": violation,
+                "match_sources": sorted(set(sources)),
+                **classification,
+            }
+            if adjudicator is not None and item["classification"] == "possible_conforma_related":
+                decision = conforma_jira_adjudication_ops.adjudicate_candidate(item, adjudicator)
+                item["adjudication"] = decision
+                if decision["status"] == "adjudicated_violation":
+                    item["classification"] = "confirmed_conforma_violation"
+            evidence.append(item)
     return evidence
 
 
