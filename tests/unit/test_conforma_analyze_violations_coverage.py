@@ -65,7 +65,7 @@ class TestRenderViolationsMarkdownTable:
         results = [self._make_row()]
         summary = {"total_violations": 1, "fully_covered": 0, "partially_covered": 0, "not_covered": 1}
         md = mod._render_violations_markdown_table(results, summary)
-        header_line = [l for l in md.splitlines() if l.startswith("| #")][0]
+        header_line = [line for line in md.splitlines() if line.startswith("| #")][0]
         assert header_line.count("|") == 7  # 6 columns = 7 pipe chars
 
     def test_column_headers(self):
@@ -1010,6 +1010,7 @@ class TestSelfServiceCoverageMerge:
             self_service_files=["registry-rhoai-stage.yaml"],
             require_jira=False,
             require_slack=False,
+            run_ec_validation=True,
         )
         v = result["violations"][0]
         assert v["coverage"] == "fully_covered"
@@ -1033,6 +1034,7 @@ class TestSelfServiceCoverageMerge:
             self_service_files=["registry-rhoai-stage.yaml"],
             require_jira=False,
             require_slack=False,
+            run_ec_validation=True,
         )
         v = result["violations"][0]
         assert v["coverage"] == "fully_covered"

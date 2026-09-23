@@ -206,11 +206,11 @@ def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
-from coverage_status_ops import map_gate_status as _map_gate_status  # noqa: F401 — backward compat re-export
-from coverage_status_ops import extract_exception_expiry as _extract_exception_expiry  # noqa: F401 — backward compat re-export
-from coverage_status_ops import build_search_urls as _build_search_urls  # noqa: F401 — backward compat re-export
-from coverage_status_ops import determine_status_and_next_steps as _determine_status_and_next_steps  # noqa: F401 — backward compat re-export
-from coverage_status_ops import load_report_metadata as _load_report_metadata  # noqa: F401 — backward compat re-export
+from coverage_status_ops import map_gate_status as _map_gate_status  # noqa: E402,F401 — backward compat re-export
+from coverage_status_ops import extract_exception_expiry as _extract_exception_expiry  # noqa: E402,F401 — backward compat re-export
+from coverage_status_ops import build_search_urls as _build_search_urls  # noqa: E402,F401 — backward compat re-export
+from coverage_status_ops import determine_status_and_next_steps as _determine_status_and_next_steps  # noqa: E402,F401 — backward compat re-export
+from coverage_status_ops import load_report_metadata as _load_report_metadata  # noqa: E402,F401 — backward compat re-export
 
 
 def _find_all_policy_file_paths(
@@ -525,7 +525,7 @@ def check_violations_coverage(
     csv_path: str | None = None,
     self_service_files: list[str] | None = None,
     discovery_dir: str | Path | None = None,
-    run_ec_validation: bool = True,
+    run_ec_validation: bool = False,
 ) -> dict:
     """Batch coverage check: read a violations YAML and check each violation's components
     against existing exceptions in the policy file.

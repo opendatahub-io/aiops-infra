@@ -195,7 +195,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    **No chat output from this step.** The analysis is saved to the run directory and included in the full resolution guide.
 
-7. **Cross-reference with exceptions, open Merge Requests, open Jira, and Slack**: Use Bash description: `"Cross-reference violations with exceptions, Merge Requests, Jira, Slack"`. After the analysis, **always** run the violations coverage check. This produces a unified table showing each violation alongside its existing exception status, open Merge Requests (classified as *exception* or *remedy*), open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report.
+7. **Cross-reference with exceptions, open Merge Requests, open Jira, and Slack**: Use Bash description: `"Cross-reference violations with exceptions, Merge Requests, Jira, Slack"`. After the analysis, run the exception and cross-reference coverage check. This produces a unified table showing each violation alongside its existing exception status, open Merge Requests (classified as *exception* or *remedy*), open Jira tickets, Slack threads (if available), and recommended next steps — which is the **primary output** the user expects when asking to "analyze" a report. The expensive current-policy Conforma engine (`ec`) coverage comparison is opt-in and is not performed by the standard workflow.
 
    **Target version checking (HARDCODED — always performed)**: Every Jira ticket found is automatically classified by its `fixVersion` relevance to the currently-analyzed release. Tickets are annotated as:
    - (no annotation) — fixVersion targets the currently analyzed release
@@ -208,7 +208,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    The script reads violations YAML, CSV path, release, environment, clone directory, metadata file, and output path from `context.yaml` automatically. The script manages the `~/.conforma/konflux-release-data` clone (fresh fetch + reset). It enforces the repo clone policy: it will `git fetch` any existing clone and abort if the remote is unreachable (e.g. VPN down). Never silently use stale data.
 
-    The default coverage check uses the existing policy exception gate and skips the optional current-policy `ec validate` comparison. To run that comparison occasionally, add `--run-ec-validation` to the target script command; that mode can take several minutes and MUST use the long-task runner (see the "Long-running steps" rule below) — do NOT run it as a plain foreground command, and do NOT improvise a `nohup`/`sleep`/`ps` polling loop.
+    The default coverage check uses the existing policy exception gate and does not invoke the current-policy `ec validate` comparison. To run that comparison, only when the user explicitly requests Conforma engine coverage, add `--run-ec-validation` to the target script command; that mode can take several minutes and MUST use the long-task runner (see the "Long-running steps" rule below) — do NOT run it as a plain foreground command, and do NOT improvise a `nohup`/`sleep`/`ps` polling loop.
 
     ```bash
     # 1. Launch the coverage check in the background (Bash description: "Cross-reference violations with exceptions, Merge Requests, Jira, Slack"):

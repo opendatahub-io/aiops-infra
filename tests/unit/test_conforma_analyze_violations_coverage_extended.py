@@ -227,7 +227,7 @@ class TestGroupComponentsByPolicy:
     def test_unmapped_components_logged(self, capsys):
         paths = [Path("fbc-rhoai.yaml")]
         rules = [{"pattern": "odh-*", "policy_prefix": "fbc-"}]
-        result = mod._group_components_by_policy(["odh-a", "unknown-comp"], paths, rules)
+        mod._group_components_by_policy(["odh-a", "unknown-comp"], paths, rules)
         captured = capsys.readouterr()
         assert "unknown-comp" in captured.err
         assert "not mapped" in captured.err
@@ -509,8 +509,37 @@ class TestCheckViolationsCoverageErrors:
     def test_no_csv_required(self, tmp_path, monkeypatch):
         vpath = _write_violations_yaml(tmp_path)
         _mock_auth(monkeypatch)
-        result = mod.check_violations_coverage(vpath, ["fbc.yaml"], "prod", csv_path=None, require_slack=False)
+        result = mod.check_violations_coverage(
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            csv_path=None,
+            require_slack=False,
+            run_ec_validation=True,
+        )
         assert "csv is required" in result["error"]
+
+    def test_ec_validation_is_disabled_by_default(self, tmp_path, monkeypatch):
+        vpath = _write_violations_yaml(tmp_path)
+        csv_path, clone_dir = _make_run_env(tmp_path, monkeypatch)
+        _mock_auth(monkeypatch)
+        monkeypatch.setattr(
+            mod,
+            "_run_ec_coverage",
+            lambda *args, **kwargs: pytest.fail("ec validation must be opt-in"),
+        )
+
+        result = mod.check_violations_coverage(
+            vpath,
+            ["fbc.yaml"],
+            "prod",
+            clone_dir=clone_dir,
+            csv_path=csv_path,
+            require_slack=False,
+        )
+
+        assert "error" not in result
+        assert result["ec_validation_enabled"] is False
 
     def test_ec_validation_can_be_skipped_without_csv(self, tmp_path, monkeypatch):
         vpath = _write_violations_yaml(tmp_path)
@@ -685,6 +714,7 @@ class TestCheckViolationsCoverageFlow:
             release="rhoai-3.4",
             require_jira=True,
             require_slack=True,
+            run_ec_validation=True,
         )
         assert "error" not in result
         assert result["summary"]["total_violations"] == 1
@@ -755,6 +785,7 @@ class TestCheckViolationsCoverageFlow:
             csv_path=csv_path,
             self_service_files=["exceptions.yaml"],
             require_slack=False,
+            run_ec_validation=True,
         )
         v = result["violations"][0]
         assert v["coverage"] == "partially_covered"
@@ -775,6 +806,7 @@ class TestCheckViolationsCoverageFlow:
             csv_path=csv_path,
             self_service_files=["exceptions.yaml"],
             require_slack=False,
+            run_ec_validation=True,
         )
         v = result["violations"][0]
         assert v["coverage"] == "fully_covered"
@@ -818,6 +850,7 @@ class TestCheckViolationsCoverageFlow:
             clone_dir=clone_dir,
             csv_path=csv_path,
             require_slack=False,
+            run_ec_validation=True,
         )
 
     def test_mr_discrepancy_code_only(self, tmp_path, monkeypatch):

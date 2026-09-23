@@ -16,7 +16,7 @@ Fetch and expose Conforma violation report data for RHOAI releases. This skill r
 Prohibited actions — the agent MUST NEVER:
 - Run `analyze_csv_report.py --csv <file>` directly to produce ad-hoc summaries
 - Truncate script output (e.g. `| head`, `| tail`, `2>&1 | head -N`)
-- Skip any workflow step (parse, analyze, coverage check, generate resolution guide)
+- Skip any required workflow step (parse, analyze, exception cross-reference, generate resolution guide)
 - Summarize or paraphrase CSV contents manually instead of running the scripts
 - Present partial results as a "quick summary" before completing all steps
 - Invent or compose analysis output that was not produced by the deterministic scripts
@@ -53,7 +53,7 @@ When presenting violation data — whether standalone or when handing off to the
 
 **Output presentation:** Read and follow [`skills/references/script-output-presentation.md`](../references/script-output-presentation.md) — all script output must be presented verbatim using the format rules defined there.
 
-**Step 0 — Initialize run**: Before running any script, initialize a conforma run with `init_conforma_run.py` (see `workflows/full-analysis.md`). This creates `context.yaml` with `aiops_infra_root` and `user_query`, and is the **only command where user input appears on the command line**. All subsequent steps use fixed commands that read parameters from `context.yaml`. The prerequisites check (step 1) persists auth results, including Slack availability, to `context.yaml` via `update_step()`. Slack coverage is disabled by default; pass `--require-slack true` to `violations_coverage.py` when Slack cross-referencing is explicitly requested. All `python3` commands below use `$_R` as the repo root prefix, resolved from `context.yaml`.
+**Step 0 — Initialize run**: Before running any script, initialize a conforma run with `init_conforma_run.py` (see `workflows/full-analysis.md`). This creates `context.yaml` with `aiops_infra_root` and `user_query`, and is the **only command where user input appears on the command line**. All subsequent steps use fixed commands that read parameters from `context.yaml`. The prerequisites check (step 1) persists auth results, including Slack availability, to `context.yaml` via `update_step()`. Slack coverage and current-policy `ec validate` coverage are disabled by default; pass `--require-slack true` and/or `--run-ec-validation` to `violations_coverage.py` only when explicitly requested. All `python3` commands below use `$_R` as the repo root prefix, resolved from `context.yaml`.
 
 **Always run the unified prerequisite check first**:
 
