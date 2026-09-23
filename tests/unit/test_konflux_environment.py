@@ -44,6 +44,21 @@ class TestLoad:
         mock_derive.assert_called_once()
 
 
+class TestBuildKonfluxUiUrl:
+    def test_builds_url_with_public_suffix(self):
+        assert konflux_environment.build_konflux_ui_url("test-cluster.abc.p1") == (
+            "https://konflux-ui.apps.test-cluster.abc.p1.openshiftapps.com"
+        )
+
+    def test_does_not_duplicate_public_suffix(self):
+        assert konflux_environment.build_konflux_ui_url(
+            "test-cluster.abc.p1.openshiftapps.com", "/ns/rhoai-tenant"
+        ) == "https://konflux-ui.apps.test-cluster.abc.p1.openshiftapps.com/ns/rhoai-tenant"
+
+    def test_empty_domain_returns_empty_url(self):
+        assert konflux_environment.build_konflux_ui_url("") == ""
+
+
 class TestValidate:
     def test_passes_when_required_vars_set(self):
         with patch.dict(

@@ -976,7 +976,7 @@ def label_conforma_tickets(apply: bool = False) -> dict:
     else:
         actions = [{"key": item["key"], "status": "planned", "add": item["add"]} for item in plan]
 
-    status = "completed" if apply else "pending_confirmation"
+    status = "completed" if apply or not plan else "pending_confirmation"
     output = {
         "discovered": len(tickets),
         "planned": len(plan),
@@ -988,10 +988,11 @@ def label_conforma_tickets(apply: bool = False) -> dict:
         output["display"] = (
             f"Discovered {len(tickets)} Conforma-related Jira tickets. Proposed label updates: {len(plan)}."
         )
-        output["user_question"] = {
-            "question_text": f"Apply the {len(plan)} proposed Conforma Jira label update(s)?",
-            "question_options": ["Yes, apply labels", "No, skip labelling"],
-        }
+        if plan:
+            output["user_question"] = {
+                "question_text": f"Apply the {len(plan)} proposed Conforma Jira label update(s)?",
+                "question_options": ["Yes, apply labels", "No, skip labelling"],
+            }
     report_path = run_dir / "jira_labelling.json"
     report_path.write_text(json.dumps(output, indent=2))
     conforma_context_ops.update_step(

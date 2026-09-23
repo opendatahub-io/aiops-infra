@@ -13,6 +13,7 @@ import release_dates  # noqa: E402
 from parse_violations import build_semantic_detail_lookup  # noqa: E402
 import analyze_csv_report as analysis  # noqa: E402
 import conforma_release_component_ops  # noqa: E402
+import konflux_environment  # noqa: E402
 from conforma_constants import (  # noqa: E402
     CONFORMA_REPORTER_ACTIONS_URL,
     CONFORMA_REPORTER_URL,
@@ -1691,8 +1692,10 @@ def build_konflux_component_link_base(cluster_domain: str, tenant: str, applicat
     values = (cluster_domain.strip(), tenant.strip(), application.strip())
     if not all(values):
         return ""
-    encoded = [quote(value, safe="-._~") for value in values]
-    return f"https://konflux-ui.apps.{encoded[0]}/ns/{encoded[1]}/applications/{encoded[2]}/components"
+    tenant_encoded = quote(values[1], safe="-._~")
+    application_encoded = quote(values[2], safe="-._~")
+    path = f"/ns/{tenant_encoded}/applications/{application_encoded}/components"
+    return konflux_environment.build_konflux_ui_url(values[0], path)
 
 
 def render_components_table(

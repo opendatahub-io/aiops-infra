@@ -101,6 +101,22 @@ class ConnectivityResult:
 _loaded = False
 
 
+def build_konflux_ui_url(cluster_domain: str, path: str = "") -> str:
+    """Build a URL on the Konflux user-interface host for a cluster.
+
+    ``KONFLUX_CLUSTER_DOMAIN`` is normally the bare cluster domain, but the
+    public OpenShift suffix is accepted as well so callers cannot duplicate
+    it accidentally.
+    """
+    domain = cluster_domain.strip().rstrip("/")
+    if not domain:
+        return ""
+    if not domain.endswith(".openshiftapps.com"):
+        domain = f"{domain}.openshiftapps.com"
+    normalized_path = f"/{path.lstrip('/')}" if path else ""
+    return f"https://konflux-ui.apps.{domain}{normalized_path}"
+
+
 def _resolve_dotenv_path() -> Path:
     """Resolve the .env file path, respecting CONFORMA_WORKDIR."""
     conforma_workdir = os.environ.get("CONFORMA_WORKDIR")

@@ -33,6 +33,10 @@ If the user only asks "does a report exist?" — answer the existence question (
 
 **Violation of this rule is a hard failure.** If you catch yourself about to do any of the above, STOP immediately and follow the workflow from step 1.
 
+### Required prerequisite-failure presentation
+
+The prerequisite command returns a JSON object even when it exits with status 1. On a required-check failure, always present its `display` field verbatim first. That field is the authoritative, deterministic remediation message and must not be reduced to a generic authentication summary. After displaying it, report the exact failed check and error, then stop and ask the user to choose the applicable Script Failure Policy option.
+
 ---
 
 This skill knows about **violations** only. It has no knowledge of exceptions, policy files, Jira tickets, or GitLab Merge Requests. For exception management, see the `conforma-exception` skill. Output from this skill is consumed by `conforma-exception`'s `--assess-expired` mode -- see the "Managing Expired Exceptions" section in `conforma-exception`'s SKILL.md for the full cross-skill workflow.

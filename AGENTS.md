@@ -32,6 +32,12 @@ When a TODO or outstanding work item is completed, its document MUST be moved to
 
 **NEVER ask the user to paste tokens, API keys, or credentials into the chat window.** Always instruct them to write secrets to the project's designated env file directly (using their editor or terminal). See [CONTRIBUTING.md](CONTRIBUTING.md#secrets-and-credentials-policy) for details.
 
+## Development Runtime Filesystem Access
+
+Source code and tests are developed in this repository. Conforma workflow scripts also create and update runtime state under `~/.conforma/`, including run contexts, generated reports, caches, external repository clones, installed helper binaries, and the designated environment file.
+
+When running the repository from a sandboxed development agent, the agent must have write access to `~/.conforma/` in addition to the repository workspace. This access is required by the deterministic scripts themselves; it does not move source development outside the repository. Prefer a session- or repository-scoped writable-root configuration for `~/.conforma/` rather than unrestricted filesystem access. Never commit runtime files or credentials from `~/.conforma/` to this repository.
+
 ## Repository Clone Policy
 
 Never use a pre-existing local clone of a repo. Always clone fresh into the designated work directory or use an existing clone with `git fetch` first. If the fetch fails, **abort** — never silently use stale data. See [CONTRIBUTING.md](CONTRIBUTING.md#repository-clone-policy) for details.
@@ -41,8 +47,9 @@ Never use a pre-existing local clone of a repo. Always clone fresh into the desi
 When a deterministic script or skill workflow fails (import errors, missing dependencies, auth failures, unexpected exceptions), the agent MUST:
 
 1. **Stop** -- do not silently fall back to manual exploration, ad-hoc cloning, or AI-improvised alternatives.
-2. **Report** -- tell the user which script failed, the exact error, and what step of the workflow was interrupted.
-3. **Ask** -- present the user with three choices:
+2. **Preserve remediation output** -- if the script returns structured output containing a `display`, `instructions`, `fix`, or equivalent user-facing field, relay that field verbatim before adding any failure explanation. Never replace deterministic remediation instructions with a generic summary such as “fix authentication”.
+3. **Report** -- tell the user which script failed, the exact error, and what step of the workflow was interrupted.
+4. **Ask** -- present the user with three choices:
    - **(Recommended)** Fix the underlying script/skill issue and retry the deterministic path.
    - File a GitHub issue for the skill maintainer with full error context.
    - Proceed with AI-assisted manual exploration, with the explicit warning that results may be incomplete, inconsistent, or different from the established workflow output.
@@ -82,6 +89,7 @@ Follow them in ALL generated content — code, comments, commit messages, docume
 ### Behavior and Workflow
 
 - **Maximum determinism**: All logic MUST live in scripts. The AI presents script output verbatim. Leave nothing to LLM interpretation.
+- **Conforma routing**: Every ordinary Conforma report, status, violation, scan, or "what is failing" request MUST enter through the `conforma` skill and route to `conforma-analyze`. Do not invoke `conforma-report-fetch` or its scripts directly for these requests. Direct report fetching is reserved for an explicit user request for raw Tekton/PipelineRun data and remains experimental and unfinished; do not use it until this instruction is changed.
 - **Never ask for tokens/secrets in chat**: Always instruct the user to write credentials to the project's env file directly.
 - **Never auto-submit**: Always show output to the user first and ask for explicit confirmation before publishing, submitting, or pushing anything.
 - **Missing auth is a hard stop**: If authentication fails or is missing (GitHub, GitLab, Jira, Slack), stop completely. Never skip a data source or produce incomplete reports.

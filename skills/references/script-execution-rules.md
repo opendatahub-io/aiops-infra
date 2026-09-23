@@ -23,14 +23,20 @@ The `context.yaml` file is created by **Step 0** of every workflow via `init_con
 
 **Do NOT** inline the repo-root resolution (the old `_R="$(grep...)"` pattern) — the wrapper handles this internally.
 
-## Network Access
+## Filesystem and Network Access
 
-All conforma scripts call external APIs (GitHub, GitLab, Jira, Slack). The agent MUST ensure unrestricted network access is available **before** running any conforma Python script.
+Conforma workflows write runtime state under `~/.conforma/` before and during script execution. The agent MUST ensure the command execution environment has write access to `~/.conforma/` and the repository workspace **before** running the initialization step. This includes creating timestamped run directories, writing `context.yaml`, updating `.conforma-active`, installing the wrapper, saving generated reports, refreshing external clones, and writing caches.
+
+The agent must not treat script ownership as a filesystem permission boundary: a deterministic script and the agent have the same filesystem permissions when the script is launched. If the active sandbox does not allow writes to `~/.conforma/`, request the platform's approved elevated or custom writable-root execution for the workflow before running Step 0. Do not run Step 0 in the restricted sandbox and retry only after it fails.
+
+All conforma scripts call external APIs (GitHub, GitLab, Jira, Slack). The agent MUST also ensure unrestricted network access is available **before** running any conforma Python script.
 
 Platform-specific mechanisms:
 - **Cursor**: pass `required_permissions: ["full_network"]` on the Shell tool invocation
 - **Claude Code**: use `--dangerously-skip-permissions` or approve network access when prompted
 - **Other platforms**: disable network sandboxing for conforma script invocations
+
+For filesystem access, use the platform's narrowest supported option that adds `~/.conforma/` as a writable root. Full filesystem access is unnecessary when a custom writable root is available.
 
 **Never run a conforma script in a restricted sandbox and then retry with permissions after it fails.** The retry-after-failure pattern wastes time, confuses the user, and is always avoidable because the network requirement is known in advance.
 
@@ -72,4 +78,3 @@ Each `wait` round blocks up to ~25s (below the foreground cap), then returns JSO
 State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and `<run_dir>/<step>.exit`, so a killed or restarted agent can resume from the files without re-launching. On `status: "failed"`, read `<run_dir>/<step>.log` and report the error before continuing.
 
 The runner is defined in `scripts/run_long_task.py` (dual-mode CLI + importable). This rule is tool-agnostic and applies to every conforma skill, not just `conforma-analyze`.
-

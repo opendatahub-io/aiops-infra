@@ -845,6 +845,34 @@ class TestSelfHealLabels:
 
 
 class TestIndependentLabelling:
+    def test_zero_label_updates_complete_without_confirmation(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(mod, "_load_context", lambda: (tmp_path, {}))
+        monkeypatch.setattr(
+            mod,
+            "discover_conforma_tickets",
+            lambda **kwargs: [
+                {
+                    "key": "K-1",
+                    "labels": ["conforma", "conforma-violation"],
+                    "summary": "Conforma issue",
+                }
+            ],
+        )
+        context_update = {}
+        monkeypatch.setattr(
+            mod.conforma_context_ops,
+            "update_step",
+            lambda *args, **kwargs: context_update.update(status=args[2]) or {},
+        )
+
+        result = mod.label_conforma_tickets()
+
+        assert result["planned"] == 0
+        assert result["actions"] == []
+        assert "user_question" not in result
+        assert context_update["status"] == "completed"
+        assert json.loads((tmp_path / "jira_labelling.json").read_text())["planned"] == 0
+
     def test_read_only_plan_does_not_depend_on_sync_output(self, monkeypatch, tmp_path):
         captured = {}
         monkeypatch.setattr(

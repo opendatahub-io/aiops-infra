@@ -40,6 +40,8 @@ Still prompt for genuinely ambiguous situations (e.g. multiple candidate release
 
 **Important**: Step 0 creates a `context.yaml` file in a timestamped run directory under `~/.conforma/` and sets it as the active run via a `.conforma-active` symlink. Step 1 persists prerequisite results (including Slack availability) to context.yaml. Step 2 enriches the context with release and environment data. All subsequent scripts auto-discover the active run directory and read `release`, `environment`, output paths, and intermediate results from `context.yaml`. **Do NOT pass `--release`, `--releases`, `--environment`, `--run-dir`, `--require-slack`, or output paths as CLI arguments** — the scripts resolve them automatically. Only pass arguments that represent behavioral choices not stored in context.yaml (e.g. `--format markdown`, `--dry-run`).
 
+**Filesystem permission prerequisite**: Before Step 0, ensure the command execution environment can write to `~/.conforma/` as well as the repository workspace. A deterministic script does not bypass the agent sandbox; if `~/.conforma/` is outside the active writable roots, request the platform's approved custom writable-root or elevated execution for the complete workflow. Do not run Step 0 in a restricted sandbox.
+
 ### Long-running steps (HARD REQUIREMENT)
 
 Some steps exceed the agent's ~30s foreground command cap (fetching CSVs, and the `ec validate` coverage check most notably). **Do NOT run them as plain foreground commands** — they will time out — and **do NOT improvise a `nohup`/`sleep`/`ps` polling loop** — repeated identical poll commands trigger the harness "repeated identical call" loop detector and the task is aborted.
@@ -63,7 +65,15 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    This is the **only step where user input appears on the command line**. Pass the complete user query unchanged; the deterministic release parser extracts and normalizes any release embedded in prose. All subsequent steps use fixed commands that read parameters from context.yaml. The script creates a timestamped run directory under `~/.conforma/`, writes `aiops_infra_root` and `user_query` to `context.yaml`, and sets the `.conforma-active` symlink.
 
-1. **Prerequisites check**: Run `~/.conforma/bin/conforma_run.sh scripts/verify_conforma_prerequisites.py --format json` with Bash description: `"Check Conforma prerequisites: GitHub, GitLab, Jira, Slack auth"`. Parse the JSON output object. If exit code is non-zero, **stop immediately** — render the `display` field directly (not in a code block) and do not proceed. Do NOT interpret, reformat, or summarize — the script output is self-explanatory. The user must fix failures before the workflow can continue.
+1. **Prerequisites check**: Run `~/.conforma/bin/conforma_run.sh scripts/verify_conforma_prerequisites.py --format json` with Bash description: `"Check Conforma prerequisites: GitHub, GitLab, Jira, Slack auth"`. Parse the JSON output object.
+
+   If the command exits non-zero, this is a required presentation sequence, not a plain failure message:
+
+   1. Render the JSON `display` field directly as markdown, verbatim and in full. This includes the exact remediation instructions produced by the prerequisite script, including credential URLs and the designated environment-file path. Do not replace it with a paraphrase such as “fix authentication”.
+   2. After the display, report the exact failing check and error from the JSON `checks` field.
+   3. Stop the workflow and ask the user to choose among the three Script Failure Policy options. Never proceed with a partial report.
+
+   Do not interpret, reformat, or summarize the `display` field. The user must fix failures before the workflow can continue.
 
    **Slack is optional.** If exit code is 0 and the JSON contains a `user_question` key: render the `display` field directly, then use AskQuestion with `user_question.question_text` and `user_question.question_options` verbatim. If the user chooses "No, set up Slack first", follow the `slack-auth` skill. Otherwise continue — Slack availability is persisted to `steps.prerequisites.slack_available` in context.yaml for explicit opt-in coverage runs.
 
@@ -222,7 +232,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 ~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py label-conforma-tickets
 ```
 
-   Render the script's `display` field, then relay its `user_question.question_text` and `user_question.question_options` verbatim. If the user confirms, run the apply command with Bash description: `"Apply confirmed Conforma Jira labels"`:
+   Render the script's `display` field. If the result contains `user_question`, relay its `question_text` and `question_options` verbatim. When no `user_question` is present, there are no label changes to confirm; continue with the remaining analysis. If the user confirms, run the apply command with Bash description: `"Apply confirmed Conforma Jira labels"`:
 
 ```bash
 ~/.conforma/bin/conforma_run.sh scripts/conforma_jira_ticket_ops.py label-conforma-tickets --apply

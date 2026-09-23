@@ -13,6 +13,7 @@ contains only active and outstanding work.
 | [R2-cross-model-review.md](R2-cross-model-review.md) | Cross-model review checkpoint (end-to-end integration, workflow determinism, live dry-run) | PENDING | C11 |
 | [C12-default-jira-creation.md](C12-default-jira-creation.md) | Enable Jira ticket creation by default | NOT STARTED | C14 (DONE) |
 | [C16-model-provenance-in-resolution-guide.md](C16-model-provenance-in-resolution-guide.md) | Include model name and version in the resolution guide metadata | NOT STARTED | Existing `ai_model` context handling |
+| [jira-column-manual-search.md](jira-column-manual-search.md) | Include manual Jira search guidance in TODO tables | NOT STARTED | Existing TODO Jira-column renderer |
 
 ## Execution order
 

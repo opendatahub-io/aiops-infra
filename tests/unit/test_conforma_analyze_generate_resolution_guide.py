@@ -38,7 +38,19 @@ def test_build_konflux_component_link_base():
     base = build_konflux_component_link_base("cluster.example.p1", "rhoai-tenant", "rhoai-v3-6-ea-2")
 
     assert base == (
-        "https://konflux-ui.apps.cluster.example.p1/ns/rhoai-tenant/applications/rhoai-v3-6-ea-2/components"
+        "https://konflux-ui.apps.cluster.example.p1.openshiftapps.com/ns/rhoai-tenant/"
+        "applications/rhoai-v3-6-ea-2/components"
+    )
+
+
+def test_build_konflux_component_link_base_does_not_duplicate_public_suffix():
+    base = build_konflux_component_link_base(
+        "cluster.example.p1.openshiftapps.com", "rhoai-tenant", "rhoai-v3-6-ea-2"
+    )
+
+    assert base == (
+        "https://konflux-ui.apps.cluster.example.p1.openshiftapps.com/ns/rhoai-tenant/"
+        "applications/rhoai-v3-6-ea-2/components"
     )
 
 

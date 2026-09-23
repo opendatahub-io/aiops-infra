@@ -180,7 +180,7 @@ def _build_links(
     """Build clickable URLs for cluster, policy dir, and policy files."""
     links: dict[str, str | list[dict[str, str]]] = {}
     if cluster_domain:
-        base = f"https://konflux-ui.apps.{cluster_domain}.openshiftapps.com"
+        base = konflux_environment.build_konflux_ui_url(cluster_domain)
         if tenant and konflux_app:
             links["cluster_console"] = f"{base}/ns/{tenant}/applications/{konflux_app}"
         else:

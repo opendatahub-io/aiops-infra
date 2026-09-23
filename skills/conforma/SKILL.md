@@ -58,6 +58,8 @@ Detect the user's intent from their query and route to the appropriate skill. Ma
 
 6. **No custom analysis — HARD FAILURE.** When a conforma report/violation analysis is requested, the agent MUST follow the full deterministic workflow in `conforma-analyze`. The agent MUST NEVER produce ad-hoc summaries, run scripts with shortcuts (e.g. `--csv` directly, `| head`), skip workflow steps, or manually interpret CSV data. If only existence is asked, answer that and ask whether to run the full analysis. Partial or improvised analysis output is a hard failure.
 
+7. **Report-fetch guardrail — HARD REQUIREMENT.** Ordinary Conforma report, status, violation, scan, and "what is failing" requests MUST route to `conforma-analyze`, including requests that contain a release identifier. The agent MUST NOT invoke `conforma-report-fetch`, `fetch_csv_reports.py`, or `fetch_conforma_tekton_result.py` directly for those requests. The direct report-fetch path is experimental and unfinished; use it only when the user explicitly requests raw Tekton/PipelineRun data, and do not use it until this rule is changed.
+
 
 ## Conforma Conventions
 
