@@ -2349,7 +2349,7 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-06-01",
         )
 
-        assert "### TODO #2 — 0 violations with expiring exceptions, no open Merge Request" in content
+        assert "### TODO #3 — 0 violations with expiring exceptions, no open Merge Request" in content
 
     def test_no_bullet_when_upcoming_date_empty(
         self, tmp_path, sample_violations_yaml, sample_catalog, _coverage_with_expiring_exception
@@ -2395,7 +2395,7 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "### TODO #2 — 0 violations with expiring exceptions, no open Merge Request" in content
+        assert "### TODO #3 — 0 violations with expiring exceptions, no open Merge Request" in content
 
     def test_metadata_header_includes_upcoming_release_date_in_fallback(self):
         header = render_metadata_header(
@@ -2746,11 +2746,11 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "### TODO #2 — 0 violations with expiring exceptions, no open Merge Request" in content
+        assert "### TODO #3 — 0 violations with expiring exceptions, no open Merge Request" in content
         assert (
-            "### TODO #3 — 0 violations with expiring exceptions, Merge Request also expires before release" in content
+            "### TODO #4 — 0 violations with expiring exceptions, Merge Request also expires before release" in content
         )
-        assert "### TODO #4 — 0 violations with expiring exceptions, Merge Request extends past release" in content
+        assert "### TODO #5 — 0 violations with expiring exceptions, Merge Request extends past release" in content
         # The MR-expiring section is always rendered too (regression: it was
         # previously dropped when empty, breaking the contiguous numbering).
         assert "0 violations with open Merge Request expiring before release ✓ (no action needed)" in content
@@ -3946,7 +3946,7 @@ class TestTodoPreamble:
         )
 
         todo_nums = [int(n) for n in _re.findall(r"### TODO #(\d+)", output)]
-        assert todo_nums == [0, 1, 2, 3, 4, 5, 6], f"expected contiguous TODO #0-#6, got {todo_nums}"
+        assert todo_nums == [0, 1, 2, 3, 4, 5, 6, 7], f"expected contiguous TODO #0-#7, got {todo_nums}"
 
         # The empty MR-expiring section is present and flagged no-action.
         assert "open Merge Request expiring before release ✓ (no action needed)" in output
@@ -4571,6 +4571,8 @@ class TestKeyTakeawaysAnchors:
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
             output = render_key_takeaways(coverage, result, by_cr)
         assert "Exceptions expiring in next 14 days" in output
+        assert "exceptions expiring within 14 days" in output
+        assert "| 1 | `rule-a` | 2026-07-15 | 5 |" in output
 
 
 class TestTodoHelpText:

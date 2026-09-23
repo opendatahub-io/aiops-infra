@@ -789,6 +789,33 @@ def render_key_takeaways(
         }
     )
 
+    # TODO: Exceptions expiring within the standard 14-day warning window.
+    # This is independent of the planned release date: an exception can expire
+    # shortly after release and still require follow-up before the next report.
+    expiring_soon_body = [
+        "",
+        "Review these exceptions before they expire. Resolve the underlying issue in code first, or extend the exception if remediation cannot land in time.",
+        "",
+        "| # | Rule | Effective Until | Days Left |",
+        "|--:|------|-----------------|:---------:|",
+    ]
+    if expiring_soon:
+        for row_num, (rule, expiry_date, days_left, detail) in enumerate(expiring_soon, 1):
+            rule_cell = f"`{rule}`{detail}"
+            expiring_soon_body.append(f"| {row_num} | {rule_cell} | {expiry_date} | {days_left} |")
+    else:
+        expiring_soon_body.append("| | No exceptions | | |")
+    expiring_soon_body.extend(["", "---"])
+    todo_sections.append(
+        {
+            "title": f"{len(expiring_soon):,} exceptions expiring within 14 days",
+            "count": len(expiring_soon),
+            "body": expiring_soon_body,
+            "pinned": False,
+            "priority": 2,
+        }
+    )
+
     # TODOs: Exceptions expiring before the upcoming release date
     if upcoming_release_date:
         # TODO: Expiring exceptions with no open Merge Request
@@ -837,7 +864,7 @@ def render_key_takeaways(
                 "count": expiring_no_mr_count,
                 "body": expiring_no_mr_body,
                 "pinned": False,
-                "priority": 2,
+                "priority": 3,
             }
         )
 
@@ -892,7 +919,7 @@ def render_key_takeaways(
                 "count": expiring_mr_insuf_count,
                 "body": expiring_mr_insuf_body,
                 "pinned": False,
-                "priority": 3,
+                "priority": 4,
             }
         )
 
@@ -946,7 +973,7 @@ def render_key_takeaways(
                 "count": expiring_mr_suf_count,
                 "body": expiring_mr_suf_body,
                 "pinned": False,
-                "priority": 4,
+                "priority": 5,
             }
         )
 
@@ -1008,7 +1035,7 @@ def render_key_takeaways(
                 "count": has_mr_expires_count,
                 "body": has_mr_exp_body,
                 "pinned": False,
-                "priority": 5,
+                "priority": 6,
             }
         )
 
@@ -1047,7 +1074,7 @@ def render_key_takeaways(
             "count": has_mr_ok_count,
             "body": has_mr_ok_body,
             "pinned": False,
-            "priority": 6,
+            "priority": 7,
         }
     )
 
@@ -1126,7 +1153,7 @@ def render_key_takeaways(
                 "count": pre_count,
                 "body": pre_warn_body,
                 "pinned": False,
-                "priority": 7,
+                "priority": 8,
             }
         )
 
@@ -1165,7 +1192,7 @@ def render_key_takeaways(
                 "count": post_count,
                 "body": post_warn_body,
                 "pinned": False,
-                "priority": 8,
+                "priority": 9,
             }
         )
 
