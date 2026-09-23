@@ -224,7 +224,12 @@ def find_existing_exceptions(content: str, rule: str, indent: str = "          "
     i = 0
     while i < len(lines):
         match = value_pattern.match(lines[i])
-        if match and match.group(1).strip() == rule:
+        value = match.group(1).strip() if match else ""
+        if not match or not (value == rule or value.startswith(f"{rule}:")):
+            i += 1
+            continue
+
+        if value == rule or value.startswith(f"{rule}:"):
             block_start = i
             block_info: dict = {
                 "start": block_start,
@@ -265,8 +270,6 @@ def find_existing_exceptions(content: str, rule: str, indent: str = "          "
                 block_info["end"] = i + 1
                 i += 1
             results.append(block_info)
-        else:
-            i += 1
     return results
 
 

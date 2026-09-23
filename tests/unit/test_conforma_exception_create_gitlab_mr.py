@@ -213,6 +213,18 @@ class TestFindExistingExceptions:
         assert block["component_names"] == []
         assert block["effective_until_value"] == "2025-06-01T00:00:00Z"
 
+    def test_base_rule_finds_suffixed_exception_block(self):
+        blocks = find_existing_exceptions(SAMPLE_POLICY_CONTENT, "rpm_signature.allowed")
+        assert len(blocks) == 1
+        assert blocks[0]["effective_until_value"] == "2025-06-01T00:00:00Z"
+
+    def test_base_rule_does_not_match_similar_rule_name(self):
+        content = SAMPLE_POLICY_CONTENT.replace(
+            "rpm_signature.allowed:abc123",
+            "rpm_signature.allowed-extra:abc123",
+        )
+        assert find_existing_exceptions(content, "rpm_signature.allowed") == []
+
     def test_returns_empty_for_unknown_rule(self):
         assert find_existing_exceptions(SAMPLE_POLICY_CONTENT, "unknown.rule") == []
 

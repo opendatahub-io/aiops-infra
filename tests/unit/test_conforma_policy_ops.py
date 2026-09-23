@@ -154,6 +154,26 @@ class TestSearchExistingExceptions:
         assert isinstance(exc["block_start_line"], int)
         assert exc["block_start_line"] >= 1
 
+    def test_finds_suffixed_exception_when_query_uses_base_rule(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("KONFLUX_CLUSTER_DOMAIN", raising=False)
+        monkeypatch.setenv("KONFLUX_CONFORMA_POLICY_DIR", "policy")
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy_file = policy_dir / "registry-rhoai-prod.yaml"
+        policy_file.write_text(
+            "volatileConfig:\n"
+            "          - value: rpm_signature.allowed:05b555b38483c65d\n"
+            "            componentNames:\n"
+            "              - odh-openvino-model-server-v3-6-ea-1\n"
+            '            effectiveUntil: "2099-01-01T00:00:00Z"\n'
+        )
+
+        result = mod.search_existing_exceptions("rpm_signature.allowed", ["registry-rhoai-prod.yaml"], str(tmp_path))
+
+        assert result["checked"] is True
+        assert result["count"] == 1
+        assert result["existing_exceptions"][0]["componentNames"] == ["odh-openvino-model-server-v3-6-ea-1"]
+
     def test_excludes_files_not_in_policy_files(self, tmp_path, monkeypatch):
         """Files not listed in policy_files must be skipped entirely.
 
