@@ -15,7 +15,9 @@ contains only active and outstanding work.
 | [C16-model-provenance-in-resolution-guide.md](C16-model-provenance-in-resolution-guide.md) | Include model name and version in the resolution guide metadata | NOT STARTED | Existing `ai_model` context handling |
 | [jira-column-manual-search.md](jira-column-manual-search.md) | Include manual Jira search guidance in TODO tables | NOT STARTED | Existing TODO Jira-column renderer |
 | [exception-expiry-components-extra-args.md](exception-expiry-components-extra-args.md) | Show exception components and same-line extra arguments in expiry TODOs | NOT STARTED | Existing exception expiry extraction and TODO renderer |
+| [move-generic-expiring-exceptions-to-warnings.md](move-generic-expiring-exceptions-to-warnings.md) | Move generic expiring exceptions from TODO/DONE into a warning section | NOT STARTED | Existing expiry renderer, section ledger, and presentation validator |
 | [shared-policy-exception-matcher-variations.md](shared-policy-exception-matcher-variations.md) | Cover real current and historical policy exception formats in the shared matcher | NOT STARTED | Shared Conforma policy exception matcher plan |
+| [production-nightly-latest-build-comparison.md](production-nightly-latest-build-comparison.md) | Compare production nightly violations with the stage latest build and flag violations absent from the latest build | NOT STARTED | Fixed Conforma Reporter CSV paths and production nightly execution detection |
 
 ## Execution order
 
