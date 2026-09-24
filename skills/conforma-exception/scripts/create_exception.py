@@ -296,6 +296,13 @@ def main() -> int:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
+        "--policy-selection",
+        action="append",
+        default=[],
+        metavar="DECISION_ID=CHOICE_ID",
+        help="Select one policy mutation preview choice; may be repeated.",
+    )
+    parser.add_argument(
         "--skip-approval-gate",
         action="store_true",
         help="Override the RHOAIENG approval gate and proceed with PSX/MR "
@@ -822,6 +829,8 @@ def main() -> int:
                 mr_args.extend(["--exception-remediation", args.exception_remediation])
             if args.dry_run:
                 mr_args.append("--dry-run")
+            for selection in args.policy_selection:
+                mr_args.extend(["--policy-selection", selection])
 
             mr_result = run_script("create_gitlab_mr.py", mr_args)
             result["stages"]["exception_merge_request"] = mr_result

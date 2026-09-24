@@ -60,6 +60,8 @@ from exception_policy_file_ops import generate_exception_yaml  # noqa: F401 — 
 from exception_policy_file_ops import find_existing_exceptions as _find_existing_exceptions  # noqa: F401 — backward compat re-export
 from exception_policy_file_ops import remove_exception_from_policy_file  # noqa: F401 — backward compat re-export
 from exception_policy_file_ops import apply_exception_to_policy_file  # noqa: F401 — backward compat re-export
+from exception_policy_file_ops import apply_policy_mutation, preview_policy_mutation
+from exception_policy_file_ops import _mutation_yaml, _mutation_record
 from exception_policy_file_ops import append_to_policy_file  # noqa: F401 — backward compat re-export
 
 konflux_environment.require("gitlab")
@@ -284,6 +286,7 @@ def create_mr(
     exception_remediation: str | None = None,
     policy_file: str | None = None,
     dry_run: bool = False,
+    policy_selections: dict[str, str] | None = None,
 ) -> dict:
     """Clone repo, append exception, create MR."""
     component_type = detect_component_type(components)
@@ -356,14 +359,57 @@ def create_mr(
                 "mr_url": None,
             }
 
-        apply_result = apply_exception_to_policy_file(
-            file_path=policy_file,
-            yaml_block=yaml_block,
-            is_self_service=is_self_service,
-            rule=rule,
-            components=components,
-            effective_until=effective_until,
-        )
+        if is_self_service:
+            apply_result = apply_exception_to_policy_file(
+                file_path=policy_file,
+                yaml_block=yaml_block,
+                is_self_service=True,
+                rule=rule,
+                components=components,
+                effective_until=effective_until,
+            )
+        else:
+            block = _mutation_yaml().load(yaml_block)
+            entry = dict(block[0])
+            records = _mutation_record(policy_file.read_text(encoding="utf-8"), policy_file, rule)
+            exact = next(
+                (
+                    record for record in records
+                    if record["value"] == str(entry.get("value", rule))
+                    and record["has_component_names"]
+                    and sorted(record["component_names"]) == sorted(components)
+                ),
+                None,
+            )
+            if exact:
+                operations = [{
+                    "operation": "extend",
+                    "target_fingerprint": exact["entry_fingerprint"],
+                    "effective_until": effective_until,
+                }]
+            else:
+                operations = [{"operation": "add", "rule": rule, "components": components, "entry": entry}]
+            preview = preview_policy_mutation(policy_file, {"operations": operations})
+            if preview["status"] == "confirmation_required" and not policy_selections:
+                return {
+                    "status": "confirmation_required",
+                    "target_file": target_file,
+                    "preview": preview,
+                    "mr_url": None,
+                }
+            applied = apply_policy_mutation(policy_file, preview, selections=policy_selections)
+            if applied["status"] not in {"applied", "no_change_required"}:
+                return {
+                    "status": applied["status"],
+                    "target_file": target_file,
+                    "error": applied.get("error"),
+                    "preview": preview,
+                    "mr_url": None,
+                }
+            apply_result = {
+                "action": "extended" if exact else "appended",
+                "detail": applied["status"],
+            }
 
         action = apply_result["action"]
         if action == "extended":
@@ -1721,6 +1767,13 @@ def parse_args() -> argparse.Namespace:
         "FBC exceptions where component names are absent.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--policy-selection",
+        action="append",
+        default=[],
+        metavar="DECISION_ID=CHOICE_ID",
+        help="Select one choice for a policy mutation preview; may be repeated.",
+    )
     return parser.parse_args()
 
 
@@ -1873,6 +1926,16 @@ def main() -> int:
 
     components = [c.strip() for c in args.components.split(",")]
     is_weekday = args.rule == "schedule.weekday_restriction"
+    policy_selections = {}
+    for selection in args.policy_selection:
+        if "=" not in selection:
+            print(f"Error: invalid --policy-selection {selection!r}; expected DECISION_ID=CHOICE_ID", file=sys.stderr)
+            return 1
+        decision_id, choice_id = selection.split("=", 1)
+        if not decision_id or not choice_id:
+            print(f"Error: invalid --policy-selection {selection!r}; both values are required", file=sys.stderr)
+            return 1
+        policy_selections[decision_id] = choice_id
 
     if args.update_mr:
         result = update_mr(
@@ -1894,6 +1957,7 @@ def main() -> int:
             exception_remediation=args.exception_remediation,
             policy_file=args.policy_file,
             dry_run=args.dry_run,
+            policy_selections=policy_selections,
         )
     else:
         result = create_mr(
@@ -1914,6 +1978,7 @@ def main() -> int:
             exception_remediation=args.exception_remediation,
             policy_file=args.policy_file,
             dry_run=args.dry_run,
+            policy_selections=policy_selections,
         )
     print(json.dumps(result, indent=2))
     return 0 if result["status"] in ("created", "updated", "dry_run") else 1
