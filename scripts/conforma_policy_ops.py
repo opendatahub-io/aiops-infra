@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
 import subprocess
@@ -11,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import conforma_mr_ops
+from ruamel.yaml import YAML
 
 WORK_DIR = (
     Path(os.environ.get("CONFORMA_WORKDIR", "")) if os.environ.get("CONFORMA_WORKDIR") else Path.home() / ".conforma"
@@ -87,12 +90,139 @@ def refresh_clone(clone_dir: str | Path) -> Path | None:
     return _resolve_repo_dir(clone_dir)
 
 
+def _yaml_plain(value):
+    """Convert a round-trip YAML value into JSON-compatible values."""
+    if isinstance(value, dict):
+        return {str(key): _yaml_plain(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_yaml_plain(item) for item in value]
+    return value
+
+
+def _exception_value_matches(value: str, query: str) -> bool:
+    """Match an exact full value or a base rule with a colon suffix."""
+    if ":" in query:
+        return value == query
+    return value == query or value.startswith(f"{query}:")
+
+
+def _iter_exception_sequences(node, path: tuple[str | int, ...] = ()):
+    """Yield supported structured exception sequences from a YAML document."""
+    if not isinstance(node, dict):
+        return
+
+    for key, value in node.items():
+        key_text = str(key)
+        child_path = (*path, key_text)
+        if key_text == "volatileCriteria" and isinstance(value, list):
+            yield "volatile_criteria", child_path, value
+            continue
+        if key_text == "volatileConfig":
+            if isinstance(value, list):
+                yield "volatile_config_exclude", child_path, value
+                continue
+            if isinstance(value, dict) and isinstance(value.get("exclude"), list):
+                yield "volatile_config_exclude", (*child_path, "exclude"), value["exclude"]
+        if isinstance(value, dict):
+            yield from _iter_exception_sequences(value, child_path)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                if isinstance(item, dict):
+                    yield from _iter_exception_sequences(item, (*child_path, index))
+
+
+def _node_line(node, fallback: int) -> int:
+    """Return a zero-based YAML source line when round-trip metadata exists."""
+    line = getattr(getattr(node, "lc", None), "line", None)
+    return line if isinstance(line, int) else fallback
+
+
+def _node_end_line(node, start: int) -> int:
+    """Return an exclusive zero-based end line when available."""
+    end_line = getattr(getattr(node, "lc", None), "end_line", None)
+    if isinstance(end_line, int) and end_line > start:
+        return end_line
+    return start + 1
+
+
+def _mapping_key_line(node, key: str) -> int | None:
+    """Return the zero-based line for a mapping key."""
+    try:
+        location = node.lc.key(key)
+    except (AttributeError, KeyError, TypeError):
+        return None
+    return location[0] if isinstance(location, tuple) and isinstance(location[0], int) else None
+
+
+def find_existing_exceptions(content: str, rule: str, source_file: str = "") -> list[dict]:
+    """Find normalized exceptions in supported policy YAML structures.
+
+    Matching uses the exact full value when ``rule`` is parameterized and
+    matches either the exact base rule or a ``base:suffix`` value otherwise.
+    Source indexes are zero-based; display adapters add one to line numbers.
+    """
+    yaml = YAML(typ="rt")
+    yaml.preserve_quotes = True
+    try:
+        document = yaml.load(io.StringIO(content))
+    except Exception as exc:
+        raise ValueError(f"Could not parse policy YAML: {exc}") from exc
+
+    if document is None:
+        return []
+    if not isinstance(document, dict):
+        raise ValueError("Policy YAML root must be a mapping")
+
+    results: list[dict] = []
+    for source_kind, sequence_path, entries in _iter_exception_sequences(document):
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict) or "value" not in entry:
+                continue
+            value = str(entry.get("value", "")).strip()
+            if not _exception_value_matches(value, rule):
+                continue
+
+            start = _node_line(entry, index)
+            component_names = [str(item) for item in (entry.get("componentNames") or [])]
+            extra_argument = value.split(":", 1)[1] if ":" in value else None
+            plain_entry = _yaml_plain(entry)
+            fingerprint_payload = {
+                "source_kind": source_kind,
+                "source_path": [*sequence_path, index],
+                "entry": plain_entry,
+            }
+            fingerprint = hashlib.sha256(
+                json.dumps(fingerprint_payload, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+            results.append(
+                {
+                    "value": value,
+                    "base_rule": value.split(":", 1)[0],
+                    "extra_argument": extra_argument,
+                    "has_component_names": "componentNames" in entry,
+                    "component_names": component_names,
+                    "image_url": str(entry["imageUrl"]) if entry.get("imageUrl") is not None else None,
+                    "image_ref": str(entry["imageRef"]) if entry.get("imageRef") is not None else None,
+                    "effective_until_value": str(entry["effectiveUntil"]) if entry.get("effectiveUntil") is not None else None,
+                    "effective_until_line": _mapping_key_line(entry, "effectiveUntil"),
+                    "reference": str(entry["reference"]) if entry.get("reference") is not None else None,
+                    "source_kind": source_kind,
+                    "source_file": source_file,
+                    "policy_path": [*sequence_path, index],
+                    "start": start,
+                    "end": _node_end_line(entry, start),
+                    "entry_fingerprint": fingerprint,
+                }
+            )
+    return results
+
+
 def search_existing_exceptions(rule: str, policy_files: list[str], clone_dir: str | None = None) -> dict:
     """Check if exception for this rule already exists in konflux-release-data.
 
-    Searches two locations:
-    1. The `exclude:` section — simple list items (permanent global exclusions)
-    2. The `volatileCriteria:` section — structured blocks with componentNames/effectiveUntil
+    Searches permanent exclusions separately and structured time-bounded
+    exceptions in the historical ``spec.configuration.volatileCriteria`` and
+    current ``spec.sources[].volatileConfig.exclude`` locations.
 
     Only policy files whose basename appears in *policy_files* are searched.
     This prevents cross-product contamination (e.g. an unscoped exception in
@@ -122,20 +252,6 @@ def search_existing_exceptions(rule: str, policy_files: list[str], clone_dir: st
     found_in = []
     permanent_exclusions = []
 
-    _find_existing_exceptions = None
-    try:
-        from create_gitlab_mr import _find_existing_exceptions
-    except ImportError:
-        _exception_scripts = Path(__file__).resolve().parent.parent / "skills" / "conforma-exception" / "scripts"
-        if _exception_scripts.is_dir():
-            sys.path.insert(0, str(_exception_scripts))
-            try:
-                from create_gitlab_mr import _find_existing_exceptions
-            except ImportError:
-                pass
-            finally:
-                sys.path.pop(0)
-
     for yaml_file in policy_dir.glob("*.yaml"):
         if yaml_file.name not in allowed_basenames:
             continue
@@ -145,20 +261,24 @@ def search_existing_exceptions(rule: str, policy_files: list[str], clone_dir: st
         if rule in content:
             _check_permanent_exclusions(content, rule, rel_path, permanent_exclusions)
 
-        if f"value: {rule}" in content and _find_existing_exceptions is not None:
-            exceptions = _find_existing_exceptions(content, rule)
-            for exc in exceptions:
-                found_in.append(
-                    {
-                        "file": rel_path,
-                        "has_componentNames": exc["has_component_names"],
-                        "componentNames": exc["component_names"],
-                        "imageUrl": exc.get("image_url", ""),
-                        "effectiveUntil": exc["effective_until_value"],
-                        "block_start_line": exc["start"] + 1,
-                        "exception_value": exc.get("value", rule),
-                    }
-                )
+        exceptions = find_existing_exceptions(content, rule, source_file=rel_path)
+        for exc in exceptions:
+            found_in.append(
+                {
+                    "file": rel_path,
+                    "has_componentNames": exc["has_component_names"],
+                    "componentNames": exc["component_names"],
+                    "imageUrl": exc.get("image_url") or "",
+                    "imageRef": exc.get("image_ref") or "",
+                    "effectiveUntil": exc["effective_until_value"],
+                    "block_start_line": exc["start"] + 1,
+                    "exception_value": exc["value"],
+                    "extra_argument": exc["extra_argument"],
+                    "source_kind": exc["source_kind"],
+                    "policy_path": exc["policy_path"],
+                    "entry_fingerprint": exc["entry_fingerprint"],
+                }
+            )
 
     return {
         "checked": True,

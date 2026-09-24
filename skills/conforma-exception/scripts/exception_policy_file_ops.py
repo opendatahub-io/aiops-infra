@@ -7,6 +7,7 @@ import os
 import posixpath
 import re
 from pathlib import Path
+import conforma_policy_ops
 from exception_mr_text import build_commit_message as _build_commit_message  # noqa: F401 — backward compat re-export
 from exception_mr_text import build_mr_body as _build_mr_body  # noqa: F401 — backward compat re-export
 from exception_mr_text import build_mr_title as _build_mr_title  # noqa: F401 — backward compat re-export
@@ -206,7 +207,7 @@ def generate_exception_yaml(
     return "\n".join(lines) + "\n"
 
 
-def find_existing_exceptions(content: str, rule: str, indent: str = "          ") -> list[dict]:
+def _legacy_find_existing_exceptions(content: str, rule: str, indent: str = "          ") -> list[dict]:
     """Find existing exception blocks for a given rule in the policy file content.
 
     Returns a list of dicts with:
@@ -271,6 +272,22 @@ def find_existing_exceptions(content: str, rule: str, indent: str = "          "
                 i += 1
             results.append(block_info)
     return results
+
+
+def find_existing_exceptions(content: str, rule: str, indent: str = "          ") -> list[dict]:
+    """Compatibility adapter for the shared structured exception matcher."""
+    del indent  # Retained for callers; YAML structure makes indentation irrelevant.
+    normalized = conforma_policy_ops.find_existing_exceptions(content, rule)
+    return [
+        {
+            **entry,
+            "has_component_names": entry["has_component_names"],
+            "component_names": entry["component_names"],
+            "image_url": entry.get("image_url") or "",
+            "effective_until_value": entry.get("effective_until_value"),
+        }
+        for entry in normalized
+    ]
 
 
 def _update_effective_until_in_content(content: str, line_idx: int, new_effective_until: str) -> str:

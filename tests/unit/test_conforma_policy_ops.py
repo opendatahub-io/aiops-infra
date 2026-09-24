@@ -174,6 +174,82 @@ class TestSearchExistingExceptions:
         assert result["count"] == 1
         assert result["existing_exceptions"][0]["componentNames"] == ["odh-openvino-model-server-v3-6-ea-1"]
 
+
+class TestNormalizedExceptionMatcher:
+    def test_matches_current_structured_policy_and_preserves_arguments(self):
+        content = textwrap.dedent(
+            '''
+            spec:
+              sources:
+                - volatileConfig:
+                    exclude:
+                      - value: "base_image_registries.base_image_permitted:registry.stage.redhat.io/rhai/modelcar-redhatai-all-minilm-l6-v2"
+                        componentNames:
+                          - odh-trustyai-nemo-guardrails-server-v3-6-ea-1
+                        effectiveUntil: "2026-09-30T00:00:00Z"
+                        reference: https://issues.redhat.com/browse/TEST-1
+            '''
+        )
+
+        result = mod.find_existing_exceptions(
+            content,
+            "base_image_registries.base_image_permitted",
+            source_file="config/example.yaml",
+        )
+
+        assert len(result) == 1
+        assert result[0]["value"].endswith("all-minilm-l6-v2")
+        assert result[0]["base_rule"] == "base_image_registries.base_image_permitted"
+        assert result[0]["extra_argument"].endswith("all-minilm-l6-v2")
+        assert result[0]["component_names"] == ["odh-trustyai-nemo-guardrails-server-v3-6-ea-1"]
+        assert result[0]["source_file"] == "config/example.yaml"
+        assert result[0]["source_kind"] == "volatile_config_exclude"
+
+    def test_exact_parameterized_query_does_not_match_other_suffix(self):
+        content = textwrap.dedent(
+            """
+            spec:
+              configuration:
+                volatileCriteria:
+                  - value: 'rpm_signature.allowed:abc123'
+                  - value: "rpm_signature.allowed:def456"
+                  - value: rpm_signature.allowed-extra:abc123
+            """
+        )
+
+        exact = mod.find_existing_exceptions(content, "rpm_signature.allowed:abc123")
+        base = mod.find_existing_exceptions(content, "rpm_signature.allowed")
+
+        assert [entry["value"] for entry in exact] == ["rpm_signature.allowed:abc123"]
+        assert [entry["value"] for entry in base] == [
+            "rpm_signature.allowed:abc123",
+            "rpm_signature.allowed:def456",
+        ]
+
+    def test_preserves_long_suffix_after_first_colon(self):
+        value = "rpm_signature.allowed:https://registry.example/path?x=1&y=2:sha256:abc"
+        content = textwrap.dedent(
+            f"""
+            spec:
+              configuration:
+                volatileCriteria:
+                  - value: "{value}"
+            """
+        )
+
+        result = mod.find_existing_exceptions(content, "rpm_signature.allowed")
+
+        assert result[0]["extra_argument"] == value.split(":", 1)[1]
+
+    def test_does_not_match_similar_base_rule(self):
+        content = "spec:\n  configuration:\n    volatileCriteria:\n      - value: rpm_signature.allowed-extra:abc123\n"
+
+        assert mod.find_existing_exceptions(content, "rpm_signature.allowed") == []
+
+    def test_reports_malformed_yaml(self):
+        with pytest.raises(ValueError, match="Could not parse policy YAML"):
+            mod.find_existing_exceptions("spec: [", "some.rule")
+
     def test_excludes_files_not_in_policy_files(self, tmp_path, monkeypatch):
         """Files not listed in policy_files must be skipped entirely.
 
