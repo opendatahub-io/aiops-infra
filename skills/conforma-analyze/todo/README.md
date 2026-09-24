@@ -14,6 +14,8 @@ contains only active and outstanding work.
 | [C12-default-jira-creation.md](C12-default-jira-creation.md) | Enable Jira ticket creation by default | NOT STARTED | C14 (DONE) |
 | [C16-model-provenance-in-resolution-guide.md](C16-model-provenance-in-resolution-guide.md) | Include model name and version in the resolution guide metadata | NOT STARTED | Existing `ai_model` context handling |
 | [jira-column-manual-search.md](jira-column-manual-search.md) | Include manual Jira search guidance in TODO tables | NOT STARTED | Existing TODO Jira-column renderer |
+| [exception-expiry-components-extra-args.md](exception-expiry-components-extra-args.md) | Show exception components and same-line extra arguments in expiry TODOs | NOT STARTED | Existing exception expiry extraction and TODO renderer |
+| [shared-policy-exception-matcher-variations.md](shared-policy-exception-matcher-variations.md) | Cover real current and historical policy exception formats in the shared matcher | NOT STARTED | Shared Conforma policy exception matcher plan |
 
 ## Execution order
 
