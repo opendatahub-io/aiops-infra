@@ -175,7 +175,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/parse_violations.py --no-catalog
 ```
 
-6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations"`. **Save the output to a file** — do NOT present the analysis in the chat (the TODO preview in step 10 shows the action items; the full analysis is in the resolution guide):
+6. **Analyze and save**: Use Bash description: `"Analyze Conforma violations"`. **Save the output to a file** — do NOT present the analysis in the chat (the complete TODO/DONE preview in step 10 shows the resolution status; the full analysis is in the resolution guide):
 
 ```bash
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/analyze_csv_report.py --format markdown
@@ -224,7 +224,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
     If `status` is `failed`, read `<run_dir>/coverage.log` and report the error before continuing.
 
-    The coverage table is the primary deliverable and is included in the TODO preview (step 11). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
+    The coverage table is the primary deliverable and is included in the complete TODO/DONE preview (step 11). If needed separately, read `coverage.json` from the run directory and extract the `markdown_table` field — render it directly as markdown (not in a code block).
 
 8. **Plan independent Conforma Jira labelling**: Use Bash description: `"Plan independent Conforma Jira labelling"`. This action is independent of ticket creation and Jira sync. It discovers the currently available Conforma-related tickets, plans additive `conforma` and `conforma-violation` labels, and writes `jira_labelling.json` plus `steps.jira_labelling` to the run context. It is read-only until the user confirms the exact `user_question` emitted by the script.
 
@@ -248,7 +248,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    The script reads release, environment, coverage violations, and output path from `context.yaml` automatically. To run discovery without any Jira writes (creates are planned but not written and `jira_sync.json` is not written, so the guide falls back to the pre-sync rendering), add `--dry-run`.
 
-10. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. Only the **TODO preview** is presented in the chat — the full guide is submitted to GitHub. See step 11 for the generation command and presentation rules.
+10. **Resolution Guide**: The resolution guide is generated deterministically by script and saved to a file. The complete **TODO and DONE preview** is presented in the chat — the full guide is submitted to GitHub. See step 11 for the generation command and presentation rules.
 
 11. **Generate the resolution guide**: Use Bash description: `"Generate Conforma Status and Resolution Guide"`. Run the resolution guide generator on the intermediate outputs from steps 3-9. This produces a unified markdown file combining tooling health, coverage, per-violation resolution guidance (from [`skills/references/violation-catalog.yaml`](../../references/violation-catalog.yaml) with fallback references for uncataloged violations), warnings, and statistical analysis:
 
@@ -262,26 +262,24 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
    **⛔ HARD FAILURE RULES FOR STEP 11 — READ THESE BEFORE PROCEEDING:**
 
-   **RULE 1 — TODO PREVIEW ONLY (no full guide in chat):**
-   The agent MUST run the deterministic presentation command below and relay the content between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` **verbatim into the response text**. The presentation script validates that every required TODO subsection has a Markdown table before emitting anything, and emits the mandatory submission question between `BEGIN_SUBMISSION_QUESTION` and `END_SUBMISSION_QUESTION`. The agent MUST relay that question and its options verbatim after the TODO content. The agent MUST NOT read and reconstruct the file manually. This file contains the metadata header (context confirmation) and the TODO section with summary preamble and all TODO #N subsections. The agent MUST NOT:
+   **RULE 1 — COMPLETE TODO/DONE PREVIEW (no full guide in chat):**
+   The agent MUST run the deterministic presentation command below and relay the content between `BEGIN_VERBATIM_TODO_AND_DONE` and `END_VERBATIM_TODO_AND_DONE` **verbatim into the response text**. The presentation script validates every stable section marker, both status groups, independent numbering, complete section inventory, and the source-identity accounting gate before emitting anything. It also emits the mandatory submission question between `BEGIN_SUBMISSION_QUESTION` and `END_SUBMISSION_QUESTION`. The agent MUST relay that question and its options verbatim after the complete report block. The agent MUST NOT read and reconstruct the file manually, omit DONE sections, summarize, paraphrase, abbreviate, or create its own tables.
    - Paste the full resolution guide (`conforma-resolution-guide.md`) into the chat
    - Paste the full analysis output (`conforma-analysis.md`) into the chat
-   - Summarize, paraphrase, or abbreviate the TODO content
-   - Add its own commentary between sections
-   - Create its own tables or summaries instead of the script-generated content
+   - Add commentary between generated sections
 
-   The full resolution guide and analysis output are saved to the run directory — the user can open them directly for the complete reference.
+   The full resolution guide and analysis output are saved to the run directory — the user can open them directly for the complete reference. The preview is saved as `conforma-todo-and-done.md` and contains the same complete TODO/DONE block plus the informational `## WARNINGS` section as the guide, not an actionable-only subset.
 
-   Run the presentation command with Bash description: `"Present validated Conforma TODO preview verbatim"`:
+   Run the presentation command with Bash description: `"Present validated Conforma TODO/DONE preview verbatim"`:
 
 ```bash
 ~/.conforma/bin/conforma_run.sh skills/conforma-analyze/scripts/present_conforma_report.py
 ```
 
-   If this command exits non-zero, stop and report the validation error. Do NOT present a partial TODO preview. Do NOT rely on the tool result alone — the marked TODO content must appear as literal text in the agent's response. Render it as markdown (not in a code block), preserving every heading, table, link, and line exactly.
+   If this command exits non-zero, stop and report the validation error. Do NOT present a partial preview. Do NOT rely on the tool result alone — the marked TODO/DONE content must appear as literal text in the agent's response. Render it as markdown (not in a code block), preserving every marker, heading, table, link, and line exactly.
 
    **RULE 2 — ORDERING (present THEN ask):**
-   The TODO content must appear in the agent's response text BEFORE the submission question. Never call AskQuestion in the same tool-call batch that runs the presentation command. The sequence is: (a) run the presentation command → (b) paste the TODO content verbatim into the response → (c) relay the emitted submission question and options verbatim in the subsequent user-visible turn. This ensures the user sees the action items before being asked to submit.
+   The complete TODO/DONE content must appear in the agent's response text BEFORE the submission question. Never call AskQuestion in the same tool-call batch that runs the presentation command. The sequence is: (a) run the presentation command → (b) paste the complete marked report block verbatim into the response → (c) relay the emitted submission question and options verbatim in the subsequent user-visible turn. This ensures the user sees every action and completion section before being asked to submit.
 
    **RULE 3 — MUST PROCEED TO STEP 12:**
    After rendering the TODO, the agent MUST immediately proceed to step 12 (submission) in the same response — do NOT stop, wait for user input, or end the turn after presenting the TODO. The workflow is not complete until the user has been asked about submission. Stopping after the TODO without proceeding to step 12 is a hard failure.

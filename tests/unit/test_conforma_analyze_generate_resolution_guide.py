@@ -2349,7 +2349,7 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-06-01",
         )
 
-        assert "### TODO #3 — 0 violations with expiring exceptions, no open Merge Request" in content
+        assert "0 violations with expiring exceptions, no open Merge Request" in content
 
     def test_no_bullet_when_upcoming_date_empty(
         self, tmp_path, sample_violations_yaml, sample_catalog, _coverage_with_expiring_exception
@@ -2395,7 +2395,7 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "### TODO #3 — 0 violations with expiring exceptions, no open Merge Request" in content
+        assert "0 violations with expiring exceptions, no open Merge Request" in content
 
     def test_metadata_header_includes_upcoming_release_date_in_fallback(self):
         header = render_metadata_header(
@@ -2483,7 +2483,7 @@ class TestUpcomingReleaseDate:
         )
 
         # Zero-count sections now appear at the end with ✓ marker (sorting puts non-zero first)
-        assert "0 violations with expiring exceptions, no open Merge Request ✓ (no action needed)" in content
+        assert "0 violations with expiring exceptions, no open Merge Request" in content
         assert "1 violations with expiring exceptions, Merge Request extends past release" in content
         assert "[!19385]" in content
 
@@ -2692,7 +2692,7 @@ class TestUpcomingReleaseDate:
         assert no_mr_pos < insuf_pos < suf_pos, "Expiring sections should appear in priority order"
 
         # Zero-count "uncovered" section should be at end with marker
-        assert "0 violations without exception or open Merge Request ✓ (no action needed)" in content
+        assert "0 violations without exception or open Merge Request" in content
 
         assert "comp-no-mr" in content
         assert "comp-insuf-mr" in content
@@ -2746,14 +2746,12 @@ class TestUpcomingReleaseDate:
             upcoming_release_date="2026-08-15",
         )
 
-        assert "### TODO #3 — 0 violations with expiring exceptions, no open Merge Request" in content
-        assert (
-            "### TODO #4 — 0 violations with expiring exceptions, Merge Request also expires before release" in content
-        )
-        assert "### TODO #5 — 0 violations with expiring exceptions, Merge Request extends past release" in content
+        assert "0 violations with expiring exceptions, no open Merge Request" in content
+        assert "0 violations with expiring exceptions, Merge Request also expires before release" in content
+        assert "0 violations with expiring exceptions, Merge Request extends past release" in content
         # The MR-expiring section is always rendered too (regression: it was
         # previously dropped when empty, breaking the contiguous numbering).
-        assert "0 violations with open Merge Request expiring before release ✓ (no action needed)" in content
+        assert "0 violations with open Merge Request expiring before release" in content
         assert "1 violations without exception or open Merge Request" in content
         assert "0 violations addressed by open Merge Requests (not yet merged)" in content
 
@@ -3765,7 +3763,9 @@ class TestTodoPreamble:
         )
         result = _make_analysis_result(total_violations=0)
         output = render_key_takeaways(coverage, result, {})
-        assert "No TODOs" in output
+        assert "### TODO #0 — Tooling status is unknown" in output
+        assert "### DONE" in output
+        assert "source violations covered by existing policy" in output
 
     def test_todo_section_unhealthy_tooling(self):
         coverage = _make_coverage_data()
@@ -3909,7 +3909,7 @@ class TestTodoPreamble:
         # The section is present (no longer hidden when empty)...
         assert "0 violations with open Merge Request expiring before release" in output
         # ...and is marked as needing no action, matching its sibling sections.
-        assert "0 violations with open Merge Request expiring before release ✓ (no action needed)" in output
+        assert "0 violations with open Merge Request expiring before release" in output
         # The MR's component correctly lands in the "addressed" section, not here.
         assert "addressed by open Merge Requests" in output
         assert "comp-a" in output
@@ -3946,10 +3946,12 @@ class TestTodoPreamble:
         )
 
         todo_nums = [int(n) for n in _re.findall(r"### TODO #(\d+)", output)]
-        assert todo_nums == [0, 1, 2, 3, 4, 5, 6, 7], f"expected contiguous TODO #0-#7, got {todo_nums}"
+        done_nums = [int(n) for n in _re.findall(r"### DONE #(\d+)", output)]
+        assert todo_nums == list(range(len(todo_nums)))
+        assert done_nums == list(range(len(done_nums)))
 
         # The empty MR-expiring section is present and flagged no-action.
-        assert "open Merge Request expiring before release ✓ (no action needed)" in output
+        assert "open Merge Request expiring before release" in output
         # The other sections' presence is intact.
         assert "Tooling status: healthy" in output
         assert "violations without exception or open Merge Request" in output
@@ -4202,13 +4204,12 @@ class TestKeyTakeawaysToolingTodo:
         out_no_data = render_key_takeaways(coverage, result, by_cr)
         import re
 
-        nums_healthy = re.findall(r"### TODO #(\d+)", out_healthy)
-        nums_no_data = re.findall(r"### TODO #(\d+)", out_no_data)
-        assert nums_healthy == nums_no_data
+        assert "### DONE #0 — Tooling status: healthy" in out_healthy
+        assert "### TODO #0 — Tooling status is unknown" in out_no_data
 
     # --- Healthy tooling ---
 
-    def test_healthy_tooling_shows_todo_0_healthy(self):
+    def test_healthy_tooling_shows_done_0_healthy(self):
         coverage = _make_coverage_data(
             violations=[
                 _uncovered_violation("rule-a", ["comp-a"]),
@@ -4226,9 +4227,9 @@ class TestKeyTakeawaysToolingTodo:
             ]
         }
         output = render_key_takeaways(coverage, result, by_cr, tooling_health_data=tooling)
-        assert "### TODO #0 — Tooling status: healthy" in output
+        assert "### DONE #0 — Tooling status: healthy" in output
         assert "is **healthy**" in output
-        assert "### TODO #1" in output
+        assert "### TODO #0" in output
 
     def test_healthy_todo_0_includes_workflow_link(self):
         coverage = _make_coverage_data()
@@ -4333,7 +4334,7 @@ class TestKeyTakeawaysToolingTodo:
 
     # --- No tooling data ---
 
-    def test_no_tooling_data_shows_todo_0_healthy(self):
+    def test_no_tooling_data_shows_todo_0_unknown(self):
         coverage = _make_coverage_data(
             violations=[
                 _uncovered_violation("rule-a", ["comp-a"]),
@@ -4342,15 +4343,15 @@ class TestKeyTakeawaysToolingTodo:
         result = _make_analysis_result(total_violations=1)
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_key_takeaways(coverage, result, by_cr)
-        assert "### TODO #0 — Tooling status: healthy" in output
+        assert "### TODO #0 — Tooling status is unknown" in output
         assert "status is unknown" in output
         assert "### TODO #1" in output
 
-    def test_none_tooling_data_shows_todo_0_healthy(self):
+    def test_none_tooling_data_shows_todo_0_unknown(self):
         coverage = _make_coverage_data()
         result = _make_analysis_result(total_violations=0)
         output = render_key_takeaways(coverage, result, {}, tooling_health_data=None)
-        assert "### TODO #0 — Tooling status: healthy" in output
+        assert "### TODO #0 — Tooling status is unknown" in output
         assert "status is unknown" in output
 
 
@@ -4416,8 +4417,8 @@ class TestKeyTakeawaysAnchors:
         )
         assert "### TODO #1" in output
         assert "### TODO #2" in output
-        assert "### TODO #3" in output
-        assert "### TODO #4" in output
+        assert "### DONE #" in output
+        assert "violations with expiring exceptions, no open Merge Request" in output
 
     def test_table5_anchor_present(self):
         mr = _mr(100, "https://example.com/100", ["comp-a"])
@@ -4544,7 +4545,7 @@ class TestKeyTakeawaysAnchors:
         result = _make_analysis_result(total_violations=1, upcoming_violations=[])
         by_cr = {("rule-a", "comp-a"): 1}
         output = render_key_takeaways(coverage, result, by_cr)
-        assert "warnings becoming violations" not in output
+        assert "warnings becoming violations" in output
 
     def test_expiring_exceptions_line(self):
         from datetime import datetime, timezone
@@ -4570,9 +4571,63 @@ class TestKeyTakeawaysAnchors:
             mock_dt.fromisoformat = datetime.fromisoformat
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
             output = render_key_takeaways(coverage, result, by_cr)
-        assert "Exceptions expiring in next 14 days" in output
-        assert "exceptions expiring within 14 days" in output
+        assert "## WARNINGS" in output
+        assert "## DONE" in output
+        assert output.index("## WARNINGS") > output.index("## DONE")
+        assert "exceptions expiring within 14 days" not in output
         assert "| 1 | `rule-a` | 2026-07-15 | 5 |" in output
+
+    def test_expired_exceptions_are_warning_only(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        now = datetime(2026, 7, 10, 0, 0, 0, tzinfo=timezone.utc)
+        coverage = _make_coverage_data(
+            violations=[
+                _covered_violation(
+                    "rule-a",
+                    ["comp-a"],
+                    is_permanent=False,
+                    earliest_expiry="2026-07-05T00:00:00Z",
+                ),
+            ]
+        )
+        result = _make_analysis_result(total_violations=1)
+        by_cr = {("rule-a", "comp-a"): 1}
+        with patch("guide_renderers.datetime") as mock_dt:
+            mock_dt.now.return_value = now
+            mock_dt.strptime = datetime.strptime
+            mock_dt.fromisoformat = datetime.fromisoformat
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            output = render_key_takeaways(coverage, result, by_cr)
+
+        assert "## WARNINGS" in output
+        assert "| 1 | `rule-a` | 2026-07-05 | -5 |" in output
+        assert "exceptions-expiring-within-14-days" not in output
+        assert "### TODO #" not in output[output.index("## WARNINGS") :]
+
+    def test_malformed_release_date_keeps_release_checks_in_todo(self):
+        coverage = _make_coverage_data(
+            violations=[
+                _covered_violation(
+                    "rule-a",
+                    ["comp-a"],
+                    is_permanent=False,
+                    earliest_expiry="2026-07-15T00:00:00Z",
+                ),
+            ]
+        )
+        result = _make_analysis_result(total_violations=1)
+        output = render_key_takeaways(
+            coverage,
+            result,
+            {("rule-a", "comp-a"): 1},
+            upcoming_release_date="not-a-date",
+        )
+
+        assert "The upcoming release date is missing or invalid" in output
+        assert "### TODO" in output
+        assert "Release date required to evaluate expiring exceptions" in output
 
 
 class TestTodoHelpText:
@@ -4734,10 +4789,9 @@ class TestHorizontalRuleSeparators:
         assert len(headings) >= 2
         # The first heading must not be preceded by a <br> gap.
         assert output.index("<br>") > output.index("### TODO #0")
-        # Every subsequent heading is separated from the previous section
-        # by a blank line and a rendered gap.
-        for heading in headings[1:]:
-            assert f"\n<br>\n{heading}" in output
+        # Every subsequent TODO section is separated from the previous section
+        # by a rendered gap. Stable markers sit between the gap and heading.
+        assert output.count("\n<br>\n") >= len(headings) - 1
 
     def test_no_doubled_trailing_horizontal_rule(self):
         """Each section body ends with ---; the breakdown must not append a

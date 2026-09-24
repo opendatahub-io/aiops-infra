@@ -13,3 +13,5 @@ validation records. Active and outstanding work remains in
 | [C13-independent-conforma-jira-labelling.md](C13-independent-conforma-jira-labelling.md) | Independent Conforma Jira labelling | DONE, broadened by C14 |
 | [C14-hybrid-jira-relatedness-discovery.md](C14-hybrid-jira-relatedness-discovery.md) | Hybrid discovery of label-less Conforma-related Jira tickets | DONE |
 | [C15-test-conforma-workdir-isolation.md](C15-test-conforma-workdir-isolation.md) | Isolated Conforma test workdirs | DONE |
+| [investigate-superpowers-in-conforma-routing.md](investigate-superpowers-in-conforma-routing.md) | Investigate process-skill involvement and symbolic skill-root alias resolution | DONE — repository guardrail; external loader remains out of scope |
+| [resolution-report-todo-done-sections.md](resolution-report-todo-done-sections.md) | Separate actionable TODO sections from covered and zero-work DONE sections | DONE — implemented and verified |

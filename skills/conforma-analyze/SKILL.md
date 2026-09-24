@@ -27,7 +27,7 @@ Prohibited actions — the agent MUST NEVER:
 
 **Output presentation**: See [script-output-presentation.md](../references/script-output-presentation.md). In short: plain-text output goes in a code block (copy-to-clipboard), markdown output is rendered directly. Content is always verbatim — no LLM interpretation. If output is not informative enough, the fix belongs in the script.
 
-**TODO presentation gate**: After generating the resolution guide, always run `present_conforma_report.py`. It validates the required TODO tables and emits the TODO preview between `BEGIN_VERBATIM_TODO` and `END_VERBATIM_TODO` markers, followed by the mandatory GitHub submission question between `BEGIN_SUBMISSION_QUESTION` and `END_SUBMISSION_QUESTION`. Relay both emitted sections verbatim; never stop after the TODO marker, reconstruct, summarize, or replace any generated table with prose.
+**TODO/DONE presentation gate**: After generating the resolution guide, always run `present_conforma_report.py`. It validates the complete TODO/DONE contract and emits the complete `conforma-todo-and-done.md` preview between `BEGIN_VERBATIM_TODO_AND_DONE` and `END_VERBATIM_TODO_AND_DONE` markers, followed by the mandatory GitHub submission question between `BEGIN_SUBMISSION_QUESTION` and `END_SUBMISSION_QUESTION`. Relay the complete marked report verbatim; never stop after the TODO group, omit DONE sections, reconstruct, summarize, or replace any generated table with prose.
 
 If the user only asks "does a report exist?" — answer the existence question (branch check + fetch attempt) and then **ask** whether to run the full analysis. Never produce partial analysis output as a substitute for the full workflow.
 
@@ -113,6 +113,45 @@ Both files are fetched and analyzed by default:
 - Coverage is binary: each violation either has an exception or does not. There is no "partially covered" category.
 - All counting uses `scripts/conforma_counting.py` — no script may independently compute violation counts.
 - All counting, formatting, and presentation is done by scripts. The agent presents script output verbatim. The agent MUST NOT compute violation counts, percentages, or coverage metrics itself.
+
+## Resolution report contract
+
+The generated resolution guide and `conforma-todo-and-done.md` preview are
+two presentations of the same deterministic report block. The block always
+contains the complete fixed section inventory, with every logical section
+rendered exactly once under either `## TODO` or `## DONE`. A section is TODO
+when it has outstanding work, a required input is missing or unknown, or its
+evaluation failed. Only deterministic evidence of no remaining work is DONE.
+Missing release dates, missing coverage data, malformed tooling data, and
+other technical uncertainty are TODO conditions and MUST never become false
+green DONE sections.
+
+The fixed TODO/DONE inventory is: Tooling health; violations without an
+exception or open Merge Request; expiring exceptions without an open Merge
+Request; expiring exceptions whose open Merge Request expires before release;
+expiring exceptions whose open Merge Request extends past release; violations
+with an open Merge Request expiring before release; violations addressed by
+open Merge Requests not yet merged; warnings becoming violations before
+release; and warnings becoming violations after release. Generic exception
+expiry records are informational and appear separately in a `## WARNINGS`
+section after `## DONE`; they are not TODO/DONE inventory sections.
+
+Each section has a stable machine-readable marker immediately before its
+heading, such as `<!-- conforma-section: tooling -->`. Validators use these
+markers and the generated bodies, not human titles or a variable heading list.
+TODO and DONE numbering is independent and starts at `#0`; Tooling is always
+`TODO #0` when it needs work and `DONE #0` when healthy. The covered reported
+violations evidence section is always present in DONE, including when its
+count is zero.
+
+Source violation accounting uses atomic identities containing violation code,
+component, and semantic detail, while retaining the full violation code for
+policy matching. Every source CSV violation has exactly one owning section.
+Other sections may show secondary references, including overlapping expiry or
+warning evidence, but those references MUST NOT count as additional owners.
+The generator MUST fail if an identity is missing, duplicated, or left
+unclassified. Exception and warning work-item counts remain separate from the
+source CSV violation count and must be labelled as such.
 
 
 ## Workflow Routing

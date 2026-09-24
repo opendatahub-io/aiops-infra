@@ -14,6 +14,12 @@ from parse_violations import build_semantic_detail_lookup  # noqa: E402
 import analyze_csv_report as analysis  # noqa: E402
 import conforma_release_component_ops  # noqa: E402
 import konflux_environment  # noqa: E402
+from violation_section_ledger import (  # noqa: E402
+    SECTION_COVERED,
+    SECTION_TOOLING,
+    build_violation_section_ledger,
+    section_marker,
+)
 from conforma_constants import (  # noqa: E402
     CONFORMA_REPORTER_ACTIONS_URL,
     CONFORMA_REPORTER_URL,
@@ -585,17 +591,52 @@ def render_key_takeaways(
     release: str = "",
     jira_sync: dict | None = None,
     component_link_base: str = "",
+    source_records: list | None = None,
 ) -> str:
     """Render the violations breakdown — exact violation counts, no approximation.
 
     A violation = unique (code, component, message) triple. Coverage is binary:
     each violation either has an exception or does not.
     """
+    release_date_evaluation_available = False
+    if upcoming_release_date:
+        try:
+            datetime.strptime(upcoming_release_date, "%Y-%m-%d")
+            release_date_evaluation_available = True
+        except ValueError:
+            pass
+
     buckets = _compute_violation_buckets(
         coverage_data,
         analysis_result,
         by_component_rule,
         upcoming_release_date,
+    )
+
+    # Normalize the component-level coverage view into the same atomic ledger
+    # used by focused tests and downstream validators.  Coverage JSON from
+    # older runs may not contain semantic rows; an empty detail is explicit,
+    # not an invitation to infer one.
+    if source_records is None:
+        source_records = []
+        for coverage_violation in coverage_data.get("violations", []):
+            rule = coverage_violation.get("rule", "")
+            components = set(coverage_violation.get("all_components", []))
+            components.update(coverage_violation.get("covered_components", []))
+            components.update(coverage_violation.get("uncovered_components", []))
+            for component in sorted(components):
+                source_records.append(
+                    {
+                        "code": rule.split(":", 1)[0],
+                        "full_violation_code": rule,
+                        "component_name": component,
+                        "semantic_detail": "",
+                    }
+                )
+    violation_ledger = build_violation_section_ledger(
+        source_records,
+        coverage_data,
+        upcoming_release_date=upcoming_release_date,
     )
 
     no_mr_entries = buckets["no_mr_entries"]
@@ -618,37 +659,20 @@ def render_key_takeaways(
         for w in analysis_result.upcoming_violations:
             eff = getattr(w, "effective_on", "") or ""
             eff_date = eff[:10] if eff else ""
-            if upcoming_release_date and eff_date and eff_date <= upcoming_release_date:
+            if release_date_evaluation_available and eff_date and eff_date <= upcoming_release_date:
                 _upcoming_pre_release.append(w)
             else:
                 _upcoming_post_release.append(w)
 
-    # Summary preamble — count non-empty action categories
-    action_count = sum(
-        [
-            no_mr_violation_count > 0,
-            sum(e["violation_count"] for e in expiring_no_mr) > 0,
-            sum(e["violation_count"] for e in expiring_mr_insufficient) > 0,
-            has_mr_expires_count > 0,
-            has_mr_ok_count > 0,
-            bool(
-                tooling_health_data
-                and any(
-                    t.get("health", {}).get("status") in ("unhealthy", "error")
-                    for t in tooling_health_data.get("tools", [])
-                )
-            ),
-            bool(expiring_soon),
-            bool(_upcoming_pre_release),
-            bool(_upcoming_post_release),
-        ]
+    lines: list[str] = []
+
+    source_violation_count = len(violation_ledger.source_identities)
+    todo_violation_count = sum(entry.status != "DONE" for entry in violation_ledger.entries.values())
+    done_violation_count = sum(entry.status == "DONE" for entry in violation_ledger.entries.values())
+    violation_accounting_marker = (
+        "<!-- conforma-violation-accounting: "
+        f"source={source_violation_count}; todo={todo_violation_count}; done={done_violation_count} -->"
     )
-    lines = ["## TODO", ""]
-
-    if action_count == 0:
-        lines.append("> No TODOs — all violations are covered")
-
-    lines.append("")
 
     detail_lookup, detail_labels = (
         build_semantic_detail_lookup(violations_yaml_data) if violations_yaml_data else ({}, {})
@@ -716,14 +740,22 @@ def render_key_takeaways(
     todo_sections: list[dict] = []
 
     # TODO: Tooling health — always pinned first
-    unhealthy_tools = [
+    tooling_tools = (tooling_health_data or {}).get("tools", [])
+    problem_tools = [
         t
-        for t in (tooling_health_data or {}).get("tools", [])
-        if t.get("health", {}).get("status") in ("unhealthy", "error")
+        for t in tooling_tools
+        if t.get("health", {}).get("status") in ("unhealthy", "error", "in_progress")
     ]
+    unhealthy_tools = [
+        t for t in problem_tools if t.get("health", {}).get("status") in ("unhealthy", "error")
+    ]
+    tooling_unknown = not tooling_health_data or not tooling_tools or any(
+        t.get("health", {}).get("status") not in ("healthy", "unhealthy", "error", "in_progress")
+        for t in tooling_tools
+    )
     tooling_body = []
-    if unhealthy_tools:
-        names = ", ".join(t.get("name", "unknown") for t in unhealthy_tools)
+    if problem_tools:
+        names = ", ".join(t.get("name", "unknown") for t in problem_tools)
         title = f"{names} workflow is failing"
         tooling_body.append("")
         tooling_body.append(
@@ -733,6 +765,8 @@ def render_key_takeaways(
         )
         tooling_body.append("")
         if tooling_health_data:
+            _append_tooling_health_detail(tooling_body, tooling_health_data)
+            tooling_body.append("")
             tooling_body.extend(_render_tooling_health_table(tooling_health_data).splitlines())
             tooling_body.append("")
         tooling_body.append("**Next steps:**")
@@ -748,7 +782,15 @@ def render_key_takeaways(
         tooling_line = _tooling_health_executive_line(tooling_health_data)
         if tooling_line:
             tooling_body.append(tooling_line)
-        count = len(unhealthy_tools)
+        count = len(problem_tools)
+    elif tooling_unknown:
+        title = "Tooling status is unknown"
+        tooling_body.append("")
+        tooling_body.append(
+            f"The [conforma-reporter workflow]({CONFORMA_REPORTER_ACTIONS_URL}) status "
+            "could not be determined. Refresh or repair the tooling health data before relying on this report."
+        )
+        count = 1
     else:
         title = "Tooling status: healthy"
         tooling_body.append("")
@@ -770,6 +812,8 @@ def render_key_takeaways(
             "title": title,
             "count": count,
             "body": tooling_body,
+            "section_id": SECTION_TOOLING,
+            "force_todo": tooling_unknown,
             "pinned": True,  # Always first
             "priority": 0,  # Tooling always #0
         }
@@ -806,39 +850,42 @@ def render_key_takeaways(
             "count": no_mr_violation_count,
             "body": no_mr_body,
             "pinned": False,
+            "section_id": "violations-without-exception-or-merge-request",
             "priority": 1,  # Highest priority: uncovered violations
         }
     )
 
-    # TODO: Exceptions expiring within the standard 14-day warning window.
-    # This is independent of the planned release date: an exception can expire
-    # shortly after release and still require follow-up before the next report.
-    expiring_soon_body = [
-        "",
-        "Review these exceptions before they expire. Resolve the underlying issue in code first, or extend the exception if remediation cannot land in time.",
-        "",
-        "| # | Rule | Effective Until | Days Left |",
-        "|--:|------|-----------------|:---------:|",
-    ]
-    if expiring_soon:
-        for row_num, (rule, expiry_date, days_left, detail) in enumerate(expiring_soon, 1):
-            rule_cell = f"`{rule}`{detail}"
-            expiring_soon_body.append(f"| {row_num} | {rule_cell} | {expiry_date} | {days_left} |")
+    # TODOs: Exceptions expiring before the upcoming release date.  These
+    # sections remain visible when the date is unavailable so the report cannot
+    # turn missing evaluation data into a false DONE result.
+    if not release_date_evaluation_available:
+        missing_release_body = [
+            "",
+            "The upcoming release date is missing or invalid; this section cannot be evaluated deterministically.",
+            "Provide a valid release date and regenerate the report, or perform the check manually.",
+            "",
+            "| | Evaluation unavailable | |",
+            "",
+            "---",
+        ]
+        for section_id, title_text, priority in (
+            ("expiring-exceptions-without-merge-request", "expiring exceptions, no open Merge Request", 3),
+            ("expiring-exceptions-merge-request-before-release", "expiring exceptions, Merge Request also expires before release", 4),
+            ("expiring-exceptions-merge-request-after-release", "expiring exceptions, Merge Request extends past release", 5),
+            ("merge-request-expiring-before-release", "violations with open Merge Request expiring before release", 6),
+        ):
+            todo_sections.append(
+                {
+                    "title": f"Release date required to evaluate {title_text}",
+                    "count": 1,
+                    "body": list(missing_release_body),
+                    "force_todo": True,
+                    "section_id": section_id,
+                    "pinned": False,
+                    "priority": priority,
+                }
+            )
     else:
-        expiring_soon_body.append("| | No exceptions | | |")
-    expiring_soon_body.extend(["", "---"])
-    todo_sections.append(
-        {
-            "title": f"{len(expiring_soon):,} exceptions expiring within 14 days",
-            "count": len(expiring_soon),
-            "body": expiring_soon_body,
-            "pinned": False,
-            "priority": 2,
-        }
-    )
-
-    # TODOs: Exceptions expiring before the upcoming release date
-    if upcoming_release_date:
         # TODO: Expiring exceptions with no open Merge Request
         expiring_no_mr_count = sum(e["violation_count"] for e in expiring_no_mr)
         expiring_no_mr_body = []
@@ -885,6 +932,7 @@ def render_key_takeaways(
                 "count": expiring_no_mr_count,
                 "body": expiring_no_mr_body,
                 "pinned": False,
+                "section_id": "expiring-exceptions-without-merge-request",
                 "priority": 3,
             }
         )
@@ -940,11 +988,12 @@ def render_key_takeaways(
                 "count": expiring_mr_insuf_count,
                 "body": expiring_mr_insuf_body,
                 "pinned": False,
+                "section_id": "expiring-exceptions-merge-request-before-release",
                 "priority": 4,
             }
         )
 
-        # TODO: Expiring exceptions with MR extending past release (lower risk)
+        # TODO: Expiring exceptions with a Merge Request extending past release
         expiring_mr_suf_count = sum(e["violation_count"] for e in expiring_mr_sufficient)
         expiring_mr_suf_body = []
         expiring_mr_suf_body.append("")
@@ -994,6 +1043,7 @@ def render_key_takeaways(
                 "count": expiring_mr_suf_count,
                 "body": expiring_mr_suf_body,
                 "pinned": False,
+                "section_id": "expiring-exceptions-merge-request-after-release",
                 "priority": 5,
             }
         )
@@ -1003,7 +1053,7 @@ def render_key_takeaways(
     # date is known: an empty bucket still shows "0 violations … ✓ (no action
     # needed)" so the check is visible in the report. Gating on a non-empty list
     # would silently drop the section and break the TODO numbering.
-    if upcoming_release_date:
+    if release_date_evaluation_available:
         has_mr_exp_body = []
         has_mr_exp_body.append("")
         if has_mr_expires_before_release:
@@ -1056,7 +1106,8 @@ def render_key_takeaways(
                 "count": has_mr_expires_count,
                 "body": has_mr_exp_body,
                 "pinned": False,
-                "priority": 6,
+            "section_id": "merge-request-expiring-before-release",
+            "priority": 6,
             }
         )
 
@@ -1095,12 +1146,14 @@ def render_key_takeaways(
             "count": has_mr_ok_count,
             "body": has_mr_ok_body,
             "pinned": False,
-            "priority": 7,
+        "section_id": "open-merge-requests-not-merged",
+        "priority": 7,
         }
     )
 
-    # Warnings becoming violations — split by release date
-    if analysis_result.upcoming_violations:
+    # Warnings becoming violations — split by release date.  Both warning
+    # sections are always emitted, including when there are no warnings.
+    if analysis_result.upcoming_violations is not None:
         grouped: dict[tuple[str, str, str], dict] = {}
         for w in analysis_result.upcoming_violations:
             detail = getattr(w, "semantic_detail", "") or ""
@@ -1124,7 +1177,7 @@ def render_key_takeaways(
 
         pre_release: list[tuple] = []
         post_release: list[tuple] = []
-        if upcoming_release_date:
+        if release_date_evaluation_available:
             for item in sorted_entries:
                 eff = item[1]["effective_on"]
                 eff_date = eff[:10] if eff else ""
@@ -1139,7 +1192,7 @@ def render_key_takeaways(
         pre_count = sum(1 for _ in pre_release)
         pre_warn_body = []
         pre_warn_body.append("")
-        if upcoming_release_date:
+        if release_date_evaluation_available:
             pre_warn_body.append(
                 f"These warnings will become enforced violations **before** the "
                 f"{version_label} release on {upcoming_release_date}. "
@@ -1147,8 +1200,8 @@ def render_key_takeaways(
             )
         else:
             pre_warn_body.append(
-                "No upcoming release date is set — cannot determine which warnings "
-                "will become violations before the release."
+                "The upcoming release date is missing or invalid — cannot determine "
+                "which warnings will become violations before the release."
             )
         pre_warn_body.append("")
         pre_warn_body.append("| # | Warning | Component | Count | Deadline | Days Left |")
@@ -1173,6 +1226,8 @@ def render_key_takeaways(
                 "title": f"{pre_count:,} warnings becoming violations before release date",
                 "count": pre_count,
                 "body": pre_warn_body,
+                "section_id": "warnings-before-release",
+                "force_todo": not release_date_evaluation_available,
                 "pinned": False,
                 "priority": 8,
             }
@@ -1182,7 +1237,7 @@ def render_key_takeaways(
         post_count = sum(1 for _ in post_release)
         post_warn_body = []
         post_warn_body.append("")
-        if upcoming_release_date:
+        if release_date_evaluation_available:
             post_warn_body.append(
                 f"These warnings will become enforced violations **after** the "
                 f"{version_label} release on {upcoming_release_date}. "
@@ -1212,52 +1267,147 @@ def render_key_takeaways(
                 "title": f"{post_count:,} warnings becoming violations within 21 days (after release date)",
                 "count": post_count,
                 "body": post_warn_body,
+                "section_id": "warnings-after-release",
+                "force_todo": not release_date_evaluation_available,
                 "pinned": False,
                 "priority": 9,
             }
         )
 
-    # Sort TODO sections: pinned first, then non-zero by priority, then zero-count by priority
+    # The warning CSV may legitimately contain no rows.  The two warning
+    # sections remain visible regardless, and a missing release date keeps
+    # them TODO because the split cannot be evaluated safely.
+    warning_section_ids = {"warnings-before-release", "warnings-after-release"}
+    if not warning_section_ids.intersection({section.get("section_id") for section in todo_sections}):
+        warning_body = [
+            "",
+            (
+                "No warning records were reported."
+                if release_date_evaluation_available
+                else "The upcoming release date is missing or invalid; warning timing cannot be evaluated deterministically."
+            ),
+            "",
+            "| # | Warning | Component | Count | Deadline | Days Left |",
+            "|--:|---------|-----------|:-----:|----------|:---------:|",
+            "| | No warnings | | | | |",
+            "",
+            "---",
+        ]
+        for section_id, title, priority in (
+            ("warnings-before-release", "warnings becoming violations before release date", 8),
+            ("warnings-after-release", "warnings becoming violations within 21 days (after release date)", 9),
+        ):
+            todo_sections.append(
+                {
+                    "title": f"0 {title}",
+                    "count": 1 if not release_date_evaluation_available else 0,
+                    "body": list(warning_body),
+                    "section_id": section_id,
+                    "force_todo": not release_date_evaluation_available,
+                    "pinned": False,
+                    "priority": priority,
+                }
+            )
+
+    # Keep policy-covered evidence visible as DONE.  The existing expiry and
+    # warning sections may reference these identities, but this section is the
+    # sole owner for the source-violation accounting view.
+    covered_rows = sorted(
+        (
+            entry.identity.full_code,
+            entry.identity.component,
+            entry.identity.semantic_detail,
+            "; ".join(entry.evidence),
+        )
+        for entry in violation_ledger.entries_for(SECTION_COVERED)
+    )
+    covered_body = [
+        "",
+        "These violations were reported in the source CSV and are covered by an existing policy exception.",
+        "They remain visible as evidence; no action is required from this report.",
+        "",
+        "| # | Violation | Component | Semantic detail | Coverage evidence |",
+        "|--:|-----------|-----------|-----------------|-------------------|",
+    ]
+    if covered_rows:
+        for row_num, (rule, component, detail, evidence) in enumerate(covered_rows, 1):
+            covered_body.append(
+                f"| {row_num} | `{rule}` | {_format_component_cell(component)} | "
+                f"{detail or '—'} | {evidence or 'existing policy'} |"
+            )
+    else:
+        covered_body.append("| | No policy-covered violations | | | |")
+    covered_body.extend(["", "---"])
+    todo_sections.append(
+        {
+            "title": f"{len(covered_rows):,} source violations covered by existing policy",
+            "count": len(covered_rows),
+            "body": covered_body,
+            "section_id": SECTION_COVERED,
+            "status": "DONE",
+            "pinned": False,
+            "priority": 1,
+        }
+    )
+
+    # Sort actionable sections first by their stable logical priority.  Every
+    # section remains in the inventory; zero-count sections move to DONE.
     def _sort_key(section: dict) -> tuple:
         if section.get("pinned"):
             return (0, 0, "")  # Pinned sections always first
-        count = section["count"]
         priority = section.get("priority", 999)
-        if count > 0:
-            return (1, priority, section["title"])  # Non-zero, sorted by priority (preserves semantic order)
-        return (2, priority, section["title"])  # Zero-count sections last, sorted by priority
+        return (priority, section["title"])
 
-    sorted_sections = sorted(todo_sections, key=_sort_key)
+    actionable = [
+        section for section in todo_sections
+        if section.get("status") != "DONE" and (section.get("count", 0) > 0 or section.get("force_todo"))
+    ]
+    done = [
+        section for section in todo_sections
+        if section.get("status") == "DONE" or (section.get("count", 0) == 0 and not section.get("force_todo"))
+    ]
+    actionable = sorted(actionable, key=_sort_key)
+    done = sorted(done, key=lambda section: (0 if section.get("section_id") == SECTION_TOOLING else 1, section.get("priority", 999), section["title"]))
 
-    # Render sorted sections with sequential numbering
-    for todo_num, section in enumerate(sorted_sections):
-        count = section["count"]
-        title = section["title"]
-
-        # Add visual indicator for zero-count sections (no action needed)
-        if count == 0:
-            title_suffix = " ✓ (no action needed)"
-        else:
-            title_suffix = ""
-
-        if todo_num > 0:
-            # Blank line + rendered <br> after the preceding --- so the
-            # next heading does not visually merge with the previous
-            # section (a bare blank line before a heading is not rendered
-            # as a gap by most Markdown renderers).
+    def _render_group(group_name: str, sections: list[dict]) -> None:
+        lines.append(f"## {group_name}")
+        lines.append("")
+        if group_name == "TODO":
+            lines.append(violation_accounting_marker)
             lines.append("")
-            lines.append("<br>")
+        for number, section in enumerate(sections):
+            if number:
+                lines.extend(["", "<br>"])
+            lines.append(section_marker(section["section_id"]))
+            lines.append(f"### {group_name} #{number} — {section['title']}")
+            lines.extend(section["body"])
 
-        lines.append(f"### TODO #{todo_num} — {title}{title_suffix}")
-        lines.extend(section["body"])
+    _render_group("TODO", actionable)
+    lines.append("")
+    _render_group("DONE", done)
 
-    # Each section body already ends with ---; avoid a doubled rule.
-    if not (sorted_sections and sorted_sections[-1]["body"][-1] == "---"):
+    if not (done and done[-1]["body"] and done[-1]["body"][-1] == "---"):
         lines.append("---")
 
+    lines.extend(
+        [
+            "",
+            "## WARNINGS",
+            "",
+            "These generic exception-expiry records are informational only. "
+            "Release-date-aware expiry checks remain in the TODO sections above.",
+            "",
+            "| # | Rule | Effective Until | Days Left |",
+            "|--:|------|-----------------|:---------:|",
+        ]
+    )
     if expiring_soon:
-        parts = [f"`{rule}`{detail} (expires {date}, {days}d)" for rule, date, days, detail in expiring_soon]
-        lines.append(f"- **Exceptions expiring in next 14 days**: {', '.join(parts)}")
+        for row_num, (rule, expiry_date, days_left, detail) in enumerate(expiring_soon, 1):
+            rule_cell = f"`{rule}`{detail}"
+            lines.append(f"| {row_num} | {rule_cell} | {expiry_date} | {days_left} |")
+    else:
+        lines.append("| | No generic exception-expiry records | | |")
+    lines.extend(["", "---"])
 
     ec_validation = coverage_data.get("ec_validation", {})
     divergence_count = ec_validation.get("divergence_count", 0)
@@ -2131,13 +2281,11 @@ def write_todo_preview(
     metadata_header: str,
     key_takeaways: str,
 ) -> None:
-    """Write TODO preview file for chat display.
+    """Write the complete TODO/DONE preview file for chat display.
 
-    Contains the metadata header (context confirmation) and the TODO section
-    with summary preamble and all TODO #N subsections. This is the actionable
-    subset shown in agent chat — the full resolution guide (submitted to
-    GitHub) contains all sections including coverage, detailed resolution
-    steps, and stats.
+    Contains the metadata header and the complete canonical TODO/DONE block.
+    The block is shared byte-for-byte with the full resolution guide so the
+    presentation path cannot omit or summarize DONE evidence.
     """
     sections = [metadata_header, key_takeaways]
     content = "\n\n".join(s for s in sections if s)

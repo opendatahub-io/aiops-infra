@@ -213,8 +213,8 @@ def generate_resolution_guide(
 ) -> str:
     """Generate the full resolution guide markdown content.
 
-    When ``todo_file`` is provided, writes a TODO preview file (action
-    items, metadata header, violations breakdown) for chat display.
+    When ``todo_file`` is provided, writes a TODO/DONE preview file containing
+    the same complete resolution block included in the full guide.
     The full resolution guide (all sections) is always generated as the
     primary output submitted to GitHub.
     """
@@ -285,6 +285,16 @@ def generate_resolution_guide(
             work_scope_by_rule[rule] = ws
 
     counts = conforma_counting.count_from_records(records, code_field="code")
+    source_violation_records = [
+        record
+        for record in records
+        if str(getattr(record, "type", "")).strip().lower() == "violation"
+    ]
+    if analysis_result.total_violations and not source_violation_records:
+        raise ValueError(
+            "Cannot generate the resolution guide: source violation records "
+            "are unavailable, so the TODO/DONE identity gate cannot be evaluated"
+        )
 
     # Raw source-CSV row count: fall back to the per-image row count of the
     # primary (violations) CSV already computed by the counting pass.
@@ -321,12 +331,18 @@ def generate_resolution_guide(
             os.environ.get("KONFLUX_TENANT", ""),
             konflux_application,
         ),
+        source_records=source_violation_records,
     )
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
 
+    # Keep this block as one shared value: it is included byte-for-byte in the
+    # full guide and in the renamed preview. The renderer owns the complete
+    # TODO/DONE inventory; this module must not reconstruct or filter it.
+    todo_and_done_block = key_takeaways
+
     sections = [
         metadata_header,
-        key_takeaways,
+        todo_and_done_block,
         summary_metrics,
         _render_coverage_table(coverage_data),
         _render_resolution_guide(
@@ -348,7 +364,7 @@ def generate_resolution_guide(
         _write_todo_preview(
             todo_file,
             metadata_header=metadata_header,
-            key_takeaways=key_takeaways,
+            key_takeaways=todo_and_done_block,
         )
 
     if analysis_output_file:
@@ -479,8 +495,8 @@ def main() -> int:
     parser.add_argument(
         "--todo-file",
         default=None,
-        help="Path to write TODO preview file for chat display. "
-        "Contains action items, metadata, and violations breakdown.",
+        help="Path to write the complete TODO/DONE preview file for chat display. "
+        "Contains metadata and the shared resolution section block.",
     )
     parser.add_argument(
         "--analysis-output-file",
