@@ -83,7 +83,7 @@ These rules apply to ALL conforma skill execution and output.
 - List policy files as bullets, not comma-delimited
 - Exception links in resolution guide section, not summary table
 - Components column always populated, even for fully-covered violations
-- Reports must have Context Confirmation (metadata) above TODO; the TODO section contains the summary preamble and all TODO #N subsections
+- Reports must have Context Confirmation (metadata) above the complete TODO/DONE block; every fixed-inventory section appears exactly once under either `## TODO` or `## DONE`
 - Source CSV: link to exact git commit hash, not branch name
 - Report header: identify which specific report version was analyzed
 - Next-steps: brief (one line); detailed steps in resolution guide below

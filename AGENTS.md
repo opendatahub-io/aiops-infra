@@ -122,4 +122,11 @@ Follow them in ALL generated content — code, comments, commit messages, docume
 - Skills and rules must NOT depend on any specific AI tool (Cursor, Claude, Copilot, etc.)
 - Presentation rules must produce identical output regardless of which AI model executes them
 - All rules belong in skill files or AGENTS.md, never in tool-specific config alone
+- When a skill catalog provides an alias such as `r0 = /path/to/skills`,
+  expand the alias to its mapped root; never treat the alias name (`r0`) as a
+  literal directory component. Resolve `r0/<skill>/SKILL.md` as
+  `/path/to/skills/<skill>/SKILL.md`.
+- Skill-root aliases are catalog notation, not filesystem directories. If an
+  alias expansion does not resolve, report the mapped root and attempted
+  expanded path; do not retry by inserting the alias name into the path.
 - Solutions must work with minimal dependencies, across different environments
