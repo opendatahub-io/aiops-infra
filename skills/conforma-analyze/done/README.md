@@ -15,3 +15,4 @@ validation records. Active and outstanding work remains in
 | [C15-test-conforma-workdir-isolation.md](C15-test-conforma-workdir-isolation.md) | Isolated Conforma test workdirs | DONE |
 | [investigate-superpowers-in-conforma-routing.md](investigate-superpowers-in-conforma-routing.md) | Investigate process-skill involvement and symbolic skill-root alias resolution | DONE — repository guardrail; external loader remains out of scope |
 | [resolution-report-todo-done-sections.md](resolution-report-todo-done-sections.md) | Separate actionable TODO sections from covered and zero-work DONE sections | DONE — implemented and verified |
+| [production-nightly-latest-build-comparison.md](production-nightly-latest-build-comparison.md) | Compare production nightly violations with the stage latest build and flag violations absent from the latest build | DONE — implemented and validated; full unit run has unrelated existing broken links |

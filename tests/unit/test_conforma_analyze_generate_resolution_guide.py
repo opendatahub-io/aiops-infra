@@ -3110,6 +3110,60 @@ class TestContextIntegration:
         assert (run_dir / "conforma-resolution-guide.md").is_file()
         assert (run_dir / TODO_PREVIEW_FILENAME).is_file()
 
+    def test_nightly_context_renders_latest_build_comparison(self, tmp_path, monkeypatch, sample_catalog):
+        run_dir = self._setup_run_with_artifacts(tmp_path, monkeypatch, sample_catalog)
+        release = "rhoai-3.5-ea.2"
+        latest_path = run_dir / f"{release}-stage-latest.csv"
+        latest_path.write_text(
+            "type,component_name,image,message,effective_on,code,title,description,solution\n"
+            "warning,comp-a-v3-5-ea-2,img:sha,warning,,rule.b,Warning,desc,Fix\n"
+        )
+        guide_path = run_dir / f"{release}-prod-conforma-resolution-guide.md"
+        guide_path.write_text("nightly guide")
+        conforma_context_ops.update_step(
+            run_dir,
+            "fetch",
+            "completed",
+            build_type="nightly",
+            primary_report={
+                "release": release,
+                "status": "fetched",
+                "path": str(run_dir / f"{release}.csv"),
+                "source_path": "prod/future/build_type_nightly/conforma-violations-report.csv",
+                "created_at": "2026-09-24T00:00:00Z",
+                "source_sha": "primary-sha",
+                "environment": "prod",
+                "build_type": "nightly",
+            },
+            latest_comparison_report={
+                "release": release,
+                "status": "fetched",
+                "path": str(latest_path),
+                "source_path": "stage/future/build_type_latest/conforma-violations-report.csv",
+                "created_at": "2026-09-24T00:00:00Z",
+                "source_sha": "latest-sha",
+                "environment": "stage",
+                "build_type": "latest",
+            },
+            production_resolution_guide={
+                "release": release,
+                "status": "fetched",
+                "path": str(guide_path),
+                "source_path": "prod/conforma-resolution-guide.md",
+                "created_at": "2026-09-24T00:00:00Z",
+                "source_sha": "guide-sha",
+            },
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["generate_resolution_guide.py", "--catalog", str(sample_catalog)],
+        )
+
+        assert mod.main() == 0
+        output = (run_dir / "conforma-resolution-guide.md").read_text()
+        assert "### TODO #1 — 1 production nightly violations absent from latest build" in output
+        assert "stage/future/build_type_latest/conforma-violations-report.csv" in output
+
     def test_updates_context_after_generation(self, tmp_path, monkeypatch, sample_catalog):
         run_dir = self._setup_run_with_artifacts(tmp_path, monkeypatch, sample_catalog)
         monkeypatch.setattr(
@@ -3737,6 +3791,39 @@ class TestTodoPreamble:
         output = render_key_takeaways(coverage, result, by_cr)
         assert "## TODO" in output
         assert "TODO #1" in output
+
+    def test_latest_build_missing_violations_are_always_todo_one(self):
+        coverage = _make_coverage_data(
+            violations=[_uncovered_violation("rule-a", ["comp-a"])]
+        )
+        result = _make_analysis_result(total_violations=1)
+        primary = [
+            {
+                "type": "violation",
+                "code": "rule-a",
+                "full_violation_code": "rule-a",
+                "component_name": "comp-a",
+                "semantic_detail": "detail-a",
+            }
+        ]
+        latest = []
+
+        output = render_key_takeaways(
+            coverage,
+            result,
+            {("rule-a", "comp-a"): 1},
+            source_records=primary,
+            latest_build_records=latest,
+            comparison_metadata={
+                "primary_source_path": "prod/future/build_type_nightly/conforma-violations-report.csv",
+                "latest_source_path": "stage/future/build_type_latest/conforma-violations-report.csv",
+            },
+        )
+
+        assert "### TODO #1 — 1 production nightly violations absent from latest build" in output
+        assert "Rerun the product nightly build" in output
+        assert "rule-a" in output
+        assert "detail-a" in output
 
     def test_todo_section_multiple_actions(self):
         mr = _mr(100, "https://example.com/100", ["comp-b"])

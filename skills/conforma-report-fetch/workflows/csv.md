@@ -79,6 +79,27 @@ If `release_day` is unavailable (e.g. for in-development versions), the script a
 
 When `--output-dir` is omitted, the script creates a timestamped directory under `~/.conforma/` (relative to this skill) and updates the `~/.conforma/latest` symlink. The output directory contains `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release.
 
+### Built production nightly comparison
+
+When the active context explicitly contains `environment: prod` and
+`build_type: nightly`, use the gated comparison mode:
+
+```bash
+~/.conforma/bin/conforma_run.sh scripts/run_long_task.py launch fetch-nightly-comparison \
+  skills/conforma-report-fetch/scripts/fetch_csv_reports.py -- --nightly-comparison
+```
+
+The same release branch is used for all exact paths:
+
+- `prod/future/build_type_nightly/conforma-violations-report.csv`
+- `prod/future/build_type_nightly/conforma-warnings-report.csv`
+- `prod/conforma-resolution-guide.md`
+- `stage/future/build_type_latest/conforma-violations-report.csv`
+
+This mode records both report sources and commit metadata in `context.yaml`.
+It fails on missing files, authentication, source metadata, or invalid gate
+values and never falls back to another environment or build type.
+
 ### Release Auto-Detection
 
 When `--releases` is omitted and no `context.yaml` release is set, the script fetches the list of supported release branches from [`rhoai-release-data.yaml`](https://github.com/red-hat-data-services/rhods-devops-infra/blob/main/src/config/rhoai-release-data.yaml) in `rhods-devops-infra`. This is the single source of truth for which RHOAI versions are currently supported, including EA/in-development releases.

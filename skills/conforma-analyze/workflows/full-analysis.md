@@ -123,9 +123,21 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 
 4. **Fetch reports** *(long-running step)*: Fetch CSVs into the active run directory. **This step can take several minutes** and exceeds the ~30s foreground command cap, so it MUST run through the long-task runner (see the "Long-running steps" rule below) — do NOT run it as a plain foreground command, and do NOT improvise a `nohup`/`sleep`/`ps` polling loop.
 
+   If `context.yaml` explicitly contains `environment: prod` and
+   `build_type: nightly`, use the gated comparison command below. It fetches
+   the production nightly report, production resolution guide, and same-branch
+   stage latest report. Otherwise use the ordinary command.
+
    ```bash
    # 1. Launch the fetch in the background (Bash description: "Fetch Conforma violation CSV reports"):
    ~/.conforma/bin/conforma_run.sh scripts/run_long_task.py launch fetch skills/conforma-report-fetch/scripts/fetch_csv_reports.py
+   ```
+
+   For the explicit production-nightly comparison:
+
+   ```bash
+   ~/.conforma/bin/conforma_run.sh scripts/run_long_task.py launch fetch-nightly-comparison \
+     skills/conforma-report-fetch/scripts/fetch_csv_reports.py -- --nightly-comparison
    ```
 
    Then run the **exact `next_command` string from the JSON output** (a `wait` call). Each round blocks up to ~25s and returns `status` plus a new `next_command` whose `--seq` has incremented. Repeat the returned `next_command` verbatim until `status` is `done` or `failed`:
@@ -153,7 +165,7 @@ State is persisted to `<run_dir>/<step>.state.json`, `<run_dir>/<step>.log`, and
 ~/.conforma/bin/conforma_run.sh scripts/run_long_task.py launch fetch-all skills/conforma-report-fetch/scripts/fetch_csv_reports.py -- --all
 ```
 
-   The output directory will contain `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release. The `fetch-metadata.json` contains `source_path` and `created_at` per release — needed by downstream steps. Some in-development/EA branches may not have report CSVs yet. The fetch script reports failures per release -- this is expected and not a blocker. The parse step will process whatever CSVs were successfully fetched.
+   The ordinary output directory will contain `{release}.csv` (violations) and `{release}-warnings.csv` (warnings) for each release. In gated nightly mode it additionally contains `{release}-stage-latest.csv` and `{release}-prod-conforma-resolution-guide.md`; missing gated artifacts fail the workflow. The `fetch-metadata.json` and `context.yaml` contain source paths, build types, and commit metadata needed by downstream steps.
 
 5. **Parse violations and warnings**: Parse the fetched CSVs into a structured YAML. Use Bash description: `"Parse Conforma violations and warnings"`. **Warnings CSVs are parsed by default** — any warning with an enforcement date within 21 days is included as a warning becoming a violation. The parse step also **enriches each component with its owning Jira Component** from the component-maturity catalog (requires VPN + GitLab auth). If the catalog is unreachable, the script fails hard — ensure VPN is active:
 

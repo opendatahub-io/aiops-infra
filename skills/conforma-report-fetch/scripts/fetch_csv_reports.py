@@ -38,9 +38,13 @@ WORK_DIR = SKILL_DIR / ".work"
 
 
 from conforma_constants import (  # noqa: E402
+    BUILD_TYPES,
     CONFORMA_REPORTER_REPO,
     CSV_FILENAME,
+    PRODUCTION_NIGHTLY_WARNINGS_CSV_PATH,
+    PRODUCTION_RESOLUTION_GUIDE_PATH,
     RAW_DOWNLOAD_BASE,
+    fixed_csv_path,
     WARNINGS_CSV_FILENAME,
     csv_paths_for_environment,
     warnings_csv_paths_for_environment,
@@ -163,6 +167,72 @@ def _fetch_last_commit_info(release: str, csv_path: str) -> dict[str, str]:
     if result["date"]:
         return result
     return empty
+
+
+def _fetch_fixed_file(
+    release: str,
+    output_dir: Path,
+    source_path: str,
+    output_name: str,
+    *,
+    require_metadata: bool = False,
+) -> dict:
+    """Fetch one exact repository file and return provenance metadata."""
+    output_file = output_dir / output_name
+    error = _download_file_raw(source_path, release, output_file)
+    if error:
+        return {
+            "release": release,
+            "status": "failed",
+            "path": None,
+            "source_path": source_path,
+            "error": error["error"],
+        }
+    commit_info = _fetch_last_commit_info(release, source_path)
+    if require_metadata and (not commit_info.get("date") or not commit_info.get("sha")):
+        output_file.unlink(missing_ok=True)
+        return {
+            "release": release,
+            "status": "failed",
+            "path": None,
+            "source_path": source_path,
+            "error": f"Missing commit metadata for {source_path} on {release}",
+        }
+    return {
+        "release": release,
+        "status": "fetched",
+        "path": str(output_file),
+        "size_bytes": output_file.stat().st_size,
+        "source_path": source_path,
+        "created_at": commit_info.get("date", ""),
+        "source_sha": commit_info.get("sha", ""),
+    }
+
+
+def fetch_fixed_report_for_release(
+    release: str,
+    output_dir: Path,
+    environment: str,
+    build_type: str,
+    *,
+    output_name: str | None = None,
+) -> dict:
+    """Fetch the exact report selected by an environment/build-type pair."""
+    source_path = fixed_csv_path(environment, build_type)
+    filename = output_name or f"{release}-{environment}-{build_type}.csv"
+    return _fetch_fixed_file(release, output_dir, source_path, filename, require_metadata=True)
+
+
+def fetch_resolution_guide_for_release(release: str, output_dir: Path) -> dict:
+    """Fetch the production resolution guide for a nightly report."""
+    output_name = f"{release}-prod-conforma-resolution-guide.md"
+    return _fetch_fixed_file(
+        release,
+        output_dir,
+        PRODUCTION_RESOLUTION_GUIDE_PATH,
+        output_name,
+        require_metadata=True,
+    )
 
 
 def _fetch_last_commit_info_gh(release: str, csv_path: str) -> dict[str, str]:
@@ -343,6 +413,54 @@ def copy_local_csvs(
     return results, warning_results
 
 
+def fetch_nightly_comparison(
+    release: str,
+    output_dir: Path,
+    *,
+    include_warnings: bool = True,
+) -> dict:
+    """Fetch the production nightly and same-branch stage latest artifacts."""
+    primary = fetch_fixed_report_for_release(
+        release,
+        output_dir,
+        "prod",
+        "nightly",
+        output_name=f"{release}.csv",
+    )
+    latest = fetch_fixed_report_for_release(
+        release,
+        output_dir,
+        "stage",
+        "latest",
+        output_name=f"{release}-stage-latest.csv",
+    )
+    guide = fetch_resolution_guide_for_release(release, output_dir)
+    primary["environment"] = "prod"
+    primary["build_type"] = "nightly"
+    latest["environment"] = "stage"
+    latest["build_type"] = "latest"
+    guide["environment"] = "prod"
+    guide["build_type"] = "nightly"
+    warnings = None
+    if include_warnings:
+        warnings = _fetch_fixed_file(
+            release,
+            output_dir,
+            PRODUCTION_NIGHTLY_WARNINGS_CSV_PATH,
+            f"{release}-warnings.csv",
+            require_metadata=True,
+        )
+    results = {"primary": primary, "latest_comparison": latest, "resolution_guide": guide}
+    if warnings is not None:
+        results["warnings"] = warnings
+    failures = [result for result in results.values() if result["status"] != "fetched"]
+    return {
+        "status": "failed" if failures else "completed",
+        "results": results,
+        "failures": failures,
+    }
+
+
 RELEASE_DATA_REPO = "red-hat-data-services/rhods-devops-infra"
 RELEASE_DATA_PATH = "src/config/rhoai-release-data.yaml"
 
@@ -456,6 +574,17 @@ def main() -> int:
         help="Target environment (prod or stage). Auto-discovered from context if not specified.",
     )
     parser.add_argument(
+        "--build-type",
+        choices=list(BUILD_TYPES),
+        default=None,
+        help="Explicit build type for the gated nightly comparison (latest or nightly).",
+    )
+    parser.add_argument(
+        "--nightly-comparison",
+        action="store_true",
+        help="Fetch the exact production nightly, production resolution guide, and same-branch stage latest report.",
+    )
+    parser.add_argument(
         "--metadata-file",
         default=None,
         help="Write JSON metadata to this file instead of stdout (avoids stdout/stderr mixing issues)",
@@ -472,7 +601,18 @@ def main() -> int:
             raise
 
     environment = conforma_context_ops.resolve_arg(args, "environment", context, "environment")
+    build_type = args.build_type
+    if build_type is None and context:
+        build_type = context.get("build_type")
     include_warnings = not args.no_warnings
+
+    if args.nightly_comparison and (environment != "prod" or build_type != "nightly"):
+        print(
+            "Error: --nightly-comparison requires environment=prod and build_type=nightly "
+            "from explicit arguments or context.yaml",
+            file=sys.stderr,
+        )
+        return 1
 
     if args.releases:
         releases = [r.strip() for r in args.releases.split(",") if r.strip()]
@@ -524,6 +664,64 @@ def main() -> int:
     else:
         output_dir = _create_timestamped_output_dir()
         print(f"Run directory: {output_dir}", file=sys.stderr)
+
+    if args.nightly_comparison:
+        if args.local_dir:
+            print("Error: --nightly-comparison does not support --local-dir", file=sys.stderr)
+            return 1
+        comparison = fetch_nightly_comparison(
+            releases[0],
+            output_dir,
+            include_warnings=include_warnings,
+        )
+        output = {
+            "release": releases[0],
+            "environment": "prod",
+            "build_type": "nightly",
+            "status": comparison["status"],
+            "primary": comparison["results"]["primary"],
+            "latest_comparison": comparison["results"]["latest_comparison"],
+            "resolution_guide": comparison["results"]["resolution_guide"],
+            "failures": comparison["failures"],
+        }
+        if include_warnings:
+            output["warnings"] = comparison["results"].get("warnings")
+
+        if run_dir:
+            primary = comparison["results"]["primary"]
+            latest = comparison["results"]["latest_comparison"]
+            guide = comparison["results"]["resolution_guide"]
+            step_status = "completed" if comparison["status"] == "completed" else "failed"
+            conforma_context_ops.update_step(
+                run_dir,
+                "fetch",
+                step_status,
+                build_type="nightly",
+                csv_files=[Path(primary["path"]).name] if primary.get("path") else [],
+                source_path=primary.get("source_path", ""),
+                source_created_at=primary.get("created_at", ""),
+                source_sha=primary.get("source_sha", ""),
+                primary_report=primary,
+                latest_comparison_report=latest,
+                production_resolution_guide=guide,
+            )
+            if include_warnings and comparison["results"].get("warnings", {}).get("path"):
+                conforma_context_ops.update_step(
+                    run_dir,
+                    "fetch",
+                    step_status,
+                    warnings_csv_files=[Path(comparison["results"]["warnings"]["path"]).name],
+                )
+
+        json_output = json.dumps(output, indent=2)
+        if args.metadata_file:
+            Path(args.metadata_file).write_text(json_output + "\n", encoding="utf-8")
+            print(f"Metadata written to {args.metadata_file}", file=sys.stderr)
+        else:
+            print(json_output)
+        if run_dir and not args.metadata_file:
+            (Path(run_dir) / "fetch-metadata.json").write_text(json_output + "\n", encoding="utf-8")
+        return 0 if comparison["status"] == "completed" else 1
 
     if args.local_dir:
         results, warning_results = copy_local_csvs(

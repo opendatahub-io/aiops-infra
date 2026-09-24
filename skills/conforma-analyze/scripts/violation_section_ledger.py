@@ -24,6 +24,7 @@ SECTION_OPEN_MR = "open-merge-requests-not-merged"
 SECTION_WARNINGS_BEFORE_RELEASE = "warnings-before-release"
 SECTION_WARNINGS_AFTER_RELEASE = "warnings-after-release"
 SECTION_COVERED = "covered-violations"
+SECTION_LATEST_BUILD_MISSING = "latest-build-missing-violations"
 
 VIOLATION_SECTION_IDS = (
     SECTION_TOOLING,
@@ -101,6 +102,21 @@ def atomic_identity(record: Any) -> AtomicViolationIdentity:
     component = str(_value(record, "component") or _value(record, "component_name") or "")
     detail = str(_value(record, "semantic_detail") or _value(record, "detail") or "")
     return AtomicViolationIdentity(base_code, full_code, component, detail)
+
+
+def violations_absent_from_latest(primary_records: Iterable[Any], latest_records: Iterable[Any]) -> list[AtomicViolationIdentity]:
+    """Return primary violation identities absent from the latest report."""
+    primary = {
+        atomic_identity(record)
+        for record in primary_records
+        if str(_value(record, "type", "violation")).strip().lower() == "violation"
+    }
+    latest = {
+        atomic_identity(record)
+        for record in latest_records
+        if str(_value(record, "type", "violation")).strip().lower() == "violation"
+    }
+    return sorted(primary - latest)
 
 
 def _coverage_for(identity: AtomicViolationIdentity, coverage_data: dict) -> dict | None:

@@ -210,6 +210,9 @@ def generate_resolution_guide(
     source_csv_rows: int | None = None,
     ai_model: str = "",
     konflux_application: str = "",
+    primary_csv_path: str | None = None,
+    latest_build_csv_path: str | None = None,
+    comparison_metadata: dict | None = None,
 ) -> str:
     """Generate the full resolution guide markdown content.
 
@@ -267,8 +270,22 @@ def generate_resolution_guide(
             except (json.JSONDecodeError, OSError):
                 pass
 
-    # Run statistical analysis
-    records = analysis.load_reports_dir(reports)
+    # Run statistical analysis from the primary report only.  A gated nightly
+    # run also has a stage latest-build CSV in the same directory, which must
+    # never affect the production report's counts or ownership ledger.
+    if primary_csv_path:
+        primary_csv = Path(primary_csv_path)
+        if not primary_csv.exists():
+            raise FileNotFoundError(f"Primary source CSV not found: {primary_csv}")
+        records = analysis.load_csv(primary_csv, release)
+    else:
+        records = analysis.load_reports_dir(reports)
+    latest_build_records = None
+    if latest_build_csv_path:
+        latest_build_csv = Path(latest_build_csv_path)
+        if not latest_build_csv.exists():
+            raise FileNotFoundError(f"Latest-build comparison CSV not found: {latest_build_csv}")
+        latest_build_records = analysis.load_csv(latest_build_csv, release)
     warnings = analysis.load_warnings_dir(reports)
     analysis_result = analysis.analyze(records, upcoming=warnings)
 
@@ -332,6 +349,8 @@ def generate_resolution_guide(
             konflux_application,
         ),
         source_records=source_violation_records,
+        latest_build_records=latest_build_records,
+        comparison_metadata=comparison_metadata,
     )
     summary_metrics = _render_summary(coverage_data, analysis_result, counts.by_component_rule)
 
@@ -576,6 +595,9 @@ def main() -> int:
     source_path = args.source_path
     source_created_at = args.source_created_at
     source_sha = args.source_sha
+    primary_csv_path = None
+    latest_build_csv_path = None
+    comparison_metadata = None
     policy_dir_url = args.policy_dir_url
     end_of_support = args.end_of_support
     upcoming_release_date = args.upcoming_release_date
@@ -619,6 +641,50 @@ def main() -> int:
             code_freeze_date = conforma_context_ops.get(run_dir, "resolve.code_freeze_date", "")
         if not ai_model:
             ai_model = conforma_context_ops.get(run_dir, "ai_model", "")
+
+        build_type = conforma_context_ops.get(run_dir, "steps.fetch.build_type", None)
+        if build_type == "nightly":
+            environment = conforma_context_ops.get(run_dir, "environment", "")
+            if environment != "prod":
+                raise ValueError(
+                    "Nightly comparison requires environment=prod; "
+                    f"context contains environment={environment!r}"
+                )
+            primary_report = conforma_context_ops.get(run_dir, "steps.fetch.primary_report", None)
+            latest_report = conforma_context_ops.get(run_dir, "steps.fetch.latest_comparison_report", None)
+            resolution_guide = conforma_context_ops.get(run_dir, "steps.fetch.production_resolution_guide", None)
+            if not isinstance(primary_report, dict) or primary_report.get("status") != "fetched":
+                raise ValueError("Nightly comparison requires a fetched production nightly report")
+            if not isinstance(latest_report, dict) or latest_report.get("status") != "fetched":
+                raise ValueError("Nightly comparison requires a fetched stage latest-build report")
+            if not isinstance(resolution_guide, dict) or resolution_guide.get("status") != "fetched":
+                raise ValueError("Nightly comparison requires a fetched production resolution guide")
+            if latest_report.get("release") != release or primary_report.get("release") != release:
+                raise ValueError("Nightly comparison reports must use the same release branch")
+            for label, artifact in (
+                ("primary report", primary_report),
+                ("latest-build report", latest_report),
+                ("production resolution guide", resolution_guide),
+            ):
+                if not artifact.get("path") or not Path(artifact["path"]).is_file():
+                    raise ValueError(f"Nightly comparison {label} is missing from the run directory")
+                if not artifact.get("source_sha") or not artifact.get("created_at"):
+                    raise ValueError(f"Nightly comparison {label} is missing source metadata")
+            if latest_report.get("environment") != "stage" or latest_report.get("build_type") != "latest":
+                raise ValueError("Nightly comparison latest report must be environment=stage and build_type=latest")
+            primary_csv_path = str(primary_report["path"])
+            latest_build_csv_path = str(latest_report["path"])
+            if not source_path:
+                source_path = primary_report.get("source_path", "")
+            if not source_created_at:
+                source_created_at = primary_report.get("created_at", "")
+            if not source_sha:
+                source_sha = primary_report.get("source_sha", "")
+            comparison_metadata = {
+                "primary_source_path": primary_report.get("source_path", ""),
+                "latest_source_path": latest_report.get("source_path", ""),
+                "release": release,
+            }
 
     policy_files = None
     if args.policy_files_json:
@@ -681,8 +747,11 @@ def main() -> int:
             code_freeze_date=code_freeze_date,
             ai_model=ai_model,
             konflux_application=conforma_context_ops.get(run_dir, "application.konflux_app", "") if context else "",
+            primary_csv_path=primary_csv_path,
+            latest_build_csv_path=latest_build_csv_path,
+            comparison_metadata=comparison_metadata,
         )
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 

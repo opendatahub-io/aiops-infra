@@ -16,9 +16,11 @@ import conforma_release_component_ops  # noqa: E402
 import konflux_environment  # noqa: E402
 from violation_section_ledger import (  # noqa: E402
     SECTION_COVERED,
+    SECTION_LATEST_BUILD_MISSING,
     SECTION_TOOLING,
     build_violation_section_ledger,
     section_marker,
+    violations_absent_from_latest,
 )
 from conforma_constants import (  # noqa: E402
     CONFORMA_REPORTER_ACTIONS_URL,
@@ -592,6 +594,8 @@ def render_key_takeaways(
     jira_sync: dict | None = None,
     component_link_base: str = "",
     source_records: list | None = None,
+    latest_build_records: list | None = None,
+    comparison_metadata: dict | None = None,
 ) -> str:
     """Render the violations breakdown — exact violation counts, no approximation.
 
@@ -819,6 +823,46 @@ def render_key_takeaways(
         }
     )
 
+    # TODO #1: production nightly violations absent from the same-branch stage
+    # latest report.  This section is intentionally not part of the source
+    # violation ownership ledger: it is a comparison result, not a second
+    # owner for the primary violation.
+    missing_latest = []
+    if latest_build_records is not None and source_records:
+        missing_latest = violations_absent_from_latest(source_records, latest_build_records)
+    if missing_latest:
+        comparison_metadata = comparison_metadata or {}
+        primary_path = comparison_metadata.get("primary_source_path", "the production nightly report")
+        latest_path = comparison_metadata.get("latest_source_path", "the stage latest-build report")
+        comparison_body = [
+            "",
+            "These violations appear in the production nightly report but do not appear in the latest build.",
+            f"Primary report: `{primary_path}`.",
+            f"Latest-build comparison: `{latest_path}`.",
+            "",
+            "Rerun the product nightly build, then rerun the Conforma Reporter GitHub workflow for that build.",
+            "",
+            "| # | Violation | Component | Semantic detail |",
+            "|--:|-----------|-----------|-----------------|",
+        ]
+        for row_num, identity in enumerate(missing_latest, 1):
+            comparison_body.append(
+                f"| {row_num} | `{identity.full_code}` | `{identity.component}` | "
+                f"{identity.semantic_detail or '—'} |"
+            )
+        comparison_body.extend(["", "---"])
+        todo_sections.append(
+            {
+                "title": f"{len(missing_latest):,} production nightly violations absent from latest build",
+                "count": len(missing_latest),
+                "body": comparison_body,
+                "section_id": SECTION_LATEST_BUILD_MISSING,
+                "pinned": False,
+                "priority": 1,
+                "force_todo": True,
+            }
+        )
+
     # TODO: Violations with no exception and no open Merge Request (highest risk)
     no_mr_body = []
     no_mr_body.append("")
@@ -851,7 +895,7 @@ def render_key_takeaways(
             "body": no_mr_body,
             "pinned": False,
             "section_id": "violations-without-exception-or-merge-request",
-            "priority": 1,  # Highest priority: uncovered violations
+            "priority": 2,  # After the fixed TODO #1 latest-build comparison
         }
     )
 

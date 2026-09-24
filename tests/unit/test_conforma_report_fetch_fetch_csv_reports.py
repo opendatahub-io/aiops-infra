@@ -385,6 +385,150 @@ class TestFetchCsvForRelease:
         fetch_csv_reports._github_token_cache = None
 
 
+class TestNightlyComparisonFetch:
+    def setup_method(self):
+        fetch_csv_reports._github_token_cache = "token123"
+
+    def test_fetches_exact_same_branch_paths_and_metadata(self, tmp_path):
+        fetched = []
+
+        def mock_download(path, ref, output_file):
+            fetched.append((path, ref))
+            output_file.write_text("type,component_name,code\nviolation,comp-a,rule.a\n")
+            return None
+
+        with (
+            patch.object(fetch_csv_reports, "_download_file_raw", side_effect=mock_download),
+            patch.object(
+                fetch_csv_reports,
+                "_fetch_last_commit_info",
+                return_value={"date": "2026-09-24T00:00:00Z", "sha": "abc123"},
+            ),
+        ):
+            result = fetch_csv_reports.fetch_nightly_comparison("rhoai-3.6-ea.2", tmp_path)
+
+        assert result["status"] == "completed"
+        assert fetched == [
+            (
+                "prod/future/build_type_nightly/conforma-violations-report.csv",
+                "rhoai-3.6-ea.2",
+            ),
+            (
+                "stage/future/build_type_latest/conforma-violations-report.csv",
+                "rhoai-3.6-ea.2",
+            ),
+            ("prod/conforma-resolution-guide.md", "rhoai-3.6-ea.2"),
+            (
+                "prod/future/build_type_nightly/conforma-warnings-report.csv",
+                "rhoai-3.6-ea.2",
+            ),
+        ]
+        assert result["results"]["latest_comparison"]["source_sha"] == "abc123"
+        assert result["results"]["resolution_guide"]["path"].endswith(
+            "rhoai-3.6-ea.2-prod-conforma-resolution-guide.md"
+        )
+
+    def test_missing_commit_metadata_fails_closed(self, tmp_path):
+        def download(path, ref, output_file):
+            output_file.write_text("content")
+            return None
+
+        with (
+            patch.object(fetch_csv_reports, "_download_file_raw", side_effect=download),
+            patch.object(fetch_csv_reports, "_fetch_last_commit_info", return_value={"date": "", "sha": ""}),
+        ):
+            result = fetch_csv_reports.fetch_fixed_report_for_release(
+                "rhoai-3.6-ea.2", tmp_path, "stage", "latest"
+            )
+
+        assert result["status"] == "failed"
+        assert "commit metadata" in result["error"]
+
+    def teardown_method(self):
+        fetch_csv_reports._github_token_cache = None
+
+
+class TestNightlyComparisonGate:
+    def test_requires_explicit_nightly_build_type(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--releases",
+                "rhoai-3.6-ea.2",
+                "--nightly-comparison",
+                "--environment",
+                "prod",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+
+        assert fetch_csv_reports.main() == 1
+        assert "build_type=nightly" in capsys.readouterr().err
+
+    def test_comparison_records_both_reports_in_context(self, tmp_path, monkeypatch):
+        run_dir = tmp_path / "run"
+        conforma_context_ops.create(
+            run_dir,
+            {
+                "application": {"release": "rhoai-3.6-ea.2"},
+                "environment": "prod",
+                "build_type": "nightly",
+            },
+        )
+        conforma_context_ops.set_active(run_dir)
+        primary_path = run_dir / "rhoai-3.6-ea.2.csv"
+        latest_path = run_dir / "rhoai-3.6-ea.2-stage-latest.csv"
+        guide_path = run_dir / "rhoai-3.6-ea.2-prod-conforma-resolution-guide.md"
+        for path in (primary_path, latest_path, guide_path):
+            path.write_text("content")
+
+        def artifact(path, source_path, environment, build_type):
+            return {
+                "release": "rhoai-3.6-ea.2",
+                "status": "fetched",
+                "path": str(path),
+                "source_path": source_path,
+                "created_at": "2026-09-24T00:00:00Z",
+                "source_sha": "abc123",
+                "environment": environment,
+                "build_type": build_type,
+            }
+
+        monkeypatch.setattr(
+            fetch_csv_reports,
+            "fetch_nightly_comparison",
+            lambda release, output_dir, include_warnings=True: {
+                "status": "completed",
+                "results": {
+                    "primary": artifact(primary_path, "prod/future/build_type_nightly/conforma-violations-report.csv", "prod", "nightly"),
+                    "latest_comparison": artifact(latest_path, "stage/future/build_type_latest/conforma-violations-report.csv", "stage", "latest"),
+                    "resolution_guide": artifact(guide_path, "prod/conforma-resolution-guide.md", "prod", "nightly"),
+                    "warnings": artifact(run_dir / "warnings.csv", "prod/future/build_type_nightly/conforma-warnings-report.csv", "prod", "nightly"),
+                },
+                "failures": [],
+            },
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "fetch_csv_reports.py",
+                "--nightly-comparison",
+                "--output-dir",
+                str(run_dir),
+                "--metadata-file",
+                str(run_dir / "metadata.json"),
+            ],
+        )
+
+        assert fetch_csv_reports.main() == 0
+        context = conforma_context_ops.load(run_dir)
+        assert context["steps"]["fetch"]["build_type"] == "nightly"
+        assert context["steps"]["fetch"]["latest_comparison_report"]["build_type"] == "latest"
+        assert context["steps"]["fetch"]["production_resolution_guide"]["source_path"] == "prod/conforma-resolution-guide.md"
+
+
 class TestContextIntegration:
     """Tests for context.yaml auto-discovery and update."""
 

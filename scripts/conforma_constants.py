@@ -38,6 +38,11 @@ CSV_FILENAME = "conforma-violations-report.csv"
 WARNINGS_CSV_FILENAME = "conforma-warnings-report.csv"
 RESOLUTION_GUIDE_FILENAME = "conforma-resolution-guide.md"
 TODO_PREVIEW_FILENAME = "conforma-todo-and-done.md"
+BUILD_TYPES = ("latest", "nightly")
+PRODUCTION_NIGHTLY_CSV_PATH = f"prod/future/build_type_nightly/{CSV_FILENAME}"
+STAGE_LATEST_CSV_PATH = f"stage/future/build_type_latest/{CSV_FILENAME}"
+PRODUCTION_NIGHTLY_WARNINGS_CSV_PATH = f"prod/future/build_type_nightly/{WARNINGS_CSV_FILENAME}"
+PRODUCTION_RESOLUTION_GUIDE_PATH = "prod/conforma-resolution-guide.md"
 
 CSV_PATHS = [
     f"prod/future/build_type_latest/{CSV_FILENAME}",
@@ -117,6 +122,18 @@ def build_warnings_report_url(release: str, environment: str) -> str:
     """Build a GitHub URL to the warnings report for a release."""
     paths = warnings_csv_paths_for_environment(environment)
     return f"{CONFORMA_REPORTER_URL}/blob/{release}/{paths[0]}"
+
+
+def fixed_csv_path(environment: str, build_type: str) -> str:
+    """Return the exact CSV path for a gated build comparison."""
+    if environment == "prod" and build_type == "nightly":
+        return PRODUCTION_NIGHTLY_CSV_PATH
+    if environment == "stage" and build_type == "latest":
+        return STAGE_LATEST_CSV_PATH
+    raise ValueError(
+        "Unsupported fixed report selection: "
+        f"environment={environment!r}, build_type={build_type!r}"
+    )
 
 
 def build_label_discovery_jql(

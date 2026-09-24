@@ -33,5 +33,11 @@ The direct fetch path is not a default choice. Ordinary report requests must use
 ## Relationship to Other Skills
 
 - **`conforma-analyze`**: Consumes both violation and warnings CSV reports from this skill. Calls `fetch_csv_reports.py` with `--output-dir` to write CSVs into its own `~/.conforma/` directory, then parses violations and identifies upcoming violations from warnings.
+
+The CSV fetcher also supports explicit `--nightly-comparison` mode for a
+`prod` plus `nightly` context. That mode fetches the production nightly CSV,
+production resolution guide, and same-branch stage latest CSV using exact paths;
+it fails closed on missing artifacts or metadata and records the comparison in
+`context.yaml`.
 - **`conforma-parse`** (downstream): Consumes the Tekton handover from `fetch_conforma_tekton_result.py` to parse violations and warnings from the raw JSON report.
 - **`conforma-exception`**: Manages exception creation. Can consume parsed output from either fetch mechanism.

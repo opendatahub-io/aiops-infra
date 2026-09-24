@@ -9,6 +9,7 @@ from violation_section_ledger import (
     AtomicViolationIdentity,
     build_violation_section_ledger,
     section_marker,
+    violations_absent_from_latest,
 )
 
 
@@ -112,6 +113,38 @@ def test_duplicate_source_rows_collapse_but_different_details_do_not():
 
 def test_section_marker_is_stable():
     assert section_marker("tooling") == "<!-- conforma-section: tooling -->"
+
+
+def test_latest_comparison_preserves_component_and_detail_identity():
+    primary = [
+        {
+            "type": "violation",
+            "code": "rule.a",
+            "full_violation_code": "rule.a:x",
+            "component_name": "component-a",
+            "semantic_detail": "x",
+        },
+        {
+            "type": "violation",
+            "code": "rule.a",
+            "full_violation_code": "rule.a:x",
+            "component_name": "component-b",
+            "semantic_detail": "x",
+        },
+        {
+            "type": "violation",
+            "code": "rule.a",
+            "full_violation_code": "rule.a:y",
+            "component_name": "component-a",
+            "semantic_detail": "y",
+        },
+    ]
+    latest = [primary[0]]
+
+    assert violations_absent_from_latest(primary, latest) == [
+        AtomicViolationIdentity("rule.a", "rule.a:x", "component-b", "x"),
+        AtomicViolationIdentity("rule.a", "rule.a:y", "component-a", "y"),
+    ]
 
 
 def test_overlapping_expiry_memberships_are_secondary_references():

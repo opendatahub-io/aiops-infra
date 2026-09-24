@@ -182,4 +182,11 @@ The CSV `code` column contains base rules only (e.g. `rpm_signature.allowed`), w
 
 CSV fetching is delegated to the **`conforma-report-fetch`** skill (`fetch_csv_reports.py`). See that skill's SKILL.md for data source details, fallback paths, and release auto-detection.
 
+When the active context explicitly contains `environment: prod` and
+`build_type: nightly`, the workflow uses the fetcher's gated comparison mode.
+The guide then compares the production nightly CSV with the same-branch stage
+latest CSV and renders newly absent violations as TODO #1. Missing artifacts or
+source metadata fail the workflow; they are never interpreted as resolved
+violations.
+
 This skill's parsing layer (`parse_violations.py`) is decoupled from the fetch layer and accepts any directory of CSV files via `--reports-dir`, making it compatible with any fetch method.
