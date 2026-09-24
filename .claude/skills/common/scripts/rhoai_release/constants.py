@@ -1,0 +1,16 @@
+"""Constants for RHOAI release onboarding automation."""
+
+REPO_URL = "https://gitlab.cee.redhat.com/releng/konflux-release-data.git"
+REPO_BRANCH = "main"
+GITLAB_API_URL = "https://gitlab.cee.redhat.com"
+GITLAB_PROJECT_PATH = "releng/konflux-release-data"
+TENANTS_CONFIG_DIR = "tenants-config"
+BUILD_MANIFESTS_SCRIPT = "build-manifests.sh"
+TENANT_BASE = "tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant"
+TENANT_KUSTOMIZATION = "tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/kustomization.yaml"
+AUTO_GENERATED_RHOAI_TENANT = "tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant"
+RPA_PRODUCT_BASE = "config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai"
+RPA_SERVICE_BASE = "config/stone-prod-p02.hjvn.p1/service/ReleasePlanAdmission/rhoai"
+MR_BASE_URL = "https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/new?merge_request%5Bsource_branch%5D="
+# Written in GitLab CI when an MR is created (for dotenv report artifact)
+MR_DOTENV_FILENAME = "rhoai-onboarding-mr.env"

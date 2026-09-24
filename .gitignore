@@ -1,4 +1,11 @@
 .DS_STORE
+
+# RHOAI Y-Stream Pipeline Runtime Files
+rhoai-release-*-jira.json
+rhoai-release-*-state.json
+run_y_stream_pipeline.sh
+RHOAI-Build-Config/
+konflux-release-data/
 __pycache__/
 tmp/
 temp.txt
