@@ -306,10 +306,9 @@ class TestApplyExceptionToPolicyFile:
             effective_until="2027-01-01T00:00:00Z",
         )
 
-        assert result["action"] == "appended_new_style"
-        content = policy_file.read_text(encoding="utf-8")
-        assert content.count("rpm_signature.allowed:abc123") == 2
-        assert "odh-operator-v3-3" in content
+        assert result["action"] == "confirmation_required"
+        assert "keep_broader" in result["detail"]
+        assert policy_file.read_text(encoding="utf-8") == SAMPLE_POLICY_CONTENT
 
     def test_self_service_append(self, tmp_path):
         policy_file = tmp_path / "exceptions.yaml"

@@ -21,6 +21,8 @@ def _report(*entries: tuple[str, float]) -> dict:
                 "percent_covered": pct,
                 "covered_lines": int(round(pct / 100.0 * 100)),
                 "num_statements": 100,
+                "covered_branches": 100,
+                "num_branches": 100,
             }
         }
     return {"files": files}
@@ -63,31 +65,27 @@ class TestCheckTargets:
         results = hook.check_targets(report, ["scripts/jira_ops.py"], 97.0)
         assert results[0]["status"] == "FAIL"
 
-    def test_skip_when_absent(self):
+    def test_missing_target_fails(self):
         report = _report(("scripts/other.py", 99.0))
         results = hook.check_targets(report, ["scripts/missing.py"], 97.0)
-        assert results[0]["status"] == "skip"
+        assert results[0]["status"] == "FAIL"
 
-    def test_skip_when_zero_statements(self):
-        # A file that exists but has 0 statements should skip, not fail.
+    def test_missing_branch_data_fails(self):
         report = {
-            "files": {
-                "scripts/empty.py": {"summary": {"percent_covered": 100.0, "covered_lines": 0, "num_statements": 0}}
-            }
+            "files": {"scripts/empty.py": {"summary": {"covered_lines": 100, "num_statements": 100}}}
         }
         results = hook.check_targets(report, ["scripts/empty.py"], 97.0)
-        assert results[0]["status"] == "skip"
+        assert results[0]["status"] == "FAIL"
 
-    def test_boundary_97_is_fail(self):
-        # Threshold is strict: pct must be > min. 97.0 is not > 97.0.
+    def test_boundary_97_is_pass(self):
         report = _report(("scripts/jira_ops.py", 97.0))
         results = hook.check_targets(report, ["scripts/jira_ops.py"], 97.0)
-        assert results[0]["status"] == "FAIL"
+        assert results[0]["status"] == "PASS"
 
     def test_multiple_targets_mixed(self):
         report = _report(("scripts/a.py", 99.0), ("scripts/b.py", 50.0))
         results = hook.check_targets(report, ["scripts/a.py", "scripts/b.py", "scripts/c.py"], 97.0)
-        assert [r["status"] for r in results] == ["PASS", "FAIL", "skip"]
+        assert [r["status"] for r in results] == ["PASS", "FAIL", "FAIL"]
 
 
 class TestFormatReport:
@@ -95,7 +93,7 @@ class TestFormatReport:
         results = [
             {"target": "scripts/a.py", "status": "PASS", "pct": 99.0, "covered": 99, "total": 100},
             {"target": "scripts/b.py", "status": "FAIL", "pct": 50.0, "covered": 50, "total": 100},
-            {"target": "scripts/c.py", "status": "skip", "pct": None, "covered": 0, "total": 0},
+            {"target": "scripts/c.py", "status": "FAIL", "pct": None, "branch_pct": None, "covered": 0, "total": 0},
         ]
         text = hook.format_report(results, 97.0)
         assert "scripts/a.py" in text
@@ -109,7 +107,6 @@ class TestFormatReport:
 
 
 class TestPlanCoverageTargets:
-    def test_manifest_lists_four_scripts(self):
-        assert len(hook.PLAN_COVERAGE_TARGETS) == 4
-        assert "scripts/jira_ops.py" in hook.PLAN_COVERAGE_TARGETS
-        assert "scripts/conforma_jira_ticket_ops.py" in hook.PLAN_COVERAGE_TARGETS
+    def test_manifest_lists_shared_exception_workflow_scripts(self):
+        assert "scripts/conforma_policy_ops.py" in hook.PLAN_COVERAGE_TARGETS
+        assert "skills/conforma-exception/scripts/exception_policy_file_ops.py" in hook.PLAN_COVERAGE_TARGETS

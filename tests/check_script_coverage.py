@@ -25,13 +25,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Scripts touched by the conforma-analyze Jira coverage plan.
-# A script that does not yet exist (e.g. before Phase 3 lands) is skipped with a
-# "skip" status, not treated as a failure.
 PLAN_COVERAGE_TARGETS: list[str] = [
-    "scripts/jira_ops.py",
-    "scripts/conforma_constants.py",
-    "scripts/conforma_jira_ops.py",
-    "scripts/conforma_jira_ticket_ops.py",
+    "scripts/conforma_policy_ops.py",
+    "skills/conforma-analyze/scripts/guide_renderers.py",
+    "skills/conforma-analyze/scripts/violations_coverage.py",
+    "skills/conforma-exception/scripts/exception_policy_file_ops.py",
+    "skills/conforma-exception/scripts/exception_scanner.py",
+    "skills/conforma-exception/scripts/preflight_check.py",
+    "skills/conforma-release-readiness/scripts/check_readiness.py",
 ]
 
 
@@ -63,30 +64,30 @@ def check_targets(report: dict, targets: list[str], min_pct: float) -> list[dict
     for target in targets:
         match = find_file_in_report(report, target)
         if match is None:
-            results.append({"target": target, "status": "skip", "pct": None, "covered": 0, "total": 0})
+            results.append({"target": target, "status": "FAIL", "pct": None, "branch_pct": None, "covered": 0, "total": 0})
             continue
         _, entry = match
-        pct = coverage_pct(entry)
         summary = entry.get("summary", {})
         covered = summary.get("covered_lines", 0)
         total = summary.get("num_statements", 0)
-        if pct is None or total == 0:
-            results.append({"target": target, "status": "skip", "pct": pct, "covered": covered, "total": total})
-        elif pct > min_pct:
-            results.append({"target": target, "status": "PASS", "pct": pct, "covered": covered, "total": total})
-        else:
-            results.append({"target": target, "status": "FAIL", "pct": pct, "covered": covered, "total": total})
+        branches = summary.get("num_branches", 0)
+        covered_branches = summary.get("covered_branches", 0)
+        line_pct = (covered / total * 100) if total else None
+        branch_pct = (covered_branches / branches * 100) if branches else None
+        status = "PASS" if line_pct is not None and branch_pct is not None and line_pct >= min_pct and branch_pct >= min_pct else "FAIL"
+        results.append({"target": target, "status": status, "pct": line_pct, "branch_pct": branch_pct, "covered": covered, "total": total})
     return results
 
 
 def format_report(results: list[dict], min_pct: float) -> str:
     """Format the results table for display."""
-    lines = [f"Per-script coverage gate (threshold: > {min_pct}%)", ""]
-    lines.append(f"{'Script':<50s} {'Coverage':>10s}  Status")
-    lines.append("-" * 74)
+    lines = [f"Per-script coverage gate (line and branch threshold: >= {min_pct}%)", ""]
+    lines.append(f"{'Script':<50s} {'Line':>10s} {'Branch':>10s}  Status")
+    lines.append("-" * 88)
     for r in results:
         pct_str = f"{r['pct']:.1f}%" if r["pct"] is not None else "  skip"
-        lines.append(f"{r['target']:<50s} {pct_str:>10s}  {r['status']}")
+        branch_str = f"{r['branch_pct']:.1f}%" if r.get("branch_pct") is not None else "  missing"
+        lines.append(f"{r['target']:<50s} {pct_str:>10s} {branch_str:>10s}  {r['status']}")
     lines.append("")
     return "\n".join(lines)
 
@@ -101,6 +102,7 @@ def run_coverage(coverage_data_file: Path) -> int:
         "-m",
         "coverage",
         "run",
+        "--branch",
         f"--data-file={coverage_data_file}",
         "-m",
         "pytest",
@@ -129,7 +131,7 @@ def main() -> int:
             return 1
 
         # Generate JSON report
-        json_cmd = [sys.executable, "-m", "coverage", "json", "-o", str(cov_json)]
+        json_cmd = [sys.executable, "-m", "coverage", "json", "--branch", "-o", str(cov_json)]
         env = {**os.environ, "COVERAGE_FILE": str(cov_data)}
         json_result = subprocess.run(json_cmd, cwd=str(REPO_ROOT), env=env, capture_output=True, text=True)
         if json_result.returncode != 0:

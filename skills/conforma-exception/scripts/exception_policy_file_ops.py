@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedSeq
 import conforma_policy_ops
 from exception_mr_text import build_commit_message as _build_commit_message  # noqa: F401 — backward compat re-export
 from exception_mr_text import build_mr_body as _build_mr_body  # noqa: F401 — backward compat re-export
@@ -413,6 +414,55 @@ def apply_exception_to_policy_file(
         file_path.write_text(content, encoding="utf-8")
         return {"action": "appended", "detail": "Appended self-service exception"}
 
+    # All structured policy writes use the shared YAML matcher and the
+    # revision-pinned mutation contract.  The legacy line-oriented branch
+    # below remains available for callers that need its historical result
+    # wording, but is no longer used for a normal structured entry.
+    block_yaml = _mutation_yaml()
+    parsed_block = block_yaml.load(yaml_block)
+    if isinstance(parsed_block, list) and parsed_block and isinstance(parsed_block[0], dict):
+        entry = dict(parsed_block[0])
+        records = _mutation_record(content, file_path, rule)
+        exact = [
+            record
+            for record in records
+            if record["value"] == str(entry.get("value", rule))
+            and record["has_component_names"]
+            and sorted(record["component_names"]) == sorted(components)
+        ]
+        if exact:
+            target = exact[0]
+            if entry.get("effectiveUntil") == target.get("effective_until_value"):
+                return {"action": "no_change", "detail": "Matching structured exception already exists"}
+            preview = preview_policy_mutation(
+                file_path,
+                {"operations": [{"operation": "extend", "target_fingerprint": target["entry_fingerprint"], "effective_until": effective_until}]},
+            )
+            applied = apply_policy_mutation(file_path, preview)
+            if applied["status"] != "applied":
+                return {"action": "blocked", "detail": applied.get("error", applied["status"])}
+            return {"action": "extended", "detail": f"Extended existing exception to {effective_until}"}
+
+        preview = preview_policy_mutation(
+            file_path,
+            {
+                "operations": [
+                    {
+                        "operation": "add",
+                        "rule": rule,
+                        "components": components,
+                        "entry": entry,
+                    }
+                ]
+            },
+        )
+        if preview["status"] == "confirmation_required":
+            return {"action": "confirmation_required", "detail": json.dumps(preview, sort_keys=True)}
+        applied = apply_policy_mutation(file_path, preview)
+        if applied["status"] != "applied":
+            return {"action": "blocked", "detail": applied.get("error", applied["status"])}
+        return {"action": "appended", "detail": "Appended structured exception using shared mutation"}
+
     existing = find_existing_exceptions(content, rule)
 
     if not existing:
@@ -645,7 +695,24 @@ def _apply_action(document, action: dict) -> None:
         # Add to the first supported exception sequence, or create the historical path.
         sequences = list(conforma_policy_ops._iter_exception_sequences(document))
         if not sequences:
-            raise ValueError("Policy contains no supported exception sequence")
+            def create_sequence(node):
+                if not isinstance(node, dict):
+                    return None
+                for key, value in node.items():
+                    if str(key) in {"volatileCriteria", "exclude"} and value is None:
+                        node[key] = CommentedSeq()
+                        return node[key]
+                    if isinstance(value, dict):
+                        created = create_sequence(value)
+                        if created is not None:
+                            return created
+                return None
+
+            created = create_sequence(document)
+            if created is None:
+                raise ValueError("Policy contains no supported exception sequence")
+            created.append(entry)
+            return
         sequences[0][2].append(entry)
         return
     parent, index, entry = _entry_for_record(document, action)
