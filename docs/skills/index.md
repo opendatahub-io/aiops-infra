@@ -51,6 +51,7 @@ left off. Steps execute when all their dependencies are met (merged/done).
 |-------|---------|
 | [add-rhoai-dockerfile-labels](add-rhoai-dockerfile-labels.md) | Ensure mandatory OCI labels are present in the component Dockerfile |
 | [onboard-konflux-components-for-odh-and-rhoai](onboard-konflux-components-for-odh-and-rhoai.md) | Master orchestrator — runs all pipeline steps above |
+| [konflux-cve-scan-analyze](konflux-cve-scan-analyze.md) | Clair CVE triage for Konflux push/PR builds (feature branches) |
 
 ## Offboarding pipeline
 
