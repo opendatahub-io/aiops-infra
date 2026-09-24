@@ -16,11 +16,11 @@ if _shared_scripts not in sys.path:
     sys.path.insert(0, _shared_scripts)
 
 import conforma_release_component_ops
+import conforma_policy_ops
 import yaml
 from create_gitlab_mr import (
     DEFAULT_BRANCH,
     WORK_DIR,
-    _find_existing_exceptions,
     _get_authenticated_repo_url,
     _run_git,
 )
@@ -142,40 +142,38 @@ def scan_all_exceptions(clone_dir: Path, environment: str) -> list[dict]:
     """Scan all policy files for exception blocks, returning enriched metadata."""
     policy_files = _get_policy_files(clone_dir, environment)
     all_exceptions: list[dict] = []
-    indent = "          "
 
     for policy_file in policy_files:
         content = policy_file.read_text(encoding="utf-8")
-        lines = content.split("\n")
         rel_path = str(policy_file.relative_to(clone_dir))
-
-        all_rules = set()
-        for line in lines:
-            m = re.match(rf"^{re.escape(indent)}- value:\s*(.+)$", line)
-            if m:
-                all_rules.add(m.group(1).strip())
-
-        for rule in all_rules:
-            blocks = _find_existing_exceptions(content, rule, indent)
-            for block in blocks:
-                comment_header = _extract_comment_header(lines, block["start"], indent)
-                reference = _extract_reference(lines, block["start"], block["end"])
-
-                exc_entry: dict = {
-                    "file": rel_path,
-                    "rule": rule,
-                    "has_component_names": block["has_component_names"],
-                    "component_names": block["component_names"],
-                    "effective_until": block["effective_until_value"],
-                    "reference": reference,
-                    "comment_header_lines": comment_header,
-                    "block_start_line": block["start"],
-                    "block_end_line": block["end"],
-                    "is_unscoped": not block["has_component_names"],
-                }
-                if block.get("image_url"):
-                    exc_entry["image_url"] = block["image_url"]
-                all_exceptions.append(exc_entry)
+        lines = content.split("\n")
+        entries = conforma_policy_ops.find_existing_exceptions(content, source_file=rel_path)
+        for entry in entries:
+            comment_header = _extract_comment_header(lines, entry["start"], "")
+            reference = entry.get("reference") or _extract_reference(lines, entry["start"], entry["end"])
+            exc_entry: dict = {
+                "file": rel_path,
+                "rule": entry["value"],
+                "value": entry["value"],
+                "base_rule": entry["base_rule"],
+                "extra_argument": entry["extra_argument"],
+                "has_component_names": entry["has_component_names"],
+                "component_names": entry["component_names"],
+                "effective_until": entry["effective_until_value"],
+                "reference": reference,
+                "comment_header_lines": comment_header,
+                "block_start_line": entry["start"],
+                "block_end_line": entry["end"],
+                "is_unscoped": not entry["has_component_names"],
+                "source_kind": entry["source_kind"],
+                "policy_path": entry["policy_path"],
+                "entry_fingerprint": entry["entry_fingerprint"],
+            }
+            if entry.get("image_url"):
+                exc_entry["image_url"] = entry["image_url"]
+            if entry.get("image_ref"):
+                exc_entry["image_ref"] = entry["image_ref"]
+            all_exceptions.append(exc_entry)
 
     return all_exceptions
 

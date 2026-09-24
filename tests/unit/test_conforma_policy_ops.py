@@ -205,6 +205,30 @@ class TestNormalizedExceptionMatcher:
         assert result[0]["source_file"] == "config/example.yaml"
         assert result[0]["source_kind"] == "volatile_config_exclude"
 
+    def test_matches_all_observed_nemo_guardrails_parameterized_values(self):
+        values = [
+            "registry.stage.redhat.io/rhai/modelcar-redhatai-all-minilm-l6-v2",
+            "registry.stage.redhat.io/rhai/modelcar-redhatai-en-core-web-lg",
+            "registry.stage.redhat.io/rhai/modelcar-redhatai-nltk-punkt-tab",
+            "registry.stage.redhat.io/rhai/modelcar-redhatai-snowflake-arctic-embed-m-long",
+        ]
+        content = "\n".join(
+            [
+                "spec:",
+                "  sources:",
+                "    - volatileConfig:",
+                "        exclude:",
+                *[
+                    f"          - value: 'base_image_registries.base_image_permitted:{value}'"
+                    for value in values
+                ],
+            ]
+        )
+
+        result = mod.find_existing_exceptions(content, "base_image_registries.base_image_permitted")
+
+        assert [entry["extra_argument"] for entry in result] == values
+
     def test_exact_parameterized_query_does_not_match_other_suffix(self):
         content = textwrap.dedent(
             """

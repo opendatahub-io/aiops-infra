@@ -21,6 +21,7 @@ import yaml
 import _setup_env  # noqa: F401
 
 import conforma_context_ops  # noqa: E402
+import conforma_policy_ops  # noqa: E402
 
 
 def load_violations(violations_path: Path) -> dict:
@@ -82,7 +83,9 @@ def check_readiness(
         covering_exception = None
         for exc in active_exceptions:
             exc_rule = exc.get("rule", "")
-            if exc_rule == rule or exc_rule == base_code or rule.startswith(exc_rule.split(":")[0]):
+            if conforma_policy_ops.exception_value_covers(exc_rule, rule) or conforma_policy_ops.exception_value_covers(
+                exc_rule, base_code
+            ):
                 if exc.get("is_unscoped") or set(exc.get("component_names", [])) & components:
                     covering_exception = exc
                     break

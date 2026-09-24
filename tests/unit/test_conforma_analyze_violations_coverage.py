@@ -953,11 +953,12 @@ class TestSelfServiceCoverageMerge:
             conforma_policy_ops,
             "check_existing_exception_gate",
             lambda **_kw: {
-                "checked": False,
-                "status": "error",
+                "checked": True,
+                "status": "passed",
                 "open_merge_requests": [],
                 "permanent_exclusions": [],
                 "existing_exceptions": [],
+                "exception_matches": [],
             },
         )
         monkeypatch.setattr(conforma_mr_ops, "prefetch_open_mrs", lambda *_a, **_kw: {})

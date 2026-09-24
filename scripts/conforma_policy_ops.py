@@ -99,11 +99,18 @@ def _yaml_plain(value):
     return value
 
 
-def _exception_value_matches(value: str, query: str) -> bool:
+def exception_value_matches(value: str, query: str) -> bool:
     """Match an exact full value or a base rule with a colon suffix."""
     if ":" in query:
         return value == query
     return value == query or value.startswith(f"{query}:")
+
+
+def exception_value_covers(exception_value: str, requested_value: str) -> bool:
+    """Return whether an exception value covers a requested violation value."""
+    return exception_value == requested_value or (
+        ":" not in exception_value and requested_value.startswith(f"{exception_value}:")
+    )
 
 
 def _iter_exception_sequences(node, path: tuple[str | int, ...] = ()):
@@ -154,7 +161,7 @@ def _mapping_key_line(node, key: str) -> int | None:
     return location[0] if isinstance(location, tuple) and isinstance(location[0], int) else None
 
 
-def find_existing_exceptions(content: str, rule: str, source_file: str = "") -> list[dict]:
+def find_existing_exceptions(content: str, rule: str | None = None, source_file: str = "") -> list[dict]:
     """Find normalized exceptions in supported policy YAML structures.
 
     Matching uses the exact full value when ``rule`` is parameterized and
@@ -179,7 +186,7 @@ def find_existing_exceptions(content: str, rule: str, source_file: str = "") -> 
             if not isinstance(entry, dict) or "value" not in entry:
                 continue
             value = str(entry.get("value", "")).strip()
-            if not _exception_value_matches(value, rule):
+            if rule is not None and not exception_value_matches(value, rule):
                 continue
 
             start = _node_line(entry, index)
@@ -520,6 +527,7 @@ def check_existing_exception_gate(
         "rule": rule,
         "requested_components": components,
         "active_exceptions": [],
+        "exception_matches": [],
         "permanent_exclusions": [],
         "covered_components": [],
         "uncovered_components": list(components),
@@ -596,11 +604,11 @@ def check_existing_exception_gate(
     if not existing.get("checked"):
         return {
             **base_result,
-            "status": "passed",
+            "status": "error",
             "reason": (
                 f"Could not check existing exceptions: "
                 f"{existing.get('reason', 'unknown')}. "
-                "Gate check skipped — proceeding with caution."
+                "Refusing to proceed without a deterministic exception check."
             ),
         }
 
@@ -616,6 +624,24 @@ def check_existing_exception_gate(
             "permanent_exclusions": env_permanent,
             "covered_components": list(components),
             "uncovered_components": [],
+            "exception_matches": [
+                {
+                    "match_id": f"{p.get('file')}:{p.get('line')}:{rule}:{component}",
+                    "value": rule,
+                    "base_rule": rule.split(":", 1)[0],
+                    "extra_argument": rule.split(":", 1)[1] if ":" in rule else None,
+                    "component": component,
+                    "component_names": [],
+                    "effective_until": None,
+                    "source_kind": "permanent_exclude",
+                    "source_file": p.get("file", ""),
+                    "source_path": [],
+                    "source_line": p.get("line"),
+                    "entry_fingerprint": "",
+                }
+                for p in env_permanent
+                for component in components
+            ],
             "reason": (
                 f"Rule '{rule}' is permanently excluded globally in "
                 f"{env_permanent[0]['file']} (line {env_permanent[0]['line']}). "
@@ -669,7 +695,10 @@ def check_existing_exception_gate(
             continue
 
         exc_comps = set(exc.get("componentNames", []))
-        dedup_key = f"{exc.get('file')}|{eu}|{sorted(exc_comps)}"
+        dedup_key = (
+            f"{exc.get('file')}|{exc.get('entry_fingerprint')}|{exc.get('exception_value')}|"
+            f"{eu}|{sorted(exc_comps)}"
+        )
         if dedup_key in seen_keys:
             continue
         seen_keys.add(dedup_key)
@@ -691,6 +720,10 @@ def check_existing_exception_gate(
                         "effectiveUntil": eu,
                         "covers_components": sorted(overlap),
                         "exception_value": exc.get("exception_value", rule),
+                        "extra_argument": exc.get("extra_argument"),
+                        "source_kind": exc.get("source_kind"),
+                        "policy_path": exc.get("policy_path", []),
+                        "entry_fingerprint": exc.get("entry_fingerprint", ""),
                     }
                 )
         elif not exc.get("has_componentNames"):
@@ -708,6 +741,10 @@ def check_existing_exception_gate(
                             "effectiveUntil": eu,
                             "covers_components": sorted(matched),
                             "exception_value": exc.get("exception_value", rule),
+                            "extra_argument": exc.get("extra_argument"),
+                            "source_kind": exc.get("source_kind"),
+                            "policy_path": exc.get("policy_path", []),
+                            "entry_fingerprint": exc.get("entry_fingerprint", ""),
                             "note": f"imageUrl-scoped exception ({image_url} covers base name '{conforma_mr_ops._extract_image_base(image_url)}')",
                         }
                     )
@@ -721,10 +758,38 @@ def check_existing_exception_gate(
                         "effectiveUntil": eu,
                         "covers_components": sorted(requested),
                         "exception_value": exc.get("exception_value", rule),
+                        "extra_argument": exc.get("extra_argument"),
+                        "source_kind": exc.get("source_kind"),
+                        "policy_path": exc.get("policy_path", []),
+                        "entry_fingerprint": exc.get("entry_fingerprint", ""),
                         "note": "Unscoped exception (no componentNames, no imageUrl) — covers all components for this rule",
                     }
                 )
 
+    exception_matches = []
+    for exception in active_exceptions:
+        value = exception.get("exception_value", rule)
+        for component in exception.get("covers_components", []):
+            exception_matches.append(
+                {
+                    "match_id": (
+                        f"{exception.get('file')}:{exception.get('line')}:{value}:{component}:"
+                        f"{exception.get('entry_fingerprint', '')}"
+                    ),
+                    "value": value,
+                    "base_rule": value.split(":", 1)[0],
+                    "extra_argument": exception.get("extra_argument"),
+                    "component": component,
+                    "component_names": exception.get("componentNames", []),
+                    "effective_until": exception.get("effectiveUntil"),
+                    "source_kind": exception.get("source_kind"),
+                    "source_file": exception.get("file", ""),
+                    "source_path": exception.get("policy_path", []),
+                    "source_line": exception.get("line"),
+                    "entry_fingerprint": exception.get("entry_fingerprint", ""),
+                }
+            )
+    base_result["exception_matches"] = exception_matches
     uncovered = sorted(requested - covered)
     covered_list = sorted(covered)
 

@@ -181,6 +181,7 @@ def _build_component_exception_details(
                     "line": line,
                     "effective_until": effective_until,
                     "exception_value": exception_value,
+                    "exception_matches": [],
                     "url": _make_url(file_path, line),
                 }
 
@@ -196,8 +197,15 @@ def _build_component_exception_details(
                     "line": None,
                     "effective_until": None,
                     "url": None,
+                    "exception_matches": [],
                 }
             )
+    for match in gate.get("exception_matches", []):
+        component = match.get("component")
+        if component in comp_details:
+            comp_details[component].setdefault("exception_matches", []).append(match)
+    for detail in result:
+        detail.setdefault("exception_matches", [])
     return result
 
 
@@ -789,6 +797,14 @@ def check_violations_coverage(
             aliases=aliases or None,
         )
 
+        if gate.get("status") == "error":
+            return {
+                "error": f"Exception coverage check failed for {rule}: {gate.get('reason', 'unknown error')}",
+                "failed_rule": rule,
+                "gate": gate,
+                "violations": results,
+            }
+
         if not run_ec_validation:
             gate_covered = set(gate.get("covered_components", []))
             covered = sorted(set(covered) | gate_covered)
@@ -805,6 +821,7 @@ def check_violations_coverage(
 
         exception_expiry = _extract_exception_expiry(gate)
         exception_details = _build_component_exception_details(gate, all_components, policy_files=policy_files)
+        exception_matches = gate.get("exception_matches", [])
 
         open_mrs = gate.get("open_merge_requests", [])
 
@@ -935,6 +952,7 @@ def check_violations_coverage(
             "display_components": display_components,
             "exception_expiry": exception_expiry,
             "exception_details_by_component": exception_details,
+            "exception_matches": exception_matches,
             "open_merge_requests": open_mrs,
             "open_mr_label": mr_label,
             "open_mr_search_url": search_urls["mr"],

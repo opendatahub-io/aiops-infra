@@ -476,13 +476,34 @@ def _compute_violation_buckets(
             if days_left <= expiry_threshold_days:
                 rule = v["rule"]
                 exception_details = v.get("exception_details_by_component", [])
-                exception_values: set[str] = set()
-                for ed in exception_details:
-                    ev = ed.get("exception_value", "")
-                    if ev and ev != rule:
-                        exception_values.add(ev)
-                detail_suffix = f" ({', '.join(sorted(exception_values))})" if exception_values else ""
-                expiring_soon.append((rule, expiry_date.strftime("%Y-%m-%d"), days_left, detail_suffix))
+                exception_matches = v.get("exception_matches", [])
+                if exception_matches:
+                    for match in exception_matches:
+                        match_expiry = match.get("effective_until") or expiry_date_str
+                        try:
+                            match_date = datetime.fromisoformat(str(match_expiry).replace("Z", "+00:00"))
+                        except (ValueError, TypeError):
+                            continue
+                        match_days_left = (match_date.date() - now.date()).days
+                        if match_days_left > expiry_threshold_days:
+                            continue
+                        value = match.get("value") or rule
+                        component = match.get("component")
+                        suffix_parts = []
+                        if value != rule:
+                            suffix_parts.append(value)
+                        if component:
+                            suffix_parts.append(f"component: {component}")
+                        detail_suffix = f" ({'; '.join(suffix_parts)})" if suffix_parts else ""
+                        expiring_soon.append((rule, match_date.strftime("%Y-%m-%d"), match_days_left, detail_suffix))
+                else:
+                    exception_values: set[str] = set()
+                    for ed in exception_details:
+                        ev = ed.get("exception_value", "")
+                        if ev and ev != rule:
+                            exception_values.add(ev)
+                    detail_suffix = f" ({', '.join(sorted(exception_values))})" if exception_values else ""
+                    expiring_soon.append((rule, expiry_date.strftime("%Y-%m-%d"), days_left, detail_suffix))
         except (ValueError, TypeError):
             continue
     expiring_soon.sort(key=lambda x: x[2])

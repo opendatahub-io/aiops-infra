@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from __future__ import annotations
+import copy
+import hashlib
+import json
 import os
 import posixpath
 import re
+import tempfile
 from pathlib import Path
+
+from ruamel.yaml import YAML
 import conforma_policy_ops
 from exception_mr_text import build_commit_message as _build_commit_message  # noqa: F401 — backward compat re-export
 from exception_mr_text import build_mr_body as _build_mr_body  # noqa: F401 — backward compat re-export
@@ -274,7 +279,7 @@ def _legacy_find_existing_exceptions(content: str, rule: str, indent: str = "   
     return results
 
 
-def find_existing_exceptions(content: str, rule: str, indent: str = "          ") -> list[dict]:
+def find_existing_exceptions(content: str, rule: str | None = None, indent: str = "          ") -> list[dict]:
     """Compatibility adapter for the shared structured exception matcher."""
     del indent  # Retained for callers; YAML structure makes indentation irrelevant.
     normalized = conforma_policy_ops.find_existing_exceptions(content, rule)
@@ -464,3 +469,248 @@ def append_to_policy_file(file_path: Path, yaml_block: str, is_self_service: boo
         content = content.rstrip() + "\n" + yaml_block
 
     file_path.write_text(content, encoding="utf-8")
+
+
+def _mutation_sha256(file_path: Path) -> str:
+    return hashlib.sha256(file_path.read_bytes()).hexdigest()
+
+
+def _mutation_yaml():
+    yaml = YAML(typ="rt")
+    yaml.preserve_quotes = True
+    return yaml
+
+
+def _path_parent(document, path: list[str | int]):
+    node = document
+    for part in path:
+        node = node[part]
+    return node
+
+
+def _entry_for_record(document, record: dict):
+    path = record["policy_path"]
+    parent = _path_parent(document, path[:-1])
+    return parent, path[-1], parent[path[-1]]
+
+
+def _mutation_record(content: str, file_path: Path, rule: str | None = None) -> list[dict]:
+    return conforma_policy_ops.find_existing_exceptions(content, rule, source_file=str(file_path))
+
+
+def _request_value(operation: dict) -> str | None:
+    entry = operation.get("entry") or {}
+    return operation.get("value") or entry.get("value") or operation.get("rule")
+
+
+def _record_matches_operation(record: dict, operation: dict) -> bool:
+    fingerprint = operation.get("target_fingerprint") or operation.get("entry_fingerprint")
+    if fingerprint and record["entry_fingerprint"] != fingerprint:
+        return False
+    value = _request_value(operation)
+    if value and not conforma_policy_ops.exception_value_matches(record["value"], value):
+        return False
+    components = operation.get("components")
+    if components is not None:
+        operation_type = operation.get("operation", operation.get("action", "add"))
+        if operation_type == "remove" and set(components).issubset(set(record["component_names"])):
+            return True
+        if sorted(record["component_names"]) != sorted(components):
+            return False
+    return True
+
+
+def _action(action: str, record: dict | None = None, **fields) -> dict:
+    result = {"action": action, **fields}
+    if record:
+        result.update(
+            {
+                "target_fingerprint": record["entry_fingerprint"],
+                "policy_path": record["policy_path"],
+                "value": record["value"],
+                "before": {key: record.get(key) for key in (
+                    "value", "component_names", "effective_until_value", "reference", "image_url", "image_ref"
+                )},
+            }
+        )
+    return result
+
+
+def _preview_choice(decision_id: str, target: dict, request: dict) -> dict:
+    components = request.get("components") or []
+    return {
+        "decision_id": decision_id,
+        "target_fingerprints": [target["entry_fingerprint"]],
+        "choices": [
+            {
+                "choice_id": "keep_broader",
+                "label": "Keep the broader exception",
+                "description": "Leave the existing broader exception unchanged and do not add a scoped mutation.",
+                "actions": [],
+                "before": [target],
+                "after": [target],
+            },
+            {
+                "choice_id": "add_scoped",
+                "label": "Add a component-scoped exception",
+                "description": (
+                    f"Add an exception only for {', '.join(components)} and leave the broader exception untouched."
+                ),
+                "actions": [_action("add", entry=request.get("entry") or {
+                    "value": request.get("value") or target["value"],
+                    "componentNames": components,
+                    "effectiveUntil": request.get("effective_until"),
+                })],
+                "before": [target],
+                "after": [request.get("entry") or {}],
+            },
+        ],
+    }
+
+
+def preview_policy_mutation(file_path: str | Path, request: dict) -> dict:
+    """Build a revision-pinned, user-reviewable policy mutation preview."""
+    path = Path(file_path)
+    try:
+        content = path.read_text(encoding="utf-8")
+        records = _mutation_record(content, path)
+    except (OSError, ValueError) as exc:
+        return {
+            "status": "error",
+            "file_path": str(path),
+            "file_sha256": "",
+            "unconditional_actions": [],
+            "decisions": [],
+            "error": str(exc),
+        }
+
+    unconditional: list[dict] = []
+    decisions: list[dict] = []
+    for index, operation in enumerate(request.get("operations", []), start=1):
+        operation_type = operation.get("operation", operation.get("action", "add"))
+        matches = [record for record in records if _record_matches_operation(record, operation)]
+        if operation_type == "add":
+            broader = [record for record in records if record["base_rule"] == (operation.get("rule") or "").split(":", 1)[0]
+                       and not record["has_component_names"]]
+            if broader and operation.get("components"):
+                decisions.append(_preview_choice(f"decision-{index}", broader[0], operation))
+            else:
+                unconditional.append(_action("add", entry=operation.get("entry") or {
+                    "value": _request_value(operation),
+                    "componentNames": operation.get("components", []),
+                    "effectiveUntil": operation.get("effective_until"),
+                }))
+            continue
+        if len(matches) != 1:
+            return {
+                "status": "blocked",
+                "file_path": str(path),
+                "file_sha256": _mutation_sha256(path),
+                "unconditional_actions": [],
+                "decisions": [],
+                "error": f"Expected one mutation target for operation {index}, found {len(matches)}",
+            }
+        target = matches[0]
+        if operation_type == "extend":
+            unconditional.append(_action("replace", target, effective_until=operation["effective_until"]))
+        elif operation_type == "remove":
+            if operation.get("components") and target["has_component_names"]:
+                unconditional.append(_action("remove_components", target, components=operation["components"]))
+            elif operation.get("components") and not target["has_component_names"]:
+                decisions.append(_preview_choice(f"decision-{index}", target, operation))
+            else:
+                unconditional.append(_action("remove", target))
+        else:
+            return {
+                "status": "error", "file_path": str(path), "file_sha256": _mutation_sha256(path),
+                "unconditional_actions": [], "decisions": [], "error": f"Unsupported mutation operation: {operation_type}",
+            }
+
+    return {
+        "status": "confirmation_required" if decisions else "ready",
+        "file_path": str(path),
+        "file_sha256": _mutation_sha256(path),
+        "unconditional_actions": unconditional,
+        "decisions": decisions,
+        "error": None,
+    }
+
+
+def _apply_action(document, action: dict) -> None:
+    operation = action["action"]
+    if operation == "add":
+        entry = copy.deepcopy(action["entry"])
+        if not entry.get("value"):
+            raise ValueError("Cannot add a policy exception without value")
+        # Add to the first supported exception sequence, or create the historical path.
+        sequences = list(conforma_policy_ops._iter_exception_sequences(document))
+        if not sequences:
+            raise ValueError("Policy contains no supported exception sequence")
+        sequences[0][2].append(entry)
+        return
+    parent, index, entry = _entry_for_record(document, action)
+    if operation == "remove":
+        del parent[index]
+    elif operation == "replace":
+        entry["effectiveUntil"] = action["effective_until"]
+    elif operation == "remove_components":
+        if "componentNames" not in entry:
+            raise ValueError("Cannot remove components from an unscoped exception")
+        remaining = [name for name in entry["componentNames"] if name not in action["components"]]
+        if remaining:
+            entry["componentNames"] = remaining
+        else:
+            del parent[index]
+    else:
+        raise ValueError(f"Unsupported policy action: {operation}")
+
+
+def apply_policy_mutation(
+    file_path: str | Path,
+    preview: dict,
+    selections: dict[str, str] | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Apply one complete preview atomically, refusing stale or incomplete input."""
+    path = Path(file_path)
+    selections = selections or {}
+    if preview.get("status") not in {"ready", "confirmation_required"}:
+        return {"status": "blocked", "changed": False, "file_path": str(path), "details": [], "error": "Preview is not applicable"}
+    try:
+        content = path.read_text(encoding="utf-8")
+        if _mutation_sha256(path) != preview.get("file_sha256"):
+            return {"status": "stale", "changed": False, "file_path": str(path), "details": [], "error": "Policy file changed since preview"}
+        yaml = _mutation_yaml()
+        document = yaml.load(content)
+        current = {record["entry_fingerprint"]: record for record in _mutation_record(content, path)}
+        actions = list(preview.get("unconditional_actions", []))
+        for decision in preview.get("decisions", []):
+            choice_id = selections.get(decision["decision_id"])
+            if choice_id is None:
+                return {"status": "blocked", "changed": False, "file_path": str(path), "details": [], "error": f"Missing selection for {decision['decision_id']}"}
+            choices = {choice["choice_id"]: choice for choice in decision["choices"]}
+            if choice_id not in choices:
+                return {"status": "blocked", "changed": False, "file_path": str(path), "details": [], "error": f"Unknown selection {choice_id}"}
+            actions.extend(choices[choice_id].get("actions", []))
+        if not actions:
+            return {"status": "no_change_required", "changed": False, "file_path": str(path), "details": [], "error": None}
+        for action in actions:
+            target = action.get("target_fingerprint")
+            if target and target not in current:
+                return {"status": "stale", "changed": False, "file_path": str(path), "details": [], "error": f"Target {target} changed since preview"}
+            _apply_action(document, action)
+        output = tempfile.SpooledTemporaryFile(mode="w+", encoding="utf-8")
+        yaml.dump(document, output)
+        output.seek(0)
+        rendered = output.read()
+        if dry_run:
+            return {"status": "dry_run", "changed": rendered != content, "file_path": str(path), "details": actions, "error": None}
+        if rendered == content:
+            return {"status": "no_change_required", "changed": False, "file_path": str(path), "details": actions, "error": None}
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as temporary:
+            temporary.write(rendered)
+            temporary_path = Path(temporary.name)
+        os.replace(temporary_path, path)
+        return {"status": "applied", "changed": True, "file_path": str(path), "details": actions, "error": None}
+    except (OSError, ValueError, TypeError) as exc:
+        return {"status": "error", "changed": False, "file_path": str(path), "details": [], "error": str(exc)}

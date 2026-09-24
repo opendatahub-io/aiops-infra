@@ -328,14 +328,14 @@ def evaluate_decision(
     """
     if not existing_exceptions.get("checked"):
         return {
-            "proceed": True,
-            "action": "create_new",
+            "proceed": False,
+            "action": "abort",
             "reason": (
                 "Could not check existing exceptions "
                 f"({existing_exceptions.get('reason', 'unknown')}). "
-                "Proceeding with creation — dedup will be handled at MR time."
+                "Refusing to create or extend an exception without a deterministic check."
             ),
-            "details": {},
+            "details": {"failure": "exception_discovery_unavailable"},
         }
 
     permanent = existing_exceptions.get("permanent_exclusions", [])

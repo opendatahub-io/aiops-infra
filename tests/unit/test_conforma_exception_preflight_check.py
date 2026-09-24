@@ -6,14 +6,16 @@ import preflight_check as mod
 
 
 class TestEvaluateDecision:
-    def test_proceed_create_new_when_not_checked(self):
+    def test_abort_when_existing_exception_check_is_unavailable(self):
         result = mod.evaluate_decision(
             existing_exceptions={"checked": False, "reason": "No local clone"},
             components_per_version={"rhoai-3.4": ["odh-dashboard-v3-4"]},
             environment="prod",
         )
-        assert result["proceed"] is True
-        assert result["action"] == "create_new"
+        assert result["proceed"] is False
+        assert result["action"] == "abort"
+        assert "Refusing to create" in result["reason"]
+        assert result["details"]["failure"] == "exception_discovery_unavailable"
 
     def test_abort_on_permanent_global_exclusion_in_target_env(self):
         result = mod.evaluate_decision(
