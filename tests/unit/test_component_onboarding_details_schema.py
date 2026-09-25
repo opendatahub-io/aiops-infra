@@ -29,6 +29,7 @@ def _odh_payload(component_name: str) -> dict:
             "dockerfile_path": "Dockerfile",
             "is_operator": False,
             "build_type": "CI",
+            "slack_team_handle": "openshift-ai-devtestops-ic",
         }
     }
 
@@ -58,6 +59,32 @@ def _run_validate_cli(tmp_path: Path, component_name: str) -> subprocess.Complet
         text=True,
         check=False,
     )
+
+
+class TestSlackTeamHandleOptional:
+    """slack_team_handle/slack_team_channel must NOT be required — many components
+    were already onboarded/in-flight before RHOAIENG-85559 added these fields, and
+    their pipeline_state.json 'validate' step is already marked done and never
+    re-validated, but any *not-yet-validated* older YAML must still pass here."""
+
+    def test_accepts_payload_without_slack_team_handle(self):
+        payload = _odh_payload("odh-dashboard")
+        del payload["inputs"]["slack_team_handle"]
+        validator = Draft202012Validator(_schema())
+        validator.validate(payload)  # must not raise
+
+    def test_accepts_payload_with_slack_team_handle_and_channel(self):
+        payload = _odh_payload("odh-dashboard")
+        payload["inputs"]["slack_team_channel"] = "forum-openshift-ai-operator"
+        validator = Draft202012Validator(_schema())
+        validator.validate(payload)  # must not raise
+
+    def test_rejects_invalid_slack_team_handle_format_when_present(self):
+        payload = _odh_payload("odh-dashboard")
+        payload["inputs"]["slack_team_handle"] = "Not A Handle"
+        validator = Draft202012Validator(_schema())
+        with pytest.raises(Exception):
+            validator.validate(payload)
 
 
 class TestComponentNameAccepted:

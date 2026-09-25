@@ -117,6 +117,13 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "label_raised": "quay-mr-raised",
       "label_done": "quay-mr-merged"
     },
+    "slack_handle": {
+      "status": "pending",
+      "pr_url": "",
+      "depends_on": [],
+      "label_raised": "slack-routing-pr-raised",
+      "label_done": "slack-routing-pr-merged"
+    },
     "krd": {
       "status": "pending",
       "mr_url": "",
@@ -198,7 +205,7 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "depends_on": ["krd", "okc"],
       "label_raised": "tekton-pr-raised",
       "label_done": "tekton-pr-merged"
-    },
+    }
   }
 }
 EOF
@@ -282,6 +289,20 @@ else
     jq '.steps.krd.depends_on = ((.steps.krd.depends_on // []) + ["quay"] | unique)' \
       "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
     echo "  krd.depends_on: added quay (prerequisite)" >&2
+  fi
+
+  # slack_handle: add step if missing (both products; publishes team Slack
+  # handle to rhods-devops-infra — RHOAIENG-85559)
+  if ! jq -e '.steps.slack_handle' "$PIPELINE_STATE" > /dev/null 2>&1; then
+    TMP=$(mktemp)
+    jq '.steps.slack_handle = {
+      "status": "pending",
+      "pr_url": "",
+      "depends_on": [],
+      "label_raised": "slack-routing-pr-raised",
+      "label_done": "slack-routing-pr-merged"
+    }' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+    echo "  added slack_handle step (team Slack handle routing)" >&2
   fi
 
   # okc: add "krd" if missing (RHOAI only)

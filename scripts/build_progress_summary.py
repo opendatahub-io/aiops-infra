@@ -26,6 +26,7 @@ from pathlib import Path
 STEPS_ODH = [
     ("validate",          "Validate Jira",                   None),
     ("quay",              "Create Quay repo",                "mr_url"),
+    ("slack_handle",      "Publish team Slack handle",       "pr_url"),
     ("krd",               "Onboard to Konflux release data", "mr_url"),
     ("okc",               "Add to ODH Konflux central",      "pr_url"),
     ("onboarder_workflow","Trigger ODH onboarder workflow",   "pr_url"),
@@ -36,6 +37,7 @@ STEPS_ODH = [
 STEPS_RHOAI = [
     ("validate",          "Validate Jira",                          None),
     ("quay",              "Create Quay repo",                       "mr_url"),
+    ("slack_handle",      "Publish team Slack handle",              "pr_url"),
     ("delivery_repo",     "Create RHOAI delivery repo",             "mr_url"),
     ("krd",               "Onboard to Konflux release data",        "mr_url"),
     ("okc",               "Add to RHOAI Konflux central",           "pr_url"),

@@ -7,6 +7,13 @@
 
 import argparse
 import sys
+from pathlib import Path
+
+_scripts_dir = str(Path(__file__).resolve().parent)
+if _scripts_dir not in sys.path:
+    sys.path.insert(0, _scripts_dir)
+
+from upsert_team_slack_handle import HANDLE_RE, normalize_channel, normalize_handle  # noqa: E402
 
 
 def main():
@@ -29,7 +36,26 @@ def main():
     p.add_argument("--operator-manifest-src-path")
     p.add_argument("--operator-manifest-dest-path")
     p.add_argument("--operator-manifest-type", choices=["chart"], help="Optional Helm chart operator type")
+    p.add_argument(
+        "--slack-team-handle",
+        required=True,
+        help="Slack user-group handle for the team responsible for this component (e.g. ai-core-platform)",
+    )
+    p.add_argument(
+        "--slack-team-channel",
+        help="Optional Slack channel name for this component's team",
+    )
     args = p.parse_args()
+
+    slack_team_handle = normalize_handle(args.slack_team_handle)
+    if not HANDLE_RE.match(slack_team_handle):
+        print(
+            f"ERROR: --slack-team-handle '{args.slack_team_handle}' is invalid. "
+            "Use a lowercase Slack user-group handle such as ai-core-platform.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    slack_team_channel = normalize_channel(args.slack_team_channel)
 
     product = args.product_context
     lines = ["inputs:"]
@@ -76,6 +102,9 @@ def main():
         lines.append(f"  short_description: {args.short_description or ''}")
 
     lines.append(f"  is_operator: {str(args.is_operator).lower()}")
+    lines.append(f"  slack_team_handle: {slack_team_handle}")
+    if slack_team_channel:
+        lines.append(f"  slack_team_channel: {slack_team_channel}")
 
     if args.is_operator:
         if not args.operator_manifest_src_path or not args.operator_manifest_dest_path:

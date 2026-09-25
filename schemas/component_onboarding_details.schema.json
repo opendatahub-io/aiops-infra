@@ -117,6 +117,16 @@
           "type": "string",
           "description": "Release maturity category for the component (required when product_context is RHOAI)",
           "enum": ["Generally Available", "Tech Preview"]
+        },
+        "slack_team_handle": {
+          "type": "string",
+          "description": "Slack user-group handle (without the leading @) for the team responsible for this component. Published to team-slack-handles.yaml in red-hat-data-services/rhods-devops-infra so build/onboarding guardians can find the right team. See RHOAIENG-85559.",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "slack_team_channel": {
+          "type": "string",
+          "description": "Optional Slack channel name (without the leading #) to use instead of/alongside the user-group handle for this component.",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
         }
       },
       "allOf": [

@@ -37,6 +37,7 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     "delivery-repo-mr-raised": ("delivery_repo",    "mr_raised"),
     "product-listing-mr-raised": ("product_listing","mr_raised"),
     "auto-merge-pr-raised":    ("auto_merge",       "pr_raised"),
+    "slack-routing-pr-raised": ("slack_handle",     "pr_raised"),
     "renovate-pr-raised":      ("renovate",         "pr_raised"),
     # done labels
     "quay-mr-merged":            ("quay",             "done"),
@@ -52,6 +53,8 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     "product-listing-created":   ("product_listing",  "done"),
     "product-listing-exists":    ("product_listing",  "done"),
     "auto-merge-setup-done":     ("auto_merge",       "done"),
+    "slack-routing-pr-merged":   ("slack_handle",     "done"),
+    "slack-routing-exists":      ("slack_handle",     "done"),
     "renovate-changes-done":     ("renovate",         "done"),
     "renovate-sync-triggered":      ("renovate_sync",       "done"),
     "renovate-sync-done":           ("renovate_sync",       "done"),
@@ -87,7 +90,6 @@ STEP_URL_PATTERNS: list[tuple[str, str, re.Pattern]] = [
     ("quay",           "mr_url",  re.compile(r"app-interface/-/merge_requests/", re.I)),
     ("operator",       "pr_url",  re.compile(r"(?:opendatahub-operator|rhods-operator)/pull/", re.I)),
     ("bundle",         "pr_url",  re.compile(r"(?:ODH|RHOAI)-Build-Config/pull/", re.I)),
-    ("auto_merge",     "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I)),
 ]
 
 # Shared URL patterns — multiple steps share the same repo URL pattern.
@@ -115,6 +117,10 @@ SHARED_URL_PATTERNS: list[tuple[str, str, re.Pattern, re.Pattern]] = [
                                    re.compile(r"\[step:pull_pipelines\]|pull.request\s+PipelineRun", re.I)),
     ("renovate",        "pr_url",  re.compile(r"konflux-central/pull/", re.I),
                                    re.compile(r"\[step:renovate\]|enable\s+Renovate", re.I)),
+    ("auto_merge",      "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I),
+                                   re.compile(r"\[step:auto_merge\]|configure\s+auto-merge", re.I)),
+    ("slack_handle",    "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I),
+                                   re.compile(r"\[step:slack_handle\]|Slack\s+routing", re.I)),
 ]
 
 # Steps whose PR targets a variable repo (no URL pattern possible).

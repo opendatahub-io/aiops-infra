@@ -140,6 +140,40 @@ Re-ask if the answer is invalid (explain why and show valid options).
 
 → Store in `product_context`. Must be exactly `ODH` or `RHOAI` (case-insensitive input, store uppercase).
 
+**Q1.5 — Team Slack handle (always, both products)**
+
+> Which team is responsible for this component? Give me their Slack user-group handle
+> (e.g. `ai-core-platform`) — published to `team-slack-handles.yaml` in the private
+> `rhods-devops-infra` repo so guardians can find the right team. See RHOAIENG-85559.
+
+→ Normalize: strip leading `@`, lowercase. Validate `^[a-z0-9]+(-[a-z0-9]+)*$`; re-ask if invalid.
+
+Best-effort verify (the script prints JSON and exits non-zero for any non-`found`
+status — parse the JSON, don't treat non-zero as fatal):
+
+```bash
+uv run --script scripts/lookup_slack_target.py lookup-usergroup --handle "$slack_team_handle"
+```
+
+- `found` → proceed silently.
+- `unknown`/`error` → normal for a new team (slackdump can't list user-groups, only
+  cross-check known handles); confirm with the user: "Can't verify `@<handle>` — is it
+  correct? (yes/no)". `no` → re-ask Q1.5.
+- `invalid` → re-ask Q1.5.
+
+→ Store in `slack_team_handle`.
+
+**Q1.6 — Optional Slack channel (always, both products)**
+
+> Also record a specific Slack channel for this component? (optional — Enter to skip)
+
+- Empty → leave `slack_team_channel` unset. Non-empty → strip leading `#`, lowercase,
+  best-effort verify via `uv run --script scripts/lookup_slack_target.py lookup-channel --name "$slack_team_channel"`
+  (parse JSON regardless of exit code); if `status != "found"`, warn but don't block
+  (slackdump auth may be unconfigured here).
+
+→ Store in `slack_team_channel` when provided.
+
 **Q2 — Product-context-specific question**
 
 _If `product_context == ODH`:_
@@ -394,6 +428,8 @@ Display a summary table of all collected values:
 Component onboarding details collected:
 
   product_context              : <value>
+  slack_team_handle            : <value>
+  slack_team_channel           : <value or N/A>
   build_type / architectures   : <value>
   odh_release_tag              : <value or N/A>   # only shown for ODH Release
   target_rhoai_version         : <value or N/A>   # ODH (Jira sprint) and RHOAI
@@ -432,7 +468,9 @@ YAML_ARGS=(
   --repo-branch "$repo_branch"
   --context-path "$context_path"
   --dockerfile-path "$dockerfile_path"
+  --slack-team-handle "$slack_team_handle"
 )
+[[ -n "${slack_team_channel:-}" ]] && YAML_ARGS+=(--slack-team-channel "$slack_team_channel")
 
 # ODH-only
 if [[ "$product_context" == "ODH" ]]; then
@@ -711,6 +749,7 @@ Print:
 Done.
 
   component_onboarding_details.yaml  — generated and validated
+  Slack team                         — @<slack_team_handle> (<slack_team_channel or "no channel">)
   Jira                               — <JIRA_ID> (<JIRA_URL>)
                                        (created from template <TEMPLATE_ID>, or provided by user)
   Parent feature link                — <PARENT_FEATURE_ID> (relates to)
