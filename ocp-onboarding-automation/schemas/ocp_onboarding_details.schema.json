@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/red-hat-data-services/aiops-infra/schemas/ocp_onboarding_details.schema.json",
+  "title": "OCP Version Onboarding/Offboarding Configuration",
+  "description": "Schema for OCP version onboarding or offboarding configuration YAML",
+  "type": "object",
+  "required": [
+    "ocp_version",
+    "action",
+    "rhoai_versions"
+  ],
+  "properties": {
+    "ocp_version": {
+      "type": "string",
+      "pattern": "^[45]\\.[0-9]{1,2}$",
+      "description": "OCP version to onboard or offboard (e.g., '5.0', '4.23')",
+      "examples": [
+        "5.0",
+        "4.23",
+        "4.19"
+      ]
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "onboard",
+        "offboard"
+      ],
+      "description": "Action to perform: onboard (add) or offboard (remove) the OCP version"
+    },
+    "rhoai_versions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(rhoai-)?[23]\\.[0-9]{1,2}(-ea\\.[0-9])?$",
+        "description": "RHOAI version (with or without 'rhoai-' prefix)"
+      },
+      "description": "List of RHOAI versions to update (e.g., ['3.6', '3.5-ea.2', 'rhoai-3.4'])",
+      "examples": [
+        [
+          "3.6",
+          "3.5"
+        ],
+        [
+          "rhoai-3.6",
+          "rhoai-3.5-ea.2"
+        ]
+      ]
+    },
+    "base_image_override": {
+      "type": "string",
+      "pattern": "^registry\\.redhat\\.io/openshift[45]/ose-operator-registry-rhel9:v[45]\\.[0-9]{1,2}$",
+      "description": "Optional override for the base image URL. If not provided, auto-detected based on OCP version.",
+      "examples": [
+        "registry.redhat.io/openshift5/ose-operator-registry-rhel9:v5.0",
+        "registry.redhat.io/openshift4/ose-operator-registry-rhel9:v4.22"
+      ]
+    },
+    "jira_issue": {
+      "type": "string",
+      "pattern": "^(RHOAIENG|RHOAIOPS)-[0-9]+$",
+      "description": "Optional Jira issue ID for tracking (e.g., 'RHOAIENG-12345')",
+      "examples": [
+        "RHOAIENG-12345",
+        "RHOAIOPS-67890"
+      ]
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, perform a dry run without making actual changes"
+    },
+    "skip_steps": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "update_release_branches",
+          "update_main_catalog",
+          "generate_tekton_pipelines",
+          "create_konflux_app",
+          "update_release_plan",
+          "update_config_yaml",
+          "regenerate_pcc_cache"
+        ]
+      },
+      "description": "Optional list of steps to skip during execution",
+      "examples": [
+        [
+          "regenerate_pcc_cache"
+        ],
+        [
+          "create_konflux_app",
+          "update_release_plan"
+        ]
+      ]
+    },
+    "verify_base_image": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, verify the base image exists in Red Hat registry using skopeo before proceeding"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional free-form notes about this onboarding/offboarding"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "ocp_version": "5.0",
+      "action": "onboard",
+      "rhoai_versions": [
+        "3.6",
+        "3.5"
+      ],
+      "jira_issue": "RHOAIENG-14002",
+      "verify_base_image": true,
+      "notes": "First OCP 5.0 onboarding for latest RHOAI releases"
+    },
+    {
+      "ocp_version": "4.17",
+      "action": "offboard",
+      "rhoai_versions": [
+        "2.25",
+        "3.3"
+      ],
+      "dry_run": false,
+      "notes": "Removing deprecated OCP 4.17 support"
+    }
+  ]
+}
