@@ -216,6 +216,10 @@ ${PLATFORM_LIST}
       - name: redhat-appstudio-staginguser-pull-secret
   timeouts:
     pipeline: 2h
+  workspaces:
+  - name: git-auth
+    secret:
+      secretName: '{{ git_auth_secret }}'
 PIPELINERUN_EOF
 
 # Commit and push
