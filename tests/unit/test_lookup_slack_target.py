@@ -21,9 +21,6 @@ components:
 
 
 class TestNormalize(unittest.TestCase):
-    def test_channel_strips_hash(self):
-        self.assertEqual(lookup.normalize_channel_name("#forum-openshift-ai-operator"), "forum-openshift-ai-operator")
-
     def test_handle_strips_at(self):
         self.assertEqual(lookup.normalize_handle("@ai-core-platform"), "ai-core-platform")
 
@@ -51,47 +48,6 @@ class TestLookupUsergroup(unittest.TestCase):
         result = lookup.lookup_usergroup("Not Valid")
         self.assertEqual(result["status"], "invalid")
         self.assertFalse(result["ok"])
-
-
-class TestLookupChannel(unittest.TestCase):
-    def test_found(self):
-        listed = {
-            "ok": True,
-            "channels": [{"name": "forum-openshift-ai-operator", "id": "C123"}],
-            "error": None,
-        }
-        with patch.object(lookup, "list_channels", return_value=listed):
-            result = lookup.lookup_channel("#forum-openshift-ai-operator")
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["id"], "C123")
-
-    def test_not_found(self):
-        listed = {"ok": True, "channels": [{"name": "general", "id": "C000"}], "error": None}
-        with patch.object(lookup, "list_channels", return_value=listed):
-            result = lookup.lookup_channel("does-not-exist")
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["status"], "not_found")
-
-    def test_empty_name(self):
-        result = lookup.lookup_channel("   ")
-        self.assertEqual(result["status"], "invalid")
-
-    def test_auth_error_propagates(self):
-        listed = {"ok": False, "channels": [], "error": "slackdump session expired. Run: slackdump login"}
-        with patch.object(lookup, "list_channels", return_value=listed):
-            result = lookup.lookup_channel("general")
-        self.assertEqual(result["status"], "error")
-        self.assertIn("expired", result["error"])
-
-
-class TestIterChannelRecords(unittest.TestCase):
-    def test_list_payload(self):
-        records = lookup._iter_channel_records([{"name": "general", "id": "C1"}])
-        self.assertEqual(records, [{"name": "general", "id": "C1"}])
-
-    def test_wrapped_payload(self):
-        records = lookup._iter_channel_records({"channels": [{"name_normalized": "random", "id": "C2"}]})
-        self.assertEqual(records[0]["name"], "random")
 
 
 if __name__ == "__main__":

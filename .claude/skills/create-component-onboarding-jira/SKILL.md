@@ -148,16 +148,17 @@ Re-ask if the answer is invalid (explain why and show valid options).
 
 → Normalize: strip leading `@`, lowercase. Validate `^[a-z0-9]+(-[a-z0-9]+)*$`; re-ask if invalid.
 
-Best-effort verify (the script prints JSON and exits non-zero for any non-`found`
-status — parse the JSON, don't treat non-zero as fatal):
+Best-effort cross-check against handles already in `team-slack-handles.yaml` (the script
+prints JSON and exits non-zero for any non-`found` status — parse the JSON, don't treat
+non-zero as fatal). This does not contact Slack:
 
 ```bash
 uv run --script scripts/lookup_slack_target.py lookup-usergroup --handle "$slack_team_handle"
 ```
 
 - `found` → proceed silently.
-- `unknown`/`error` → normal for a new team (slackdump can't list user-groups, only
-  cross-check known handles); confirm with the user: "Can't verify `@<handle>` — is it
+- `unknown`/`error` → handle is not in the existing routing file (normal for a new team);
+  confirm with the user: "Can't verify `@<handle>` against existing routing — is it
   correct? (yes/no)". `no` → re-ask Q1.5.
 - `invalid` → re-ask Q1.5.
 
@@ -167,10 +168,8 @@ uv run --script scripts/lookup_slack_target.py lookup-usergroup --handle "$slack
 
 > Also record a specific Slack channel for this component? (optional — Enter to skip)
 
-- Empty → leave `slack_team_channel` unset. Non-empty → strip leading `#`, lowercase,
-  best-effort verify via `uv run --script scripts/lookup_slack_target.py lookup-channel --name "$slack_team_channel"`
-  (parse JSON regardless of exit code); if `status != "found"`, warn but don't block
-  (slackdump auth may be unconfigured here).
+- Empty → leave `slack_team_channel` unset. Non-empty → strip leading `#`, lowercase.
+  Validate `^[a-z0-9]+(-[a-z0-9]+)*$`; re-ask if invalid.
 
 → Store in `slack_team_channel` when provided.
 
