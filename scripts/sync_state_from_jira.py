@@ -66,6 +66,12 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     "validation-successful":     ("validate",         "done"),
 }
 
+# Applied by sync_slack_handle_skip, not LABEL_MAP. A missing handle is a
+# terminal skip (exit 2), but CI rebuilds pipeline_state.json from labels on
+# every run. Without this, slack_handle stays "pending" and
+# run_step_slack_handle.sh posts the same Jira comment every run.
+SLACK_ROUTING_NOT_PROVIDED = "slack-routing-not-provided"
+
 # ── URL extraction ────────────────────────────────────────────────────────────
 #
 # PR/MR URLs are the primary matching key.  Jira labels are only used to
@@ -169,6 +175,49 @@ def extract_urls_from_comment(body) -> list[str]:
 
 # Steps that are bypassed under ONBOARD_DRY_RUN — never restore to pr_raised from labels
 _DRY_RUN_BYPASS_STEPS = {"onboarder_workflow", "renovate_sync"}
+
+
+def yaml_slack_team_handle(yaml_path: Path | None) -> str:
+    """Return slack_team_handle from the onboarding YAML, or "" if absent."""
+    if yaml_path is None or not yaml_path.is_file():
+        return ""
+    for line in yaml_path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("slack_team_handle:"):
+            continue
+        value = stripped.split(":", 1)[1].strip().strip("'\"")
+        return value
+    return ""
+
+
+def sync_slack_handle_skip(state: dict, labels: list[str], yaml_path: Path | None) -> list[str]:
+    """Restore a missing-handle skip across fresh CI checkouts.
+
+    `slack-routing-not-provided` means the step already decided to skip.
+    Re-apply `skipped` when the YAML still has no handle, so the orchestrator
+    does not run the step or comment again.
+
+    If the YAML has since gained a slack_team_handle, leave a fresh pending
+    step alone and re-open a previous skip so the handle can be published.
+    Never downgrade pr_raised, merged, or done.
+    """
+    step = state.get("steps", {}).get("slack_handle")
+    if step is None:
+        return []
+
+    current = step.get("status", "pending")
+    handle = yaml_slack_team_handle(yaml_path)
+    if handle:
+        if current == "skipped" and not step.get("pr_url"):
+            step["status"] = "pending"
+            return ["slack_handle: skipped → pending (slack_team_handle present in YAML)"]
+        return []
+
+    if SLACK_ROUTING_NOT_PROVIDED not in labels or current != "pending":
+        return []
+
+    step["status"] = "skipped"
+    return [f"slack_handle: pending → skipped (label: {SLACK_ROUTING_NOT_PROVIDED})"]
 
 
 def sync_labels(state: dict, labels: list[str]) -> list[str]:
@@ -354,6 +403,15 @@ def main():
 
     label_changes = sync_labels(state, labels)
     all_changes.extend(label_changes)
+
+    # After label sync so a raised/merged slack_handle label wins over the
+    # not-provided skip. YAML sits next to the Jira details file in WORKDIR.
+    slack_changes = sync_slack_handle_skip(
+        state,
+        labels,
+        jira_path.parent / "component_onboarding_details.yaml",
+    )
+    all_changes.extend(slack_changes)
 
     url_changes = sync_urls_from_comments(state, comments_raw, labels)
     all_changes.extend(url_changes)

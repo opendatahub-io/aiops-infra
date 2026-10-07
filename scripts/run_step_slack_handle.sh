@@ -60,7 +60,26 @@ SLACK_TEAM_CHANNEL=$(grep -m1 'slack_team_channel:' "$YAML_FILE" | awk '{print $
 # orchestrator run for every older ticket missing it, per the orchestrator's
 # exit-1 contract. Skipping lets the rest of the pipeline proceed normally;
 # re-running create-component-onboarding-jira later can backfill the field.
+#
+# Comment at most once. CI rebuilds pipeline_state.json from Jira labels, and
+# slack-routing-not-provided is what makes the next run restore status=skipped
+# (see sync_slack_handle_skip). If this step is invoked again anyway, do not
+# post another comment.
 if [[ -z "$SLACK_TEAM_HANDLE" ]]; then
+  CURRENT_STATUS=$(jq -r '.steps.slack_handle.status // "pending"' "$PIPELINE_STATE")
+  ALREADY_LABELED=false
+  DETAILS_JSON="$WORKDIR/component_onboarding_details.json"
+  if [[ -f "$DETAILS_JSON" ]] && jq -e --arg label "slack-routing-not-provided" '.fields.labels | index($label) != null' "$DETAILS_JSON" >/dev/null 2>&1; then
+    ALREADY_LABELED=true
+  fi
+  if [[ "$CURRENT_STATUS" == "skipped" || "$ALREADY_LABELED" == "true" ]]; then
+    echo "slack_handle already skipped (no slack_team_handle) — not commenting again."
+    if [[ "$CURRENT_STATUS" != "skipped" ]]; then
+      bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
+        --state "$PIPELINE_STATE" --step slack_handle --status skipped
+    fi
+    exit 2
+  fi
   echo "slack_team_handle not present in component_onboarding_details.yaml — skipping slack_handle step."
   uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
     --add-label "slack-routing-not-provided" \
