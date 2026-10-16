@@ -41,7 +41,7 @@ left off. Steps execute when all their dependencies are met (merged/done).
 | 6 | [update-rhoai-product-listing](update-rhoai-product-listing.md) | `pyxis-repo-configs` GitLab MR | delivery_repo merged |
 | 7 | [sync-rhoai-renovate-configs](sync-rhoai-renovate-configs.md) | GitHub Actions workflow | renovate merged |
 | 8a | [add-component-to-rhoai-konflux-central](add-component-to-rhoai-konflux-central.md) | `konflux-central` GitHub PR (push pipeline) | krd merged |
-| 8b | [create-pull-pipelines-in-rhoai-konflux-central](create-pull-pipelines-in-rhoai-konflux-central.md) | `konflux-central` GitHub PR (pull-request pipeline) | krd merged |
+| 8b | [create-pull-pipelines-in-rhoai-konflux-central](create-pull-pipelines-in-rhoai-konflux-central.md) | `konflux-central` GitHub PR (pull-request pipeline on `main`) | krd merged |
 | 9 | [integrate-component-with-bundle](integrate-component-with-bundle.md) | `RHOAI-Build-Config` GitHub PR | okc merged |
 | 10 | [integrate-component-with-odh-operator](integrate-component-with-odh-operator.md) | `rhods-operator` GitHub PR *(operators only)* | bundle merged |
 

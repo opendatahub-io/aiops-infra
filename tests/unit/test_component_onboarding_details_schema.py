@@ -139,25 +139,40 @@ class TestComponentNameKeepsMainConstraints:
 
 
 class TestRhoaiPullRequestComponentLabel:
-    def test_max_component_name_fits_shortened_label_prefix(self):
+    def test_max_component_name_fits_krd_pr_pipelines_label(self):
         component_name = "odh-" + ("a" * 46)
         assert len(component_name) == 50
 
+        # KRD still registers pr-pipelines-<component>. That prefix, not the
+        # versioned pull-pipeline label, is what the 50-character cap protects.
         label = f"pr-pipelines-{component_name}"
         assert len(label) == 63
 
-    def test_pipeline_label_matches_registered_component_name(self):
+    def test_pull_pipeline_uses_versioned_development_identity(self):
         create_pipeline_script = (
             REPO_ROOT / "scripts" / "run_step_create_pull_pipelines.sh"
         ).read_text(encoding="utf-8")
+
+        assert (
+            "appstudio.openshift.io/application: rhoai-${VERSION_VAR}"
+            in create_pipeline_script
+        )
+        assert (
+            "appstudio.openshift.io/component: ${COMPONENT_NAME}-${VERSION_VAR}"
+            in create_pipeline_script
+        )
+        assert (
+            "serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}"
+            in create_pipeline_script
+        )
+        assert "pr-pipelines-${COMPONENT_NAME}" not in create_pipeline_script
+        assert "build-pipeline-pull-request-pipelines" not in create_pipeline_script
+
+    def test_krd_still_registers_pr_pipelines_component(self):
         krd_script = (REPO_ROOT / "scripts" / "run_step_krd.sh").read_text(
             encoding="utf-8"
         )
 
-        assert (
-            "appstudio.openshift.io/component: pr-pipelines-${COMPONENT_NAME}"
-            in create_pipeline_script
-        )
         assert "name: pr-pipelines-${COMPONENT_NAME}" in krd_script
         assert "componentName: pr-pipelines-${COMPONENT_NAME}" in krd_script
 

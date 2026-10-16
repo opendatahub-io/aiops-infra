@@ -18,7 +18,7 @@ A YAML file that drives every downstream onboarding skill. Key fields:
 | `repo_branch` | `main` or `rhoai-3.5-ea.1` |
 | `context_path` | `./` |
 | `dockerfile_path` | `Dockerfile.konflux` |
-| `target_rhoai_version` | `3.5-ea-1` *(RHOAI only; drives automation)* / collected for ODH Jira Target Version only |
+| `target_rhoai_version` | `3.6` or `3.6-ea-1` *(RHOAI only; drives release branch, push PipelineRun, and the main-branch pull-request PipelineRun)* / collected for ODH Jira Target Version only |
 | `architectures` | `[x86_64, arm64, ppc64le, s390x]` *(RHOAI only)* |
 | `long_description` / `short_description` | *(RHOAI only)* |
 | `is_operator` | `true` / `false` |
@@ -51,7 +51,18 @@ The branch is never asked of the user — it is derived from `target_rhoai_versi
 
 | Version | Branch |
 |---------|--------|
-| `3.5` | `rhoai-3.5` |
-| `3.5-ea-1` | `rhoai-3.5-ea.1` |
+| `3.6` | `rhoai-3.6` |
+| `3.6-ea-1` | `rhoai-3.6-ea.1` |
 
-See also: [validate-component-onboarding-jira](validate-component-onboarding-jira.md)
+`scripts/parse_rhoai_version.sh` also turns that value into the Konflux
+identifiers used by the main-branch pull-request PipelineRun. `3.6` becomes
+application `rhoai-v3-6`, component `<component>-v3-6`, service account
+`build-pipeline-<component>-v3-6`, and `rhoai-version` `3.6.0`. `3.6-ea-1`
+becomes `v3-6-ea-1` and `3.6.0-ea.1`. The pull-request step uses this parsed
+value as given. A ticket for an older release, such as `3.5`, writes
+`rhoai-v3-5` into the main-branch pull-request PipelineRun. Aligning that file
+with the current development application means entering the current development
+version here.
+
+See also: [validate-component-onboarding-jira](validate-component-onboarding-jira.md),
+[create-pull-pipelines-in-rhoai-konflux-central](create-pull-pipelines-in-rhoai-konflux-central.md)

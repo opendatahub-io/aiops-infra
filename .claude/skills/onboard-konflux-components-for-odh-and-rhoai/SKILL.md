@@ -398,6 +398,10 @@ OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/
 EXIT_CODE=$?
 ```
 
+Writes `pipelineruns/<repo-name>/.tekton/<component-name>-pull-request.yaml` and opens the PR against `konflux-central` `main`.
+
+Versioned fields come from `target_rhoai_version` through `parse_rhoai_version.sh`. For `3.6` the PipelineRun uses application `rhoai-v3-6`, component `<component>-v3-6`, service account `build-pipeline-<component>-v3-6`, image `quay.io/rhoai/<component>-rhel9:on-pr-{{pull_request_number}}`, retention `30d`, and an on-CEL pull-request trigger. An older `target_rhoai_version` such as `3.5` keeps that older version's identifiers (`rhoai-v3-5`). Details and the pipeline-reference CEL are in `docs/skills/create-pull-pipelines-in-rhoai-konflux-central.md`.
+
 Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8f: integrate-component-with-bundle (step key: `bundle`)

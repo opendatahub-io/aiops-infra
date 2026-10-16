@@ -56,4 +56,5 @@ Comment: PR URL posted to the onboarding ticket.
 
 This skill creates only the push PipelineRun. The pull-request PipelineRun is handled
 separately by [create-pull-pipelines-in-rhoai-konflux-central](create-pull-pipelines-in-rhoai-konflux-central.md),
-which targets `main` rather than the version branch.
+which opens its PR against `main`. Both files take application, component, and
+service account from the same `target_rhoai_version`.

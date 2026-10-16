@@ -215,15 +215,17 @@ _If `product_context == RHOAI`:_
 **Q2a — Target RHOAI version**
 > What is the target RHOAI version?
 > Format: `x.y`, `x.y.0`, `x.y-eaN`, `x.y-ea-N`, `x.y-ea.N`, `x.y.0-eaN`, `x.y.0-ea-N`, or `x.y.0-ea.N`
-> Examples: `3.4`, `3.4.0`, `3.4-ea2`, `3.4-ea-2`, `3.4-ea.2`, `3.4.0-ea2`, `3.4.0-ea-2`, `3.4.0-ea.2`
+> Examples: `3.6`, `3.6.0`, `3.6-ea1`, `3.6-ea-1`, `3.6-ea.1`, `3.6.0-ea1`, `3.6.0-ea-1`, `3.6.0-ea.1`
+>
+> This value is parsed into the release branch and into the main-branch pull-request PipelineRun (`rhoai-vX-Y`, `<component>-vX-Y`, `build-pipeline-<component>-vX-Y`, `rhoai-version`). Enter the current development version when that pull-request PipelineRun should use the current development application. An older release target keeps the older version's identifiers on the main-branch file.
 
 → Validate against the regex: `^\d+\.\d+(?:\.0)?(?:-ea[-.]?\d+)?$`
   Re-ask if the input does not match, showing the valid examples above.
 
 Transform the validated input to the canonical form and store in `target_rhoai_version`:
 - Extract `VERSION_X` = first integer, `VERSION_Y` = second integer, `VERSION_N` = EA number (after `-ea`, `-ea-`, or `-ea.`), or empty if no EA suffix
-- If `VERSION_N` is non-empty: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>-ea-<VERSION_N>"` (e.g. `3.4-ea-2`)
-- Otherwise: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>"` (e.g. `3.4`)
+- If `VERSION_N` is non-empty: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>-ea-<VERSION_N>"` (e.g. `3.6-ea-1`)
+- Otherwise: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>"` (e.g. `3.6`)
 
 **Q2b — CPU architectures**
 > Which CPU architectures should this component build for?

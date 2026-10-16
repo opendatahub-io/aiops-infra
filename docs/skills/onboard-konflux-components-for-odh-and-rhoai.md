@@ -44,6 +44,12 @@ The orchestrator does not edit files or raise PRs directly. Instead it:
 | 9 | [integrate-component-with-bundle](integrate-component-with-bundle.md) | okc merged |
 | 10 | [integrate-component-with-odh-operator](integrate-component-with-odh-operator.md) | bundle merged *(operators only)* |
 
+Step 8b opens its GitHub PR against `konflux-central` `main`. The PipelineRun's
+application, component, service account, and `rhoai-version` come from
+`target_rhoai_version` (`3.6` → `rhoai-v3-6`, `<component>-v3-6`,
+`build-pipeline-<component>-v3-6`, `3.6.0`). An older target keeps that older
+version's identifiers.
+
 ## Jira progress comment
 
 Each run appends a table like the following to the Jira ticket (only when something changed):
