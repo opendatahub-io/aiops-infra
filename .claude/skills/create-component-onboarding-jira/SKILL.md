@@ -7,8 +7,11 @@ user-invocable: true
 
 # Create Component Onboarding Jira
 
-Collect ODH/RHOAI Konflux onboarding parameters, validate
-`component_onboarding_details.yaml`, and attach it to a new or existing Jira ticket.
+Interactively collects all parameters needed to onboard an ODH or RHOAI component onto
+the Konflux CI/build platform, produces a validated `component_onboarding_details.yaml`,
+and creates or updates a Jira ticket with the YAML attached. When no Jira URL is
+provided, a new ticket is automatically created by cloning the product-specific
+onboarding template (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`).
 
 ## Prerequisites
 
@@ -33,6 +36,11 @@ ticket. Providing a URL skips template cloning and attaches directly to the give
 
 Both paths apply the `disable-automated-onboarding` label so the DevOps onboarding
 guardian can review the new or changed ticket before scheduled automation picks it up.
+
+| Invocation | ODH | RHOAI |
+|---|---|---|
+| No URL | Clones `RHOAIENG-35683`, attaches YAML, updates ticket | Clones `RHOAIENG-17225`, attaches YAML, updates ticket |
+| With URL | Attaches YAML to given ticket, updates ticket | Attaches YAML to given ticket, updates ticket |
 
 Examples:
 ```
