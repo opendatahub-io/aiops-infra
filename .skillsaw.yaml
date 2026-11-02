@@ -12,4 +12,8 @@ rules:
         warn: 7000
         error: 10000
 
+  content-critical-position:
+    enabled: true
+    severity: info
+
 strict: true
