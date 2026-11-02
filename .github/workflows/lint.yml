@@ -35,5 +35,11 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Check shell script syntax
+      run: |
+        for script in scripts/*.sh; do
+          bash -n "$script" || exit 1
+        done
+
     - name: Run unit tests
       run: uv run --with pytest --with pyyaml --with jsonschema pytest tests/unit -q

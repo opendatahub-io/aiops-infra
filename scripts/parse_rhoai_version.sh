@@ -2,7 +2,7 @@
 # Parse a canonical RHOAI version string (x.y or x.y-ea-n) and export all derived variables.
 #
 # Usage:
-#   eval "$(bash parse_rhoai_version.sh --version "3.4" [--component "my-comp"] [--release-category "Beta"])"
+#   eval "$(bash parse_rhoai_version.sh --version "3.4" [--component "my-comp"] [--release-category "Beta"] [--base-rhel-version rhel9|rhel10])"
 #
 # Exports (via eval):
 #   VERSION_X, VERSION_Y, VERSION_N (empty for non-ea)
@@ -12,13 +12,14 @@
 #   RHOAI_MINOR_VERSION (e.g. 3.4.0 or 3.4.0-ea.2)
 #   CONTENT_STREAM_TAG  (e.g. v3.4 or v3.4-ea.2)
 #   REPOSITORY_NAME     (only when --component is provided:
-#                         rhoai/<comp>-rhel9  for GA/Tech Preview
-#                         rhoai-beta/<comp>-rhel9  for Beta/DevPreview)
+#                         rhoai/<comp><suffix>  for GA/Tech Preview
+#                         rhoai-beta/<comp><suffix>  for Beta/DevPreview)
 
 set -euo pipefail
 
 TARGET_RHOAI_VERSION=""
 COMPONENT_NAME=""
+OS_ARGS=()
 RELEASE_CATEGORY=""
 
 while [[ $# -gt 0 ]]; do
@@ -26,11 +27,18 @@ while [[ $# -gt 0 ]]; do
     --version)          TARGET_RHOAI_VERSION="$2"; shift 2 ;;
     --component)        COMPONENT_NAME="$2";        shift 2 ;;
     --release-category) RELEASE_CATEGORY="$2";      shift 2 ;;
+    --base-rhel-version) OS_ARGS=(--base-rhel-version "$2"); shift 2 ;;
     *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
 [[ -z "$TARGET_RHOAI_VERSION" ]] && { echo "ERROR: --version is required" >&2; exit 1; }
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+OS_VARS=$(bash "$SCRIPT_DIR/resolve_rhel_version.sh" --product-context "RHOAI" "${OS_ARGS[@]}") || exit 1
+eval "$OS_VARS"
+printf 'BASE_RHEL_VERSION=%q\n' "$BASE_RHEL_VERSION"
+printf 'IMAGE_REPO_SUFFIX=%q\n' "$IMAGE_REPO_SUFFIX"
 
 if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
   VERSION_X="${BASH_REMATCH[1]}"
@@ -67,7 +75,7 @@ printf 'CONTENT_STREAM_TAG=%q\n'  "$CONTENT_STREAM_TAG"
 
 if [[ -n "$COMPONENT_NAME" ]]; then
   PRODUCT_LINE="rhoai"
-  [[ "$RELEASE_CATEGORY" == "Beta" ]] && PRODUCT_LINE="rhoai-beta"
-  REPOSITORY_NAME="${PRODUCT_LINE}/${COMPONENT_NAME}-rhel9"
+  [[ "$RELEASE_CATEGORY" == "Beta" || "$RELEASE_CATEGORY" == "DevPreview" ]] && PRODUCT_LINE="rhoai-beta"
+  REPOSITORY_NAME="${PRODUCT_LINE}/${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}"
   printf 'REPOSITORY_NAME=%q\n' "$REPOSITORY_NAME"
 fi

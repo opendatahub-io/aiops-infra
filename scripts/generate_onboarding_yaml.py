@@ -6,6 +6,7 @@
 """Write component_onboarding_details.yaml from CLI arguments."""
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,8 @@ def main():
     p.add_argument("--odh-release-tag", help="ODH Release builds only: version tag (e.g. 2.21.0)")
     p.add_argument("--architectures", help="RHOAI only; comma-separated (default: x86_64,arm64)")
     p.add_argument("--target-rhoai-version", help="RHOAI only")
+    p.add_argument("--base-rhel-version", choices=["rhel9", "rhel10"],
+                   help="Internal resolved RHOAI policy target (legacy default: rhel9)")
     p.add_argument("--long-description", help="RHOAI only")
     p.add_argument("--short-description", help="RHOAI only")
     p.add_argument("--release-category", choices=["Generally Available", "Tech Preview"], help="RHOAI only")
@@ -46,6 +49,11 @@ def main():
         help="Optional Slack channel name for this component's team",
     )
     args = p.parse_args()
+
+    if re.search(r"-rhel(?:9|10)$", args.component_name):
+        p.error("component-name must not end with -rhel9 or -rhel10; automation appends the suffix")
+    if args.product_context == "ODH" and args.base_rhel_version is not None:
+        p.error("--base-rhel-version is only valid for RHOAI")
 
     slack_team_handle = normalize_handle(args.slack_team_handle)
     if not HANDLE_RE.match(slack_team_handle):
@@ -92,6 +100,7 @@ def main():
         if not args.release_category:
             print("ERROR: --release-category is required for RHOAI", file=sys.stderr)
             sys.exit(1)
+        lines.append(f"  base_rhel_version: {args.base_rhel_version or 'rhel9'}")
         archs = [a.strip() for a in (args.architectures or "x86_64,arm64").split(",")]
         lines.append("  architectures:")
         for arch in archs:
