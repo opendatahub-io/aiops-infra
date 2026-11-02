@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# dependencies = ["pyyaml>=6.0.0"]
+# dependencies = ["pyyaml==6.0.3"]
 # ///
 """Read onboarding inputs as YAML and emit safely quoted shell assignments."""
 
