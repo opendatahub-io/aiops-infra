@@ -12,6 +12,7 @@ import shlex
 import sys
 import urllib.parse
 import urllib.request
+from typing import Optional
 
 from rhel_version_contract import resolve_base_rhel_version
 
@@ -29,6 +30,24 @@ def fetch(source: str) -> str:
             return dockerfile.read()
     except Exception as exc:
         raise ValueError(f"could not fetch/read Dockerfile {source!r}: {exc}") from exc
+
+
+def dockerfile_url(repo_url: str, repo_branch: str, context_path: str, dockerfile_path: str) -> str:
+    parsed = urllib.parse.urlparse(repo_url)
+    if parsed.scheme != "https" or parsed.hostname != "github.com":
+        raise ValueError("repo_url must be an HTTPS GitHub repository URL")
+    repo_parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if len(repo_parts) != 2:
+        raise ValueError("repo_url must identify a GitHub owner and repository")
+    repo_parts[-1] = repo_parts[-1].removesuffix(".git")
+    path_parts = repo_parts + [part for part in repo_branch.split("/") if part]
+    for label, value in (("context_path", context_path), ("dockerfile_path", dockerfile_path)):
+        parts = [part for part in value.strip("/").split("/") if part not in ("", ".")]
+        if ".." in parts:
+            raise ValueError(f"{label} must not escape the repository root")
+        path_parts.extend(parts)
+    encoded_path = "/".join(urllib.parse.quote(part, safe="@") for part in path_parts)
+    return f"https://raw.githubusercontent.com/{encoded_path}"
 
 
 def logical_lines(content: str) -> list[tuple[int, str]]:
@@ -51,7 +70,7 @@ def logical_lines(content: str) -> list[tuple[int, str]]:
     return output
 
 
-def from_stages(content: str) -> list[tuple[int, str, str | None]]:
+def from_stages(content: str) -> list[tuple[int, str, Optional[str]]]:
     stages = []
     for number, line in logical_lines(content):
         if not re.match(r"FROM\b", line, re.IGNORECASE):
@@ -108,12 +127,27 @@ def resolve(content: str) -> tuple[str, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    source = parser.add_mutually_exclusive_group(required=True)
+    source = parser.add_mutually_exclusive_group()
     source.add_argument("--dockerfile-url")
     source.add_argument("--dockerfile-path")
+    parser.add_argument("--repo-url")
+    parser.add_argument("--repo-branch")
+    parser.add_argument("--context-path", default="./")
+    parser.add_argument("--repo-dockerfile-path")
     args = parser.parse_args()
     try:
-        detected_version, image = resolve(fetch(args.dockerfile_url or args.dockerfile_path))
+        repo_args = (args.repo_url, args.repo_branch, args.repo_dockerfile_path)
+        if any(repo_args):
+            if args.dockerfile_url or args.dockerfile_path or not all(repo_args):
+                raise ValueError("provide either direct Dockerfile input or all repo details")
+            source_path = dockerfile_url(
+                args.repo_url, args.repo_branch, args.context_path, args.repo_dockerfile_path
+            )
+        else:
+            source_path = args.dockerfile_url or args.dockerfile_path
+            if not source_path:
+                raise ValueError("provide --dockerfile-url, --dockerfile-path, or repo details")
+        detected_version, image = resolve(fetch(source_path))
         version = resolve_base_rhel_version(detected_version)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

@@ -390,20 +390,16 @@ Print: `repo_branch auto-set to: <repo_branch>`
 
 **Q7.5 — Resolve RHOAI base image (RHOAI only; never ask for ODH)**
 
-The Dockerfile's final runtime stage is the source of truth for the image suffix. Fetch
-the exact Dockerfile selected above and resolve its effective base (following a final
-stage alias when present):
+The Dockerfile's final runtime stage is the source of truth for the image suffix. Delegate
+Dockerfile URL construction, fetching, and final-stage resolution to the Python resolver
+(which follows a final-stage alias when present):
 
 ```bash
-REPO_RAW_BASE="${repo_url/github.com/raw.githubusercontent.com}"
-CLEAN_CTX="${context_path%/}"; CLEAN_CTX="${CLEAN_CTX#./}"
-if [[ -z "$CLEAN_CTX" || "$CLEAN_CTX" == "." ]]; then
-  DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${dockerfile_path}"
-else
-  DOCKERFILE_RAW_URL="${REPO_RAW_BASE}/${repo_branch}/${CLEAN_CTX}/${dockerfile_path}"
-fi
 if BASE_IMAGE_RESOLUTION=$(uv run --script scripts/resolve_base_rhel_version.py \
-  --dockerfile-url "$DOCKERFILE_RAW_URL" 2>&1); then
+  --repo-url "$repo_url" \
+  --repo-branch "$repo_branch" \
+  --context-path "$context_path" \
+  --repo-dockerfile-path "$dockerfile_path" 2>&1); then
   BASE_RHEL_VERSION=$(printf '%s\n' "$BASE_IMAGE_RESOLUTION" \
     | sed -n 's/^BASE_RHEL_VERSION=//p' | tail -1)
   echo "$BASE_IMAGE_RESOLUTION" | sed '/^BASE_RHEL_VERSION=/d'

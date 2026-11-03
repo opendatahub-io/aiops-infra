@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+from resolve_base_rhel_version import dockerfile_url  # noqa: E402
 from rhel_version_contract import resolve_base_rhel_version  # noqa: E402
 
 
@@ -36,6 +37,18 @@ def test_suffix_resolver_rejects_values_outside_schema_enum(major):
 
 def test_legacy_default_comes_from_schema():
     assert resolve_base_rhel_version() == "rhel9"
+
+
+def test_resolver_constructs_raw_dockerfile_url():
+    assert dockerfile_url(
+        "https://github.com/example/component.git",
+        "rhoai-3.7",
+        "./docker/build/",
+        "Dockerfile.konflux",
+    ) == (
+        "https://raw.githubusercontent.com/example/component/rhoai-3.7/"
+        "docker/build/Dockerfile.konflux"
+    )
 
 
 def test_allowed_versions_come_from_schema_enum(tmp_path):
