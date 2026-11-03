@@ -31,11 +31,11 @@
         },
         "component_name": {
           "type": "string",
-          "description": "Unique component name starting with 'odh-', using only lowercase letters, numbers, and hyphens. Must be at most 50 characters so the RHOAI pr-pipelines- component label fits Kubernetes' 63-character limit. Must not end with '-rhel9' or '-rhel10' or a version-like suffix such as -v2, -3-4, -v3-4, or -v3-5-ea-1; onboarding automation appends the RHOAI version itself.",
+          "description": "Unique component name starting with 'odh-', using only lowercase letters, numbers, and hyphens. Must be at most 50 characters so the RHOAI pr-pipelines- component label fits Kubernetes' 63-character limit. Must not end with an OS suffix such as '-rhel9' or '-rhel10', or a version-like suffix such as -v2, -3-4, -v3-4, or -v3-5-ea-1; onboarding automation appends the RHOAI version itself.",
           "pattern": "^odh-[a-z0-9]+(-[a-z0-9]+)*$",
           "not": {
             "anyOf": [
-              { "pattern": "-rhel(9|10)$" },
+              { "pattern": "-rhel[0-9]+$" },
               { "pattern": "-(?:v[0-9]+(?:-[0-9]+(?:-ea-[0-9]+)?)?|[0-9]+-[0-9]+)$" }
             ]
           },

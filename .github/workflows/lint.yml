@@ -2,9 +2,8 @@ name: Lint
 
 on:
   push:
-    branches: [main, feature/mixed-rhel-onboarding]
+    branches: [main]
   pull_request:
-    branches: [main, feature/mixed-rhel-onboarding]
 
 jobs:
   lint:

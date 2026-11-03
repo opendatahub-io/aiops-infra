@@ -6,6 +6,7 @@
 """Write component_onboarding_details.yaml from CLI arguments."""
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -30,7 +31,7 @@ def main():
     p.add_argument("--odh-release-tag", help="ODH Release builds only: version tag (e.g. 2.21.0)")
     p.add_argument("--architectures", help="RHOAI only; comma-separated (default: x86_64,arm64)")
     p.add_argument("--target-rhoai-version", help="RHOAI only")
-    p.add_argument("--base-rhel-version", choices=["rhel9", "rhel10"],
+    p.add_argument("--base-rhel-version",
                    help="Internal resolved RHOAI policy target (legacy default: rhel9)")
     p.add_argument("--long-description", help="RHOAI only")
     p.add_argument("--short-description", help="RHOAI only")
@@ -50,8 +51,8 @@ def main():
     )
     args = p.parse_args()
 
-    if re.search(r"-rhel(?:9|10)$", args.component_name):
-        p.error("component-name must not end with -rhel9 or -rhel10; automation appends the suffix")
+    if re.search(r"-rhel[0-9]+$", args.component_name):
+        p.error("component-name must not end with -rhel<major>; automation appends the suffix")
     if args.product_context == "ODH" and args.base_rhel_version is not None:
         p.error("--base-rhel-version is only valid for RHOAI")
 
@@ -100,7 +101,9 @@ def main():
         if not args.release_category:
             print("ERROR: --release-category is required for RHOAI", file=sys.stderr)
             sys.exit(1)
-        lines.append(f"  base_rhel_version: {args.base_rhel_version or 'rhel9'}")
+        base_rhel_version = args.base_rhel_version if args.base_rhel_version is not None else "rhel9"
+        # Preserve supplied values safely; the schema decides which majors are supported.
+        lines.append(f"  base_rhel_version: {json.dumps(base_rhel_version)}")
         archs = [a.strip() for a in (args.architectures or "x86_64,arm64").split(",")]
         lines.append("  architectures:")
         for arch in archs:

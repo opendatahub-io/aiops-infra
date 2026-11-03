@@ -40,7 +40,7 @@ def test_schema_accepts_legacy_and_supported_os(os):
     Draft202012Validator(SCHEMA).validate(data)
 
 
-@pytest.mark.parametrize('product,os', [('RHOAI', 'rhel8'), ('RHOAI', None),
+@pytest.mark.parametrize('product,os', [('RHOAI', 'rhel8'), ('RHOAI', 'rhel11'), ('RHOAI', 'rhel123'), ('RHOAI', None),
                                        ('ODH', 'rhel9'), ('ODH', 'rhel10')])
 def test_schema_rejects_invalid_or_odh_os(product, os):
     data = payload(product)
@@ -48,14 +48,14 @@ def test_schema_rejects_invalid_or_odh_os(product, os):
     assert list(Draft202012Validator(SCHEMA).iter_errors(data))
 
 
-@pytest.mark.parametrize('os', ['rhel9', 'rhel10'])
+@pytest.mark.parametrize('os', ['rhel9', 'rhel10', 'rhel11', 'rhel123'])
 def test_schema_rejects_os_in_component_identity(os):
     data = payload()
     data['inputs']['component_name'] += '-' + os
     assert list(Draft202012Validator(SCHEMA).iter_errors(data))
 
 
-@pytest.mark.parametrize('os', [None, 'rhel9', 'rhel10'])
+@pytest.mark.parametrize('os', [None, 'rhel9', 'rhel10', 'rhel8', 'rhel11', 'rhel123'])
 @pytest.mark.parametrize('category,line', [('Generally Available', 'rhoai'),
                                           ('Tech Preview', 'rhoai'),
                                           ('Beta', 'rhoai-beta'), ('DevPreview', 'rhoai-beta')])
@@ -87,7 +87,7 @@ def test_odh_stays_unsuffixed_and_rejects_explicit_os():
 @pytest.mark.parametrize('script,args', [
     ('derive_quay_vars.sh', ['--product-context', 'RHOAI', '--component-name', 'odh-example']),
     ('parse_rhoai_version.sh', ['--version', '3.7'])])
-@pytest.mark.parametrize('os', ['', 'rhel8', '10'])
+@pytest.mark.parametrize('os', ['', 'rhel-invalid', '10', 'rhel10-extra', 'rhel10;echo injected'])
 def test_helpers_fail_on_invalid_os(script, args, os):
     assert shell(script, *args, '--base-rhel-version', os).returncode != 0
 
@@ -115,7 +115,7 @@ def test_generator_round_trip(tmp_path, product, os):
         assert 'base_rhel_version' not in data['inputs']
 
 
-@pytest.mark.parametrize('os', [None, 'rhel9', 'rhel10'])
+@pytest.mark.parametrize('os', [None, 'rhel9', 'rhel10', 'rhel8', 'rhel11', 'rhel123'])
 def test_component_parser_persists_resolved_contract(tmp_path, os):
     data = payload()
     if os is not None:
@@ -157,7 +157,7 @@ def test_generator_rejects_invalid_odh_contract_before_writing(tmp_path, extra):
     assert not out.exists()
 
 
-@pytest.mark.parametrize('product,os', [('RHOAI', 'rhel8'), ('ODH', 'rhel10')])
+@pytest.mark.parametrize('product,os', [('RHOAI', 'rhel-invalid'), ('ODH', 'rhel10')])
 def test_component_parser_failure_does_not_mutate_state(tmp_path, product, os):
     data = payload(product)
     data['inputs']['base_rhel_version'] = os
@@ -242,3 +242,38 @@ def test_non_ga_version_identities_are_os_free(version, identity, branch):
     assert f'VERSION_VAR={identity}\n' in result.stdout
     assert f'BRANCH_NAME={branch}\n' in result.stdout
     assert 'REPOSITORY_NAME=rhoai/odh-example-rhel10\n' in result.stdout
+
+
+@pytest.mark.parametrize('os', ['rhel8', 'rhel11', 'rhel123', 'rhel-invalid', ''])
+def test_generator_leaves_supported_version_validation_to_schema(tmp_path, os):
+    out = tmp_path / 'onboarding.yaml'
+    args = []
+    for key, value in payload()['inputs'].items():
+        if key not in ['architectures', 'is_operator']:
+            args.extend(['--' + key.replace('_', '-'), str(value)])
+    result = subprocess.run([sys.executable, str(SCRIPTS / 'generate_onboarding_yaml.py'),
+                             '--output', str(out), '--slack-team-handle', 'ai-core-platform',
+                             *args, '--base-rhel-version', os], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    data = yaml.safe_load(out.read_text())
+    assert data['inputs']['base_rhel_version'] == os
+    errors = list(Draft202012Validator(SCHEMA).iter_errors(data))
+    assert any(error.validator == 'enum' and list(error.absolute_path) == ['inputs', 'base_rhel_version']
+               for error in errors)
+
+
+def test_generator_os_input_cannot_add_yaml_fields(tmp_path):
+    out = tmp_path / 'onboarding.yaml'
+    args = []
+    for key, value in payload()['inputs'].items():
+        if key not in ['architectures', 'is_operator']:
+            args.extend(['--' + key.replace('_', '-'), str(value)])
+    value = 'rhel10\n  injected: true'
+    result = subprocess.run([sys.executable, str(SCRIPTS / 'generate_onboarding_yaml.py'),
+                             '--output', str(out), '--slack-team-handle', 'ai-core-platform',
+                             *args, '--base-rhel-version', value], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    data = yaml.safe_load(out.read_text())
+    assert data['inputs']['base_rhel_version'] == value
+    assert 'injected' not in data['inputs']
+    assert list(Draft202012Validator(SCHEMA).iter_errors(data))

@@ -2,7 +2,7 @@
 # Parse a canonical RHOAI version string (x.y or x.y-ea-n) and export all derived variables.
 #
 # Usage:
-#   eval "$(bash parse_rhoai_version.sh --version "3.4" [--component "my-comp"] [--release-category "Beta"] [--base-rhel-version rhel9|rhel10])"
+#   eval "$(bash parse_rhoai_version.sh --version "3.4" [--component "my-comp"] [--release-category "Beta"] [--base-rhel-version rhel<major>])"
 #
 # Exports (via eval):
 #   VERSION_X, VERSION_Y, VERSION_N (empty for non-ea)

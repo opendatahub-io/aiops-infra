@@ -39,7 +39,7 @@ def main():
         present = "base_rhel_version" in inputs
         os_value = inputs.get("base_rhel_version", "")
         if not isinstance(os_value, str):
-            raise ValueError("inputs.base_rhel_version must be rhel9 or rhel10")
+            raise ValueError("inputs.base_rhel_version must be a string")
         values["BASE_RHEL_VERSION_PRESENT"] = str(present).lower()
         values["BASE_RHEL_VERSION_INPUT"] = os_value
     except (OSError, ValueError, yaml.YAMLError) as exc:

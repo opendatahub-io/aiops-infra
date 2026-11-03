@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: eval "$(bash derive_quay_vars.sh --product-context <ODH|RHOAI> --component-name <name> [--base-rhel-version rhel9|rhel10])"
+# Usage: eval "$(bash derive_quay_vars.sh --product-context <ODH|RHOAI> --component-name <name> [--base-rhel-version rhel<major>])"
 # Outputs: QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, BASE_RHEL_VERSION, IMAGE_REPO_SUFFIX
 set -euo pipefail
 
