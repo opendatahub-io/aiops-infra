@@ -7,6 +7,7 @@
 #     --workdir <dir> --jira-id <id> --scripts-dir <dir> [--pipeline-state <path>])"
 #
 # Exports (via eval): COMPONENT_NAME IS_OPERATOR REPO_URL REPO_BRANCH
+#                     CONTEXT_PATH DOCKERFILE_PATH TARGET_RHOAI_VERSION
 #                     PRODUCT_CONTEXT QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI
 #                     RELEASE_CATEGORY BASE_RHEL_VERSION IMAGE_REPO_SUFFIX
 # Side effect: updates pipeline_state.json when --pipeline-state is provided.
@@ -38,8 +39,8 @@ JSON_FILE="$WORKDIR/component_onboarding_details.json"
 
 [[ -f "$YAML_FILE" ]] || { echo "ERROR: $YAML_FILE not found" >&2; exit 1; }
 
-# Parse YAML rather than matching lines: quoted keys/values, comments and block
-# scalars must resolve exactly as they do during schema validation.
+# Parse YAML structurally rather than matching lines. In particular, an absent OS
+# value (legacy Jira attachment) differs from a present-but-empty invalid value.
 INPUT_VARS=$(uv run --script "$SCRIPTS_DIR/read_onboarding_inputs.py" "$YAML_FILE") || exit 1
 eval "$INPUT_VARS"
 [[ -z "$RELEASE_CATEGORY" ]] && RELEASE_CATEGORY="Generally Available"
@@ -77,7 +78,8 @@ else
   exit 1
 fi
 
-# Preserve the distinction between a missing legacy value and an invalid empty one.
+# Resolve legacy RHOAI tickets to RHEL 9; preserve any explicitly supplied
+# numeric RHEL major here. The schema, not this naming helper, gates 9/10.
 OS_ARGS=()
 if [[ "$BASE_RHEL_VERSION_PRESENT" == true ]]; then
   OS_ARGS=(--base-rhel-version "$BASE_RHEL_VERSION_INPUT")
@@ -88,7 +90,7 @@ QUAY_VARS=$(bash "$SCRIPTS_DIR/derive_quay_vars.sh" \
   --product-context "$PRODUCT_CONTEXT" \
   --component-name  "$COMPONENT_NAME" "${OS_ARGS[@]}") || exit 1
 eval "$QUAY_VARS"
-# Sets: QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI
+# Sets: QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI BASE_RHEL_VERSION IMAGE_REPO_SUFFIX
 
 # --- Update pipeline_state.json (if provided) ---
 if [[ -n "$PIPELINE_STATE" && -f "$PIPELINE_STATE" ]]; then
@@ -126,6 +128,7 @@ Product   : $PRODUCT_CONTEXT
 Quay repo : $QUAY_REPO_URI ($QUAY_VISIBILITY)
 Operator  : $IS_OPERATOR
 Category  : $RELEASE_CATEGORY
+Base OS   : ${BASE_RHEL_VERSION:-N/A}
 EOF
 
 # --- Emit eval-able exports ---
@@ -133,11 +136,13 @@ printf 'COMPONENT_NAME=%q\n'    "$COMPONENT_NAME"
 printf 'IS_OPERATOR=%q\n'       "$IS_OPERATOR"
 printf 'REPO_URL=%q\n'          "$REPO_URL"
 printf 'REPO_BRANCH=%q\n'       "$REPO_BRANCH"
+printf 'CONTEXT_PATH=%q\n'      "$CONTEXT_PATH"
+printf 'DOCKERFILE_PATH=%q\n'   "$DOCKERFILE_PATH"
+printf 'TARGET_RHOAI_VERSION=%q\n' "$TARGET_RHOAI_VERSION"
 printf 'PRODUCT_CONTEXT=%q\n'   "$PRODUCT_CONTEXT"
 printf 'QUAY_ORG=%q\n'          "$QUAY_ORG"
 printf 'QUAY_VISIBILITY=%q\n'   "$QUAY_VISIBILITY"
 printf 'QUAY_REPO_URI=%q\n'     "$QUAY_REPO_URI"
 printf 'RELEASE_CATEGORY=%q\n'  "$RELEASE_CATEGORY"
-
 printf 'BASE_RHEL_VERSION=%q\n' "$BASE_RHEL_VERSION"
 printf 'IMAGE_REPO_SUFFIX=%q\n' "$IMAGE_REPO_SUFFIX"

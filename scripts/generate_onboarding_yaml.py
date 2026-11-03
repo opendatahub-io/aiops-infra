@@ -31,8 +31,7 @@ def main():
     p.add_argument("--odh-release-tag", help="ODH Release builds only: version tag (e.g. 2.21.0)")
     p.add_argument("--architectures", help="RHOAI only; comma-separated (default: x86_64,arm64)")
     p.add_argument("--target-rhoai-version", help="RHOAI only")
-    p.add_argument("--base-rhel-version",
-                   help="Internal resolved RHOAI policy target (legacy default: rhel9)")
+    p.add_argument("--base-rhel-version", help="RHOAI base OS resolved from the Dockerfile (defaults to rhel9)")
     p.add_argument("--long-description", help="RHOAI only")
     p.add_argument("--short-description", help="RHOAI only")
     p.add_argument("--release-category", choices=["Generally Available", "Tech Preview"], help="RHOAI only")
@@ -52,7 +51,7 @@ def main():
     args = p.parse_args()
 
     if re.search(r"-rhel[0-9]+$", args.component_name):
-        p.error("component-name must not end with -rhel<major>; automation appends the suffix")
+        p.error("component-name must not end with -rhel<major>; onboarding derives the suffix")
     if args.product_context == "ODH" and args.base_rhel_version is not None:
         p.error("--base-rhel-version is only valid for RHOAI")
 

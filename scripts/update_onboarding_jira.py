@@ -60,7 +60,12 @@ def main():
         help="Canonical RHOAI version (x.y or x.y-ea-n). Required for ODH Target Version; "
         "optional metadata for RHOAI.",
     )
+    p.add_argument("--base-rhel-version", default="rhel9",
+                   help="Resolved RHOAI base OS (defaults to rhel9 for legacy callers)")
     args = p.parse_args()
+
+    if args.product_context == "RHOAI" and not re.fullmatch(r"rhel[1-9][0-9]*", args.base_rhel_version):
+        p.error("--base-rhel-version must have the form rhel<positive-major>")
 
     email = os.environ.get("JIRA_USER_EMAIL", "")
     token = os.environ.get("JIRA_API_TOKEN", "")
@@ -76,7 +81,7 @@ def main():
     if args.product_context == "ODH":
         quay_image = f"quay.io/opendatahub/{args.component_name}"
     else:
-        quay_image = f"quay.io/rhoai/{args.component_name}-rhel9"
+        quay_image = f"quay.io/rhoai/{args.component_name}-{args.base_rhel_version}"
 
     clean_ctx = args.context_path.rstrip("/").lstrip("./")
     if clean_ctx and clean_ctx != ".":

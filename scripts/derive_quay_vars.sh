@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: eval "$(bash derive_quay_vars.sh --product-context <ODH|RHOAI> --component-name <name> [--base-rhel-version rhel<major>])"
+# Usage: eval "$(bash derive_quay_vars.sh --product-context <ODH|RHOAI> --component-name <name> [--base-rhel-version rhelN])"
 # Outputs: QUAY_ORG, QUAY_VISIBILITY, QUAY_REPO_URI, BASE_RHEL_VERSION, IMAGE_REPO_SUFFIX
 set -euo pipefail
 
@@ -22,10 +22,9 @@ if [[ -z "$PRODUCT_CONTEXT" || -z "$COMPONENT_NAME" ]]; then
 fi
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-OS_VARS=$(bash "$SCRIPT_DIR/resolve_rhel_version.sh" --product-context "$PRODUCT_CONTEXT" "${OS_ARGS[@]}") || exit 1
+OS_VARS=$(uv run --script "$SCRIPT_DIR/resolve_rhel_version.py" \
+  --product-context "$PRODUCT_CONTEXT" "${OS_ARGS[@]}") || exit 1
 eval "$OS_VARS"
-printf 'BASE_RHEL_VERSION=%q\n' "$BASE_RHEL_VERSION"
-printf 'IMAGE_REPO_SUFFIX=%q\n' "$IMAGE_REPO_SUFFIX"
 
 case "$PRODUCT_CONTEXT" in
   ODH)
@@ -47,3 +46,5 @@ esac
 printf 'QUAY_ORG=%q\n'        "$QUAY_ORG"
 printf 'QUAY_VISIBILITY=%q\n' "$QUAY_VISIBILITY"
 printf 'QUAY_REPO_URI=%q\n'   "$QUAY_REPO_URI"
+printf 'BASE_RHEL_VERSION=%q\n' "$BASE_RHEL_VERSION"
+printf 'IMAGE_REPO_SUFFIX=%q\n' "$IMAGE_REPO_SUFFIX"

@@ -14,6 +14,7 @@ A YAML file that drives every downstream onboarding skill. Key fields:
 |-------|---------|
 | `product_context` | `ODH` or `RHOAI` |
 | `component_name` | `odh-my-component` |
+| `base_rhel_version` | `rhel9` / `rhel10` (RHOAI only; resolved from the Dockerfile final-stage base) |
 | `repo_url` | `https://github.com/org/repo` |
 | `repo_branch` | `main` or `rhoai-3.5-ea.1` |
 | `context_path` | `./` |

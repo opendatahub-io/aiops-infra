@@ -121,9 +121,10 @@ class TestComponentNameRejectsVersionSuffix:
 
 
 class TestComponentNameKeepsMainConstraints:
-    def test_still_rejects_rhel9_suffix(self):
-        errors = _errors_for("odh-dashboard-rhel9")
-        assert errors, "expected odh-dashboard-rhel9 to fail schema validation"
+    @pytest.mark.parametrize("suffix", ["rhel9", "rhel10", "rhel123"])
+    def test_rejects_rhel_suffix(self, suffix):
+        errors = _errors_for(f"odh-dashboard-{suffix}")
+        assert errors, f"expected odh-dashboard-{suffix} to fail schema validation"
 
     def test_accepts_name_at_max_length(self):
         at_limit = "odh-" + ("a" * 46)
@@ -188,3 +189,40 @@ class TestValidateYamlSchemaCli:
         assert result.returncode == 1
         assert "component_name" in result.stderr
         assert "version-like suffix" in result.stderr
+
+
+class TestBaseRhelVersion:
+    @pytest.mark.parametrize("version", ["rhel9", "rhel10"])
+    def test_accepts_current_supported_version(self, version):
+        payload = _odh_payload("odh-dashboard")
+        payload["inputs"]["product_context"] = "RHOAI"
+        payload["inputs"].pop("build_type")
+        payload["inputs"].update({
+            "base_rhel_version": version,
+            "architectures": ["x86_64"],
+            "target_rhoai_version": "3.7",
+            "long_description": "Example component",
+            "short_description": "Example",
+            "release_category": "Generally Available",
+        })
+        Draft202012Validator(_schema()).validate(payload)
+
+    @pytest.mark.parametrize("version", ["rhel8", "rhel11", "10", "rhel-invalid"])
+    def test_rejects_unsupported_version(self, version):
+        payload = _odh_payload("odh-dashboard")
+        payload["inputs"]["product_context"] = "RHOAI"
+        payload["inputs"].pop("build_type")
+        payload["inputs"].update({
+            "base_rhel_version": version,
+            "architectures": ["x86_64"],
+            "target_rhoai_version": "3.7",
+            "long_description": "Example component",
+            "short_description": "Example",
+            "release_category": "Generally Available",
+        })
+        assert list(Draft202012Validator(_schema()).iter_errors(payload))
+
+    def test_odh_must_not_set_version(self):
+        payload = _odh_payload("odh-dashboard")
+        payload["inputs"]["base_rhel_version"] = "rhel9"
+        assert list(Draft202012Validator(_schema()).iter_errors(payload))

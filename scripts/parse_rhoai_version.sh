@@ -35,7 +35,8 @@ done
 [[ -z "$TARGET_RHOAI_VERSION" ]] && { echo "ERROR: --version is required" >&2; exit 1; }
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-OS_VARS=$(bash "$SCRIPT_DIR/resolve_rhel_version.sh" --product-context "RHOAI" "${OS_ARGS[@]}") || exit 1
+OS_VARS=$(uv run --script "$SCRIPT_DIR/resolve_rhel_version.py" \
+  --product-context RHOAI "${OS_ARGS[@]}") || exit 1
 eval "$OS_VARS"
 printf 'BASE_RHEL_VERSION=%q\n' "$BASE_RHEL_VERSION"
 printf 'IMAGE_REPO_SUFFIX=%q\n' "$IMAGE_REPO_SUFFIX"

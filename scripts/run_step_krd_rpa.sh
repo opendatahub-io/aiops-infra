@@ -98,7 +98,7 @@ if ! grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_STAGE" 2>/dev/null; then
     "$RPA_STAGE" \
     --array-key "spec.data.mapping.components" \
     --name "${COMPONENT_NAME}-${RPA_VAR}" \
-    --url "registry.stage.redhat.io/${PRODUCT_LINE}/${COMPONENT_NAME}-rhel9" || {
+     --url "registry.stage.redhat.io/${PRODUCT_LINE}/${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}" || {
     echo "ERROR: Could not append to RPA stage file." >&2; exit 1
   }
   CHANGES_MADE=true
@@ -114,7 +114,7 @@ if ! grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_PROD" 2>/dev/null; then
     "$RPA_PROD" \
     --array-key "spec.data.mapping.components" \
     --name "${COMPONENT_NAME}-${RPA_VAR}" \
-    --url "registry.redhat.io/${PRODUCT_LINE}/${COMPONENT_NAME}-rhel9" || {
+     --url "registry.redhat.io/${PRODUCT_LINE}/${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}" || {
     echo "ERROR: Could not append to RPA prod file." >&2; exit 1
   }
   CHANGES_MADE=true

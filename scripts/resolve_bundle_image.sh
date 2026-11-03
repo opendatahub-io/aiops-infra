@@ -3,7 +3,7 @@
 # Computes the relatedImages entry name and value for bundle/bundle-patch.yaml.
 #
 # --quay-repo defaults to --component-name when not provided.
-# For RHOAI components, pass --quay-repo "${COMPONENT_NAME}-rhel9".
+# For RHOAI components, pass --quay-repo "${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}".
 #
 # Outputs (via eval):
 #   RELATED_IMAGE_NAME   e.g. RELATED_IMAGE_ODH_AI_FIRST_DEMO_IMAGE

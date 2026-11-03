@@ -43,7 +43,7 @@ included in the ODH or RHOAI bundle.
 
 ```yaml
 repo_mappings:
-  rhoai/<component_name>-rhel9: rhoai/<component_name>-rhel9
+  rhoai/<component_name><image_repo_suffix>: rhoai/<component_name><image_repo_suffix>
 ```
 
 ## PR raised

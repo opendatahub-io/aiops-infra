@@ -34,6 +34,7 @@ def _details(
     dockerfile_path: str = "Dockerfile.konflux",
     architectures: list[str] | None = None,
     repo_url: str = "https://github.com/red-hat-data-services/eval-hub",
+    base_rhel_version: str | None = None,
 ) -> str:
     arches = architectures if architectures is not None else ["x86_64", "arm64"]
     arch_lines = "\n".join(f"    - {arch}" for arch in arches)
@@ -51,7 +52,7 @@ def _details(
   long_description: Example component
   short_description: Example
   release_category: Generally Available
-"""
+""" + (f"  base_rhel_version: {base_rhel_version}\n" if base_rhel_version else "")
 
 
 def _render(
@@ -207,6 +208,15 @@ class TestStage2PullPipeline:
         assert _param(document, "rhoai-version") == "3.6.0-ea.1"
         assert _param(document, "output-image") == (
             "quay.io/rhoai/odh-sample-rhel9:on-pr-{{pull_request_number}}"
+        )
+
+    def test_output_image_uses_base_rhel_version_from_details(self, tmp_path: Path):
+        document = _render(
+            tmp_path,
+            _details(component_name="odh-sample", base_rhel_version="rhel10"),
+        )
+        assert _param(document, "output-image") == (
+            "quay.io/rhoai/odh-sample-rhel10:on-pr-{{pull_request_number}}"
         )
 
     def test_multi_arch_and_prefetch_are_retained(self, tmp_path: Path):

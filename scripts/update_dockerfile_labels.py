@@ -8,8 +8,8 @@ Add or fix mandatory RHOAI OCI labels in a Dockerfile.
 
 Usage:
   uv run --script update_dockerfile_labels.py <dockerfile-path> \
-    --name        "rhoai/<component>-rhel9" \
-    --component   "<component>-rhel9" \
+    --name        "rhoai/<component><image-repo-suffix>" \
+    --component   "<component><image-repo-suffix>" \
     --default     "<component>"
 
 Modifies the Dockerfile in place. Appends a consolidated LABEL block with all
