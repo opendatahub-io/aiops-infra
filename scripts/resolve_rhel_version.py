@@ -6,9 +6,10 @@ deliberately accepts any positive numeric major so callers remain data-driven.
 """
 
 import argparse
-import re
 import shlex
 from typing import Optional
+
+from rhel_version_contract import resolve_base_rhel_version
 
 
 def resolve(product_context: str, base_rhel_version: Optional[str] = None) -> tuple[str, str]:
@@ -19,16 +20,14 @@ def resolve(product_context: str, base_rhel_version: Optional[str] = None) -> tu
     if product_context != "RHOAI":
         raise ValueError("product_context must be ODH or RHOAI")
 
-    version = "rhel9" if base_rhel_version is None else base_rhel_version
-    if not re.fullmatch(r"rhel[1-9][0-9]*", version):
-        raise ValueError("base_rhel_version must have the form rhel<positive-major> (e.g. rhel10)")
+    version = resolve_base_rhel_version(base_rhel_version)
     return version, f"-{version}"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--product-context", required=True, choices=("ODH", "RHOAI"))
-    parser.add_argument("--base-rhel-version", help="RHOAI policy target (defaults to rhel9 for legacy tickets)")
+    parser.add_argument("--base-rhel-version", help="RHOAI base OS; legacy tickets use the schema default")
     args = parser.parse_args()
     try:
         version, suffix = resolve(args.product_context, args.base_rhel_version)

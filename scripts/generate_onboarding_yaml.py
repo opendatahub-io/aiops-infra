@@ -16,6 +16,7 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
 from upsert_team_slack_handle import HANDLE_RE, normalize_channel, normalize_handle  # noqa: E402
+from rhel_version_contract import resolve_base_rhel_version  # noqa: E402
 
 
 def main():
@@ -31,7 +32,7 @@ def main():
     p.add_argument("--odh-release-tag", help="ODH Release builds only: version tag (e.g. 2.21.0)")
     p.add_argument("--architectures", help="RHOAI only; comma-separated (default: x86_64,arm64)")
     p.add_argument("--target-rhoai-version", help="RHOAI only")
-    p.add_argument("--base-rhel-version", help="RHOAI base OS resolved from the Dockerfile (defaults to rhel9)")
+    p.add_argument("--base-rhel-version", help="RHOAI base OS resolved from the Dockerfile")
     p.add_argument("--long-description", help="RHOAI only")
     p.add_argument("--short-description", help="RHOAI only")
     p.add_argument("--release-category", choices=["Generally Available", "Tech Preview"], help="RHOAI only")
@@ -100,7 +101,7 @@ def main():
         if not args.release_category:
             print("ERROR: --release-category is required for RHOAI", file=sys.stderr)
             sys.exit(1)
-        base_rhel_version = args.base_rhel_version if args.base_rhel_version is not None else "rhel9"
+        base_rhel_version = resolve_base_rhel_version(args.base_rhel_version)
         # Preserve supplied values safely; the schema decides which majors are supported.
         lines.append(f"  base_rhel_version: {json.dumps(base_rhel_version)}")
         archs = [a.strip() for a in (args.architectures or "x86_64,arm64").split(",")]

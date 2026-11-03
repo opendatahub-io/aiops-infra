@@ -13,6 +13,8 @@ import sys
 import urllib.parse
 import urllib.request
 
+from rhel_version_contract import resolve_base_rhel_version
+
 
 def fetch(source: str) -> str:
     try:
@@ -111,7 +113,8 @@ def main() -> None:
     source.add_argument("--dockerfile-path")
     args = parser.parse_args()
     try:
-        version, image = resolve(fetch(args.dockerfile_url or args.dockerfile_path))
+        detected_version, image = resolve(fetch(args.dockerfile_url or args.dockerfile_path))
+        version = resolve_base_rhel_version(detected_version)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(1)

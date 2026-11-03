@@ -19,6 +19,8 @@ import re
 import sys
 import urllib.request
 
+from rhel_version_contract import resolve_base_rhel_version
+
 
 def odh_jira_target_version(canonical_version: str) -> str:
     """Map canonical RHOAI version (x.y or x.y-ea-n) to the ODH Jira Target Version name."""
@@ -60,12 +62,15 @@ def main():
         help="Canonical RHOAI version (x.y or x.y-ea-n). Required for ODH Target Version; "
         "optional metadata for RHOAI.",
     )
-    p.add_argument("--base-rhel-version", default="rhel9",
-                   help="Resolved RHOAI base OS (defaults to rhel9 for legacy callers)")
+    p.add_argument("--base-rhel-version",
+                   help="Resolved RHOAI base OS (legacy callers use the schema default)")
     args = p.parse_args()
 
-    if args.product_context == "RHOAI" and not re.fullmatch(r"rhel[1-9][0-9]*", args.base_rhel_version):
-        p.error("--base-rhel-version must have the form rhel<positive-major>")
+    if args.product_context == "RHOAI":
+        try:
+            args.base_rhel_version = resolve_base_rhel_version(args.base_rhel_version)
+        except ValueError as exc:
+            p.error(str(exc))
 
     email = os.environ.get("JIRA_USER_EMAIL", "")
     token = os.environ.get("JIRA_API_TOKEN", "")

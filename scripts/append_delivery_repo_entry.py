@@ -21,9 +21,10 @@ Prints "added" or "already-present" to stdout.
 Exits 0 on success, 1 on error.
 """
 import argparse
-import re
 import sys
 from pathlib import Path
+
+from rhel_version_contract import resolve_base_rhel_version
 
 ENTRY_TEMPLATE = """\
 - image_type: Layered
@@ -66,11 +67,12 @@ def main():
     parser.add_argument("--release-category",
                         choices=["Generally Available", "Tech Preview", "Beta"],
                         default="Generally Available")
-    parser.add_argument("--base-rhel-version", default="rhel9")
+    parser.add_argument("--base-rhel-version")
     args = parser.parse_args()
-
-    if not re.fullmatch(r"rhel[1-9][0-9]*", args.base_rhel_version):
-        parser.error("--base-rhel-version must have the form rhel<positive-major>")
+    try:
+        args.base_rhel_version = resolve_base_rhel_version(args.base_rhel_version)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     yaml_path = Path(args.yaml_file)
     if not yaml_path.exists():
