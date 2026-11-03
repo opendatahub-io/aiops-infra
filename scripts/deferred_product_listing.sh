@@ -30,9 +30,20 @@ for required in WORKDIR JIRA_URL SCRIPTS_DIR PYXIS_URL COMPONENT_NAME; do
   fi
 done
 
+YAML_FILE="${WORKDIR}/component_onboarding_details.yaml"
+INPUT_VARS=$(uv run --script "$SCRIPTS_DIR/read_onboarding_inputs.py" "$YAML_FILE") || exit 1
+eval "$INPUT_VARS"
+OS_ARGS=()
+if [[ "$BASE_RHEL_VERSION_PRESENT" == true ]]; then
+  OS_ARGS=(--base-rhel-version "$BASE_RHEL_VERSION_INPUT")
+fi
+OS_VARS=$(uv run --script "$SCRIPTS_DIR/resolve_rhel_version.py" \
+  --product-context RHOAI "${OS_ARGS[@]}") || exit 1
+eval "$OS_VARS"
+
 PIPELINE_STATE="${WORKDIR}/pipeline_state.json"
 DELIVERY_RESULT_FILE="${WORKDIR}/monitor_delivery_repo.result"
-PRODUCT_LISTING_ENTRY="registry.access.redhat.com/rhoai/${COMPONENT_NAME}-rhel9"
+PRODUCT_LISTING_ENTRY="registry.access.redhat.com/rhoai/${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}"
 
 echo "[deferred_product_listing] Starting. Waiting for delivery-repo MR to merge..."
 echo "[deferred_product_listing] Watching: $DELIVERY_RESULT_FILE"

@@ -2,9 +2,8 @@ name: Lint
 
 on:
   push:
-    branches: [main, feature/mixed-rhel-onboarding]
+    branches: [main]
   pull_request:
-    branches: [main, feature/mixed-rhel-onboarding]
 
 jobs:
   lint:
@@ -34,6 +33,12 @@ jobs:
       uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
       with:
         python-version: '3.12'
+
+    - name: Check shell script syntax
+      run: |
+        for script in scripts/*.sh; do
+          bash -n "$script" || exit 1
+        done
 
     - name: Run unit tests
       run: uv run --with pytest --with pyyaml --with jsonschema pytest tests/unit -q

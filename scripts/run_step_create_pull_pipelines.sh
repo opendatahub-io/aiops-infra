@@ -68,25 +68,24 @@ else
   [[ ! -f "$YAML_FILE" ]] && { echo "ERROR: $YAML_FILE not found" >&2; exit 1; }
 fi
 
-COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}' | tr -d '"')
-REPO_URL=$(grep -m1       'repo_url:'       "$YAML_FILE" | awk '{print $2}' | tr -d '"')
-CONTEXT_PATH=$(grep -m1   'context_path:'   "$YAML_FILE" | awk '{print $2}' | tr -d '"')
-DOCKERFILE_PATH=$(grep -m1 'dockerfile_path:' "$YAML_FILE" | awk '{print $2}' | tr -d '"')
-TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}' | tr -d '"')
+INPUT_VARS=$(uv run --script "$SCRIPTS_DIR/read_onboarding_inputs.py" "$YAML_FILE") || exit 1
+eval "$INPUT_VARS"
+OS_ARGS=()
+if [[ "$BASE_RHEL_VERSION_PRESENT" == true ]]; then
+  OS_ARGS=(--base-rhel-version "$BASE_RHEL_VERSION_INPUT")
+fi
+OS_VARS=$(uv run --script "$SCRIPTS_DIR/resolve_rhel_version.py" \
+  --product-context RHOAI "${OS_ARGS[@]}") || exit 1
+eval "$OS_VARS"
 
 ARCHITECTURES=()
-while IFS= read -r arch; do
-  ARCHITECTURES+=("$arch")
-done < <(awk '/^  architectures:/{found=1;next} found && /^  - /{print $2} found && /^  [a-z]/{exit}' "$YAML_FILE")
-[[ ${#ARCHITECTURES[@]} -eq 0 ]] && {
-  mapfile -t ARCHITECTURES < <(grep -A20 'architectures:' "$YAML_FILE" | grep '^ *- ' | awk '{print $2}')
-}
+IFS=',' read -r -a ARCHITECTURES <<< "$ARCHITECTURES_CSV"
 
 [[ -z "$TARGET_RHOAI_VERSION" ]] && {
   echo "ERROR: target_rhoai_version missing." >&2; exit 1
 }
 
-eval "$(bash "$SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION")"
+eval "$(bash "$SCRIPTS_DIR/parse_rhoai_version.sh" --version "$TARGET_RHOAI_VERSION" "${OS_ARGS[@]}")"
 # Sets: VERSION_VAR, BRANCH_NAME, RHOAI_MINOR_VERSION
 
 REPO_NAME="${REPO_URL##*/}"; REPO_NAME="${REPO_NAME%.git}"
@@ -174,7 +173,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/rhoai/${COMPONENT_NAME}-rhel9:on-pr-{{pull_request_number}}
+    value: quay.io/rhoai/${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}:on-pr-{{pull_request_number}}
   - name: dockerfile
     value: ${DOCKERFILE_PATH}
   - name: path-context

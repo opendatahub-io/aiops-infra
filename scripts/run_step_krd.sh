@@ -51,11 +51,7 @@ eval "$(bash "$SCRIPTS_DIR/parse_component_details.sh" \
   --workdir     "$WORKDIR" \
   --jira-id     "$JIRA_ID" \
   --scripts-dir "$SCRIPTS_DIR")"
-# Sets: COMPONENT_NAME PRODUCT_CONTEXT QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI IS_OPERATOR REPO_URL REPO_BRANCH RELEASE_CATEGORY
-
-CONTEXT_PATH=$(grep -m1    'context_path:'    "$YAML_FILE" | awk '{print $2}')
-DOCKERFILE_PATH=$(grep -m1 'dockerfile_path:' "$YAML_FILE" | awk '{print $2}')
-TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}' 2>/dev/null | tr -d '"' || echo "")
+# Sets: COMPONENT_NAME PRODUCT_CONTEXT QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI IS_OPERATOR REPO_URL REPO_BRANCH RELEASE_CATEGORY BASE_RHEL_VERSION IMAGE_REPO_SUFFIX
 
 # Resolve kustomize
 KUSTOMIZE_BIN="kustomize"
@@ -217,7 +213,7 @@ spec:
   build-nudges-ref:
     - odh-operator-{{.versionName}}
   componentName: COMPONENT_NAME_PLACEHOLDER-{{.versionName}}
-  containerImage: quay.io/rhoai/COMPONENT_NAME_PLACEHOLDER-rhel9
+  containerImage: quay.io/rhoai/COMPONENT_NAME_PLACEHOLDERIMAGE_REPO_SUFFIX_PLACEHOLDER
   source:
     git:
       context: CONTEXT_PATH_PLACEHOLDER
@@ -227,6 +223,7 @@ spec:
 YAML_EOF
 )
     PDS_ENTRY="${PDS_ENTRY//COMPONENT_NAME_PLACEHOLDER/$COMPONENT_NAME}"
+    PDS_ENTRY="${PDS_ENTRY//IMAGE_REPO_SUFFIX_PLACEHOLDER/$IMAGE_REPO_SUFFIX}"
     PDS_ENTRY="${PDS_ENTRY//CONTEXT_PATH_PLACEHOLDER/$CONTEXT_PATH_NORMALIZED}"
     PDS_ENTRY="${PDS_ENTRY//DOCKERFILE_PATH_PLACEHOLDER/$DOCKERFILE_PATH}"
     PDS_ENTRY="${PDS_ENTRY//REPO_URL_PLACEHOLDER/$REPO_URL}"

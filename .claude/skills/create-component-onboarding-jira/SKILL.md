@@ -243,12 +243,12 @@ Transform the validated input to the canonical form and store in `target_rhoai_v
 > (e.g. odh-my-component — not odh-my-component-v2 or odh-my-component-3-4)
 
 → Store in `component_name`.
-  Validate: must match `^odh-[a-z0-9]+(-[a-z0-9]+)*$`, must be at most 50 characters, and must not end with `-rhel9` or a version-like suffix (`-v<digits>`, `-<digits>-<digits>`, `-v<digits>-<digits>`, or `-v<digits>-<digits>-ea-<digits>`). Re-ask if invalid, showing the rule:
+  Validate: must match `^odh-[a-z0-9]+(-[a-z0-9]+)*$`, must be at most 50 characters, and must not end with `-rhel<major>` or a version-like suffix (`-v<digits>`, `-<digits>-<digits>`, `-v<digits>-<digits>`, or `-v<digits>-<digits>-ea-<digits>`). Re-ask if invalid, showing the rule:
   - Must start with `odh-`
   - Remaining characters: lowercase letters, numbers, and hyphens only
   - No consecutive or trailing hyphens
   - At most 50 characters
-  - Must not end with `-rhel9`
+  - Must not end with an OS suffix (e.g. `-rhel9`)
   - Must not end with a version-like suffix (e.g. `-v2`, `-3-4`, `-v3-4`, `-v3-5-ea-1`)
 
 **Q3.5 — Release category (RHOAI only)**
@@ -388,6 +388,27 @@ Print: `repo_branch auto-set to: <repo_branch>`
   > For RHOAI components, the Dockerfile name must contain the string `Dockerfile.konflux`
   > (e.g. `Dockerfile.konflux`, `docker/Dockerfile.konflux.cuda`)
 
+**Q7.5 — RHOAI base version (RHOAI only; skip for ODH)**
+
+Ask the user:
+> What RHEL major does the Dockerfile's final runtime `FROM` use? Currently supported: `rhel9`.
+> Press Enter to use the current `rhel9` placeholder if you cannot determine it.
+
+Use the resolver to validate the answer against the schema enum. If the user presses
+Enter, use the current `rhel9` placeholder:
+
+```bash
+BASE_RHEL_VERSION="${user_base_rhel_version:-rhel9}"
+BASE_IMAGE_RESOLUTION=$(uv run --script scripts/resolve_rhel_version.py \
+  --product-context RHOAI --base-rhel-version "$BASE_RHEL_VERSION")
+BASE_RHEL_VERSION=$(printf '%s\n' "$BASE_IMAGE_RESOLUTION" \
+  | sed -n 's/^BASE_RHEL_VERSION=//p' | tail -1)
+```
+
+- Store the resolver's value in `base_rhel_version`. If it rejects the user's input,
+  show the error and ask again using the values in the schema's `base_rhel_version.enum`.
+- Do not add `base_rhel_version` for ODH.
+
 **Q8 — Modular operator**
 > Is this component a modular operator? (yes / no)
 >
@@ -440,6 +461,7 @@ Component onboarding details collected:
   repo_branch                  : <value>
   context_path                 : <value>
   dockerfile_path              : <value>
+  base_rhel_version            : <value or N/A>   # RHOAI only; final Dockerfile stage
   long_description             : <value or N/A>   # only shown for RHOAI
   short_description            : <value or N/A>   # only shown for RHOAI
   is_operator                  : <value>
@@ -484,6 +506,7 @@ fi
 # RHOAI-only
 if [[ "$product_context" == "RHOAI" ]]; then
   YAML_ARGS+=(
+    --base-rhel-version "$base_rhel_version"
     --target-rhoai-version "$target_rhoai_version"
     --architectures "$(IFS=,; echo "${architectures[*]}")"
     --release-category "$release_category"
@@ -628,6 +651,7 @@ Component: <component_name>
 Product: <product_context>
 Repo: <repo_url> @ <repo_branch>
 Operator: <is_operator>
+Base RHEL: <base_rhel_version or N/A>
 
 This ticket is ready for onboarding automation. The DevOps onboarding guardian will review it next, after which the pipeline can run. Run /validate-component-onboarding-jira to verify."
 ```
@@ -689,6 +713,7 @@ Component: <component_name>
 Product: <product_context>
 Repo: <repo_url> @ <repo_branch>
 Operator: <is_operator>
+Base RHEL: <base_rhel_version or N/A>
 
 This ticket is ready for onboarding automation. The DevOps onboarding guardian will review it next, after which the pipeline can run. Run /validate-component-onboarding-jira to verify."
 ```
@@ -725,6 +750,7 @@ if [[ "$product_context" == "RHOAI" ]]; then
   UPDATE_JIRA_ARGS+=(
     --short-description "$short_description"
     --architectures "$(IFS=,; echo "${architectures[*]}")"
+    --base-rhel-version "$base_rhel_version"
   )
 fi
 

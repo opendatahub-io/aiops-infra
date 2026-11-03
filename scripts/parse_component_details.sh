@@ -7,8 +7,9 @@
 #     --workdir <dir> --jira-id <id> --scripts-dir <dir> [--pipeline-state <path>])"
 #
 # Exports (via eval): COMPONENT_NAME IS_OPERATOR REPO_URL REPO_BRANCH
+#                     CONTEXT_PATH DOCKERFILE_PATH TARGET_RHOAI_VERSION
 #                     PRODUCT_CONTEXT QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI
-#                     RELEASE_CATEGORY
+#                     RELEASE_CATEGORY BASE_RHEL_VERSION IMAGE_REPO_SUFFIX
 # Side effect: updates pipeline_state.json when --pipeline-state is provided.
 # Summary is printed to stderr so it does not pollute the eval output.
 
@@ -38,13 +39,10 @@ JSON_FILE="$WORKDIR/component_onboarding_details.json"
 
 [[ -f "$YAML_FILE" ]] || { echo "ERROR: $YAML_FILE not found" >&2; exit 1; }
 
-# --- Parse YAML fields ---
-COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}')
-IS_OPERATOR=$(grep -m1    'is_operator:'    "$YAML_FILE" | awk '{print $2}')
-REPO_URL=$(grep -m1       'repo_url:'       "$YAML_FILE" | awk '{print $2}')
-REPO_BRANCH=$(grep -m1    'repo_branch:'    "$YAML_FILE" | awk '{print $2}')
-RELEASE_CATEGORY=$(grep -m1 'release_category:' "$YAML_FILE" \
-  | sed 's/^[[:space:]]*release_category:[[:space:]]*//' | tr -d '"' || true)
+# Parse YAML structurally rather than matching lines. In particular, an absent OS
+# value (legacy Jira attachment) differs from a present-but-empty invalid value.
+INPUT_VARS=$(uv run --script "$SCRIPTS_DIR/read_onboarding_inputs.py" "$YAML_FILE") || exit 1
+eval "$INPUT_VARS"
 [[ -z "$RELEASE_CATEGORY" ]] && RELEASE_CATEGORY="Generally Available"
 
 for _field in COMPONENT_NAME REPO_URL REPO_BRANCH; do
@@ -57,7 +55,6 @@ done
 # --- Derive PRODUCT_CONTEXT ---
 # Primary source: component_onboarding_details.yaml (authoritative).
 # Fallback: Jira key prefix, then Jira issue summary.
-YAML_PC=$(grep -m1 'product_context:' "$YAML_FILE" | awk '{print $2}' | tr -d '"' || true)
 YAML_PC="${YAML_PC^^}"  # normalise to uppercase
 
 if [[ "$YAML_PC" == "RHOAI" || "$YAML_PC" == "ODH" ]]; then
@@ -81,11 +78,19 @@ else
   exit 1
 fi
 
+# Resolve legacy RHOAI tickets to RHEL 9; preserve any explicitly supplied
+# numeric RHEL major here. The schema, not this naming helper, gates 9/10.
+OS_ARGS=()
+if [[ "$BASE_RHEL_VERSION_PRESENT" == true ]]; then
+  OS_ARGS=(--base-rhel-version "$BASE_RHEL_VERSION_INPUT")
+fi
+
 # --- Derive Quay vars ---
-eval "$(bash "$SCRIPTS_DIR/derive_quay_vars.sh" \
+QUAY_VARS=$(bash "$SCRIPTS_DIR/derive_quay_vars.sh" \
   --product-context "$PRODUCT_CONTEXT" \
-  --component-name  "$COMPONENT_NAME")"
-# Sets: QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI
+  --component-name  "$COMPONENT_NAME" "${OS_ARGS[@]}") || exit 1
+eval "$QUAY_VARS"
+# Sets: QUAY_ORG QUAY_VISIBILITY QUAY_REPO_URI BASE_RHEL_VERSION IMAGE_REPO_SUFFIX
 
 # --- Update pipeline_state.json (if provided) ---
 if [[ -n "$PIPELINE_STATE" && -f "$PIPELINE_STATE" ]]; then
@@ -97,7 +102,9 @@ if [[ -n "$PIPELINE_STATE" && -f "$PIPELINE_STATE" ]]; then
     --arg qr "$QUAY_REPO_URI" \
     --argjson io "${IS_OPERATOR}" \
     --arg rc "$RELEASE_CATEGORY" \
-    '.component_name = $cn | .product_context = $pc | .quay_org = $qo | .quay_visibility = $qv | .quay_repo_uri = $qr | .is_operator = $io | .release_category = $rc' \
+    --arg os "$BASE_RHEL_VERSION" \
+    --arg suffix "$IMAGE_REPO_SUFFIX" \
+    '.component_name = $cn | .product_context = $pc | .quay_org = $qo | .quay_visibility = $qv | .quay_repo_uri = $qr | .is_operator = $io | .release_category = $rc | .base_rhel_version = $os | .image_repo_suffix = $suffix' \
     "$PIPELINE_STATE" > "$PIPELINE_STATE.tmp" && mv "$PIPELINE_STATE.tmp" "$PIPELINE_STATE"
 
   # Mark non-applicable steps as skipped
@@ -121,6 +128,7 @@ Product   : $PRODUCT_CONTEXT
 Quay repo : $QUAY_REPO_URI ($QUAY_VISIBILITY)
 Operator  : $IS_OPERATOR
 Category  : $RELEASE_CATEGORY
+Base OS   : ${BASE_RHEL_VERSION:-N/A}
 EOF
 
 # --- Emit eval-able exports ---
@@ -128,8 +136,13 @@ printf 'COMPONENT_NAME=%q\n'    "$COMPONENT_NAME"
 printf 'IS_OPERATOR=%q\n'       "$IS_OPERATOR"
 printf 'REPO_URL=%q\n'          "$REPO_URL"
 printf 'REPO_BRANCH=%q\n'       "$REPO_BRANCH"
+printf 'CONTEXT_PATH=%q\n'      "$CONTEXT_PATH"
+printf 'DOCKERFILE_PATH=%q\n'   "$DOCKERFILE_PATH"
+printf 'TARGET_RHOAI_VERSION=%q\n' "$TARGET_RHOAI_VERSION"
 printf 'PRODUCT_CONTEXT=%q\n'   "$PRODUCT_CONTEXT"
 printf 'QUAY_ORG=%q\n'          "$QUAY_ORG"
 printf 'QUAY_VISIBILITY=%q\n'   "$QUAY_VISIBILITY"
 printf 'QUAY_REPO_URI=%q\n'     "$QUAY_REPO_URI"
 printf 'RELEASE_CATEGORY=%q\n'  "$RELEASE_CATEGORY"
+printf 'BASE_RHEL_VERSION=%q\n' "$BASE_RHEL_VERSION"
+printf 'IMAGE_REPO_SUFFIX=%q\n' "$IMAGE_REPO_SUFFIX"

@@ -41,13 +41,20 @@ fi
 YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
 [[ ! -f "$YAML_FILE" ]] && { echo "ERROR: $YAML_FILE not found" >&2; exit 1; }
 
-COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}')
+INPUT_VARS=$(uv run --script "$SCRIPTS_DIR/read_onboarding_inputs.py" "$YAML_FILE") || exit 1
+eval "$INPUT_VARS"
+OS_ARGS=()
+if [[ "$BASE_RHEL_VERSION_PRESENT" == true ]]; then
+  OS_ARGS=(--base-rhel-version "$BASE_RHEL_VERSION_INPUT")
+fi
+OS_VARS=$(uv run --script "$SCRIPTS_DIR/resolve_rhel_version.py" \
+  --product-context RHOAI "${OS_ARGS[@]}") || exit 1
+eval "$OS_VARS"
+
 [[ -z "$COMPONENT_NAME" ]] && {
   echo "ERROR: component_name missing from YAML." >&2; exit 1
 }
 
-RELEASE_CATEGORY=$(grep -m1 'release_category:' "$YAML_FILE" \
-  | sed 's/^[[:space:]]*release_category:[[:space:]]*//' | tr -d '"' || true)
 [[ -z "$RELEASE_CATEGORY" ]] && RELEASE_CATEGORY="Generally Available"
 
 # DevPreview (Beta) components use the rhoai-beta product line in Pyxis.
@@ -55,7 +62,7 @@ RELEASE_CATEGORY=$(grep -m1 'release_category:' "$YAML_FILE" \
 PRODUCT_LINE="rhoai"
 [[ "$RELEASE_CATEGORY" == "Beta" ]] && PRODUCT_LINE="rhoai-beta"
 
-PRODUCT_LISTING_ENTRY="registry.access.redhat.com/${PRODUCT_LINE}/${COMPONENT_NAME}-rhel9"
+PRODUCT_LISTING_ENTRY="registry.access.redhat.com/${PRODUCT_LINE}/${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}"
 
 PYXIS_URL="${PYXIS_REPO_CONFIGS_REPO_URL:-https://gitlab.cee.redhat.com/releng/pyxis-repo-configs.git}"
 PYXIS_PATH=$(echo "$PYXIS_URL" | sed 's|https://gitlab.cee.redhat.com/||;s|\.git$||')

@@ -1,3 +1,6 @@
+# Match the skillsaw action revision in .github/workflows/lint.yml.
+SKILLSAW_PACKAGE := git+https://github.com/stbenjam/skillsaw@d252498eb6260e197c9c395a650643d9c49ae37b
+
 .PHONY: help
 help: ## Show this help message
 	@echo "Available targets:"
@@ -9,7 +12,7 @@ skillsaw: ## Run skillsaw linter on skills and plugins
 	@if [ -n "$${SKILLSAW_BIN:-}" ]; then \
 		"$${SKILLSAW_BIN}"; \
 	else \
-		uvx skillsaw; \
+		uvx --from "$(SKILLSAW_PACKAGE)" skillsaw; \
 	fi
 
 .PHONY: skillsaw-fix
@@ -18,7 +21,7 @@ skillsaw-fix: ## Auto-fix fixable skillsaw issues
 	@if [ -n "$${SKILLSAW_BIN:-}" ]; then \
 		"$${SKILLSAW_BIN}" fix; \
 	else \
-		uvx skillsaw fix; \
+		uvx --from "$(SKILLSAW_PACKAGE)" skillsaw fix; \
 	fi
 
 .PHONY: lint

@@ -42,6 +42,16 @@ fi
 YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
 [[ ! -f "$YAML_FILE" ]] && { echo "ERROR: $YAML_FILE not found" >&2; exit 1; }
 
+INPUT_VARS=$(uv run --script "$SCRIPTS_DIR/read_onboarding_inputs.py" "$YAML_FILE") || exit 1
+eval "$INPUT_VARS"
+OS_ARGS=()
+if [[ "$BASE_RHEL_VERSION_PRESENT" == true ]]; then
+  OS_ARGS=(--base-rhel-version "$BASE_RHEL_VERSION_INPUT")
+fi
+OS_VARS=$(uv run --script "$SCRIPTS_DIR/resolve_rhel_version.py" \
+  --product-context RHOAI "${OS_ARGS[@]}") || exit 1
+eval "$OS_VARS"
+
 COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}')
 REPO_URL=$(grep -m1       'repo_url:'       "$YAML_FILE" | awk '{print $2}')
 REPO_BRANCH=$(grep -m1    'repo_branch:'    "$YAML_FILE" | awk '{print $2}')
@@ -97,7 +107,9 @@ DOCKERFILE_ABS="$CLONE_DIR/$DOCKERFILE_PATH"
 # Update labels in Dockerfile
 uv run --script "$SCRIPTS_DIR/update_dockerfile_labels.py" \
   --dockerfile     "$DOCKERFILE_ABS" \
-  --component-name "$COMPONENT_NAME" || {
+  --name           "rhoai/${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}" \
+  --component      "${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}" \
+  --default        "$COMPONENT_NAME" || {
   echo "ERROR: Could not update Dockerfile labels." >&2; exit 1
 }
 

@@ -62,7 +62,7 @@ component label is `<component_name>-<VERSION_VAR>`.
 
 ## Generated configuration
 
-- Image: `quay.io/rhoai/<component_name>-rhel9:on-pr-{{pull_request_number}}`.
+- Image: `quay.io/rhoai/<component_name><image_repo_suffix>:on-pr-{{pull_request_number}}` (`image_repo_suffix` derives from `inputs.base_rhel_version`; legacy RHOAI tickets default to `-rhel9`).
   This is the component delivery repository. The tag above is the only image
   tag; the params list has no `additional-tags` entry.
 - `image-expires-after`: `30d`.

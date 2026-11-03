@@ -6,6 +6,8 @@
 """Write component_onboarding_details.yaml from CLI arguments."""
 
 import argparse
+import json
+import re
 import sys
 from pathlib import Path
 
@@ -14,6 +16,7 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
 from upsert_team_slack_handle import HANDLE_RE, normalize_channel, normalize_handle  # noqa: E402
+from resolve_rhel_version import resolve_base_rhel_version  # noqa: E402
 
 
 def main():
@@ -29,6 +32,7 @@ def main():
     p.add_argument("--odh-release-tag", help="ODH Release builds only: version tag (e.g. 2.21.0)")
     p.add_argument("--architectures", help="RHOAI only; comma-separated (default: x86_64,arm64)")
     p.add_argument("--target-rhoai-version", help="RHOAI only")
+    p.add_argument("--base-rhel-version", help="RHOAI base OS resolved from the Dockerfile")
     p.add_argument("--long-description", help="RHOAI only")
     p.add_argument("--short-description", help="RHOAI only")
     p.add_argument("--release-category", choices=["Generally Available", "Tech Preview"], help="RHOAI only")
@@ -46,6 +50,11 @@ def main():
         help="Optional Slack channel name for this component's team",
     )
     args = p.parse_args()
+
+    if re.search(r"-rhel[0-9]+$", args.component_name):
+        p.error("component-name must not end with -rhel<major>; onboarding derives the suffix")
+    if args.product_context == "ODH" and args.base_rhel_version is not None:
+        p.error("--base-rhel-version is only valid for RHOAI")
 
     slack_team_handle = normalize_handle(args.slack_team_handle)
     if not HANDLE_RE.match(slack_team_handle):
@@ -92,6 +101,9 @@ def main():
         if not args.release_category:
             print("ERROR: --release-category is required for RHOAI", file=sys.stderr)
             sys.exit(1)
+        base_rhel_version = resolve_base_rhel_version(args.base_rhel_version)
+        # Preserve supplied values safely; the schema decides which majors are supported.
+        lines.append(f"  base_rhel_version: {json.dumps(base_rhel_version)}")
         archs = [a.strip() for a in (args.architectures or "x86_64,arm64").split(",")]
         lines.append("  architectures:")
         for arch in archs:

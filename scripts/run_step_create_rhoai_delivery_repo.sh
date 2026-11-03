@@ -44,14 +44,12 @@ fi
 YAML_FILE="$WORKDIR/component_onboarding_details.yaml"
 [[ ! -f "$YAML_FILE" ]] && { echo "ERROR: $YAML_FILE not found" >&2; exit 1; }
 
-COMPONENT_NAME=$(grep -m1 'component_name:' "$YAML_FILE" | awk '{print $2}' | tr -d '"')
-TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}' | tr -d '"')
-SHORT_DESCRIPTION=$(grep -m1 'short_description:' "$YAML_FILE" \
-  | sed 's/^[[:space:]]*short_description:[[:space:]]*//')
-LONG_DESCRIPTION=$(grep -m1 'long_description:' "$YAML_FILE" \
-  | sed 's/^[[:space:]]*long_description:[[:space:]]*//')
-RELEASE_CATEGORY=$(grep -m1 'release_category:' "$YAML_FILE" \
-  | sed 's/^[[:space:]]*release_category:[[:space:]]*//' | tr -d '"')
+INPUT_VARS=$(uv run --script "$SCRIPTS_DIR/read_onboarding_inputs.py" "$YAML_FILE") || exit 1
+eval "$INPUT_VARS"
+OS_ARGS=()
+if [[ "$BASE_RHEL_VERSION_PRESENT" == true ]]; then
+  OS_ARGS=(--base-rhel-version "$BASE_RHEL_VERSION_INPUT")
+fi
 
 [[ -z "$COMPONENT_NAME" ]] && {
   echo "ERROR: component_name missing from $YAML_FILE" >&2; exit 1
@@ -66,7 +64,8 @@ RELEASE_CATEGORY=$(grep -m1 'release_category:' "$YAML_FILE" \
 eval "$(bash "$SCRIPTS_DIR/parse_rhoai_version.sh" \
   --version          "$TARGET_RHOAI_VERSION" \
   --component        "$COMPONENT_NAME" \
-  --release-category "$RELEASE_CATEGORY")"
+  --release-category "$RELEASE_CATEGORY" \
+  "${OS_ARGS[@]}")"
 # Sets: CONTENT_STREAM_TAG, REPOSITORY_NAME (rhoai-beta/ prefix for Beta), and other version vars
 
 DISPLAY_NAME=$(echo "$COMPONENT_NAME" | tr '-' ' ' \
@@ -130,6 +129,7 @@ RHOAI_YAML="$CLONE_DIR/${PRODUCT_YAML_PATH}"
 RESULT=$(uv run --script "$SCRIPTS_DIR/append_delivery_repo_entry.py" \
   --yaml-file           "$RHOAI_YAML" \
   --repository-name     "$REPOSITORY_NAME" \
+  --base-rhel-version   "$BASE_RHEL_VERSION" \
   --content-stream-tag  "$CONTENT_STREAM_TAG" \
   --release-category    "$RELEASE_CATEGORY" \
   --display-name        "$DISPLAY_NAME" \

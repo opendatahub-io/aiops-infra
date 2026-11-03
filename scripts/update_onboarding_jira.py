@@ -19,6 +19,8 @@ import re
 import sys
 import urllib.request
 
+from resolve_rhel_version import resolve_base_rhel_version
+
 
 def odh_jira_target_version(canonical_version: str) -> str:
     """Map canonical RHOAI version (x.y or x.y-ea-n) to the ODH Jira Target Version name."""
@@ -60,7 +62,15 @@ def main():
         help="Canonical RHOAI version (x.y or x.y-ea-n). Required for ODH Target Version; "
         "optional metadata for RHOAI.",
     )
+    p.add_argument("--base-rhel-version",
+                   help="Resolved RHOAI base OS (legacy callers use the schema default)")
     args = p.parse_args()
+
+    if args.product_context == "RHOAI":
+        try:
+            args.base_rhel_version = resolve_base_rhel_version(args.base_rhel_version)
+        except ValueError as exc:
+            p.error(str(exc))
 
     email = os.environ.get("JIRA_USER_EMAIL", "")
     token = os.environ.get("JIRA_API_TOKEN", "")
@@ -76,7 +86,7 @@ def main():
     if args.product_context == "ODH":
         quay_image = f"quay.io/opendatahub/{args.component_name}"
     else:
-        quay_image = f"quay.io/rhoai/{args.component_name}-rhel9"
+        quay_image = f"quay.io/rhoai/{args.component_name}-{args.base_rhel_version}"
 
     clean_ctx = args.context_path.rstrip("/").lstrip("./")
     if clean_ctx and clean_ctx != ".":

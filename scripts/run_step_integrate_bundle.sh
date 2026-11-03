@@ -86,7 +86,7 @@ echo "$BV_OUTPUT"
 
 # Resolve related image
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
-  QUAY_REPO_NAME="${COMPONENT_NAME}-rhel9"
+  QUAY_REPO_NAME="${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}"
 else
   QUAY_REPO_NAME="$COMPONENT_NAME"
 fi
@@ -164,7 +164,7 @@ if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   if [[ -f "$BC_CONFIG" ]] && ! grep -qF "$COMPONENT_NAME" "$BC_CONFIG" 2>/dev/null; then
     uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-build-config-component \
       "$BC_CONFIG" \
-      --component-name "${QUAY_ORG}/${COMPONENT_NAME}-rhel9" \
+      --component-name "${QUAY_ORG}/${COMPONENT_NAME}${IMAGE_REPO_SUFFIX}" \
       --repo-url       "$REPO_URL" \
       --repo-branch    "$REPO_BRANCH" 2>/dev/null || true
     FILES_CHANGED="$FILES_CHANGED config/build-config.yaml"
