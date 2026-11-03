@@ -192,7 +192,7 @@ class TestValidateYamlSchemaCli:
 
 
 class TestBaseRhelVersion:
-    @pytest.mark.parametrize("version", ["rhel9", "rhel10"])
+    @pytest.mark.parametrize("version", ["rhel9"])
     def test_accepts_current_supported_version(self, version):
         payload = _odh_payload("odh-dashboard")
         payload["inputs"]["product_context"] = "RHOAI"
@@ -207,7 +207,7 @@ class TestBaseRhelVersion:
         })
         Draft202012Validator(_schema()).validate(payload)
 
-    @pytest.mark.parametrize("version", ["rhel8", "rhel11", "10", "rhel-invalid"])
+    @pytest.mark.parametrize("version", ["rhel8", "rhel10", "rhel11", "10", "rhel-invalid"])
     def test_rejects_unsupported_version(self, version):
         payload = _odh_payload("odh-dashboard")
         payload["inputs"]["product_context"] = "RHOAI"

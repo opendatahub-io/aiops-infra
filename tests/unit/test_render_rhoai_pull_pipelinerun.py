@@ -210,13 +210,13 @@ class TestStage2PullPipeline:
             "quay.io/rhoai/odh-sample-rhel9:on-pr-{{pull_request_number}}"
         )
 
-    def test_output_image_uses_base_rhel_version_from_details(self, tmp_path: Path):
+    def test_output_image_uses_supported_base_rhel_version_from_details(self, tmp_path: Path):
         document = _render(
             tmp_path,
-            _details(component_name="odh-sample", base_rhel_version="rhel10"),
+            _details(component_name="odh-sample", base_rhel_version="rhel9"),
         )
         assert _param(document, "output-image") == (
-            "quay.io/rhoai/odh-sample-rhel10:on-pr-{{pull_request_number}}"
+            "quay.io/rhoai/odh-sample-rhel9:on-pr-{{pull_request_number}}"
         )
 
     def test_multi_arch_and_prefetch_are_retained(self, tmp_path: Path):

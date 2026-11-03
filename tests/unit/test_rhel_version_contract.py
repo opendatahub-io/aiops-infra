@@ -32,7 +32,7 @@ def payload(product='RHOAI'):
     return {'inputs': fields}
 
 
-@pytest.mark.parametrize('os', [None, 'rhel9', 'rhel10'])
+@pytest.mark.parametrize('os', [None, 'rhel9'])
 def test_schema_accepts_legacy_and_supported_os(os):
     data = payload()
     if os is not None:
@@ -55,7 +55,7 @@ def test_schema_rejects_os_in_component_identity(os):
     assert list(Draft202012Validator(SCHEMA).iter_errors(data))
 
 
-@pytest.mark.parametrize('os', [None, 'rhel9', 'rhel10'])
+@pytest.mark.parametrize('os', [None, 'rhel9'])
 @pytest.mark.parametrize('category,line', [('Generally Available', 'rhoai'),
                                           ('Tech Preview', 'rhoai'),
                                           ('Beta', 'rhoai-beta'), ('DevPreview', 'rhoai-beta')])
@@ -87,13 +87,12 @@ def test_odh_stays_unsuffixed_and_rejects_explicit_os():
 @pytest.mark.parametrize('script,args', [
     ('derive_quay_vars.sh', ['--product-context', 'RHOAI', '--component-name', 'odh-example']),
     ('parse_rhoai_version.sh', ['--version', '3.7'])])
-@pytest.mark.parametrize('os', ['', 'rhel-invalid', '10', 'rhel10-extra', 'rhel10;echo injected', 'rhel11', 'rhel123'])
+@pytest.mark.parametrize('os', ['', 'rhel-invalid', '10', 'rhel10', 'rhel10-extra', 'rhel10;echo injected', 'rhel11', 'rhel123'])
 def test_helpers_fail_on_invalid_os(script, args, os):
     assert shell(script, *args, '--base-rhel-version', os).returncode != 0
 
 
-@pytest.mark.parametrize('product,os', [('RHOAI', None), ('RHOAI', 'rhel9'),
-                                      ('RHOAI', 'rhel10'), ('ODH', None)])
+@pytest.mark.parametrize('product,os', [('RHOAI', None), ('RHOAI', 'rhel9'), ('ODH', None)])
 def test_generator_round_trip(tmp_path, product, os):
     out = tmp_path / 'component_onboarding_details.yaml'
     args = []
@@ -115,7 +114,7 @@ def test_generator_round_trip(tmp_path, product, os):
         assert 'base_rhel_version' not in data['inputs']
 
 
-@pytest.mark.parametrize('os', [None, 'rhel9', 'rhel10'])
+@pytest.mark.parametrize('os', [None, 'rhel9'])
 def test_component_parser_persists_resolved_contract(tmp_path, os):
     data = payload()
     if os is not None:
@@ -172,9 +171,9 @@ def test_component_parser_failure_does_not_mutate_state(tmp_path, product, os):
 
 
 @pytest.mark.parametrize('os_line', [
-    '  "base_rhel_version": "rhel10" # selected by policy',
-    "  'base_rhel_version': 'rhel10'",
-    '  base_rhel_version: >-\n    rhel10',
+    '  "base_rhel_version": "rhel9" # selected by policy',
+    "  'base_rhel_version': 'rhel9'",
+    '  base_rhel_version: >-\n    rhel9',
 ])
 def test_component_parser_reads_yaml_os_semantics(tmp_path, os_line):
     data = payload()
@@ -184,11 +183,11 @@ def test_component_parser_reads_yaml_os_semantics(tmp_path, os_line):
     result = shell('parse_component_details.sh', '--workdir', str(tmp_path),
                    '--jira-id', 'RHAI-1', '--scripts-dir', str(SCRIPTS))
     assert result.returncode == 0, result.stderr
-    assert 'BASE_RHEL_VERSION=rhel10\n' in result.stdout
-    assert 'QUAY_REPO_URI=quay.io/rhoai/odh-example-rhel10\n' in result.stdout
+    assert 'BASE_RHEL_VERSION=rhel9\n' in result.stdout
+    assert 'QUAY_REPO_URI=quay.io/rhoai/odh-example-rhel9\n' in result.stdout
 
 
-@pytest.mark.parametrize('product,os', [('RHOAI', None), ('RHOAI', 'rhel10'), ('ODH', None)])
+@pytest.mark.parametrize('product,os', [('RHOAI', None), ('RHOAI', 'rhel9'), ('ODH', None)])
 def test_parser_ignores_stale_environment_and_quotes_shell_values(tmp_path, product, os):
     import os as environ_module
 
@@ -237,14 +236,14 @@ def test_invalid_os_never_changes_existing_state(tmp_path, value):
 ])
 def test_non_ga_version_identities_are_os_free(version, identity, branch):
     result = shell('parse_rhoai_version.sh', '--version', version,
-                   '--component', 'odh-example', '--base-rhel-version', 'rhel10')
+                   '--component', 'odh-example', '--base-rhel-version', 'rhel9')
     assert result.returncode == 0, result.stderr
     assert f'VERSION_VAR={identity}\n' in result.stdout
     assert f'BRANCH_NAME={branch}\n' in result.stdout
-    assert 'REPOSITORY_NAME=rhoai/odh-example-rhel10\n' in result.stdout
+    assert 'REPOSITORY_NAME=rhoai/odh-example-rhel9\n' in result.stdout
 
 
-@pytest.mark.parametrize('os', ['rhel8', 'rhel11', 'rhel123', 'rhel-invalid', ''])
+@pytest.mark.parametrize('os', ['rhel8', 'rhel10', 'rhel11', 'rhel123', 'rhel-invalid', ''])
 def test_generator_rejects_versions_outside_schema_enum(tmp_path, os):
     out = tmp_path / 'onboarding.yaml'
     args = []
@@ -255,7 +254,7 @@ def test_generator_rejects_versions_outside_schema_enum(tmp_path, os):
                              '--output', str(out), '--slack-team-handle', 'ai-core-platform',
                              *args, '--base-rhel-version', os], capture_output=True, text=True)
     assert result.returncode != 0
-    assert 'allowed values: rhel9, rhel10' in result.stderr
+    assert 'allowed values: rhel9' in result.stderr
     assert not out.exists()
 
 
@@ -265,10 +264,10 @@ def test_generator_os_input_cannot_add_yaml_fields(tmp_path):
     for key, value in payload()['inputs'].items():
         if key not in ['architectures', 'is_operator']:
             args.extend(['--' + key.replace('_', '-'), str(value)])
-    value = 'rhel10\n  injected: true'
+    value = 'rhel9\n  injected: true'
     result = subprocess.run([sys.executable, str(SCRIPTS / 'generate_onboarding_yaml.py'),
                              '--output', str(out), '--slack-team-handle', 'ai-core-platform',
                              *args, '--base-rhel-version', value], capture_output=True, text=True)
     assert result.returncode != 0
-    assert 'allowed values: rhel9, rhel10' in result.stderr
+    assert 'allowed values: rhel9' in result.stderr
     assert not out.exists()

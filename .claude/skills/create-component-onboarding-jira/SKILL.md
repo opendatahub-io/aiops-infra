@@ -248,7 +248,7 @@ Transform the validated input to the canonical form and store in `target_rhoai_v
   - Remaining characters: lowercase letters, numbers, and hyphens only
   - No consecutive or trailing hyphens
   - At most 50 characters
-  - Must not end with an OS suffix (e.g. `-rhel9` or `-rhel10`)
+  - Must not end with an OS suffix (e.g. `-rhel9`)
   - Must not end with a version-like suffix (e.g. `-v2`, `-3-4`, `-v3-4`, `-v3-5-ea-1`)
 
 **Q3.5 — Release category (RHOAI only)**
@@ -391,7 +391,7 @@ Print: `repo_branch auto-set to: <repo_branch>`
 **Q7.5 — RHOAI base version (RHOAI only; skip for ODH)**
 
 Ask the user:
-> What RHEL major does the Dockerfile's final runtime `FROM` use? Options: `rhel9`, `rhel10`.
+> What RHEL major does the Dockerfile's final runtime `FROM` use? Currently supported: `rhel9`.
 > Press Enter to use the current `rhel9` placeholder if you cannot determine it.
 
 Use the resolver to validate the answer against the schema enum. If the user presses

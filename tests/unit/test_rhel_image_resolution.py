@@ -19,7 +19,7 @@ def run(script, *args):
     return subprocess.run([sys.executable, str(SCRIPTS / script), *args], capture_output=True, text=True)
 
 
-@pytest.mark.parametrize("major", ["9", "10"])
+@pytest.mark.parametrize("major", ["9"])
 def test_suffix_resolver_accepts_schema_enum_values(major):
     result = run("resolve_rhel_version.py", "--product-context", "RHOAI", "--base-rhel-version", f"rhel{major}")
     assert result.returncode == 0, result.stderr
@@ -27,11 +27,11 @@ def test_suffix_resolver_accepts_schema_enum_values(major):
     assert f"IMAGE_REPO_SUFFIX=-rhel{major}" in result.stdout
 
 
-@pytest.mark.parametrize("major", ["8", "11", "123"])
+@pytest.mark.parametrize("major", ["8", "10", "11", "123"])
 def test_suffix_resolver_rejects_values_outside_schema_enum(major):
     result = run("resolve_rhel_version.py", "--product-context", "RHOAI", "--base-rhel-version", f"rhel{major}")
     assert result.returncode != 0
-    assert "allowed values: rhel9, rhel10" in result.stderr
+    assert "allowed values: rhel9" in result.stderr
 
 
 def test_resolver_uses_temporary_rhel9_placeholder():
@@ -55,7 +55,7 @@ def test_allowed_versions_come_from_schema_enum(tmp_path):
         resolve_base_rhel_version("rhel9", modified)
 
 
-@pytest.mark.parametrize("version", ["rhel9", "rhel10"])
+@pytest.mark.parametrize("version", ["rhel9"])
 def test_component_details_parser_uses_jira_yaml_version(tmp_path, version):
     workdir = tmp_path / "RHOAIENG-123"
     workdir.mkdir()
@@ -102,7 +102,7 @@ def test_component_details_parser_defaults_legacy_ticket_to_rhel9(tmp_path):
     assert "QUAY_REPO_URI=quay.io/rhoai/odh-example-rhel9" in result.stdout
 
 
-@pytest.mark.parametrize("version", ["rhel9", "rhel10"])
+@pytest.mark.parametrize("version", ["rhel9"])
 def test_repository_name_parser_uses_explicit_version(version):
     result = subprocess.run([
         "bash", str(SCRIPTS / "parse_rhoai_version.sh"),
@@ -126,11 +126,11 @@ def test_generator_records_detected_rhel_version(tmp_path):
         "--context-path", "./",
         "--dockerfile-path", "Dockerfile.konflux",
         "--target-rhoai-version", "3.7",
-        "--base-rhel-version", "rhel10",
+        "--base-rhel-version", "rhel9",
         "--release-category", "Generally Available",
         "--long-description", "Example component",
         "--short-description", "Example",
         "--slack-team-handle", "ai-core-platform",
     ], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert yaml.safe_load(output.read_text())["inputs"]["base_rhel_version"] == "rhel10"
+    assert yaml.safe_load(output.read_text())["inputs"]["base_rhel_version"] == "rhel9"
