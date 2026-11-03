@@ -24,7 +24,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from rhel_version_contract import resolve_base_rhel_version
+from resolve_rhel_version import resolve_base_rhel_version
 
 ENTRY_TEMPLATE = """\
 - image_type: Layered

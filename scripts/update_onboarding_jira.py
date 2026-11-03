@@ -19,7 +19,7 @@ import re
 import sys
 import urllib.request
 
-from rhel_version_contract import resolve_base_rhel_version
+from resolve_rhel_version import resolve_base_rhel_version
 
 
 def odh_jira_target_version(canonical_version: str) -> str:

@@ -12,8 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from resolve_base_rhel_version import dockerfile_url  # noqa: E402
-from rhel_version_contract import resolve_base_rhel_version  # noqa: E402
+from resolve_rhel_version import resolve_base_rhel_version  # noqa: E402
 
 
 def run(script, *args):
@@ -35,20 +34,12 @@ def test_suffix_resolver_rejects_values_outside_schema_enum(major):
     assert "allowed values: rhel9, rhel10" in result.stderr
 
 
-def test_legacy_default_comes_from_schema():
+def test_resolver_uses_temporary_rhel9_placeholder():
     assert resolve_base_rhel_version() == "rhel9"
-
-
-def test_resolver_constructs_raw_dockerfile_url():
-    assert dockerfile_url(
-        "https://github.com/example/component.git",
-        "rhoai-3.7",
-        "./docker/build/",
-        "Dockerfile.konflux",
-    ) == (
-        "https://raw.githubusercontent.com/example/component/rhoai-3.7/"
-        "docker/build/Dockerfile.konflux"
-    )
+    result = run("resolve_rhel_version.py", "--product-context", "RHOAI")
+    assert result.returncode == 0, result.stderr
+    assert "BASE_RHEL_VERSION=rhel9" in result.stdout
+    assert "IMAGE_REPO_SUFFIX=-rhel9" in result.stdout
 
 
 def test_allowed_versions_come_from_schema_enum(tmp_path):
@@ -56,50 +47,12 @@ def test_allowed_versions_come_from_schema_enum(tmp_path):
     schema = json.loads(schema_path.read_text())
     version_schema = schema["properties"]["inputs"]["properties"]["base_rhel_version"]
     version_schema["enum"] = ["rhel12"]
-    version_schema["default"] = "rhel12"
     modified = tmp_path / "schema.json"
     modified.write_text(json.dumps(schema))
 
     assert resolve_base_rhel_version("rhel12", modified) == "rhel12"
     with pytest.raises(ValueError, match="allowed values: rhel12"):
         resolve_base_rhel_version("rhel9", modified)
-
-
-@pytest.mark.parametrize("content,expected", [
-    ("FROM registry.redhat.io/ubi9/ubi-minimal@sha256:abc AS build\nFROM build AS final\n", "rhel9"),
-    ("FROM --platform=linux/amd64 registry.redhat.io/ubi10/ubi-minimal:10.0@sha256:abc\n", "rhel10"),
-    ("FROM registry.redhat.io/ubi-minimal:9.4@sha256:abc\n", "rhel9"),
-    ("FROM registry.redhat.io/rhel10/python-312@sha256:abc AS base\nFROM base\n", "rhel10"),
-    ("FROM registry.redhat.io/rhel-10/python-312@sha256:abc\n", "rhel10"),
-    ("FROM \\\n --platform=linux/amd64 registry.redhat.io/ubi9/ubi-minimal@sha256:abc AS runtime\n", "rhel9"),
-])
-def test_resolves_effective_final_stage(tmp_path, content, expected):
-    dockerfile = tmp_path / "Dockerfile"
-    dockerfile.write_text(content)
-    result = run("resolve_base_rhel_version.py", "--dockerfile-path", str(dockerfile))
-    assert result.returncode == 0, result.stderr
-    assert f"BASE_RHEL_VERSION={expected}" in result.stdout
-
-
-@pytest.mark.parametrize("content", [
-    "FROM $BASE_IMAGE\n",
-    "FROM registry.example.com/custom-base:latest\n",
-    "RUN echo no base\n",
-])
-def test_unknown_or_unresolvable_final_base_fails(tmp_path, content):
-    dockerfile = tmp_path / "Dockerfile"
-    dockerfile.write_text(content)
-    result = run("resolve_base_rhel_version.py", "--dockerfile-path", str(dockerfile))
-    assert result.returncode != 0
-    assert "ERROR:" in result.stderr
-
-
-def test_detected_but_unsupported_base_fails_schema_enum_check(tmp_path):
-    dockerfile = tmp_path / "Dockerfile"
-    dockerfile.write_text("FROM registry.redhat.io/ubi11/ubi-minimal@sha256:abc\n")
-    result = run("resolve_base_rhel_version.py", "--dockerfile-path", str(dockerfile))
-    assert result.returncode != 0
-    assert "not supported by the schema; allowed values: rhel9, rhel10" in result.stderr
 
 
 @pytest.mark.parametrize("version", ["rhel9", "rhel10"])

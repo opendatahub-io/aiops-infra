@@ -16,7 +16,7 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
 from upsert_team_slack_handle import HANDLE_RE, normalize_channel, normalize_handle  # noqa: E402
-from rhel_version_contract import resolve_base_rhel_version  # noqa: E402
+from resolve_rhel_version import resolve_base_rhel_version  # noqa: E402
 
 
 def main():

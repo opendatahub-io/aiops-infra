@@ -388,40 +388,25 @@ Print: `repo_branch auto-set to: <repo_branch>`
   > For RHOAI components, the Dockerfile name must contain the string `Dockerfile.konflux`
   > (e.g. `Dockerfile.konflux`, `docker/Dockerfile.konflux.cuda`)
 
-**Q7.5 — Resolve RHOAI base image (RHOAI only; never ask for ODH)**
+**Q7.5 — RHOAI base version (RHOAI only; skip for ODH)**
 
-The Dockerfile's final runtime stage is the source of truth for the image suffix. Delegate
-Dockerfile URL construction, fetching, and final-stage resolution to the Python resolver
-(which follows a final-stage alias when present):
+Ask the user:
+> What RHEL major does the Dockerfile's final runtime `FROM` use? Options: `rhel9`, `rhel10`.
+> Press Enter to use the current `rhel9` placeholder if you cannot determine it.
+
+Use the resolver to validate the answer against the schema enum. If the user presses
+Enter, use the current `rhel9` placeholder:
 
 ```bash
-if BASE_IMAGE_RESOLUTION=$(uv run --script scripts/resolve_base_rhel_version.py \
-  --repo-url "$repo_url" \
-  --repo-branch "$repo_branch" \
-  --context-path "$context_path" \
-  --repo-dockerfile-path "$dockerfile_path" 2>&1); then
-  BASE_RHEL_VERSION=$(printf '%s\n' "$BASE_IMAGE_RESOLUTION" \
-    | sed -n 's/^BASE_RHEL_VERSION=//p' | tail -1)
-  echo "$BASE_IMAGE_RESOLUTION" | sed '/^BASE_RHEL_VERSION=/d'
-  echo "Detected ${BASE_RHEL_VERSION}; repository suffix will be -${BASE_RHEL_VERSION}."
-else
-  echo "$BASE_IMAGE_RESOLUTION"
-  # Ask the user to inspect/resolve the Dockerfile's actual final-stage base.
-  # Store only a confirmed literal such as rhel9 or rhel10; do not guess.
-  # Then set BASE_RHEL_VERSION to that answer and continue to schema validation.
-fi
+BASE_RHEL_VERSION="${user_base_rhel_version:-rhel9}"
+BASE_IMAGE_RESOLUTION=$(uv run --script scripts/resolve_rhel_version.py \
+  --product-context RHOAI --base-rhel-version "$BASE_RHEL_VERSION")
+BASE_RHEL_VERSION=$(printf '%s\n' "$BASE_IMAGE_RESOLUTION" \
+  | sed -n 's/^BASE_RHEL_VERSION=//p' | tail -1)
 ```
 
-- On success, capture its `BASE_RHEL_VERSION=rhelN` assignment, display the final-stage
-  image and resolved suffix, and ask the user to confirm it. Store the value as
-  `base_rhel_version`; if the user says it is wrong, stop and ask them to correct the
-  Dockerfile/repository rather than overriding Dockerfile evidence.
-- If resolution fails (unreachable Dockerfile, ARG-based/unknown image, or an
-  unrecognized base), show the diagnostic and ask: "Please inspect the final runtime
-  `FROM` in this Dockerfile. What is its RHEL major (`rhel9` or `rhel10`)?" This skill
-  remains the fallback collection path; do not infer from the component name or
-  metadata. Continue only after explicit confirmation. The schema currently accepts
-  only `rhel9` and `rhel10`.
+- Store the resolver's value in `base_rhel_version`. If it rejects the user's input,
+  show the error and ask again using the values in the schema's `base_rhel_version.enum`.
 - Do not add `base_rhel_version` for ODH.
 
 **Q8 — Modular operator**

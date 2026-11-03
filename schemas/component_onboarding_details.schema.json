@@ -27,8 +27,7 @@
         "base_rhel_version": {
           "type": "string",
           "enum": ["rhel9", "rhel10"],
-          "default": "rhel9",
-          "description": "RHOAI base OS major resolved from the component Dockerfile. Missing legacy values default to rhel9; ODH must omit this field."
+          "description": "RHOAI base OS major. Currently the resolver defaults missing legacy values to rhel9; ODH must omit this field."
         },
         "component_name": {
           "type": "string",
