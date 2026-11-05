@@ -23,8 +23,9 @@ Closed-without-merge PRs/MRs are reset to `pending` so the next run re-raises th
 ## Steps orchestrated
 
 Removal PRs/MRs for KRD, OKC, pull pipelines, bundle, and operator are independent
-and can run in parallel. Tekton cleanup waits on OKC/pull-pipeline merges. Component
-CR deletion waits on every other step and requires human confirmation.
+and can run in parallel. Tekton cleanup waits on OKC/pull-pipeline merges. RHOAI
+component-map cleanup waits for the repository cleanup steps; Component CR deletion
+waits on every other step and requires human confirmation.
 
 | Step | Target | Blocked by |
 |------|--------|------------|
@@ -35,9 +36,14 @@ CR deletion waits on every other step and requires human confirmation.
 | 5 | ODH/RHOAI Build-Config GitHub PR (`remove_bundle`) | — |
 | 6 | odh-operator / rhods-operator GitHub PR (`remove_operator`) | — *(operators only)* |
 | 7 | Component repo `.tekton/` GitHub PR (`sync_component_tekton`) | okc + pull_pipelines merged/skipped |
-| 8 | Delete Konflux `Component` CR (`remove_component_cr`) | all prior steps; **confirmation required** |
+| 8 | `konflux-central/config/component_repo_map.json` GitHub PR (`remove_component_repo_map`) | all other repo cleanup complete *(RHOAI only)* |
+| 9 | Delete Konflux `Component` CR (`remove_component_cr`) | all prior steps; **confirmation required** |
 
 Not removed automatically: Quay repositories, RHOAI product-listing entries.
+The component map entry is removed by default for RHOAI. Set
+`inputs.preserve_component_repo_map: true` in the Jira attachment only when the
+ticket explicitly requests preserving it. Other component associations under the
+same source repository are retained; the repository key is removed when empty.
 
 ## Isolation from onboarding
 

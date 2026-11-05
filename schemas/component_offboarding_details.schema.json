@@ -46,6 +46,19 @@
         "is_operator": {
           "type": "boolean",
           "description": "Whether the component is an operator or controller; controls whether operator manifest removal step runs"
+        },
+        "preserve_component_repo_map": {
+          "type": "boolean",
+          "description": "Keep this ticket's component_repo_map.json associations during offboarding. Defaults to false; set true only when Jira explicitly requests that the mapping be retained."
+        },
+        "component_repo_map_components": {
+          "type": "array",
+          "description": "Additional component keys to remove from the same component_repo_map.json source repository. The primary component_name is always included.",
+          "items": {
+            "type": "string",
+            "pattern": "^odh-[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
         }
       },
       "allOf": [
