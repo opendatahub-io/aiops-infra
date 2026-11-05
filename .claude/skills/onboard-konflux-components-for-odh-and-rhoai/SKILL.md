@@ -25,6 +25,7 @@ Orchestrates the complete component onboarding pipeline (idempotent re-run model
 9. `update-rhoai-product-listing` — GitLab MR, triggered after delivery-repo merges **(RHOAI only)**
 10. `setup-auto-merge` — GitHub PR to rhods-devops-infra **(RHOAI only)**
 11. `enable-renovate-on-rhoai-component-repo` + deferred `sync-rhoai-renovate-configs` **(RHOAI only)**
+12. `register-component-repo-map` — GitHub PR to `konflux-central` **(final RHOAI action; waits for all applicable onboarding steps and verifies the mapping on main after merge)**
 
 **Re-run model:** invoke this skill any number of times for the same Jira URL.
 Each run checks Jira labels and PR/MR API status to determine what's already done,
@@ -251,12 +252,29 @@ for MERGED_KEY in $NEWLY_MERGED; do
   RAISED_LABEL=$(jq -r --arg k "$MERGED_KEY" '.steps[$k].label_raised // ""' "$PIPELINE_STATE")
   LABEL_ARGS=()
   [[ -n "$DONE_LABEL" ]]   && LABEL_ARGS+=("--add-label"    "$DONE_LABEL")
-  [[ -n "$RAISED_LABEL" ]] && LABEL_ARGS+=("--remove-label" "$RAISED_LABEL")
+  # Keep the map-raised label until main verification succeeds, so a failed
+  # verification can be retried from Jira state without raising a duplicate PR.
+  if [[ -n "$RAISED_LABEL" && "$MERGED_KEY" != "component_repo_map" ]]; then
+    LABEL_ARGS+=("--remove-label" "$RAISED_LABEL")
+  fi
   if [[ "${#LABEL_ARGS[@]}" -gt 0 ]]; then
     uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
       "${LABEL_ARGS[@]}" || true
   fi
 done
+```
+
+After syncing PR/MR status, verify a merged component-map PR against the file on
+`konflux-central` `main`. The verification wrapper marks it done only when every
+requested association is present and correct; a failed verification is a hard
+blocker and must not be treated as onboarding completion:
+
+```bash
+if [[ "$PRODUCT_CONTEXT" == "RHOAI" && "$(jq -r '.steps.component_repo_map.status // ""' "$PIPELINE_STATE")" == "merged" ]]; then
+  OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_component_repo_map.sh" --jira-url "$JIRA_URL" --verify-merged)
+  EXIT_CODE=$?
+  if [[ "$EXIT_CODE" -ne 0 ]]; then echo "$OUTPUT"; exit 1; fi
+fi
 ```
 
 ---
@@ -265,7 +283,7 @@ done
 
 A step is **executable** this run if:
 1. Its `status` is `"pending"` (not `pr_raised`, `mr_raised`, `merged`, `done`, `skipped`, `closed`)
-2. All steps in its `depends_on` list have `status == "merged"` or `"done"`
+2. All steps in its `depends_on` list have a terminal `status == "merged"`, `"done"`, or `"skipped"`
 
 Compute `UNBLOCKED_STEPS` by reading `pipeline_state.json`:
 
@@ -276,7 +294,7 @@ UNBLOCKED_STEPS=$(jq -r '
   select(.value.status == "pending") |
   select(
     .value.depends_on | all(. as $dep |
-      $steps[$dep].status == "merged" or $steps[$dep].status == "done"
+      $steps[$dep].status == "merged" or $steps[$dep].status == "done" or $steps[$dep].status == "skipped"
     )
   ) | .key
 ' "$PIPELINE_STATE")
@@ -476,6 +494,27 @@ EXIT_CODE=$?
 
 Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
+### Step 8l: register-component-repo-map (step key: `component_repo_map`, RHOAI only)
+
+This is the final onboarding action. It registers each requested component under the
+exact source repository name in `config/component_repo_map.json`, using the actual
+RHOAI delivery image repository (`rhoai/...` or `rhoai-beta/...`). The release-
+independent map is consumed by GAP to select required builds for child PRs. Existing
+unrelated mappings are preserved; conflicting associations stop the step without
+overwriting them. An already-correct map on main is a verified no-op.
+
+```bash
+OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_component_repo_map.sh" --jira-url "$JIRA_URL")
+EXIT_CODE=$?
+```
+
+Follows the general exit contract. A raised PR remains pending until merged. The
+verification immediately after Step 6 marks the action done only after checking main.
+
+Do not report or resolve onboarding if verification fails or the map PR is still open.
+Optional extra associations may be listed under `inputs.component_repo_map` in the
+onboarding YAML, each with `component_name` and its exact `image_repository` path.
+
 ---
 
 ## Step 9: Handle Workflow Triggers
@@ -584,6 +623,9 @@ ALL_DONE=$(jq -r '
   [.steps | to_entries[] | select(.value.status != "skipped")] |
   all(.value.status == "done" or .value.status == "merged")
 ' "$PIPELINE_STATE")
+if [[ "$PRODUCT_CONTEXT" == "RHOAI" && "$(jq -r '.steps.component_repo_map.status // "pending"' "$PIPELINE_STATE")" != "done" ]]; then
+  ALL_DONE="false"
+fi
 ```
 
 **If `ALL_DONE == "true"`:**
@@ -647,6 +689,7 @@ PRs / MRs:
   renovate        : <steps.renovate.status or "N/A (ODH)">
   renovate_sync   : <steps.renovate_sync.status or "N/A (ODH)">
   onboarder_workflow: <steps.onboarder_workflow.status or "N/A (RHOAI)">
+  component_repo_map: <steps.component_repo_map.status or "N/A (ODH)"> — <steps.component_repo_map.pr_url or "no PR (already correct on main)">
 
 Newly merged this run : <NEWLY_MERGED or "none">
 State file            : $PIPELINE_STATE

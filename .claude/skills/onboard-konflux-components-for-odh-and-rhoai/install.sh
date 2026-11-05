@@ -120,6 +120,8 @@ COMMON_SCRIPTS=(
   "sync_state_from_jira.py"
   "build_progress_summary.py"
   "append_delivery_repo_entry.py"
+  "component_repo_map.py"
+  "run_step_component_repo_map.sh"
   "append_yaml_list_entry.py"
   "check_pr_mr_status.sh"
   "init_pipeline.sh"
@@ -146,7 +148,7 @@ info "Pre-warming Python dependencies..."
 for script in "monitor_github_pr.py" "monitor_gitlab_mr.py" "update_jira_issue.py" \
               "run_github_workflow.py" "fetch_jira_details.py" \
               "sync_state_from_jira.py" "build_progress_summary.py" \
-              "append_delivery_repo_entry.py"; do
+              "append_delivery_repo_entry.py" "component_repo_map.py"; do
   echo -n "    ${script} ... "
   uv run --script "${COMMON_DIR}/${script}" --help >/dev/null 2>&1 \
     && echo -e "${GREEN}OK${RESET}" \

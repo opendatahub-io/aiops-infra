@@ -43,12 +43,21 @@ The orchestrator does not edit files or raise PRs directly. Instead it:
 | 8b | [create-pull-pipelines-in-rhoai-konflux-central](create-pull-pipelines-in-rhoai-konflux-central.md) | krd merged |
 | 9 | [integrate-component-with-bundle](integrate-component-with-bundle.md) | okc merged |
 | 10 | [integrate-component-with-odh-operator](integrate-component-with-odh-operator.md) | bundle merged *(operators only)* |
+| 11 | Register GAP component/image map | `konflux-central/config/component_repo_map.json` PR | all applicable RHOAI steps complete; final action |
 
 Step 8b opens its GitHub PR against `konflux-central` `main`. The PipelineRun's
 application, component, service account, and `rhoai-version` come from
 `target_rhoai_version` (`3.6` → `rhoai-v3-6`, `<component>-v3-6`,
 `build-pipeline-<component>-v3-6`, `3.6.0`). An older target keeps that older
 version's identifiers.
+
+The final RHOAI action adds each component/image delivery repository association to
+`config/component_repo_map.json` on `konflux-central` `main`. GAP uses this map to
+select required builds for child PRs. It uses canonical, release-independent component
+keys and actual delivery repository paths; conflicts fail without overwriting existing
+data. An open PR keeps onboarding in review, and a merged PR is marked done only after
+its entries are verified on main. Optional additional components can be listed in
+`inputs.component_repo_map` with `component_name` and `image_repository`.
 
 ## Jira progress comment
 

@@ -44,6 +44,7 @@ left off. Steps execute when all their dependencies are met (merged/done).
 | 8b | [create-pull-pipelines-in-rhoai-konflux-central](create-pull-pipelines-in-rhoai-konflux-central.md) | `konflux-central` GitHub PR (pull-request pipeline on `main`) | krd merged |
 | 9 | [integrate-component-with-bundle](integrate-component-with-bundle.md) | `RHOAI-Build-Config` GitHub PR | okc merged |
 | 10 | [integrate-component-with-odh-operator](integrate-component-with-odh-operator.md) | `rhods-operator` GitHub PR *(operators only)* | bundle merged |
+| 11 | Register GAP component/image map | `konflux-central/config/component_repo_map.json` GitHub PR | all applicable RHOAI steps complete |
 
 ### Supplementary skills
 
@@ -78,7 +79,7 @@ Quay repositories and RHOAI product-listing entries are **not** removed.
 | Repo | Host | Used by |
 |------|------|---------|
 | `opendatahub-io/odh-konflux-central` | GitHub | add-component-to-odh-konflux-central, run-odh-konflux-onboarder-workflow |
-| `red-hat-data-services/konflux-central` | GitHub | add-component-to-rhoai-konflux-central, create-pull-pipelines, enable-renovate, sync-renovate |
+| `red-hat-data-services/konflux-central` | GitHub | add-component-to-rhoai-konflux-central, create-pull-pipelines, enable-renovate, sync-renovate, component/image map |
 | `releng/konflux-release-data` | GitLab (cee) | onboard-component-to-konflux-release-data |
 | `service/app-interface` | GitLab (cee) | create-quay-repo |
 | `releng/pyxis-repo-configs` | GitLab (cee) | create-rhoai-delivery-repo, update-rhoai-product-listing |

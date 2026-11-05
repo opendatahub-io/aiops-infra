@@ -118,6 +118,26 @@
           "description": "Release maturity category for the component (required when product_context is RHOAI)",
           "enum": ["Generally Available", "Tech Preview"]
         },
+        "component_repo_map": {
+          "type": "array",
+          "description": "Optional additional component/image associations when a source repository delivers multiple RHOAI components. The primary component mapping is derived automatically.",
+          "items": {
+            "type": "object",
+            "required": ["component_name", "image_repository"],
+            "additionalProperties": false,
+            "properties": {
+              "component_name": {
+                "type": "string",
+                "pattern": "^odh-[a-z0-9]+(-[a-z0-9]+)*$"
+              },
+              "image_repository": {
+                "type": "string",
+                "pattern": "^rhoai(-beta)?/[a-z0-9][a-z0-9._-]*$",
+                "description": "Actual image delivery repository path, e.g. rhoai/odh-example-rhel9"
+              }
+            }
+          }
+        },
         "slack_team_handle": {
           "type": "string",
           "description": "Slack user-group handle (without the leading @) for the team responsible for this component. Published to team-slack-handles.yaml in red-hat-data-services/rhods-devops-infra so build/onboarding guardians can find the right team. See RHOAIENG-85559.",

@@ -138,6 +138,26 @@ class TestComponentNameKeepsMainConstraints:
         assert errors, f"expected {length}-character names to fail schema validation"
 
 
+class TestComponentRepoMapInput:
+    def test_accepts_explicit_additional_component_image_mapping(self):
+        payload = _odh_payload("odh-dashboard")
+        payload["inputs"]["component_repo_map"] = [
+            {
+                "component_name": "odh-dashboard-operator",
+                "image_repository": "rhoai/odh-dashboard-operator-rhel9",
+            }
+        ]
+        Draft202012Validator(_schema()).validate(payload)
+
+    def test_rejects_image_repository_without_rhoai_namespace(self):
+        payload = _odh_payload("odh-dashboard")
+        payload["inputs"]["component_repo_map"] = [
+            {"component_name": "odh-extra", "image_repository": "quay.io/example/odh-extra"}
+        ]
+        with pytest.raises(Exception):
+            Draft202012Validator(_schema()).validate(payload)
+
+
 class TestRhoaiPullRequestComponentLabel:
     def test_max_component_name_fits_krd_pr_pipelines_label(self):
         component_name = "odh-" + ("a" * 46)

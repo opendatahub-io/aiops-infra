@@ -42,6 +42,11 @@ fi
 mkdir -p "$WORKDIR"
 
 PIPELINE_STATE="${WORKDIR}/pipeline_state.json"
+COMPONENT_REPO_MAP_DEPENDS_ON='["quay", "slack_handle", "delivery_repo", "krd", "krd_rpa", "okc", "pull_pipelines", "bundle", "operator", "product_listing", "auto_merge", "renovate", "renovate_sync"]'
+SKIP_RHOAI_ONLY="pending"
+if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
+  SKIP_RHOAI_ONLY="skipped"
+fi
 
 if [[ ! -f "$PIPELINE_STATE" ]]; then
   # Determine which steps to skip based on product context
@@ -85,11 +90,8 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
   OPERATOR_DEPENDS_ON='["bundle"]'
 
 
-  SKIP_RHOAI_ONLY="pending"
   SKIP_ODH_ONLY="pending"
-  if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
-    SKIP_RHOAI_ONLY="skipped"
-  elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+  if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
     SKIP_ODH_ONLY="skipped"
   fi
 
@@ -205,6 +207,12 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "depends_on": ["krd", "okc"],
       "label_raised": "tekton-pr-raised",
       "label_done": "tekton-pr-merged"
+    },
+    "component_repo_map": {
+      "status": "${SKIP_RHOAI_ONLY}",
+      "pr_url": "",
+      "depends_on": ${COMPONENT_REPO_MAP_DEPENDS_ON},
+      "label_raised": "component-repo-map-pr-raised"
     }
   }
 }
@@ -233,7 +241,7 @@ else
     if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
       jq '
         .steps |= with_entries(
-          if .key == ("pull_pipelines","delivery_repo","product_listing","auto_merge","renovate","renovate_sync","krd_rpa")
+           if .key == ("pull_pipelines","delivery_repo","product_listing","auto_merge","renovate","renovate_sync","krd_rpa","component_repo_map")
              and .value.status == "pending"
           then .value.status = "skipped"
           else .
@@ -305,6 +313,21 @@ else
     echo "  added slack_handle step (team Slack handle routing)" >&2
   fi
 
+  # component_repo_map: final RHOAI-only registration action. It deliberately
+  # has no label_done: a merged PR is not complete until main is verified.
+  if ! jq -e '.steps.component_repo_map' "$PIPELINE_STATE" > /dev/null 2>&1; then
+    TMP=$(mktemp)
+    jq --argjson deps "$COMPONENT_REPO_MAP_DEPENDS_ON" \
+      --arg status "$SKIP_RHOAI_ONLY" \
+      '.steps.component_repo_map = {
+        "status": $status,
+        "pr_url": "",
+        "depends_on": $deps,
+        "label_raised": "component-repo-map-pr-raised"
+      }' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+    echo "  added component_repo_map step (final RHOAI GAP image mapping)" >&2
+  fi
+
   # okc: add "krd" if missing (RHOAI only)
   if [[ "$CURRENT_PC" == "RHOAI" ]]; then
     if ! jq -e '.steps.okc.depends_on | index("krd") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
@@ -312,6 +335,19 @@ else
       jq '.steps.okc.depends_on = ((.steps.okc.depends_on // []) + ["krd"] | unique)' \
         "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
       echo "  okc.depends_on: added krd (RHOAI prerequisite)" >&2
+    fi
+    if ! jq -e '.steps.component_repo_map.depends_on' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      TMP=$(mktemp)
+      jq --argjson deps "$COMPONENT_REPO_MAP_DEPENDS_ON" \
+        '.steps.component_repo_map.depends_on = $deps' \
+        "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  component_repo_map.depends_on: added final onboarding prerequisites" >&2
+    else
+      TMP=$(mktemp)
+      jq --argjson deps "$COMPONENT_REPO_MAP_DEPENDS_ON" \
+        '.steps.component_repo_map.depends_on = ((.steps.component_repo_map.depends_on // []) + $deps | unique)' \
+        "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      rm -f "$TMP"
     fi
   fi
 

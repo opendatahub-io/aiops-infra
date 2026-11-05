@@ -223,8 +223,11 @@ If no issues match, a no-op child pipeline is emitted and the run exits cleanly.
 | 9 | `update-rhoai-product-listing` | Raise GitLab MR to `pyxis-repo-configs` to add the component to the RHOAI product listing; runs after Step 3 (`delivery_repo`) merges | `gitlab.cee.redhat.com` | RHOAI only | MR review + merge |
 | 10 | `setup-auto-merge` | Raise GitHub PR to `rhods-devops-infra` to configure auto-merge for the component repo | `rhods-devops-infra` | RHOAI only | PR review + merge |
 | 11 | `enable-renovate-on-rhoai-component-repo` | Raise GitHub PR to `rhoai-konflux-central` to enable Renovate; on merge, trigger deferred `sync-rhoai-renovate-configs` workflow | `rhoai-konflux-central` | RHOAI only | PR review + merge |
+| 12 | `register-component-repo-map` | Add canonical source-repository/component/actual-image associations to `config/component_repo_map.json`; verify on main after merge | `rhoai-konflux-central` | RHOAI only; final action | PR review + merge + verification |
 
-After all PRs/MRs are merged, Jira is transitioned to **Resolved** automatically on the next CI run.
+GAP consumes `component_repo_map.json` to select required builds for child PRs. Jira is
+transitioned to **Resolved** only after all applicable PRs/MRs are merged and the final
+RHOAI map entries are verified on main; an already-correct mapping is a no-PR no-op.
 
 ---
 
