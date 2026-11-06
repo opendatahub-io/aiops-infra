@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Resolve ODH_OPERATOR_URL and ODH_OPERATOR_PATH.
 #
-# Priority: ODH_OPERATOR_REPO_URL (env override) > product-context default.
+# Priority: product-specific repo override > legacy ODH_OPERATOR_REPO_URL > default.
 #
 # Usage:
 #   eval "$(bash resolve_operator_url.sh --product-context <ODH|RHOAI>)"
 #
 # Env var:
-#   ODH_OPERATOR_REPO_URL  – if set, takes priority over the product-context default.
+#   RHOAI_OPERATOR_REPO_URL – RHOAI-specific operator repo override.
+#   ODH_OPERATOR_REPO_URL   – legacy/general operator repo override.
 #
 # Exports (via eval):
 #   ODH_OPERATOR_URL   – full clone URL (e.g. https://github.com/…/opendatahub-operator.git)
@@ -28,7 +29,10 @@ done
   echo "ERROR: --product-context is required (ODH or RHOAI)" >&2; exit 1
 }
 
-if [[ -n "${ODH_OPERATOR_REPO_URL:-}" ]]; then
+if [[ "$PRODUCT_CONTEXT" == "RHOAI" && -n "${RHOAI_OPERATOR_REPO_URL:-}" ]]; then
+  ODH_OPERATOR_URL="$RHOAI_OPERATOR_REPO_URL"
+  echo "RHOAI_OPERATOR_REPO_URL override detected: $ODH_OPERATOR_URL" >&2
+elif [[ -n "${ODH_OPERATOR_REPO_URL:-}" ]]; then
   ODH_OPERATOR_URL="$ODH_OPERATOR_REPO_URL"
   echo "ODH_OPERATOR_REPO_URL override detected: $ODH_OPERATOR_URL" >&2
 elif [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then

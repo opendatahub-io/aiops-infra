@@ -49,6 +49,7 @@ STEPS_RHOAI = [
     ("auto_merge",        "Setup auto-merge",                       "pr_url"),
     ("renovate",          "Enable Renovate",                        "pr_url"),
     ("renovate_sync",     "Sync Renovate configs (workflow)",       "run_url"),
+    ("component_repo_map", "Register GAP component/image map",       "pr_url"),
 ]
 
 # Which steps are "blocking" (i.e. have a PR/MR that must merge to progress).

@@ -39,6 +39,7 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     "auto-merge-pr-raised":    ("auto_merge",       "pr_raised"),
     "slack-routing-pr-raised": ("slack_handle",     "pr_raised"),
     "renovate-pr-raised":      ("renovate",         "pr_raised"),
+    "component-repo-map-pr-raised": ("component_repo_map", "pr_raised"),
     # done labels
     "quay-mr-merged":            ("quay",             "done"),
     "krd-mr-merged":         ("krd",              "done"),
@@ -64,6 +65,7 @@ LABEL_MAP: dict[str, tuple[str, str]] = {
     # validate
     "yaml-attached":             ("validate",         "done"),
     "validation-successful":     ("validate",         "done"),
+    "component-repo-map-verified": ("component_repo_map", "done"),
 }
 
 # Applied by sync_slack_handle_skip, not LABEL_MAP. A missing handle is a
@@ -127,6 +129,8 @@ SHARED_URL_PATTERNS: list[tuple[str, str, re.Pattern, re.Pattern]] = [
                                    re.compile(r"\[step:auto_merge\]|configure\s+auto-merge", re.I)),
     ("slack_handle",    "pr_url",  re.compile(r"rhods-devops-infra/pull/", re.I),
                                    re.compile(r"\[step:slack_handle\]|Slack\s+routing", re.I)),
+    ("component_repo_map", "pr_url", re.compile(r"konflux-central/pull/", re.I),
+                                       re.compile(r"\[step:component_repo_map\]|component/image associations", re.I)),
 ]
 
 # Steps whose PR targets a variable repo (no URL pattern possible).

@@ -101,6 +101,30 @@ class TestSyncSlackHandleSkip(unittest.TestCase):
             self.assertEqual(state["steps"]["slack_handle"]["status"], "skipped")
 
 
+class TestComponentRepoMapState(unittest.TestCase):
+    def test_verified_label_restores_done_after_state_rebuild(self):
+        state = {"steps": {"component_repo_map": {"status": "pending", "pr_url": ""}}}
+        changes = sync.sync_labels(state, ["component-repo-map-verified"])
+        self.assertEqual(state["steps"]["component_repo_map"]["status"], "done")
+        self.assertEqual(len(changes), 1)
+
+    def test_raised_label_restores_open_pr_state(self):
+        state = {"steps": {"component_repo_map": {"status": "pending", "pr_url": ""}}}
+        sync.sync_labels(state, ["component-repo-map-pr-raised"])
+        self.assertEqual(state["steps"]["component_repo_map"]["status"], "pr_raised")
+
+    def test_extracts_component_map_pr_from_step_comment(self):
+        state = {"steps": {"component_repo_map": {"status": "pr_raised", "pr_url": ""}}}
+        comments = [
+            {"body": "[step:component_repo_map] PR raised https://github.com/red-hat-data-services/konflux-central/pull/999"}
+        ]
+        sync.sync_urls_from_comments(state, comments, ["component-repo-map-pr-raised"])
+        self.assertEqual(
+            state["steps"]["component_repo_map"]["pr_url"],
+            "https://github.com/red-hat-data-services/konflux-central/pull/999",
+        )
+
+
 class TestMainRestoresSkip(unittest.TestCase):
     def test_fresh_state_with_label_becomes_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:

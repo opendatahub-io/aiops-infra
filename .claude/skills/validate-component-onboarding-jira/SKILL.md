@@ -195,6 +195,16 @@ Then stop with: `"ERROR in Step 3b (Branch Cross-Validation): repo_branch '<repo
 
 ### Step 5c: Dockerfile digest check
 
+When isolated test mode is enabled, validate `repo_url` against the test GitHub
+organization before accessing the component repository:
+
+```bash
+if [[ "${AIOPS_TEST_REPO_MODE:-false}" == "true" ]]; then
+  REPO_URL=$(grep -m1 'repo_url:' "$WORKDIR/component_onboarding_details.yaml" | awk '{print $2}' | tr -d '"')
+  bash "$SCRIPTS_DIR/check_test_repo_overrides.sh" --component-repo-url "$REPO_URL"
+fi
+```
+
 **Skip this entire step if `inputs.product_context == "ODH"`.** Digest pinning is only
 required for RHOAI components. If ODH, print:
 ```
