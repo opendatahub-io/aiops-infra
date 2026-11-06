@@ -73,6 +73,7 @@ if [[ ! -d "$SCRIPTS_DIR" ]]; then
   exit 1
 fi
 echo "SCRIPTS_DIR: $SCRIPTS_DIR"
+bash "$SCRIPTS_DIR/check_test_repo_overrides.sh"
 ```
 
 ---
@@ -214,6 +215,7 @@ _COMP_VARS=$(bash "$SCRIPTS_DIR/parse_offboarding_details.sh" \
 eval "$_COMP_VARS"
 # Sets: COMPONENT_NAME IS_OPERATOR REPO_URL PRODUCT_CONTEXT QUAY_ORG
 #       PRESERVE_COMPONENT_REPO_MAP
+bash "$SCRIPTS_DIR/check_test_repo_overrides.sh" --component-repo-url "$REPO_URL"
 ```
 
 After parsing, update the state for product-context-specific skip logic:
