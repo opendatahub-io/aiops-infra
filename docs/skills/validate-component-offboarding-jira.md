@@ -12,6 +12,7 @@ against the JSON schema.
 | JSON schema | YAML is validated against `schemas/component_offboarding_details.schema.json` |
 | RHOAI required fields | `target_rhoai_version` in canonical form (`3.4` or `3.4-ea-2`) |
 | ODH required fields | `build_type` (`CI` or `Release`) |
+| Component map options | Optional boolean `preserve_component_repo_map` and optional additional component keys to remove |
 
 Any failure is a hard blocker. The ticket is labelled `validation-failed` with a
 comment describing the error.

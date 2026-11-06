@@ -70,7 +70,8 @@ parallel; tekton cleanup and Component CR deletion wait on their dependencies.
 | 4 | remove-from-bundle | ODH/RHOAI Build-Config GitHub PR | — |
 | 5 | remove-from-operator | odh-operator / rhods-operator GitHub PR *(operators only)* | — |
 | 6 | sync-component-tekton | Component repo GitHub PR(s) | okc + pull_pipelines merged |
-| 7 | remove-component-cr | OpenShift `Component` CR *(confirmation required)* | all prior steps |
+| 7 | remove-component-repo-map | `konflux-central/config/component_repo_map.json` GitHub PR *(RHOAI only)* | all repo cleanup steps |
+| 8 | remove-component-cr | OpenShift `Component` CR *(confirmation required)* | all prior steps |
 
 Quay repositories and RHOAI product-listing entries are **not** removed.
 

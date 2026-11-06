@@ -70,6 +70,7 @@ OFFBOARD_STEPS_RHOAI = [
     ("remove_bundle",          "Remove from bundle & build-config",     "pr_url"),
     ("remove_operator",        "Remove from operator manifests",        "pr_url"),
     ("sync_component_tekton",  "Remove stale .tekton/ PipelineRuns",    "pr_url"),
+    ("remove_component_repo_map", "Remove GAP component/image map entries", "pr_url"),
     ("remove_component_cr",    "Delete Component CR from cluster",      None),
 ]
 

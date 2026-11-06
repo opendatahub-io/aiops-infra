@@ -19,10 +19,12 @@ Orchestrates the complete component offboarding pipeline (idempotent re-run mode
 5. `remove-from-bundle` — GitHub PR to remove relatedImages + build-config entries
 6. `remove-from-operator` — GitHub PR to remove operator manifests **(if is_operator=true)**
 7. `sync-component-tekton` — GitHub PR(s) to remove stale PipelineRun files from the component repo's `.tekton/` **(after OKC/pull-pipeline PRs are merged)**
-8. `remove-component-cr` — Delete Konflux Component CR from OpenShift cluster **(after all other steps are done; requires confirmation)**
+8. `remove-component-repo-map` — GitHub PR to remove this component's associations from `konflux-central/config/component_repo_map.json` **(RHOAI only; after other repository cleanup)**
+9. `remove-component-cr` — Delete Konflux Component CR from OpenShift cluster **(after all other steps are done; requires confirmation)**
 
 Steps 2–6 are independent and can run in parallel. Step 7 depends on steps 3–4
-being merged. Step 8 depends on all prior steps and requires human confirmation.
+being merged. Step 8 depends on the other repository cleanup steps. Step 9 depends
+on all prior steps and requires human confirmation.
 
 **Re-run model:** invoke this skill any number of times for the same Jira URL.
 Each run checks Jira labels and PR/MR API status to determine what's already done,
@@ -71,6 +73,7 @@ if [[ ! -d "$SCRIPTS_DIR" ]]; then
   exit 1
 fi
 echo "SCRIPTS_DIR: $SCRIPTS_DIR"
+bash "$SCRIPTS_DIR/check_test_repo_overrides.sh"
 ```
 
 ---
@@ -211,6 +214,8 @@ _COMP_VARS=$(bash "$SCRIPTS_DIR/parse_offboarding_details.sh" \
   --scripts-dir    "$SCRIPTS_DIR")
 eval "$_COMP_VARS"
 # Sets: COMPONENT_NAME IS_OPERATOR REPO_URL PRODUCT_CONTEXT QUAY_ORG
+#       PRESERVE_COMPONENT_REPO_MAP
+bash "$SCRIPTS_DIR/check_test_repo_overrides.sh" --component-repo-url "$REPO_URL"
 ```
 
 After parsing, update the state for product-context-specific skip logic:
@@ -222,10 +227,24 @@ bash "$SCRIPTS_DIR/init_offboarding_pipeline.sh" \
   --product-context   "$PRODUCT_CONTEXT" \
   --component-name    "$COMPONENT_NAME" \
   --is-operator       "$IS_OPERATOR" \
+  --preserve-component-repo-map "$PRESERVE_COMPONENT_REPO_MAP" \
   > /dev/null
 ```
 
 On exit 1: display stderr and stop.
+
+When `PRESERVE_COMPONENT_REPO_MAP=true`, record the Jira exception once and leave
+the map cleanup step skipped:
+
+```bash
+if [[ "$PRESERVE_COMPONENT_REPO_MAP" == "true" ]] && \
+   ! jq -e '.fields.labels | index("offboard-component-repo-map-preserved")' \
+     "$WORKDIR/component_offboarding_details.json" >/dev/null; then
+  uv run --script "$SCRIPTS_DIR/update_offboarding_jira.py" "$JIRA_URL" \
+    --add-label "offboard-component-repo-map-preserved" \
+    --comment "The offboarding details request preserving this component's component_repo_map.json association. No map-removal PR will be raised." || true
+fi
+```
 
 ---
 
@@ -261,8 +280,9 @@ done
 ## Step 6: Compute Unblocked Steps
 
 A step is **executable** if its `status` is `"pending"` and all `depends_on` items are
-`"merged"` or `"done"`. For offboarding, all steps have empty `depends_on`, so all
-pending steps are immediately executable.
+`"merged"`, `"done"`, or `"skipped"`. Most removal PRs are independent; Tekton cleanup
+waits on OKC/pull-pipeline removal, component-map cleanup waits on the other repository
+cleanup steps, and Component CR deletion waits on all prior steps.
 
 ```bash
 UNBLOCKED_STEPS=$(jq -r '
@@ -374,10 +394,33 @@ EXIT_CODE=$?
 - Exit 2: already clean. Nothing further needed.
 - Exit 1: hard failure. Print `$OUTPUT` and stop.
 
-### Step 7i: remove-component-cr (step key: `remove_component_cr`)
+### Step 7i: remove-component-repo-map (step key: `remove_component_repo_map`, RHOAI only)
+
+This runs after the other repository-removal PRs have completed. It removes the
+requested component key(s) under the exact source repository name. Unrelated
+component mappings are preserved; when the repository has no remaining component
+entries, its repository key is removed too. If the mapping is already absent on
+main, the step completes without a PR.
+
+Set `inputs.preserve_component_repo_map: true` in the Jira attachment only when the
+ticket explicitly requests retaining the association. Any extra component keys to
+remove from the same source repository can be listed in
+`inputs.component_repo_map_components`.
+
+```bash
+OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_remove_component_repo_map.sh" --jira-url "$JIRA_URL")
+EXIT_CODE=$?
+```
+
+- Exit 0: PR raised; set `NEW_PRS_RAISED="true"`.
+- Exit 2: mapping already absent or preserved by Jira. Nothing further needed.
+- Exit 1: hard failure. Print `$OUTPUT` and stop.
+
+### Step 7j: remove-component-cr (step key: `remove_component_cr`)
 
 **Execute if** `remove_component_cr` is in `UNBLOCKED_STEPS`. This step has `depends_on`
-all other removal steps — it only unblocks when everything else is `done` or `merged`.
+all other removal steps, including component-map cleanup — it only unblocks when
+everything else is `done`, `merged`, or `skipped`.
 
 **This step requires human confirmation.** First run without `--confirm` to show what
 will be deleted. Display the output to the user and ask them to confirm. Only if they
@@ -492,6 +535,7 @@ PRs / MRs:
   remove_bundle         : <steps.remove_bundle.status> — <steps.remove_bundle.pr_url or "not yet raised">
   remove_operator       : <steps.remove_operator.status>
   sync_component_tekton : <steps.sync_component_tekton.status> — <steps.sync_component_tekton.pr_url or "not yet raised">
+  remove_component_repo_map: <steps.remove_component_repo_map.status or "N/A (ODH)"> — <steps.remove_component_repo_map.pr_url or "not raised / preserved">
   remove_component_cr   : <steps.remove_component_cr.status>
 
 Newly merged this run : <NEWLY_MERGED or "none">
@@ -517,4 +561,5 @@ Re-run this skill after PRs/MRs are merged to advance the pipeline.
 | Bundle PR fails | 7d | Verify GITHUB_TOKEN push access to build-config repo |
 | Operator PR fails | 7e | Verify GITHUB_TOKEN push access to operator repo |
 | Tekton cleanup PR fails | 7h | Verify GITHUB_TOKEN push access to the component repo |
+| Component map cleanup PR fails | 7i | Verify GITHUB_TOKEN push access to konflux-central and check the Jira mapping inputs |
 | State lost / fresh checkout | Any | Re-run; pipeline state rebuilt from Jira labels |
