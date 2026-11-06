@@ -47,7 +47,7 @@ No background nohup processes are used.
 **Tools:** `uv`, `git`, `oc`, `skopeo`, `yamllint`, `jq`, `kustomize` (or `kubectl`)
 
 Optional overrides: `APP_INTERFACE_REPO_URL`, `KONFLUX_RELEASE_DATA_REPO_URL`,
-`ODH_KONFLUX_CENTRAL_REPO_URL`, `ODH_OPERATOR_REPO_URL`, `OBC_REPO_URL`, `JIRA_SERVER`,
+`ODH_KONFLUX_CENTRAL_REPO_URL`, `ODH_OPERATOR_REPO_URL`, `RHOAI_OPERATOR_REPO_URL`, `OBC_REPO_URL`, `JIRA_SERVER`,
 `RHOAI_KONFLUX_CENTRAL_REPO_URL` (used by Steps 7/8 RHOAI; default: `https://github.com/red-hat-data-services/konflux-central.git`),
 `PYXIS_REPO_CONFIGS_REPO_URL` (used by Steps 9/10 RHOAI; default: `https://gitlab.cee.redhat.com/releng/pyxis-repo-configs.git`),
 `RHODS_DEVOPS_INFRA_REPO_URL` (used by Step 11 RHOAI; default: `https://github.com/red-hat-data-services/rhods-devops-infra.git`)
@@ -78,6 +78,7 @@ if [[ ! -d "$SCRIPTS_DIR" ]]; then
   exit 1
 fi
 echo "SCRIPTS_DIR: $SCRIPTS_DIR"
+bash "$SCRIPTS_DIR/check_test_repo_overrides.sh"
 ```
 
 ---

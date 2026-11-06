@@ -122,6 +122,7 @@ COMMON_SCRIPTS=(
   "append_delivery_repo_entry.py"
   "component_repo_map.py"
   "run_step_component_repo_map.sh"
+  "check_test_repo_overrides.sh"
   "append_yaml_list_entry.py"
   "check_pr_mr_status.sh"
   "init_pipeline.sh"
@@ -168,7 +169,7 @@ for var in JIRA_USER_EMAIL JIRA_API_TOKEN GITLAB_USER GITLAB_TOKEN GITHUB_USER G
 done
 for var in EXT_OC_TOKEN INT_OC_TOKEN APP_INTERFACE_REPO_URL KONFLUX_RELEASE_DATA_REPO_URL \
            ODH_KONFLUX_CENTRAL_REPO_URL RHOAI_KONFLUX_CENTRAL_REPO_URL \
-           ODH_OPERATOR_REPO_URL BUILD_CONFIG_REPO_URL OBC_REPO_URL \
+           ODH_OPERATOR_REPO_URL RHOAI_OPERATOR_REPO_URL BUILD_CONFIG_REPO_URL OBC_REPO_URL \
            RHODS_DEVOPS_INFRA_REPO_URL PYXIS_REPO_CONFIGS_REPO_URL JIRA_SERVER; do
   [[ -z "${!var:-}" ]] \
     && warn "${var} not set (optional — default applies)" \
