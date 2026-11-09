@@ -39,7 +39,7 @@ guardian can review the new or changed ticket before scheduled automation picks 
 
 | Invocation | ODH | RHOAI |
 |---|---|---|
-| No URL | Clones `RHOAIENG-35683`, attaches YAML, updates ticket | Clones `RHOAIENG-17225`, attaches YAML, updates ticket |
+| No URL | Clones `RHOAIENG-35683` into RHAI by default, attaches YAML, updates ticket | Clones `RHOAIENG-17225` into RHAI by default, attaches YAML, updates ticket |
 | With URL | Attaches YAML to given ticket, updates ticket | Attaches YAML to given ticket, updates ticket |
 
 Examples:

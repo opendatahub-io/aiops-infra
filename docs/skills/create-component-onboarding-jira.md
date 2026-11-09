@@ -30,12 +30,16 @@ A YAML file that drives every downstream onboarding skill. Key fields:
 
 | Action | Detail |
 |--------|--------|
-| New ticket (no URL given) | Clones `RHOAIENG-35683` (ODH) or `RHOAIENG-17225` (RHOAI); links to the parent feature; sets reporter to current user |
+| New ticket (no URL given) | Clones the ODH or RHOAI template from RHOAIENG into `RHAI` by default; links to the parent feature; sets reporter to current user |
 | Attachment | Uploads `component_onboarding_details.yaml` to the ticket |
 | Label added | `yaml-attached`, `component-onboarding`, `disable-automated-onboarding` (new tickets and existing tickets updated by this skill) |
 | Comment | Summary of component, repo, branch, operator flag |
 | Description table | Populated with component name, repo, branch, Dockerfile, architectures |
 | Target Version | ODH: set from target RHOAI version (e.g. `3.6 EA2 RHOAI RELEASE`); RHOAI: set from derived `repo_branch` |
+
+When updating an existing Jira URL, its project is unchanged. For newly cloned tickets,
+`JIRA_CREATE_PROJECT_KEY` or the CLI `--target-project` option can override the default
+`RHAI` project.
 
 ## Checks performed before Jira update
 
