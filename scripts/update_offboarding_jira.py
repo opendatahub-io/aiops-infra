@@ -226,6 +226,7 @@ def add_labels(jira: JIRA, issue, labels: list[str]) -> None:
         return
     try:
         issue.update(fields={"labels": existing})
+        issue.fields.labels = existing
         for label in added:
             print(f"  Label added: '{label}'", file=sys.stderr)
     except JIRAError as e:
@@ -242,6 +243,7 @@ def remove_label(jira: JIRA, issue, label: str) -> None:
     existing.remove(label)
     try:
         issue.update(fields={"labels": existing})
+        issue.fields.labels = existing
         print(f"  Label removed: '{label}'", file=sys.stderr)
     except JIRAError as e:
         print(f"ERROR: Failed to remove label '{label}': {getattr(e, 'text', e)}", file=sys.stderr)
