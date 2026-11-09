@@ -241,6 +241,7 @@ On failure: display errors, ask user to correct, or stop.
 uv run --script scripts/update_offboarding_jira.py "$JIRA_URL" \
   --attach "$YAML_PATH" \
   --add-label "offboarding-yaml-attached" \
+  --add-label "component-offboarding" \
   --link-related "$PARENT_FEATURE_ID" \
   --comment "component_offboarding_details.yaml has been generated and attached to this ticket.
 
@@ -287,6 +288,7 @@ echo "New Jira created: $NEW_JIRA_URL"
 uv run --script scripts/update_offboarding_jira.py "$JIRA_URL" \
   --attach "$YAML_PATH" \
   --add-label "offboarding-yaml-attached" \
+  --add-label "component-offboarding" \
   --comment "component_offboarding_details.yaml has been generated and attached to this ticket.
 
 Component: <component_name>
@@ -325,7 +327,7 @@ Done.
   component_offboarding_details.yaml — generated and validated
   Jira                               — <JIRA_ID> (<JIRA_URL>)
   Parent feature link                — <PARENT_FEATURE_ID> (relates to)
-  Jira attachment                    — uploaded (label: offboarding-yaml-attached)
+  Jira attachment                    — uploaded (labels: offboarding-yaml-attached, component-offboarding)
 
   Output file: $YAML_PATH
 

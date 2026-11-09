@@ -81,7 +81,7 @@ The skill asks for:
 
 With no URL it clones template [`RHOAIENG-32534`](https://redhat.atlassian.net/browse/RHOAIENG-32534)
 into the `RHAI` project by default, attaches `component_offboarding_details.yaml`, and labels the ticket
-`offboarding-yaml-attached`.
+`offboarding-yaml-attached` and `component-offboarding`.
 
 ## 4. Run the orchestrator
 
