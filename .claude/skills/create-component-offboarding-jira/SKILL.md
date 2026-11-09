@@ -10,7 +10,7 @@ user-invocable: true
 Interactively collects parameters needed to offboard an ODH or RHOAI component from
 the Konflux CI/build platform, produces a validated `component_offboarding_details.yaml`,
 and creates or updates a Jira ticket with the YAML attached. When no Jira URL is
-provided, a new ticket is created in RHAI by cloning the offboarding template
+provided, a new ticket is automatically created by cloning the offboarding template
 (`RHOAIENG-32534`).
 
 ## Prerequisites
@@ -33,6 +33,23 @@ provided, a new ticket is created in RHAI by cloning the offboarding template
 The Jira URL is **optional**. Without it, the skill automatically creates a new Jira by
 cloning the offboarding template (`RHOAIENG-32534`), then attaches the YAML and updates
 the ticket. Providing a URL skips template cloning and attaches directly to the given ticket.
+
+## Component Naming Convention
+
+**IMPORTANT:** Users provide the **base component name** (without version suffix).
+The skill automatically appends the version suffix based on `product_context` and `target_rhoai_version`.
+
+**Examples:**
+
+| User provides | Product | Version | Full component name |
+|---------------|---------|---------|---------------------|
+| `odh-vllm-cpu` | RHOAI | `3.6` | `odh-vllm-cpu-v3-6` |
+| `odh-vllm-cpu` | RHOAI | `3.4-ea-2` | `odh-vllm-cpu-v3-4-ea-2` |
+| `odh-notebook` | ODH | (CI) | `odh-notebook` |
+
+**Validation:** The skill rejects base names that already include version patterns like
+`-v3-6` or `-v3-4-ea-2`. If the user accidentally provides a versioned name, the skill
+will ask them to provide the base name instead.
 
 ## Implementation
 
@@ -140,12 +157,15 @@ Transform the validated input to canonical form and store in `target_rhoai_versi
 - If `VERSION_N` is non-empty: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>-ea-<VERSION_N>"` (e.g. `3.4-ea-2`)
 - Otherwise: `target_rhoai_version = "<VERSION_X>.<VERSION_Y>"` (e.g. `3.4`)
 
-**Q3 — Component name**
-> What is the component name?
+**Q3 — Component base name**
+> What is the component base name (without version suffix)?
 > Must start with `odh-`, followed by lowercase letters, numbers, and hyphens only.
+> Example: `odh-vllm-cpu` (NOT `odh-vllm-cpu-v3-6`)
 
-→ Store in `component_name`.
+→ Store in `base_component_name`.
   Validate: must match `^odh-[a-z0-9]+(-[a-z0-9]+)*$`.
+  **Additional check:** must NOT end with a version pattern like `-v\d+-\d+` or `-v\d+-\d+-ea-\d+`.
+  If it does, ask again: "Please provide the base name without the version suffix (e.g., `odh-vllm-cpu` instead of `odh-vllm-cpu-v3-6`)."
 
 **Q4 — Repository URL**
 > What is the full HTTPS URL of the component's GitHub repository?
@@ -159,6 +179,39 @@ Transform the validated input to canonical form and store in `target_rhoai_versi
 → Convert: `yes` → `true`, `no` → `false`.
 → Store in `is_operator` (boolean).
 
+### 3c. Construct full component name
+
+After collecting all inputs, construct the full component name by appending the version suffix:
+
+**For RHOAI:**
+```bash
+# Parse target_rhoai_version to extract VERSION_X and VERSION_Y
+if [[ "$target_rhoai_version" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
+  VERSION_X="${BASH_REMATCH[1]}"
+  VERSION_Y="${BASH_REMATCH[2]}"
+  VERSION_N="${BASH_REMATCH[3]}"
+  component_name="${base_component_name}-v${VERSION_X}-${VERSION_Y}-ea-${VERSION_N}"
+elif [[ "$target_rhoai_version" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+  VERSION_X="${BASH_REMATCH[1]}"
+  VERSION_Y="${BASH_REMATCH[2]}"
+  component_name="${base_component_name}-v${VERSION_X}-${VERSION_Y}"
+else
+  echo "ERROR: Cannot parse target_rhoai_version '${target_rhoai_version}'." >&2
+  exit 1
+fi
+```
+
+**For ODH:**
+```bash
+# ODH doesn't use version suffixes in component names
+component_name="$base_component_name"
+```
+
+Print the constructed name:
+```
+Full component name: <component_name>
+```
+
 ---
 
 ## Step 4: Show collected values and confirm
@@ -171,7 +224,8 @@ Component offboarding details collected:
   product_context          : <value>
   build_type               : <value or N/A>   # only shown for ODH
   target_rhoai_version     : <value or N/A>   # only shown for RHOAI
-  component_name           : <value>
+  base_component_name      : <value>
+  component_name (full)    : <value>          # auto-constructed with version
   repo_url                 : <value>
   is_operator              : <value>
 
@@ -181,6 +235,7 @@ Proceed? (yes / no / edit)
 - `yes` → continue to Step 5
 - `no` → print `Aborted by user.` and stop
 - `edit` → ask which field to change, update it, re-display summary, ask again
+  - If `base_component_name` or `target_rhoai_version` is edited, re-run Step 3c to reconstruct `component_name`
 
 ---
 
@@ -258,9 +313,6 @@ Continue to Step 7c.
 
 ### Path B — No Jira URL provided
 
-The offboarding template remains in RHOAIENG, but the cloned issue is created in
-`RHAI` by default. Set `JIRA_CREATE_PROJECT_KEY` to override this destination.
-
 #### Step 7b-1: Clone the offboarding template
 
 ```bash
@@ -268,7 +320,6 @@ TEMPLATE_ID="RHOAIENG-32534"
 
 NEW_JIRA_URL=$(uv run --script scripts/update_offboarding_jira.py "new" \
   --clone-from "$TEMPLATE_ID" \
-  --target-project "${JIRA_CREATE_PROJECT_KEY:-RHAI}" \
   --remove-label "template" \
   --link-related "$PARENT_FEATURE_ID" \
   --set-reporter-to-current)
