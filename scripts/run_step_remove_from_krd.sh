@@ -67,17 +67,13 @@ else
 fi
 
 # Derive KONFLUX_COMPONENT_NAME
+# NOTE: For RHOAI, COMPONENT_NAME already includes the version suffix (e.g., odh-vllm-cpu-v3-6)
+# so we use it directly. For ODH, we append -ci if not already present.
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   [[ -z "$TARGET_RHOAI_VERSION" ]] && {
     echo "ERROR: target_rhoai_version required for RHOAI but missing." >&2; exit 1
   }
-  if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
-    KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-ea-${BASH_REMATCH[3]}"
-  elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
-    KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-  else
-    echo "ERROR: Cannot parse target_rhoai_version '${TARGET_RHOAI_VERSION}'." >&2; exit 1
-  fi
+  KONFLUX_COMPONENT_NAME="$COMPONENT_NAME"
 else
   if [[ "$COMPONENT_NAME" == *-ci ]]; then
     KONFLUX_COMPONENT_NAME="$COMPONENT_NAME"
