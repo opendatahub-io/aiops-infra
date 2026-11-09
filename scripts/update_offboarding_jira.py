@@ -32,7 +32,7 @@ Options:
   --set-title TITLE             Set the issue summary/title
   --link-related JIRA_ID        Add a "relates to" link between this issue and JIRA_ID
   --set-reporter-to-current     Set the reporter to the currently authenticated user
-  --add-label LABEL             Add a label (existing labels are preserved)
+  --add-label LABEL             Add a label (may be repeated; existing labels are preserved)
   --remove-label LABEL          Remove a label (no-op if not present)
   --comment TEXT                Post a comment on the issue
   --status STATUS               Transition the issue to the named status (e.g. "In Progress")
@@ -212,18 +212,24 @@ def set_reporter_to_current(jira: JIRA, issue) -> None:
         sys.exit(1)
 
 
-def add_label(jira: JIRA, issue, label: str) -> None:
-    """Add a label to the issue, preserving all existing labels."""
+def add_labels(jira: JIRA, issue, labels: list[str]) -> None:
+    """Add labels to the issue in one update, preserving all existing labels."""
     existing = list(issue.fields.labels or [])
-    if label in existing:
-        print(f"  Label '{label}' is already present — skipping.", file=sys.stderr)
+    added = []
+    for label in labels:
+        if label in existing:
+            print(f"  Label '{label}' is already present — skipping.", file=sys.stderr)
+            continue
+        existing.append(label)
+        added.append(label)
+    if not added:
         return
-    existing.append(label)
     try:
         issue.update(fields={"labels": existing})
-        print(f"  Label added: '{label}'", file=sys.stderr)
+        for label in added:
+            print(f"  Label added: '{label}'", file=sys.stderr)
     except JIRAError as e:
-        print(f"ERROR: Failed to add label '{label}': {getattr(e, 'text', e)}", file=sys.stderr)
+        print(f"ERROR: Failed to add labels {added!r}: {getattr(e, 'text', e)}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -373,7 +379,8 @@ def main() -> None:
     parser.add_argument(
         "--add-label",
         metavar="LABEL",
-        help="Label to add to the issue (existing labels are preserved)",
+        action="append",
+        help="Label to add to the issue (may be repeated; existing labels are preserved)",
     )
     parser.add_argument(
         "--remove-label",
@@ -440,7 +447,7 @@ def main() -> None:
     if args.attach:
         attach_file(jira, issue, Path(args.attach))
     if args.add_label:
-        add_label(jira, issue, args.add_label)
+        add_labels(jira, issue, args.add_label)
     if args.remove_label:
         remove_label(jira, issue, args.remove_label)
     if args.link_related:

@@ -31,7 +31,7 @@ RHOAI versions are accepted in several forms (`3.4`, `3.4.0`, `3.4-ea2`, `3.4-ea
 |--------|--------|
 | New ticket (no URL given) | Clones [`RHOAIENG-32534`](https://redhat.atlassian.net/browse/RHOAIENG-32534) into `RHAI` by default; links to the parent feature; sets reporter to current user |
 | Attachment | Uploads `component_offboarding_details.yaml` to the ticket |
-| Label added | `offboarding-yaml-attached` |
+| Labels added | `offboarding-yaml-attached`, `component-offboarding` |
 | Comment | Summary of component, product, repo, operator flag |
 | Summary | `[Offboarding] Konflux Offboarding <component> (<product>)` |
 
