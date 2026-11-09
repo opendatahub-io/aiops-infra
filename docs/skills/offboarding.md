@@ -79,8 +79,8 @@ The skill asks for:
 - **operator?** — yes/no
 - **parent feature** Jira ID (linked as “relates to”)
 
-With no URL it clones template [`RHOAIENG-32534`](https://redhat.atlassian.net/browse/RHOAIENG-32534),
-attaches `component_offboarding_details.yaml`, and labels the ticket
+With no URL it clones template [`RHOAIENG-32534`](https://redhat.atlassian.net/browse/RHOAIENG-32534)
+into the `RHAI` project by default, attaches `component_offboarding_details.yaml`, and labels the ticket
 `offboarding-yaml-attached`.
 
 ## 4. Run the orchestrator

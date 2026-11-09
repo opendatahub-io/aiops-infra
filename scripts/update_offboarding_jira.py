@@ -18,7 +18,8 @@ At least one action flag must be provided.
   update_offboarding_jira.py new --clone-from SOURCE_ID [options]
 
 Clones SOURCE_ID, prints the new issue URL to stdout, then applies any additional
-action flags to the newly created issue.
+action flags to the newly created issue. By default, the clone is created in the
+RHAI project even when SOURCE_ID is in RHOAIENG.
 
 Authentication:
   JIRA_USER_EMAIL  — required; your Atlassian account email address
@@ -27,6 +28,7 @@ Authentication:
 
 Options:
   --clone-from SOURCE_ID        Clone SOURCE_ID to create a new issue (only valid when jira_url is "new")
+  --target-project PROJECT_KEY  Project for the new clone (default: RHAI)
   --set-title TITLE             Set the issue summary/title
   --link-related JIRA_ID        Add a "relates to" link between this issue and JIRA_ID
   --set-reporter-to-current     Set the reporter to the currently authenticated user
@@ -74,6 +76,7 @@ from jira import JIRA
 from jira.exceptions import JIRAError
 
 DEFAULT_JIRA_SERVER = "https://redhat.atlassian.net"
+DEFAULT_CREATE_PROJECT = "RHAI"
 
 
 def get_jira_client() -> JIRA:
@@ -117,11 +120,11 @@ def fetch_issue(jira: JIRA, issue_id: str):
         sys.exit(1)
 
 
-def clone_issue(jira: JIRA, source_id: str) -> str:
-    """Clone a Jira issue and return the new issue key."""
+def clone_issue(jira: JIRA, source_id: str, target_project: str = DEFAULT_CREATE_PROJECT) -> str:
+    """Clone a template into target_project and return the new issue key."""
     source = fetch_issue(jira, source_id)
     fields = {
-        "project": {"key": source.fields.project.key},
+        "project": {"key": target_project},
         "summary": source.fields.summary,
         "issuetype": {"name": source.fields.issuetype.name},
     }
@@ -342,6 +345,12 @@ def main() -> None:
         help='Clone this issue to create a new one (only valid when jira_url is "new")',
     )
     parser.add_argument(
+        "--target-project",
+        default=os.environ.get("JIRA_CREATE_PROJECT_KEY", DEFAULT_CREATE_PROJECT),
+        metavar="PROJECT_KEY",
+        help="Project key for a newly cloned issue (default: RHAI; templates remain in RHOAIENG)",
+    )
+    parser.add_argument(
         "--set-title",
         metavar="TITLE",
         help="Set the issue summary/title",
@@ -412,7 +421,7 @@ def main() -> None:
     if clone_mode:
         source_key = extract_issue_id(args.clone_from)
         print(f"Cloning Jira issue: {source_key}", file=sys.stderr)
-        new_key = clone_issue(jira, source_key)
+        new_key = clone_issue(jira, source_key, args.target_project)
         issue = fetch_issue(jira, new_key)
         # Print the new URL to stdout so callers can capture it
         server = os.environ.get("JIRA_SERVER", DEFAULT_JIRA_SERVER)

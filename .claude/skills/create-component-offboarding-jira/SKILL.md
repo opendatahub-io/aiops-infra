@@ -10,7 +10,7 @@ user-invocable: true
 Interactively collects parameters needed to offboard an ODH or RHOAI component from
 the Konflux CI/build platform, produces a validated `component_offboarding_details.yaml`,
 and creates or updates a Jira ticket with the YAML attached. When no Jira URL is
-provided, a new ticket is automatically created by cloning the offboarding template
+provided, a new ticket is created in RHAI by cloning the offboarding template
 (`RHOAIENG-32534`).
 
 ## Prerequisites
@@ -258,6 +258,9 @@ Continue to Step 7c.
 
 ### Path B — No Jira URL provided
 
+The offboarding template remains in RHOAIENG, but the cloned issue is created in
+`RHAI` by default. Set `JIRA_CREATE_PROJECT_KEY` to override this destination.
+
 #### Step 7b-1: Clone the offboarding template
 
 ```bash
@@ -265,6 +268,7 @@ TEMPLATE_ID="RHOAIENG-32534"
 
 NEW_JIRA_URL=$(uv run --script scripts/update_offboarding_jira.py "new" \
   --clone-from "$TEMPLATE_ID" \
+  --target-project "${JIRA_CREATE_PROJECT_KEY:-RHAI}" \
   --remove-label "template" \
   --link-related "$PARENT_FEATURE_ID" \
   --set-reporter-to-current)

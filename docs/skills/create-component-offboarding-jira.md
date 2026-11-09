@@ -29,11 +29,15 @@ RHOAI versions are accepted in several forms (`3.4`, `3.4.0`, `3.4-ea2`, `3.4-ea
 
 | Action | Detail |
 |--------|--------|
-| New ticket (no URL given) | Clones [`RHOAIENG-32534`](https://redhat.atlassian.net/browse/RHOAIENG-32534); links to the parent feature; sets reporter to current user |
+| New ticket (no URL given) | Clones [`RHOAIENG-32534`](https://redhat.atlassian.net/browse/RHOAIENG-32534) into `RHAI` by default; links to the parent feature; sets reporter to current user |
 | Attachment | Uploads `component_offboarding_details.yaml` to the ticket |
 | Label added | `offboarding-yaml-attached` |
 | Comment | Summary of component, product, repo, operator flag |
 | Summary | `[Offboarding] Konflux Offboarding <component> (<product>)` |
+
+When updating an existing Jira URL, its project is unchanged. Newly cloned tickets go
+to `RHAI` by default; set `JIRA_CREATE_PROJECT_KEY` or pass `--target-project` to
+`update_offboarding_jira.py` to override it.
 
 ## Invocation
 
