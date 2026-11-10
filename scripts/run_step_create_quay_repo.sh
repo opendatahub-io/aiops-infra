@@ -131,6 +131,7 @@ SHORT_DESC="${COMPONENT_NAME} container image"
 
 if grep -qE "^[[:space:]]*(- )?name: ${QUAY_REPO}$" "${CLONE_DIR}/${YAML_FILE_PATH}" 2>/dev/null; then
   echo "Entry '${QUAY_REPO}' already present in YAML — skipping append."
+  CHANGES_MADE=false
 else
   VIS_FLAG="--public"
   [[ "$QUAY_VISIBILITY" == "private" ]] && VIS_FLAG="--no-public"
@@ -141,19 +142,51 @@ else
     $VIS_FLAG || {
     echo "ERROR: Could not append entry to ${YAML_FILE_PATH}." >&2; exit 1
   }
+  CHANGES_MADE=true
+fi
+
+# Nothing to change means the entry is already on the target branch. Raising an MR
+# in that case produces an empty, unmergeable MR (0 commits, base_sha == head_sha)
+# that the pipeline then waits on forever — mark the step done instead.
+_quay_already_configured() {
+  local reason="$1"
+  echo "${reason} — Quay repo already declared in app-interface. Marking step done."
+  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+    --add-label "quay-mr-merged" \
+    --comment "quay.io/${QUAY_ORG}/${QUAY_REPO} is already declared in ${YAML_FILE_PATH} on app-interface master. No MR needed." || true
+  bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
+    --state "$PIPELINE_STATE" --step quay --status done
+  exit 2
+}
+
+if [[ "$CHANGES_MADE" == "false" ]]; then
+  _quay_already_configured "Entry '${QUAY_REPO}' already present in ${YAML_FILE_PATH}"
 fi
 
 # Step: Commit and push
 DEST_REMOTE="dest"
 [[ "$FORK_URL" == "$APP_INTERFACE_URL" ]] && DEST_REMOTE="origin"
+set +e
 bash "$SCRIPTS_DIR/git_commit_push.sh" \
   --clone-dir "$CLONE_DIR" \
   --files     "$YAML_FILE_PATH" \
   --message   "Add ${QUAY_REPO} to quay ${QUAY_ORG} config" \
   --branch    "$DEST_BRANCH" \
-  --remote    "$DEST_REMOTE" || {
+  --remote    "$DEST_REMOTE"
+PUSH_RC=$?
+set -e
+if [[ "$PUSH_RC" -eq 3 ]]; then
+  _quay_already_configured "Nothing to commit in ${YAML_FILE_PATH}"
+elif [[ "$PUSH_RC" -ne 0 ]]; then
   echo "ERROR: Could not commit or push changes." >&2; exit 1
-}
+fi
+
+# Guard against raising an MR that has no commits (e.g. the branch ends up equal to
+# the target branch). An empty MR can never merge and blocks the pipeline.
+COMMITS_AHEAD=$(git -C "$CLONE_DIR" rev-list --count "master..HEAD" 2>/dev/null || echo 0)
+if [[ "${COMMITS_AHEAD:-0}" -lt 1 ]]; then
+  _quay_already_configured "Branch '${DEST_BRANCH}' has no commits ahead of master"
+fi
 
 # Step: Raise MR (up to 3 attempts)
 MR_URL=""
