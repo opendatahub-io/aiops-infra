@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Usage: git_commit_push.sh --clone-dir <dir> --files "<f1> <f2>" --message "<msg>" --branch <branch> [--remote <remote>]
 # Stages files, commits, and pushes. Handles shallow-clone and non-fast-forward retries.
+#
+# Exit codes:
+#   0  committed and pushed
+#   3  nothing staged — nothing committed or pushed (distinct from success so
+#      callers do not raise PRs/MRs with no changes)
+#   1  any other failure
 set -euo pipefail
 
 # Required for gitlab.cee.redhat.com which uses an internal CA not trusted by default
@@ -51,7 +57,7 @@ done
 # Commit (skip if nothing staged)
 if git diff --cached --quiet; then
   echo "Nothing to commit — working tree clean."
-  exit 0
+  exit 3
 fi
 
 # Ensure git identity is set; CI runners often have no global config
