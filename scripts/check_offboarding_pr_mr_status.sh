@@ -82,3 +82,5 @@ done
 for KEY in "${NEWLY_MERGED[@]:-}"; do
   [[ -n "$KEY" ]] && echo "$KEY"
 done
+
+exit 0

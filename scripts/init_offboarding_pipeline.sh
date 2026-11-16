@@ -8,6 +8,7 @@ WORKDIR_OVERRIDE=""
 PRODUCT_CONTEXT=""
 COMPONENT_NAME=""
 IS_OPERATOR="false"
+PRESERVE_COMPONENT_REPO_MAP="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,6 +17,7 @@ while [[ $# -gt 0 ]]; do
     --product-context)  PRODUCT_CONTEXT="$2";  shift 2 ;;
     --component-name)   COMPONENT_NAME="$2";   shift 2 ;;
     --is-operator)      IS_OPERATOR="$2";      shift 2 ;;
+    --preserve-component-repo-map) PRESERVE_COMPONENT_REPO_MAP="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -42,16 +44,18 @@ fi
 mkdir -p "$WORKDIR"
 
 PIPELINE_STATE="${WORKDIR}/pipeline_state.json"
+SKIP_RHOAI_ONLY="pending"
+if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
+  SKIP_RHOAI_ONLY="skipped"
+fi
+REMOVE_MAP_STATUS="$SKIP_RHOAI_ONLY"
+[[ "$PRESERVE_COMPONENT_REPO_MAP" == "true" ]] && REMOVE_MAP_STATUS="skipped"
+REMOVE_MAP_DEPENDS_ON='["remove_krd", "remove_okc", "remove_pull_pipelines", "remove_bundle", "remove_operator", "sync_component_tekton"]'
 
 if [[ ! -f "$PIPELINE_STATE" ]]; then
   # All offboarding steps are independent (no dependency chains).
   # RHOAI skips: (none specific to ODH)
   # ODH skips: remove_pull_pipelines (RHOAI-only)
-  SKIP_RHOAI_ONLY="pending"
-  if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
-    SKIP_RHOAI_ONLY="skipped"
-  fi
-
   OP_STATUS="pending"
   if [[ "$IS_OPERATOR" != "true" ]]; then
     OP_STATUS="skipped"
@@ -111,9 +115,16 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
       "label_raised": "offboard-sync-tekton-pr-raised",
       "label_done": "offboard-sync-tekton-done"
     },
+    "remove_component_repo_map": {
+      "status": "${REMOVE_MAP_STATUS}",
+      "pr_url": "",
+      "depends_on": ${REMOVE_MAP_DEPENDS_ON},
+      "label_raised": "offboard-component-repo-map-pr-raised",
+      "label_done": "offboard-component-repo-map-removed"
+    },
     "remove_component_cr": {
       "status": "pending",
-      "depends_on": ["remove_krd", "remove_okc", "remove_pull_pipelines", "remove_bundle", "remove_operator", "sync_component_tekton"],
+      "depends_on": ["remove_krd", "remove_okc", "remove_pull_pipelines", "remove_bundle", "remove_operator", "sync_component_tekton", "remove_component_repo_map"],
       "label_done": "offboard-component-cr-removed"
     }
   }
@@ -140,7 +151,7 @@ else
     if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
       jq '
         .steps |= with_entries(
-          if .key == "remove_pull_pipelines"
+          if (.key == "remove_pull_pipelines" or .key == "remove_component_repo_map")
              and .value.status == "pending"
           then .value.status = "skipped"
           else .
@@ -148,6 +159,42 @@ else
         )' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
     fi
     rm -f "$TMP"
+  fi
+
+  # Migrate old states to include the RHOAI component map cleanup. It is the
+  # final repository cleanup before the separately-confirmed Component CR delete.
+  if ! jq -e '.steps.remove_component_repo_map' "$PIPELINE_STATE" > /dev/null 2>&1; then
+    TMP=$(mktemp)
+    jq --argjson deps "$REMOVE_MAP_DEPENDS_ON" \
+      --arg status "$REMOVE_MAP_STATUS" \
+      '.steps.remove_component_repo_map = {
+        "status": $status,
+        "pr_url": "",
+        "depends_on": $deps,
+        "label_raised": "offboard-component-repo-map-pr-raised",
+        "label_done": "offboard-component-repo-map-removed"
+      }' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+    echo "  added remove_component_repo_map step" >&2
+  fi
+
+  TMP=$(mktemp)
+  jq --argjson deps "$REMOVE_MAP_DEPENDS_ON" \
+    '.steps.remove_component_repo_map.depends_on = ((.steps.remove_component_repo_map.depends_on // []) + $deps | unique)
+     | .steps.remove_component_cr.depends_on = ((.steps.remove_component_cr.depends_on // []) + ["remove_component_repo_map"] | unique)' \
+    "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+
+  if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+    MAP_STATUS=$(jq -r '.steps.remove_component_repo_map.status // "pending"' "$PIPELINE_STATE")
+    MAP_URL=$(jq -r '.steps.remove_component_repo_map.pr_url // ""' "$PIPELINE_STATE")
+    if [[ "$PRESERVE_COMPONENT_REPO_MAP" == "true" && "$MAP_STATUS" == "pending" && -z "$MAP_URL" ]]; then
+      TMP=$(mktemp)
+      jq '.steps.remove_component_repo_map.status = "skipped"' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  remove_component_repo_map: skipped (preserve_component_repo_map=true)" >&2
+    elif [[ "$PRESERVE_COMPONENT_REPO_MAP" != "true" && "$MAP_STATUS" == "skipped" && -z "$MAP_URL" ]]; then
+      TMP=$(mktemp)
+      jq '.steps.remove_component_repo_map.status = "pending"' "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  remove_component_repo_map: skipped → pending" >&2
+    fi
   fi
 
   # Fix operator step if is_operator was updated

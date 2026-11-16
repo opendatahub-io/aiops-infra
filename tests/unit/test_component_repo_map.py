@@ -100,3 +100,51 @@ class TestMapUpdates:
     def test_rejects_malformed_map(self):
         with pytest.raises(ValueError, match="expected an object"):
             mapping.update_map({"eval-hub": []}, "eval-hub", {"odh-eval-hub": "rhoai/x"})
+
+
+class TestMapRemoval:
+    def test_removes_component_but_preserves_other_components_in_repo(self):
+        data = {
+            "eval-hub": {
+                "odh-eval-hub": "rhoai/odh-eval-hub-rhel9",
+                "odh-eval-hub-inspectai": "rhoai/odh-eval-hub-inspectai-rhel9",
+            },
+            "unrelated-repo": {"odh-existing": "rhoai/odh-existing-rhel9"},
+        }
+        assert mapping.remove_components(data, "eval-hub", {"odh-eval-hub"})
+        assert data["eval-hub"] == {
+            "odh-eval-hub-inspectai": "rhoai/odh-eval-hub-inspectai-rhel9"
+        }
+        assert "unrelated-repo" in data
+
+    def test_removes_entire_repository_key_when_last_component_is_deleted(self):
+        data = {"eval-hub": {"odh-eval-hub": "rhoai/odh-eval-hub-rhel9"}}
+        assert mapping.remove_components(data, "eval-hub", {"odh-eval-hub"})
+        assert data == {}
+
+    def test_removes_additional_components_and_numeric_release_aliases(self):
+        details = {
+            "inputs": {
+                "repo_url": "https://github.com/red-hat-data-services/eval-hub",
+                "component_name": "odh-eval-hub-v3-6",
+                "component_repo_map_components": ["odh-eval-hub-inspectai-v3-6"],
+            }
+        }
+        repo, names = mapping.removal_targets(details)
+        data = {
+            "eval-hub": {
+                "odh-eval-hub-v3-6": "rhoai/odh-eval-hub-rhel9",
+                "odh-eval-hub-inspectai-v3-6": "rhoai/odh-eval-hub-inspectai-rhel9",
+            }
+        }
+        assert mapping.remove_components(data, repo, names)
+        assert data == {}
+
+    def test_already_absent_is_noop_and_verifies(self):
+        data = {"eval-hub": {"odh-other": "rhoai/odh-other-rhel9"}}
+        assert not mapping.remove_components(data, "eval-hub", {"odh-eval-hub"})
+        mapping.verify_removed(data, "eval-hub", {"odh-eval-hub"})
+
+    def test_verification_rejects_empty_repository_key(self):
+        with pytest.raises(ValueError, match="empty repository key"):
+            mapping.verify_removed({"eval-hub": {}}, "eval-hub", {"odh-eval-hub"})

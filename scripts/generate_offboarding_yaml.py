@@ -18,6 +18,8 @@ def main():
     p.add_argument("--build-type", choices=["CI", "Release"], help="ODH only")
     p.add_argument("--target-rhoai-version", help="RHOAI only")
     p.add_argument("--is-operator", action="store_true", default=False)
+    p.add_argument("--preserve-component-repo-map", action="store_true", help="Retain this component's image map entries")
+    p.add_argument("--component-repo-map-component", action="append", default=[], help="Additional map component to remove; repeatable")
     args = p.parse_args()
 
     product = args.product_context
@@ -39,6 +41,11 @@ def main():
         lines.append(f'  target_rhoai_version: "{args.target_rhoai_version}"')
 
     lines.append(f"  is_operator: {str(args.is_operator).lower()}")
+    if args.preserve_component_repo_map:
+        lines.append("  preserve_component_repo_map: true")
+    if args.component_repo_map_component:
+        lines.append("  component_repo_map_components:")
+        lines.extend(f"    - {name}" for name in args.component_repo_map_component)
 
     with open(args.output, "w") as f:
         f.write("\n".join(lines) + "\n")

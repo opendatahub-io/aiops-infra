@@ -111,6 +111,13 @@ Acknowledge the Jira context to the user:
 Ask each question in sequence. Wait for the user's answer before asking the next.
 Re-ask if the answer is invalid.
 
+Initialize optional fields before collecting answers:
+
+```bash
+preserve_component_repo_map=false
+component_repo_map_components=()
+```
+
 **Q1 — Product context**
 > Which product is this component being offboarded from?
 > Options: ODH, RHOAI
@@ -159,6 +166,20 @@ Transform the validated input to canonical form and store in `target_rhoai_versi
 → Convert: `yes` → `true`, `no` → `false`.
 → Store in `is_operator` (boolean).
 
+_If `product_context == RHOAI`:_
+
+**Q6 — Component map exception**
+> Does the Jira explicitly request preserving this component's component/image mapping?
+> Options: yes, no (default)
+
+→ Store `true` only when the Jira explicitly requests preservation; otherwise omit the field.
+
+**Q7 — Additional component map entries**
+> Does the Jira explicitly request removing additional component keys from the same source repository?
+> If so, provide the component names; otherwise leave empty.
+
+→ Store the names in `component_repo_map_components`.
+
 ---
 
 ## Step 4: Show collected values and confirm
@@ -174,6 +195,8 @@ Component offboarding details collected:
   component_name           : <value>
   repo_url                 : <value>
   is_operator              : <value>
+  preserve_component_repo_map: <value or false>  # RHOAI only
+  component_repo_map_components: <values or none> # RHOAI only
 
 Proceed? (yes / no / edit)
 ```
@@ -203,6 +226,10 @@ if [[ "$product_context" == "RHOAI" ]]; then
 fi
 
 [[ "$is_operator" == "true" ]] && YAML_ARGS+=(--is-operator)
+[[ "$preserve_component_repo_map" == "true" ]] && YAML_ARGS+=(--preserve-component-repo-map)
+for map_component in "${component_repo_map_components[@]}"; do
+  YAML_ARGS+=(--component-repo-map-component "$map_component")
+done
 
 uv run --script scripts/generate_offboarding_yaml.py "${YAML_ARGS[@]}"
 ```

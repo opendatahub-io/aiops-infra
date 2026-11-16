@@ -21,9 +21,16 @@ A YAML file that drives every downstream offboarding skill. Key fields:
 | `target_rhoai_version` | `3.5` or `3.5-ea-1` *(RHOAI only)* |
 | `build_type` | `CI` or `Release` *(ODH only)* |
 | `is_operator` | `true` / `false` |
+| `preserve_component_repo_map` | `true` only when Jira explicitly requests retaining the RHOAI component/image mapping |
+| `component_repo_map_components` | Additional component keys to remove from the same source repo, if listed by Jira |
 
 RHOAI versions are accepted in several forms (`3.4`, `3.4.0`, `3.4-ea2`, `3.4-ea-2`,
 `3.4-ea.2`, …) and normalized to canonical `x.y` or `x.y-ea-N` before writing YAML.
+
+For RHOAI offboarding, the component's `component_repo_map.json` association is removed
+by default. `preserve_component_repo_map: true` is the explicit Jira override. Other
+components under the same source repository are preserved; list any additional component
+keys Jira requests removing in `component_repo_map_components`.
 
 ## Jira changes
 

@@ -106,6 +106,7 @@ is done (`component-offboarding-completed` label).
 | `remove_bundle` | relatedImages, build-config, Dockerfile ARGs/labels, `bundle_build_args.map` | ODH/RHOAI Build-Config GitHub PR | |
 | `remove_operator` | Operator manifests | odh-operator / rhods-operator GitHub PR | Only if `is_operator: true` |
 | `sync_component_tekton` | Stale `.tekton/` PipelineRun files | Component repo GitHub PR(s) | After OKC / pull-pipeline PRs merge |
+| `remove_component_repo_map` | Component/image entries from `component_repo_map.json` | RHOAI Konflux Central GitHub PR | Preserves unrelated components; removes repository key when empty; set `preserve_component_repo_map: true` only when Jira explicitly requests preservation |
 | `remove_component_cr` | Konflux `Component` CR | OpenShift cluster | **Asks for confirmation.** Annotates ImageRepository with `skip-repository-deletion=true` so Quay images are kept |
 
 The orchestrator does **not** delete Quay repositories or RHOAI product-listing
