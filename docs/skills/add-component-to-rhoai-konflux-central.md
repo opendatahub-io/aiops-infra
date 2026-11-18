@@ -20,7 +20,7 @@ pipelineruns/<repo-name>/.tekton/<component-name>-<version>-push.yaml
 The PipelineRun YAML configures:
 - Source repo, branch, context path, and Dockerfile from `component_onboarding_details.yaml`
 - Target architectures (multi-arch build matrix)
-- Konflux push-event trigger
+- Konflux push-event trigger with `konflux_cluster == "stone-prod-p02"`
 - Git authentication through the Pipelines as Code secret workspace
 
 ## Git authentication workspace
@@ -58,3 +58,9 @@ This skill creates only the push PipelineRun. The pull-request PipelineRun is ha
 separately by [create-pull-pipelines-in-rhoai-konflux-central](create-pull-pipelines-in-rhoai-konflux-central.md),
 which opens its PR against `main`. Both files take application, component, and
 service account from the same `target_rhoai_version`.
+
+Both use `build-pipeline-<component_name>-<VERSION_VAR>` in `rhoai-tenant`.
+The push run uses the P02 account; the PR run uses the separate P01 account
+with the same name. Konflux provisions these from each cluster's versioned
+Component. No P02 service-account token or hardcoded
+`redhat-appstudio-staginguser-pull-secret` pod override is copied to P01.

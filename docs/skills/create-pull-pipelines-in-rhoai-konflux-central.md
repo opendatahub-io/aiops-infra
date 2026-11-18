@@ -86,9 +86,15 @@ event stands in place of the push event, and the expression has no
 `target_branch` comparison. Onboarding has no field for an extra path filter
 such as a subdirectory glob.
 
+The outer `konflux_cluster` selector routes these builds to P01 only. The
+Repository on each cluster must expose its cluster name to PaC CEL. Coordinate
+rollout with the konflux-central routing policy (RHOAIENG-103705) and the GAP
+monitor's P01 build-status support (RHOAIENG-103869).
+
 ```yaml
 pipelinesascode.tekton.dev/on-cel-expression: |-
-  event == "pull_request"
+  konflux_cluster == "stone-prod-p01"
+  && event == "pull_request"
   && (files.all.exists(p, ! p.matches('^\\.tekton/')) || ".tekton/<component-name>-pull-request.yaml".pathChanged())
 ```
 
@@ -137,3 +143,12 @@ creates the push PipelineRun on the version branch (`rhoai-3.6`, or
 read the same `target_rhoai_version`, so the application, component, and
 service account on this main-branch pull-request PipelineRun match the push
 PipelineRun for that version.
+
+The name `build-pipeline-<component_name>-<VERSION_VAR>` is unchanged between
+clusters, but service accounts are cluster-local. The krd step registers the
+versioned Component on both P01 and P02 so Konflux can provision its build
+service account and credentials independently. Do not copy a P02 service-account
+token to P01. The automation Component's account (`build-pipeline-pr-pipelines-…`)
+is not the account used by this PipelineRun. Like the current konflux-central
+files, the generated file does not hardcode the old
+`redhat-appstudio-staginguser-pull-secret` pod override.

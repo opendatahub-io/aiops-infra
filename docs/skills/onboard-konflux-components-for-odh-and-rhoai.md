@@ -51,6 +51,11 @@ application, component, service account, and `rhoai-version` come from
 `build-pipeline-<component>-v3-6`, `3.6.0`). An older target keeps that older
 version's identifiers.
 
+RHOAI krd registration covers both P01 and P02. PR PipelineRuns select P01 and
+push PipelineRuns select P02. Their service-account names stay identical
+(`build-pipeline-<component>-<version>`), with separate cluster-local accounts
+provisioned from each cluster's versioned Component. ODH remains single-cluster.
+
 The final RHOAI action adds each component/image delivery repository association to
 `config/component_repo_map.json` on `konflux-central` `main`. GAP uses this map to
 select required builds for child PRs. It uses canonical, release-independent component

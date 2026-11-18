@@ -16,7 +16,8 @@ SCRIPT = REPO_ROOT / "scripts" / "run_step_create_pull_pipelines.sh"
 # Parsed from konflux-central main after RHOAIENG-97051 PR #3630 and the
 # pipelineRef escape fix in PR #3682.
 EVAL_HUB_CEL = (
-    'event == "pull_request"\n'
+    'konflux_cluster == "stone-prod-p01"\n'
+    '&& event == "pull_request"\n'
     "&& (files.all.exists(p, ! p.matches('^\\\\.tekton/')) "
     '|| ".tekton/odh-eval-hub-pull-request.yaml".pathChanged())'
 )
@@ -126,6 +127,7 @@ class TestStage2PullPipeline:
             document["spec"]["taskRunTemplate"]["serviceAccountName"]
             == "build-pipeline-odh-eval-hub-v3-6"
         )
+        assert "podTemplate" not in document["spec"]["taskRunTemplate"]
         assert _param(document, "output-image") == (
             "quay.io/rhoai/odh-eval-hub-rhel9:on-pr-{{pull_request_number}}"
         )
@@ -251,6 +253,14 @@ class TestStage2PullPipeline:
             "pipelinesascode.tekton.dev/on-cel-expression"
         ]
         assert _cel_triggers(expression, changed_files) is expected
+
+    def test_cluster_guard_wraps_the_file_conditions(self, tmp_path: Path):
+        document = _render(tmp_path, _details())
+        expression = document["metadata"]["annotations"][
+            "pipelinesascode.tekton.dev/on-cel-expression"
+        ]
+        assert expression.startswith('konflux_cluster == "stone-prod-p01"\n&& event')
+        assert "stone-prod-p02" not in expression
 
     def test_generation_pr_targets_konflux_central_main(self):
         script = SCRIPT.read_text(encoding="utf-8")

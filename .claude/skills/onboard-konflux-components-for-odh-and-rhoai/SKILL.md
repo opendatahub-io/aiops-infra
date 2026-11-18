@@ -379,6 +379,12 @@ Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8c: onboard-component-to-konflux-release-data (step key: `krd`)
 
+RHOAI registers both P01 and P02; an existing P02 Component alone is not completion.
+PR builds select P01 and push builds select P02. Both use the same versioned
+`build-pipeline-<component>-<version>` name, provisioned separately on each cluster
+from its versioned Component. Do not copy service-account tokens between clusters.
+ODH registration is unchanged.
+
 **Execute if** `krd` is in `UNBLOCKED_STEPS`.
 
 > **VPN must be active.**

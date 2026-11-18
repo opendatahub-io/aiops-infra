@@ -36,4 +36,4 @@ jobs:
         python-version: '3.12'
 
     - name: Run unit tests
-      run: uv run --with pytest --with pyyaml --with jsonschema pytest tests/unit -q
+      run: uv run --with pytest --with pyyaml --with jsonschema --with ruamel.yaml python -m pytest tests/unit -q

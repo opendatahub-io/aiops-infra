@@ -159,7 +159,8 @@ metadata:
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-comment: "^/build-konflux"
     pipelinesascode.tekton.dev/on-cel-expression: |-
-      event == "pull_request"
+      konflux_cluster == "stone-prod-p01"
+      && event == "pull_request"
       && (files.all.exists(p, ! p.matches('^\\\\.tekton/')) || ".tekton/${PIPELINERUN_FILE}".pathChanged())
   labels:
     appstudio.openshift.io/application: rhoai-${VERSION_VAR}
@@ -206,9 +207,6 @@ ${PLATFORM_LIST}
       value: pipelines/multi-arch-container-build.yaml
   taskRunTemplate:
     serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}
-    podTemplate:
-      imagePullSecrets:
-      - name: redhat-appstudio-staginguser-pull-secret
   timeouts:
     pipeline: 8h
   workspaces:

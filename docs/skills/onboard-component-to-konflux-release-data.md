@@ -29,6 +29,21 @@ when the MR merges.
 | `config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-<RPA_VAR>-components-stage.yaml` | Appends component to the stage RPA |
 | `config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-<RPA_VAR>-components-prod.yaml` | Appends component to the prod RPA |
 
+For RHOAI, the krd script registers the versioned Component in the PDS on
+**both `stone-prod-p01` and `stone-prod-p02`**, and registers the
+`pr-pipelines-<component_name>` automation Component on both clusters. If P01 has
+no automation directory yet, it creates the `automation` Application,
+`automation/resources.yaml`, and the kustomization references. Both target
+version streams must already exist; onboarding does not bootstrap a release
+stream or copy P02 release plans, Early Gate resources, or secrets to P01.
+
+The versioned Component provisions the cluster-local
+`build-pipeline-<component_name>-<version>` service account used by the push
+(P02) and PR (P01) PipelineRuns. The automation Component is a separate identity.
+Cluster-wide secrets and PaC's `konflux_cluster` binding must already be
+configured on each cluster. After provisioning, verify both build service
+accounts and one PR build on P01 plus one push build on P02.
+
 The `Component` document structure added to each YAML:
 
 ```yaml
@@ -51,13 +66,16 @@ spec:
 
 ## Pre-flight cluster check
 
-Before raising the MR, the skill checks whether the component already exists on the
-target OpenShift cluster using `oc get component`:
+For ODH, before raising the MR the skill checks whether the component already
+exists on the target OpenShift cluster using `oc get component`:
 
 - **External cluster** (`stone-prd-rh01`) for ODH — uses `EXT_OC_TOKEN`
-- **Internal cluster** (`stone-prod-p02`) for RHOAI — uses `INT_OC_TOKEN`
 
 If the component already exists, the MR step is skipped.
+
+For RHOAI, the script reconciles both clusters' Git manifests instead. A
+Component already present on P02 must not skip missing P01 registration. If
+neither manifests nor generated output change, the step finishes without an MR.
 
 ## Manifest build & verify
 

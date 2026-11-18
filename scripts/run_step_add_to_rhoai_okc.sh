@@ -168,7 +168,8 @@ metadata:
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     build.appstudio.openshift.io/build-nudge-files: "build/operator-nudging.yaml"
     pipelinesascode.tekton.dev/on-cel-expression: |
-      event == "push"
+      konflux_cluster == "stone-prod-p02"
+      && event == "push"
       && target_branch == "${BRANCH_NAME}"
       && ( files.all.exists(p, !p.matches('^\\\\.tekton/')) || ".tekton/${COMPONENT_NAME}-${VERSION_VAR}-push.yaml".pathChanged() )
   labels:
@@ -211,9 +212,6 @@ ${PLATFORM_LIST}
     resolver: git
   taskRunTemplate:
     serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}
-    podTemplate:
-      imagePullSecrets:
-      - name: redhat-appstudio-staginguser-pull-secret
   timeouts:
     pipeline: 2h
   workspaces:
