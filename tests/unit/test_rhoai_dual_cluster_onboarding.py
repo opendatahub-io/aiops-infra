@@ -43,11 +43,12 @@ printf '%s\n' "$WORKDIR/krd" test-branch
 """)
     _write(scripts / "update_pipeline_state.sh", "#!/bin/bash\nprintf '%s\n' \"$*\" >> \"$WORKDIR/state-updates\"\n")
     tools = tmp_path / "bin"
+    real_uv = shutil.which("uv")
     _write(tools / "uv", f"""#!/bin/bash
 script="$3"
 shift 3
 case "$script" in
-  */edit_yaml.py) exec {sys.executable} "$script" "$@" ;;
+  */edit_yaml.py) exec {real_uv} run --script "$script" "$@" ;;
   */raise_gitlab_mr.py) echo https://gitlab.example/krd/-/merge_requests/1 ;;
 esac
 """, True)
