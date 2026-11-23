@@ -106,7 +106,7 @@ is done (`component-offboarding-completed` label).
 | `remove_bundle` | relatedImages, build-config, Dockerfile ARGs/labels, `bundle_build_args.map` | ODH/RHOAI Build-Config GitHub PR | |
 | `remove_operator` | Operator manifests | odh-operator / rhods-operator GitHub PR | Only if `is_operator: true` |
 | `sync_component_tekton` | Stale `.tekton/` PipelineRun files | Component repo GitHub PR(s) | After OKC / pull-pipeline PRs merge |
-| `remove_component_cr` | Konflux `Component` CR | OpenShift cluster | **Asks for confirmation.** Annotates ImageRepository with `skip-repository-deletion=true` so Quay images are kept |
+| `remove_component_cr` | Konflux `Component` CR | OpenShift cluster | Runs unattended (central deployment). Annotates ImageRepository with `skip-repository-deletion=true` so Quay images are kept |
 
 The orchestrator does **not** delete Quay repositories or RHOAI product-listing
 entries. Those are shared / version-spanning and must be cleaned up separately if
@@ -124,9 +124,9 @@ PRs/MRs get a `[DRY RUN]` title, Jira comments are prefixed `[DRY RUN]`, and
 Component CR deletion is skipped (it prints what it would do). Close the dry-run
 PRs/MRs and delete their branches when you are done.
 
-## Component CR confirmation
+## Component CR deletion
 
-The last step is destructive. The first run prints the Component(s) and
-ImageRepository object(s) it would change and **waits for you to confirm**. A
-second run with `--confirm` performs the `oc` deletes. Quay image repos are
+The last step is destructive and runs unattended: the skill only runs in the
+central deployment (see the warning in `SKILL.md`), so it deletes the Component
+CR(s) directly once every other step is `done` or `merged`. Quay image repos are
 preserved via the ImageRepository annotation.

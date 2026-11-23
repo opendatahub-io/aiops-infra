@@ -75,8 +75,13 @@ done
 
 # ── VPN check ──────────────────────────────────────────────────────────────────
 if [[ "$CHECK_VPN" == "true" ]]; then
-  if curl -sf --connect-timeout 5 --max-time 10 "https://gitlab.cee.redhat.com" -o /dev/null 2>/dev/null; then
-    echo "VPN: connected"
+  # gitlab.cee.redhat.com uses the Red Hat internal CA, which is absent from most
+  # trust stores (CI containers, sandboxes). Every git call against it runs with
+  # GIT_SSL_NO_VERIFY=true, so the probe ignores the certificate too: reachability
+  # is any HTTP answer, while 000 means the host could not be reached at all.
+  HTTP_CODE=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "https://gitlab.cee.redhat.com" 2>/dev/null || true)
+  if [[ "$HTTP_CODE" != "000" ]]; then
+    echo "VPN: connected (gitlab.cee.redhat.com answered HTTP $HTTP_CODE)"
   else
     echo "ERROR: VPN does not appear to be active (cannot reach gitlab.cee.redhat.com)." >&2
     echo "  Connect to the Red Hat VPN and re-run." >&2

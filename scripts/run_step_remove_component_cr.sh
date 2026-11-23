@@ -47,6 +47,16 @@ if [[ "$CURRENT_STATUS" == "done" ]]; then
   exit 0
 fi
 
+# The label is only added after the CR is gone (or by a human who removed it), so it
+# proves the work is finished without needing cluster access to re-verify.
+DETAILS_JSON="$WORKDIR/component_offboarding_details.json"
+if [[ -f "$DETAILS_JSON" ]] && jq -e '(.fields.labels // []) | index("offboard-component-cr-removed") != null' "$DETAILS_JSON" >/dev/null 2>&1; then
+  echo "Component CR already removed (label offboard-component-cr-removed present) — nothing to do."
+  bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
+    --state "$PIPELINE_STATE" --step remove_component_cr --status done
+  exit 2
+fi
+
 YAML_FILE="$WORKDIR/component_offboarding_details.yaml"
 [[ ! -f "$YAML_FILE" ]] && { echo "ERROR: $YAML_FILE not found" >&2; exit 1; }
 

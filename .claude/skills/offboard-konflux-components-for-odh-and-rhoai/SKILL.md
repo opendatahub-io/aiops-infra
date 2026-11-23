@@ -19,10 +19,10 @@ Orchestrates the complete component offboarding pipeline (idempotent re-run mode
 5. `remove-from-bundle` — GitHub PR to remove relatedImages + build-config entries
 6. `remove-from-operator` — GitHub PR to remove operator manifests **(if is_operator=true)**
 7. `sync-component-tekton` — GitHub PR(s) to remove stale PipelineRun files from the component repo's `.tekton/` **(after OKC/pull-pipeline PRs are merged)**
-8. `remove-component-cr` — Delete Konflux Component CR from OpenShift cluster **(after all other steps are done; requires confirmation)**
+8. `remove-component-cr` — Delete Konflux Component CR from OpenShift cluster **(after all other steps are done)**
 
 Steps 2–6 are independent and can run in parallel. Step 7 depends on steps 3–4
-being merged. Step 8 depends on all prior steps and requires human confirmation.
+being merged. Step 8 depends on all prior steps.
 
 **Re-run model:** invoke this skill any number of times for the same Jira URL.
 Each run checks Jira labels and PR/MR API status to determine what's already done,
@@ -110,12 +110,11 @@ bash "$SCRIPTS_DIR/check_offboarding_prerequisites.sh" --vpn
 
 On exit 1: tell the user to connect to the Red Hat VPN and re-run. Stop.
 
-### Step 1c: OpenShift cluster login
+### Step 1c: OpenShift cluster login (deferred)
 
-Determine the cluster from the Jira (RHOAI → `internal`, ODH → `external`).
-The product context is not yet parsed at this point, so check both or default to
-`internal` (most common). If the validate step has already run and we can read the
-YAML, derive it from `product_context`. Otherwise, default to `internal`.
+`oc` is only needed by Step 7i (`remove-component-cr`), so a missing cluster
+session must not block the rest of the run — every other step works through
+GitHub/GitLab. Probe for a session and remember the outcome:
 
 ```bash
 OC_CLUSTER="internal"
@@ -125,37 +124,21 @@ OC_EXIT=$?
 
 On exit 0: already authenticated — continue.
 
-On exit 2 (`OC_LOGIN_NEEDED`): the user needs to log in interactively.
-Tell the user:
+On exit 2 (`OC_LOGIN_NEEDED`): no session. Continue anyway — Step 7i re-checks
+and stops with login instructions only if the Component CR still has to be
+deleted. In an interactive session you may offer the login at that point:
 
-> You need to log in to the OpenShift cluster. Please run this command:
 > ```
 > ! oc login --web <OC_API_SERVER>
 > ```
-> This will open a browser for authentication.
-
-**Wait for the user to confirm they have logged in.** Then capture the token:
-
-```bash
-export <OC_TOKEN_VAR>=$(oc whoami -t)
-```
-
-Verify the login succeeded:
-
-```bash
-bash "$SCRIPTS_DIR/check_offboarding_prerequisites.sh" --oc-login "$OC_CLUSTER"
-```
-
-On failure again: stop with an error.
 
 ### Step 1d: Set active oc project
 
-Once login is confirmed (whether it was already authenticated or completed interactively),
-always switch the active project to the RHOAI tenant namespace so subsequent `oc` commands
-default to it:
+Only when Step 1c returned 0, switch the active project to the RHOAI tenant
+namespace so subsequent `oc` commands default to it:
 
 ```bash
-oc project rhoai-tenant
+if [[ "$OC_EXIT" -eq 0 ]]; then oc project rhoai-tenant; fi
 ```
 
 If this fails (e.g. the namespace is not visible on the current cluster), print a warning
@@ -379,25 +362,26 @@ EXIT_CODE=$?
 **Execute if** `remove_component_cr` is in `UNBLOCKED_STEPS`. This step has `depends_on`
 all other removal steps — it only unblocks when everything else is `done` or `merged`.
 
-**This step requires human confirmation.** First run without `--confirm` to show what
-will be deleted. Display the output to the user and ask them to confirm. Only if they
-confirm, re-run with `--confirm`.
+**Cluster access required.** If Step 1c found no session (`OC_EXIT` ≠ 0), derive the
+cluster from the product and check here, where it actually matters:
 
 ```bash
-# First: show what will be deleted
-OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_remove_component_cr.sh" --jira-url "$JIRA_URL")
-EXIT_CODE=$?
+OC_CLUSTER=$([[ "${PRODUCT_CONTEXT:-}" == "RHOAI" ]] && echo internal || echo external)
+bash "$SCRIPTS_DIR/check_offboarding_prerequisites.sh" --oc-login "$OC_CLUSTER"
 ```
 
-- Exit 0 (without --confirm): prints confirmation summary. **Show this to the user and ask
-  "Do you want to proceed with deleting the Component CR?"**. If they confirm:
+On exit 2, stop and report that `INT_OC_TOKEN` / `EXT_OC_TOKEN` is missing or expired.
+This skill only runs in the central deployment, so there is no interactive login path.
+
+**Deletion is unattended.** There is no operator present to confirm — delete the
+Component CR in one shot:
 
 ```bash
 OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_remove_component_cr.sh" --jira-url "$JIRA_URL" --confirm)
 EXIT_CODE=$?
 ```
 
-- Exit 0 (with --confirm): Component CR deleted.
+- Exit 0: Component CR deleted.
 - Exit 2: already removed. Nothing further needed.
 - Exit 1: hard failure. Print `$OUTPUT` and stop.
 
