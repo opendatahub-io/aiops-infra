@@ -11,7 +11,7 @@ Interactively collects all parameters needed to onboard an ODH or RHOAI componen
 the Konflux CI/build platform, produces a validated `component_onboarding_details.yaml`,
 and creates or updates a Jira ticket with the YAML attached. When no Jira URL is
 provided, a new ticket is automatically created by cloning the product-specific
-onboarding template (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`).
+onboarding template (ODH: `RHAI-58088`, RHOAI: `RHAI-58087`).
 
 ## Prerequisites
 
@@ -39,7 +39,7 @@ guardian can review the new or changed ticket before scheduled automation picks 
 
 | Invocation | ODH | RHOAI |
 |---|---|---|
-| No URL | Clones `RHOAIENG-35683` into RHAI by default, attaches YAML, updates ticket | Clones `RHOAIENG-17225` into RHAI by default, attaches YAML, updates ticket |
+| No URL | Clones `RHAI-58088`, attaches YAML, updates ticket | Clones `RHAI-58087`, attaches YAML, updates ticket |
 | With URL | Attaches YAML to given ticket, updates ticket | Attaches YAML to given ticket, updates ticket |
 
 Examples:
@@ -597,9 +597,9 @@ Two paths depending on whether a Jira URL was provided.
 Select the template to clone-link based on `product_context`:
 ```bash
 if [[ "$product_context" == "ODH" ]]; then
-  TEMPLATE_ID="RHOAIENG-35683"
+  TEMPLATE_ID="RHAI-58088"
 else
-  TEMPLATE_ID="RHOAIENG-17225"
+  TEMPLATE_ID="RHAI-58087"
 fi
 ```
 
@@ -646,14 +646,14 @@ Continue to Step 7c.
 #### Step 7b-1: Clone the product-specific template Jira
 
 Select the template based on `product_context`:
-- `ODH`  → clone `RHOAIENG-35683`
-- `RHOAI` → clone `RHOAIENG-17225`
+- `ODH`  → clone `RHAI-58088`
+- `RHOAI` → clone `RHAI-58087`
 
 ```bash
 if [[ "$product_context" == "ODH" ]]; then
-  TEMPLATE_ID="RHOAIENG-35683"
+  TEMPLATE_ID="RHAI-58088"
 else
-  TEMPLATE_ID="RHOAIENG-17225"
+  TEMPLATE_ID="RHAI-58087"
 fi
 
 NEW_JIRA_URL=$(uv run --script scripts/update_jira_issue.py "new" \
@@ -780,7 +780,7 @@ If `TEMPLATE_ID` was not used (i.e. the user provided a Jira URL directly), omit
 | YAML generation fails | 5 | Check arguments; see stderr from `generate_onboarding_yaml.py` |
 | YAML validation fails | 6 | Correct the inputs and re-generate |
 | Dockerfile digest violations found | 6b | Pin all FROM images with @sha256 digests, then re-run |
-| Clone fails (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) | 7b-1 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
+| Clone fails (ODH: `RHAI-58088`, RHOAI: `RHAI-58087`) | 7b-1 | Check `JIRA_USER_EMAIL` / `JIRA_API_TOKEN`; verify create permission |
 | "relates to" link type not found | 7-pre, 7b-1 | Check available link types with a Jira admin |
 | Attach/upload fails | 7, 7b-2 | Check credentials; re-run the skill |
 | Metadata update fails | 7c | Warnings printed; update title/description/label manually in Jira |
