@@ -67,17 +67,13 @@ else
 fi
 
 # Derive KONFLUX_COMPONENT_NAME
+# NOTE: For RHOAI, COMPONENT_NAME already includes the version suffix (e.g., odh-vllm-cpu-v3-6)
+# so we use it directly. For ODH, we append -ci if not already present.
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   [[ -z "$TARGET_RHOAI_VERSION" ]] && {
     echo "ERROR: target_rhoai_version required for RHOAI but missing." >&2; exit 1
   }
-  if [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)-ea-([0-9]+)$ ]]; then
-    KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-ea-${BASH_REMATCH[3]}"
-  elif [[ "$TARGET_RHOAI_VERSION" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
-    KONFLUX_COMPONENT_NAME="${COMPONENT_NAME}-v${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-  else
-    echo "ERROR: Cannot parse target_rhoai_version '${TARGET_RHOAI_VERSION}'." >&2; exit 1
-  fi
+  KONFLUX_COMPONENT_NAME="$COMPONENT_NAME"
 else
   if [[ "$COMPONENT_NAME" == *-ci ]]; then
     KONFLUX_COMPONENT_NAME="$COMPONENT_NAME"
@@ -142,21 +138,21 @@ elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
 
   # Remove from RPA stage
   RPA_STAGE="$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-${RPA_VAR}-components-stage.yaml"
-  if [[ -f "$RPA_STAGE" ]] && grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_STAGE" 2>/dev/null; then
+  if [[ -f "$RPA_STAGE" ]] && grep -q "name: ${COMPONENT_NAME}" "$RPA_STAGE" 2>/dev/null; then
     uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-rpa-component \
       "$RPA_STAGE" \
       --array-key "spec.data.mapping.components" \
-      --name "${COMPONENT_NAME}-${RPA_VAR}" || true
+      --name "${COMPONENT_NAME}" || true
     CHANGES_MADE=true
   fi
 
   # Remove from RPA prod
   RPA_PROD="$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai/rhoai-onprem-${RPA_VAR}-components-prod.yaml"
-  if [[ -f "$RPA_PROD" ]] && grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_PROD" 2>/dev/null; then
+  if [[ -f "$RPA_PROD" ]] && grep -q "name: ${COMPONENT_NAME}" "$RPA_PROD" 2>/dev/null; then
     uv run --script "$SCRIPTS_DIR/edit_offboarding_yaml.py" remove-rpa-component \
       "$RPA_PROD" \
       --array-key "spec.data.mapping.components" \
-      --name "${COMPONENT_NAME}-${RPA_VAR}" || true
+      --name "${COMPONENT_NAME}" || true
     CHANGES_MADE=true
   fi
 

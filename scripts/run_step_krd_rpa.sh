@@ -93,11 +93,11 @@ RPA_STAGE="$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission
 [[ ! -f "$RPA_STAGE" ]] && {
   echo "ERROR: rhoai-onprem-${RPA_VAR}-components-stage.yaml not found. Sprint onboarding pending." >&2; exit 1
 }
-if ! grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_STAGE" 2>/dev/null; then
+if ! grep -q "name: ${COMPONENT_NAME}" "$RPA_STAGE" 2>/dev/null; then
   uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-rpa-component \
     "$RPA_STAGE" \
     --array-key "spec.data.mapping.components" \
-    --name "${COMPONENT_NAME}-${RPA_VAR}" \
+    --name "${COMPONENT_NAME}" \
     --url "registry.stage.redhat.io/${PRODUCT_LINE}/${COMPONENT_NAME}-rhel9" || {
     echo "ERROR: Could not append to RPA stage file." >&2; exit 1
   }
@@ -109,11 +109,11 @@ RPA_PROD="$CLONE_DIR/config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/
 [[ ! -f "$RPA_PROD" ]] && {
   echo "ERROR: rhoai-onprem-${RPA_VAR}-components-prod.yaml not found. Sprint onboarding pending." >&2; exit 1
 }
-if ! grep -q "name: ${COMPONENT_NAME}-${RPA_VAR}" "$RPA_PROD" 2>/dev/null; then
+if ! grep -q "name: ${COMPONENT_NAME}" "$RPA_PROD" 2>/dev/null; then
   uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-rpa-component \
     "$RPA_PROD" \
     --array-key "spec.data.mapping.components" \
-    --name "${COMPONENT_NAME}-${RPA_VAR}" \
+    --name "${COMPONENT_NAME}" \
     --url "registry.redhat.io/${PRODUCT_LINE}/${COMPONENT_NAME}-rhel9" || {
     echo "ERROR: Could not append to RPA prod file." >&2; exit 1
   }
