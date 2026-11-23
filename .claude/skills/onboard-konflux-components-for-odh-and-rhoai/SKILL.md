@@ -203,9 +203,9 @@ Ensure the Jira has a "clones" link to the product-specific onboarding template
 
 ```bash
 if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
-  TEMPLATE_ID="RHOAIENG-35683"
+  TEMPLATE_ID="RHAI-58088"
 else
-  TEMPLATE_ID="RHOAIENG-17225"
+  TEMPLATE_ID="RHAI-58087"
 fi
 
 uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \

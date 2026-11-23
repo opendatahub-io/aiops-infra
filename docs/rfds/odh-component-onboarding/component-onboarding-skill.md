@@ -59,7 +59,7 @@ flowchart TD
         Wrapper <-->|"Read / Write"| State
     end
 
-    subgraph jiraLayer [Jira — RHOAIENG / RHODS Project]
+    subgraph jiraLayer [Jira — RHOAIENG / RHAI / RHAIENG Projects]
         JiraTicket["Onboarding Ticket\n(YAML attachment, labels, status)"]
     end
 
@@ -103,7 +103,7 @@ This skill is **independent** and intended for component teams, not DevOps. It:
 2. For RHOAI, auto-fetches the repo README to suggest `long_description` and `short_description`.
 3. For RHOAI, validates that the Dockerfile pins all `FROM` images with `@sha256` digests.
 4. Generates a validated `component_onboarding_details.yaml` against a JSON Schema.
-5. When no Jira URL is provided, automatically clones the product-specific onboarding template (ODH: `RHOAIENG-35683`, RHOAI: `RHOAIENG-17225`) and creates a new ticket.
+5. When no Jira URL is provided, automatically clones the product-specific onboarding template (ODH: `RHAI-58088`, RHOAI: `RHAI-58087`) and creates a new ticket.
 6. Attaches the YAML to the Jira ticket, sets the `yaml-attached` and `disable-automated-onboarding` labels, and links the parent feature.
 
 ```
@@ -112,7 +112,7 @@ This skill is **independent** and intended for component teams, not DevOps. It:
 
 | Invocation | ODH | RHOAI |
 |---|---|---|
-| No URL | Clones `RHOAIENG-35683`, creates ticket, attaches YAML | Clones `RHOAIENG-17225`, creates ticket, attaches YAML |
+| No URL | Clones `RHAI-58088`, creates ticket, attaches YAML | Clones `RHAI-58087`, creates ticket, attaches YAML |
 | With URL | Attaches YAML to existing ticket | Attaches YAML to existing ticket |
 
 The YAML attachment is the **contract** between the component team and the automation. The skill also sets `disable-automated-onboarding` on new tickets and on existing tickets it updates, so the DevOps onboarding guardian can review the change before scheduled CI picks it up. After review, the guardian removes that label and the ticket is eligible on the next CI run.
@@ -196,11 +196,11 @@ Each grandchild pipeline receives the `JIRA_URL` for its specific issue and runs
 
 ### Issue selection JQL criteria
 
-- Project: `RHOAIENG` (or `RHODS`)
+- Project: `RHOAIENG`, `RHAI`, or `RHAIENG`
 - Status: not in any terminal state (Resolved, Closed, Done, Cancelled, etc.)
 - Label: `component-onboarding`
 - Label not present: `disable-automated-onboarding`
-- Cloned from: `RHOAIENG-17225` or `RHOAIENG-35683`
+- Cloned from: `RHAI-58087` or `RHAI-58088`
 
 If no issues match, a no-op child pipeline is emitted and the run exits cleanly.
 

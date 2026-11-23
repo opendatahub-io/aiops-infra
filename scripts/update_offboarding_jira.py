@@ -49,7 +49,7 @@ Examples:
 
   # Clone a template, set a new title, add a related link, set reporter
   NEW_URL=$(update_offboarding_jira.py new \\
-      --clone-from RHOAIENG-35683 \\
+      --clone-from RHAI-58088 \\
       --set-title "Onboard my-component to Konflux CI" \\
       --remove-label template \\
       --link-related RHOAIENG-12345 \\
