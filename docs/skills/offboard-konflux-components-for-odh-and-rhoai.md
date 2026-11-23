@@ -24,7 +24,7 @@ Closed-without-merge PRs/MRs are reset to `pending` so the next run re-raises th
 
 Removal PRs/MRs for KRD, OKC, pull pipelines, bundle, and operator are independent
 and can run in parallel. Tekton cleanup waits on OKC/pull-pipeline merges. Component
-CR deletion waits on every other step and requires human confirmation.
+CR deletion waits on every other step and then runs unattended.
 
 | Step | Target | Blocked by |
 |------|--------|------------|
@@ -35,7 +35,7 @@ CR deletion waits on every other step and requires human confirmation.
 | 5 | ODH/RHOAI Build-Config GitHub PR (`remove_bundle`) | — |
 | 6 | odh-operator / rhods-operator GitHub PR (`remove_operator`) | — *(operators only)* |
 | 7 | Component repo `.tekton/` GitHub PR (`sync_component_tekton`) | okc + pull_pipelines merged/skipped |
-| 8 | Delete Konflux `Component` CR (`remove_component_cr`) | all prior steps; **confirmation required** |
+| 8 | Delete Konflux `Component` CR (`remove_component_cr`) | all prior steps |
 
 Not removed automatically: Quay repositories, RHOAI product-listing entries.
 
