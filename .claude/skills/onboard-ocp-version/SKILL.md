@@ -60,6 +60,9 @@ Replaces the manual 15+ step process with a single command, reducing time from 4
 - `--commit` - Make commits but don't push
 - `--push` - Make commits and push to remote
 - `--skip-phase N[,N...]` - Skip specific phases (1-4)
+- `--onboarded-range RANGE` - Release range for a new OCP entry in `config/new-config.yaml`
+- `--build-version VER` - Full Tekton build version override for one release line
+- `--repo-path PATH` - Path to the RHOAI-Build-Config checkout
 
 ## Prerequisites
 
@@ -153,13 +156,13 @@ while [[ $# -gt 0 ]]; do
       RHOAI_VERSIONS="$2"
       shift 2
       ;;
-    --dry-run|--commit|--push|--skip-phase)
+    --dry-run|--commit|--push)
       MODE_FLAGS+=("$1")
-      if [[ "$1" == "--skip-phase" ]]; then
-        MODE_FLAGS+=("$2")
-        shift
-      fi
       shift
+      ;;
+    --skip-phase|--onboarded-range|--build-version|--repo-path)
+      MODE_FLAGS+=("$1" "$2")
+      shift 2
       ;;
     *)
       echo "Unknown argument: $1"

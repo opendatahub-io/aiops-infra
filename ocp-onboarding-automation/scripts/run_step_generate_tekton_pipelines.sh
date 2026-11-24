@@ -14,6 +14,7 @@
 # Options:
 #   --ocp-version VER         OCP version (required)
 #   --rhoai-versions LIST     Comma-separated RHOAI versions (required)
+#   --build-version VER      Full build version override for one release line
 #   --repo-path PATH          Path to RHOAI-Build-Config repo (default: auto-detect)
 #   --commit                  Create git commit for generated files
 #   --push                    Push changes to remote (implies --commit)
@@ -31,11 +32,13 @@ REPO_PATH=""
 DO_COMMIT=false
 DO_PUSH=false
 DRY_RUN=false
+BUILD_VERSION_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ocp-version)      OCP_VERSION="$2"; shift 2 ;;
     --rhoai-versions)   RHOAI_VERSIONS="$2"; shift 2 ;;
+    --build-version)    BUILD_VERSION_OVERRIDE="$2"; shift 2 ;;
     --repo-path)        REPO_PATH="$2"; shift 2 ;;
     --commit)           DO_COMMIT=true; shift ;;
     --push)             DO_COMMIT=true; DO_PUSH=true; shift ;;
@@ -76,6 +79,11 @@ eval "$(bash "$SCRIPT_DIR/parse_ocp_version.sh" --version "$OCP_VERSION")"
 # Convert RHOAI versions to array
 IFS=',' read -ra RHOAI_ARRAY <<< "$RHOAI_VERSIONS"
 
+if [[ -n "$BUILD_VERSION_OVERRIDE" && "${#RHOAI_ARRAY[@]}" != 1 ]]; then
+  echo "ERROR: --build-version requires exactly one RHOAI release line" >&2
+  exit 1
+fi
+
 echo "==========================================="
 echo "Generate Tekton Pipelines for OCP Version"
 echo "==========================================="
@@ -90,6 +98,7 @@ echo
 
 # Checkout main branch
 cd "$REPO_PATH"
+REPO_PATH="$PWD"
 if [[ "$DRY_RUN" == false ]]; then
   echo "Checking out main branch..."
   git checkout main || {
@@ -112,7 +121,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
   RHOAI_VER="${RHOAI_VER#rhoai-}"
 
   # Generate compact version strings for filename
-  RHOAI_VAR="${RHOAI_VER//[.-]/}"  # 3.6 → 36, 3.5-ea.2 → 35ea2
+  RHOAI_VAR="${RHOAI_VER//./}"  # 3.6 → 36, 3.5-ea.2 → 35-ea2
   OCP_VAR="${OCP_VERSION_VAR}"     # 50, 419
 
   PIPELINE_FILE=".tekton/rhoai-fbc-fragment-rhoai-${RHOAI_VAR}-ocp-${OCP_VAR}-push.yaml"
@@ -121,16 +130,39 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
   echo "Processing rhoai-${RHOAI_VER}..."
   echo "  Pipeline file: $PIPELINE_FILE"
 
+  if [[ -e "$FULL_PATH" || -L "$FULL_PATH" ]]; then
+    echo "  Skipping existing PipelineRun"
+    continue
+  fi
+
+  BUILD_VERSION="$BUILD_VERSION_OVERRIDE"
+  if [[ -z "$BUILD_VERSION" ]]; then
+    for template in .tekton/rhoai-fbc-fragment-rhoai-"${RHOAI_VAR}"-ocp-*-push.yaml; do
+      [[ -f "$template" ]] || continue
+      if ! candidate=$(yq -r '.spec.params[] | select(.name == "rhoai-version") | .value' "$template") ||
+         [[ -z "$candidate" || "$candidate" == null || ( -n "$BUILD_VERSION" && "$candidate" != "$BUILD_VERSION" ) ]]; then
+        echo "ERROR: Cannot resolve a consistent build version for $RHOAI_VER. Supply --build-version." >&2
+        exit 1
+      fi
+      BUILD_VERSION="$candidate"
+    done
+    if [[ -z "$BUILD_VERSION" ]]; then
+      echo "ERROR: No dedicated push PipelineRun for $RHOAI_VER. Supply --build-version." >&2
+      exit 1
+    fi
+  fi
+
   if [[ "$DRY_RUN" == true ]]; then
     echo "  [DRY RUN] Would generate:"
     bash "$SCRIPT_DIR/generate_pipeline_yaml.sh" \
       --rhoai-version "$RHOAI_VER" \
+      --build-version "$BUILD_VERSION" \
       --ocp-version "$OCP_VERSION" \
-      --dry-run | head -20
+      --dry-run
     echo "  ..."
     RESULTS_VERSIONS+=("rhoai-${RHOAI_VER}")
     RESULTS_STATUS+=("dry-run")
-    ((SUCCESSFUL++))
+    ((++SUCCESSFUL))
   else
     # Create .tekton directory if it doesn't exist
     mkdir -p "$REPO_PATH/.tekton"
@@ -138,6 +170,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
     # Generate pipeline YAML
     if bash "$SCRIPT_DIR/generate_pipeline_yaml.sh" \
       --rhoai-version "$RHOAI_VER" \
+      --build-version "$BUILD_VERSION" \
       --ocp-version "$OCP_VERSION" \
       --output-file "$FULL_PATH"; then
 
@@ -145,12 +178,12 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
       GENERATED_FILES+=("$PIPELINE_FILE")
       RESULTS_VERSIONS+=("rhoai-${RHOAI_VER}")
       RESULTS_STATUS+=("success")
-      ((SUCCESSFUL++))
+      ((++SUCCESSFUL))
     else
       echo "  ERROR: Failed to generate pipeline"
       RESULTS_VERSIONS+=("rhoai-${RHOAI_VER}")
       RESULTS_STATUS+=("failed")
-      ((FAILED++))
+      ((++FAILED))
     fi
   fi
 
@@ -162,7 +195,7 @@ if [[ "$DO_COMMIT" == true && "$DRY_RUN" == false && ${#GENERATED_FILES[@]} -gt 
   cd "$REPO_PATH"
 
   echo "Committing generated pipeline files..."
-  git add .tekton/ || true
+  git add -- "${GENERATED_FILES[@]}"
 
   COMMIT_MSG="Add Tekton pipelines for OCP ${OCP_VERSION_FULL}
 
@@ -171,7 +204,7 @@ $(printf '  - %s\n' "${GENERATED_FILES[@]}")
 
 Co-Authored-By: OCP Onboarding Automation <noreply@redhat.com>"
 
-  if git commit -m "$COMMIT_MSG"; then
+  if git commit -m "$COMMIT_MSG" -- "${GENERATED_FILES[@]}"; then
     echo "  ✓ Committed ${#GENERATED_FILES[@]} pipeline files"
 
     if [[ "$DO_PUSH" == true ]]; then

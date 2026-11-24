@@ -320,11 +320,18 @@ bash scripts/run_step_generate_tekton_pipelines.sh \
 
 ### 11. `generate_pipeline_yaml.sh`
 
+The Tekton phase reads the full build version from existing dedicated push PipelineRuns
+for the selected RHOAI release line. Use `--build-version` with a single release
+line when the manifests are missing or disagree. For a new OCP entry in
+`config/new-config.yaml`, pass the supported release range explicitly with
+`--onboarded-range`. Onboarding preserves existing targets.
+
 Template-based Tekton pipeline YAML generator (used by run_step_generate_tekton_pipelines.sh).
 
 **Usage:**
 ```bash
 bash scripts/generate_pipeline_yaml.sh \
+  --build-version 3.6.0 \
   --rhoai-version 3.6 \
   --ocp-version 5.0 \
   --output-file /path/to/output.yaml

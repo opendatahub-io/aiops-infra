@@ -166,6 +166,8 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
     git pull --ff-only || echo "  Warning: Could not fast-forward"
   fi
 
+  CHANGED_PATHS=()
+
   # Step 1: Update catalog directory
   echo "  Step 1/2: Creating catalog directory..."
   CATALOG_DIR="$REPO_PATH/catalog"
@@ -185,6 +187,8 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
     ((++FAILED))
     echo
     continue
+  else
+    CHANGED_PATHS+=("catalog/$OCP_VERSION_DOTTED")
   fi
 
   # Step 2: Update build-config.yaml
@@ -208,6 +212,8 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
       ((++FAILED))
       echo
       continue
+    else
+      CHANGED_PATHS+=("config/build-config.yaml")
     fi
   else
     echo "  ⚠ build-config.yaml not found, skipping"
@@ -216,14 +222,14 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
   # Step 3: Commit changes
   if [[ "$DO_COMMIT" == true && "$DRY_RUN" == false ]]; then
     cd "$REPO_PATH"
-    if git diff --quiet && git diff --cached --quiet; then
+    if [[ -z "${CHANGED_PATHS[0]:-}" ]]; then
       echo "  ℹ No changes to commit"
       RESULTS_BRANCHES+=("$BRANCH_NAME")
       RESULTS_STATUS+=("success (no changes)")
       ((++SKIPPED))
     else
       echo "  Committing changes..."
-      git add catalog/ config/ || true
+      git add -- "${CHANGED_PATHS[@]}"
       COMMIT_MSG="Add OCP ${OCP_VERSION_FULL} support
 
 - Added catalog/v${OCP_VERSION_MAJOR}.${OCP_VERSION_MINOR}/ directory
@@ -231,7 +237,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
 
 Co-Authored-By: OCP Onboarding Automation <noreply@redhat.com>"
 
-      if git commit -m "$COMMIT_MSG"; then
+      if git commit -m "$COMMIT_MSG" -- "${CHANGED_PATHS[@]}"; then
         echo "  ✓ Committed changes"
 
         if [[ "$DO_PUSH" == true ]]; then

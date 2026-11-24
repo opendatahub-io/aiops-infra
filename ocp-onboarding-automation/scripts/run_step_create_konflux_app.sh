@@ -115,6 +115,11 @@ echo
 TARGET_DIR="tenants/rhoai/applications"
 FILENAME="ocp-${OCP_VERSION_VAR}.yaml"
 
+if [[ -e "$REPO_DIR/$TARGET_DIR/$FILENAME" || -L "$REPO_DIR/$TARGET_DIR/$FILENAME" ]]; then
+  echo "Skipping existing Konflux application: $FILENAME"
+  exit 0
+fi
+
 echo "Generating $FILENAME..."
 mkdir -p "$REPO_DIR/$TARGET_DIR"
 bash "$SCRIPT_DIR/generate_konflux_app_yaml.sh" \

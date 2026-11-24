@@ -26,6 +26,7 @@
 set -euo pipefail
 
 OCP_VERSION=""
+ONBOARDED_RANGE=""
 RHOAI_VERSIONS=""
 REPO_PATH=""
 DO_COMMIT=false
@@ -36,6 +37,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --ocp-version)      OCP_VERSION="$2"; shift 2 ;;
     --rhoai-versions)   RHOAI_VERSIONS="$2"; shift 2 ;;
+    --onboarded-range)  ONBOARDED_RANGE="$2"; shift 2 ;;
     --repo-path)        REPO_PATH="$2"; shift 2 ;;
     --commit)           DO_COMMIT=true; shift ;;
     --push)             DO_COMMIT=true; DO_PUSH=true; shift ;;
@@ -106,6 +108,25 @@ if [[ "$DRY_RUN" == false ]]; then
   echo
 fi
 
+# The range is release policy and must be supplied for a new OCP entry.
+CONFIG_PATH=config/new-config.yaml
+ADD_CONFIG=false
+if [[ -f "$REPO_PATH/$CONFIG_PATH" ]]; then
+  existing=$(OCP_TARGET="$OCP_VERSION_DOTTED" yq -r \
+    '.config."supported-ocp-versions"[] | select(.version == strenv(OCP_TARGET)) | .version' \
+    "$REPO_PATH/$CONFIG_PATH")
+  if [[ -z "$existing" ]]; then
+    if [[ -z "$ONBOARDED_RANGE" ]]; then
+      echo "ERROR: Supply --onboarded-range for $OCP_VERSION_DOTTED in $CONFIG_PATH" >&2
+      exit 1
+    fi
+    ADD_CONFIG=true
+  fi
+fi
+
+CHANGED_PATHS=()
+CATALOG_PRESENT=false
+
 # Track results
 RESULTS_VERSIONS=()
 RESULTS_STATUS=()
@@ -140,6 +161,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
     ${DRY_RUN_ARGS[@]+"${DRY_RUN_ARGS[@]}"} || EXIT_CODE=$?
 
   if [[ $EXIT_CODE == 2 ]]; then
+    CATALOG_PRESENT=true
     echo "  ℹ Already up-to-date"
     RESULTS_VERSIONS+=("rhoai-${RHOAI_VER}")
     RESULTS_STATUS+=("skipped (up-to-date)")
@@ -150,6 +172,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
     RESULTS_STATUS+=("failed")
     ((++FAILED))
   else
+    CHANGED_PATHS+=("$CATALOG_PATH/$OCP_VERSION_DOTTED")
     echo "  ✓ Updated successfully"
     RESULTS_VERSIONS+=("rhoai-${RHOAI_VER}")
     RESULTS_STATUS+=("success")
@@ -159,14 +182,25 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
   echo
 done
 
+if [[ "$FAILED" -eq 0 && "$ADD_CONFIG" == true && ( "$SUCCESSFUL" -gt 0 || "$CATALOG_PRESENT" == true ) ]]; then
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "[DRY RUN] Would add $OCP_VERSION_DOTTED with range $ONBOARDED_RANGE to $CONFIG_PATH"
+  else
+    OCP_TARGET="$OCP_VERSION_DOTTED" RELEASE_RANGE="$ONBOARDED_RANGE" yq -i \
+      '.config."supported-ocp-versions" += [{"version": strenv(OCP_TARGET), "onboarded-range": strenv(RELEASE_RANGE)}]' \
+      "$REPO_PATH/$CONFIG_PATH"
+    CHANGED_PATHS+=("$CONFIG_PATH")
+  fi
+fi
+
 # Commit changes if requested
 if [[ "$DO_COMMIT" == true && "$DRY_RUN" == false ]]; then
   cd "$REPO_PATH"
-  if git diff --quiet && git diff --cached --quiet; then
+  if [[ -z "${CHANGED_PATHS[0]:-}" ]]; then
     echo "No changes to commit"
   else
     echo "Committing changes to main branch..."
-    git add catalog/ || true
+    git add -- "${CHANGED_PATHS[@]}"
 
     COMMIT_MSG="Add OCP ${OCP_VERSION_FULL} support to main branch catalogs
 
@@ -175,7 +209,7 @@ if [[ "$DO_COMMIT" == true && "$DRY_RUN" == false ]]; then
 
 Co-Authored-By: OCP Onboarding Automation <noreply@redhat.com>"
 
-    if git commit -m "$COMMIT_MSG"; then
+    if git commit -m "$COMMIT_MSG" -- "${CHANGED_PATHS[@]}"; then
       echo "  ✓ Committed changes"
 
       if [[ "$DO_PUSH" == true ]]; then

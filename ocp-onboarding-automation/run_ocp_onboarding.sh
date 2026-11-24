@@ -36,6 +36,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Default values
 OCP_VERSION=""
 REPO_ARGS=()
+RANGE_ARGS=()
+BUILD_ARGS=()
 RHOAI_VERSIONS=""
 SKIP_PHASES=""
 MODE="dry-run"
@@ -60,6 +62,8 @@ Required:
 
 Options:
   --repo-path PATH          Path to RHOAI-Build-Config for phases 1–3
+  --onboarded-range RANGE    Supported release range for a new config/new-config.yaml entry
+  --build-version VER       Full Tekton build version override for a single release line
   --skip-phase N[,N...]     Skip specific phases (1-4)
   --dry-run                 Show what would be done (default)
   --commit                  Make commits but don't push
@@ -97,6 +101,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --rhoai-versions)
       RHOAI_VERSIONS="$2"
+      shift 2
+      ;;
+    --onboarded-range|--build-version)
+      if [[ -z "${2:-}" || "$2" == --* ]]; then
+        echo "ERROR: $1 requires a value" >&2
+        exit 1
+      fi
+      if [[ "$1" == --onboarded-range ]]; then
+        RANGE_ARGS=("$1" "$2")
+      else
+        BUILD_ARGS=("$1" "$2")
+      fi
       shift 2
       ;;
     --repo-path)
@@ -259,14 +275,16 @@ run_phase 2 "Update Main Branch Catalogs" \
   "run_step_update_main_catalog.sh" \
   --ocp-version "$OCP_VERSION" \
   --rhoai-versions "$RHOAI_VERSIONS" \
-  ${REPO_ARGS[@]+"${REPO_ARGS[@]}"}
+  ${REPO_ARGS[@]+"${REPO_ARGS[@]}"} \
+  ${RANGE_ARGS[@]+"${RANGE_ARGS[@]}"}
 
 # Phase 3: Generate Tekton Pipelines
 run_phase 3 "Generate Tekton PipelineRuns" \
   "run_step_generate_tekton_pipelines.sh" \
   --ocp-version "$OCP_VERSION" \
   --rhoai-versions "$RHOAI_VERSIONS" \
-  ${REPO_ARGS[@]+"${REPO_ARGS[@]}"}
+  ${REPO_ARGS[@]+"${REPO_ARGS[@]}"} \
+  ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"}
 
 # Phase 4: Konflux Integration (requires VPN + GitLab)
 if ! should_skip_phase 4; then

@@ -56,13 +56,10 @@ eval "$(bash "$SCRIPT_DIR/parse_ocp_version.sh" --version "$OCP_VERSION")"
 TARGET_DIR="$CATALOG_DIR/v${OCP_VERSION_MAJOR}.${OCP_VERSION_MINOR}"
 TARGET_DOCKERFILE="$TARGET_DIR/Dockerfile"
 
-# Check if target already exists and has correct base image
-if [[ -f "$TARGET_DOCKERFILE" ]]; then
-  CURRENT_BASE=$(grep -m1 '^FROM ' "$TARGET_DOCKERFILE" | awk '{print $2}')
-  if [[ "$CURRENT_BASE" == "$OCP_BASE_IMAGE" ]]; then
-    echo "Catalog directory v${OCP_VERSION_MAJOR}.${OCP_VERSION_MINOR} already exists with correct base image"
-    exit 2
-  fi
+# Existing catalogs may contain release-specific changes.
+if [[ -e "$TARGET_DIR" || -L "$TARGET_DIR" ]]; then
+  echo "Catalog already exists: $TARGET_DIR"
+  exit 2
 fi
 
 # Auto-detect source version if not provided
@@ -90,13 +87,9 @@ if [[ "$DRY_RUN" == true ]]; then
   exit 0
 fi
 
-# Create target directory by copying source
-if [[ -d "$TARGET_DIR" ]]; then
-  echo "  Directory exists, updating..."
-else
-  echo "  Copying from v${SOURCE_VERSION}..."
-  cp -r "$SOURCE_DIR" "$TARGET_DIR"
-fi
+# Reserve the target before copying so a concurrent run cannot overwrite it.
+mkdir "$TARGET_DIR"
+cp -R "$SOURCE_DIR/." "$TARGET_DIR/"
 
 # Update Dockerfile base image
 if [[ -f "$TARGET_DOCKERFILE" ]]; then

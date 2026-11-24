@@ -9,6 +9,7 @@
 #     --output-file /path/to/output.yaml
 #
 # Options:
+#   --build-version VER   Full RHOAI build version (required)
 #   --rhoai-version VER   RHOAI version (e.g., "3.6", "3.5-ea.2")
 #   --ocp-version VER     OCP version (e.g., "5.0", "4.19")
 #   --output-file FILE    Output YAML file path (required)
@@ -17,6 +18,7 @@
 set -euo pipefail
 
 RHOAI_VERSION=""
+BUILD_VERSION=""
 OCP_VERSION=""
 OUTPUT_FILE=""
 DRY_RUN=false
@@ -24,6 +26,7 @@ DRY_RUN=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --rhoai-version) RHOAI_VERSION="$2"; shift 2 ;;
+    --build-version) BUILD_VERSION="$2"; shift 2 ;;
     --ocp-version)   OCP_VERSION="$2"; shift 2 ;;
     --output-file)   OUTPUT_FILE="$2"; shift 2 ;;
     --dry-run)       DRY_RUN=true; shift ;;
@@ -51,16 +54,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 eval "$(bash "$SCRIPT_DIR/parse_ocp_version.sh" --version "$OCP_VERSION")"
 
 # Parse RHOAI version
-# Always use fallback parsing for now (simple and reliable)
 RHOAI_VER_CLEAN="${RHOAI_VERSION#rhoai-}"  # Remove rhoai- prefix if present
-VERSION_VAR="${RHOAI_VER_CLEAN//[.-]/-}"    # 3.6 → 3-6, 3.5-ea.2 → 3-5-ea-2
 BRANCH_VAR="${RHOAI_VER_CLEAN//-ea./-ea-}"  # 3.5-ea.2 → 3.5-ea-2
 BRANCH_NAME="rhoai-${BRANCH_VAR}"
-RHOAI_MINOR_VERSION="${RHOAI_VER_CLEAN}.0"  # Simple append .0
+if [[ ! "$BUILD_VERSION" =~ ^[0-9]+[.][0-9]+[.][0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+  echo "ERROR: --build-version must be a full RHOAI release version" >&2
+  exit 1
+fi
+BUILD_CORE="${BUILD_VERSION%%-*}"
+BUILD_LINE="${BUILD_CORE%.*}${BUILD_VERSION#"$BUILD_CORE"}"
+if [[ "$BUILD_LINE" != "$RHOAI_VER_CLEAN" ]]; then
+  echo "ERROR: Build version $BUILD_VERSION does not match $RHOAI_VER_CLEAN" >&2
+  exit 1
+fi
 
 # Generate component-specific variables
 # For main branch: rhoai-36, ocp-419, 3-6, 4-19
-RHOAI_VAR="${VERSION_VAR//[.-]/}"      # Remove all dots and dashes: 36, 35ea2
+RHOAI_VAR="${RHOAI_VER_CLEAN//./}"   # 3.6 → 36, 3.5-ea.2 → 35-ea2
 OCP_VAR="${OCP_VERSION_VAR}"           # From parse_ocp_version: 50, 419
 
 # Component name: rhoai-fbc-fragment-rhoai-36-ocp-50-push.yaml
@@ -137,7 +147,7 @@ spec:
   - name: build-type
     value: \"stage\"   # Possible values: 'nightly', 'stage', 'ci'
   - name: rhoai-version
-    value: \"${RHOAI_MINOR_VERSION}\"
+    value: \"${BUILD_VERSION}\"
   - name: ocp-version
     value: \"${OCP_VERSION_FULL}\"
   - name: fbc-pipeline-branch
@@ -163,6 +173,6 @@ status: {}"
 if [[ "$DRY_RUN" == true ]]; then
   echo "$YAML_CONTENT"
 else
-  echo "$YAML_CONTENT" > "$OUTPUT_FILE"
+  (set -o noclobber; printf '%s\n' "$YAML_CONTENT" > "$OUTPUT_FILE")
   echo "Generated pipeline: $OUTPUT_FILE"
 fi
