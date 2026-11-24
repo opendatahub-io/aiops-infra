@@ -22,7 +22,10 @@
 #   1  Build not found, still running, or failed
 set -euo pipefail
 
-export PATH="${HOME}/.local/bin:${PATH}"
+# Append rather than prepend so callers and tests that provide their own `uv`
+# (for example a mock) keep precedence; `~/.local/bin` only needs to supply it
+# when it is not already on PATH.
+export PATH="${PATH}:${HOME}/.local/bin"
 
 info()  { echo "[INFO]  $*" >&2; }
 error() { echo "[ERROR] $*" >&2; }

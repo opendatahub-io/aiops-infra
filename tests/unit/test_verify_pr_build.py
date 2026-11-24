@@ -37,6 +37,7 @@ def _mock_bin(tmp_path: Path) -> Path:
         bin_dir / "uv",
         """
         #!/usr/bin/env bash
+        echo "$*" >> "${UV_LOG:?}"
         exit 0
         """,
     )
@@ -126,12 +127,15 @@ def _run(tmp_path: Path, *, pr_status: str, timeout: str = "5"):
     workdir = tmp_path / "work"
     curl_log = tmp_path / "curl.log"
     curl_log.write_text("", encoding="utf-8")
+    uv_log = tmp_path / "uv.log"
+    uv_log.write_text("", encoding="utf-8")
     env = os.environ.copy()
     env.update(
         {
             "PATH": f"{bin_dir}:{env['PATH']}",
             "GITHUB_TOKEN": "test-token",
             "CURL_LOG": str(curl_log),
+            "UV_LOG": str(uv_log),
             "WORKDIR": str(workdir),
             "TMPDIR": str(tmp_path),
             "PR_BUILD_TIMEOUT": timeout,
@@ -163,11 +167,11 @@ def _run(tmp_path: Path, *, pr_status: str, timeout: str = "5"):
         env=env,
         check=False,
     )
-    return result, workdir, curl_log
+    return result, workdir, curl_log, uv_log
 
 
 def test_verifies_pr_build_and_cleans_up(tmp_path: Path):
-    result, workdir, curl_log = _run(tmp_path, pr_status="True")
+    result, workdir, curl_log, uv_log = _run(tmp_path, pr_status="True")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Pull-request build verified" in result.stdout
@@ -176,16 +180,20 @@ def test_verifies_pr_build_and_cleans_up(tmp_path: Path):
     assert "POST https://api.github.com/repos/red-hat-data-services/sample/pulls" in calls
     assert "PATCH https://api.github.com/repos/red-hat-data-services/sample/pulls/42" in calls
     assert "DELETE https://api.github.com/repos/red-hat-data-services/sample/git/refs/heads/" in calls
+    # The mock must receive the Jira comment call: the real `uv` would post
+    # fixture values to the production ticket.
+    assert "update_jira_issue.py" in uv_log.read_text(encoding="utf-8")
 
 
 def test_timeout_keeps_pr_for_retry_and_retry_reuses_it(tmp_path: Path):
-    first, workdir, _ = _run(tmp_path, pr_status="running", timeout="0")
+    first, workdir, _, first_uv = _run(tmp_path, pr_status="running", timeout="0")
     assert first.returncode == 1
+    assert "update_jira_issue.py" in first_uv.read_text(encoding="utf-8")
     state = workdir / "pr_build_verify.json"
     assert state.exists()
     assert '"pr_number": 42' in state.read_text(encoding="utf-8")
 
-    second, _, curl_log = _run(tmp_path, pr_status="True")
+    second, _, curl_log, second_uv = _run(tmp_path, pr_status="True")
     assert second.returncode == 0, second.stdout + second.stderr
     assert not state.exists()
     assert "Reusing existing verification PR #42" in second.stderr
@@ -193,3 +201,4 @@ def test_timeout_keeps_pr_for_retry_and_retry_reuses_it(tmp_path: Path):
     # The retry must not open a second PR.
     assert calls.count("POST https://api.github.com/repos/red-hat-data-services/sample/pulls") == 0
     assert "DELETE https://api.github.com/repos/red-hat-data-services/sample/git/refs/heads/" in calls
+    assert "update_jira_issue.py" in second_uv.read_text(encoding="utf-8")
