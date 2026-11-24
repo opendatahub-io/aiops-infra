@@ -77,7 +77,10 @@ BV_OUTPUT=$(bash "$SCRIPTS_DIR/verify_build.sh" \
   --jira-url        "$JIRA_URL" \
   --component-name  "$COMPONENT_NAME" \
   --product-context "$PRODUCT_CONTEXT" \
-  --version-var     "${VERSION_VAR:-}" 2>&1) || {
+  --version-var     "${VERSION_VAR:-}" \
+  --repo-url        "${REPO_URL:-}" \
+  --repo-branch     "${REPO_BRANCH:-}" \
+  --workdir         "$WORKDIR" 2>&1) || {
   echo "$BV_OUTPUT"
   echo "ERROR: Bundle integration blocked — Konflux build verification failed. See details above."
   exit 1

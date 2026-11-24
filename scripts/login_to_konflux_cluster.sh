@@ -2,15 +2,18 @@
 # login_to_konflux_cluster.sh — Log in to a Konflux OpenShift cluster using oc cli.
 #
 # Usage:
-#   login_to_konflux_cluster.sh [external|internal]
+#   login_to_konflux_cluster.sh [external|internal|p01]
 #
 #   external (default) — stone-prd-rh01  (ODH builds)
-#   internal           — stone-prod-p02  (RHOAI builds)
+#   internal           — stone-prod-p02  (RHOAI push builds)
+#   p01                — stone-prod-p01  (RHOAI pull-request builds)
 #
 # Environment:
 #   EXT_OC_TOKEN  — optional; token for the external Konflux cluster (stone-prd-rh01).
 #                   Required only when no matching kubeconfig context is found.
 #   INT_OC_TOKEN  — optional; token for the internal Konflux cluster (stone-prod-p02).
+#                   Required only when no matching kubeconfig context is found.
+#   P01_OC_TOKEN  — optional; token for the P01 Konflux cluster (stone-prod-p01).
 #                   Required only when no matching kubeconfig context is found.
 #
 # Exit codes:
@@ -28,11 +31,13 @@ CLUSTER_INSTANCE="${1:-external}"
 
 EXTERNAL_API="https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com:6443"
 INTERNAL_API="https://api.stone-prod-p02.hjvn.p1.openshiftapps.com:6443"
+P01_API="https://api.stone-prod-p01.wcfb.p1.openshiftapps.com:6443"
 
 case "$CLUSTER_INSTANCE" in
   external) API_SERVER="$EXTERNAL_API" ;;
   internal) API_SERVER="$INTERNAL_API" ;;
-  *) die "Invalid cluster instance '$CLUSTER_INSTANCE'. Must be 'external' or 'internal'." ;;
+  p01)      API_SERVER="$P01_API" ;;
+  *) die "Invalid cluster instance '$CLUSTER_INSTANCE'. Must be 'external', 'internal', or 'p01'." ;;
 esac
 
 # ── Check oc is available ───────────────────────────────────────────────────────
@@ -69,13 +74,20 @@ if oc config get-contexts &>/dev/null 2>&1; then
 fi
 
 # ── Select cluster-specific token ───────────────────────────────────────────────
-if [[ "$CLUSTER_INSTANCE" == "external" ]]; then
-  TOKEN="${EXT_OC_TOKEN:-}"
-  TOKEN_VAR="EXT_OC_TOKEN"
-else
-  TOKEN="${INT_OC_TOKEN:-}"
-  TOKEN_VAR="INT_OC_TOKEN"
-fi
+case "$CLUSTER_INSTANCE" in
+  external)
+    TOKEN="${EXT_OC_TOKEN:-}"
+    TOKEN_VAR="EXT_OC_TOKEN"
+    ;;
+  internal)
+    TOKEN="${INT_OC_TOKEN:-}"
+    TOKEN_VAR="INT_OC_TOKEN"
+    ;;
+  p01)
+    TOKEN="${P01_OC_TOKEN:-}"
+    TOKEN_VAR="P01_OC_TOKEN"
+    ;;
+esac
 
 if [[ -z "$TOKEN" ]]; then
   die "No valid kubeconfig context found and $TOKEN_VAR is not set.

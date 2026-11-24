@@ -75,12 +75,14 @@ if [[ ! -f "$PIPELINE_STATE" ]]; then
   # pull_pipelines depends on krd (RHOAI-only step, so no conditional needed)
   PULL_PIPELINES_DEPENDS_ON='["krd"]'
 
-  # bundle depends on onboarder_workflow (ODH) or okc (RHOAI)
+  # bundle depends on onboarder_workflow (ODH) or okc + pull_pipelines (RHOAI).
+  # The bundle step verifies both the P02 push build and the P01 pull-request
+  # build, so the PR PipelineRun PR must be merged before it runs.
   BUNDLE_DEPENDS_ON="[]"
   if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
     BUNDLE_DEPENDS_ON='["onboarder_workflow"]'
   elif [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
-    BUNDLE_DEPENDS_ON='["okc"]'
+    BUNDLE_DEPENDS_ON='["okc", "pull_pipelines"]'
   fi
 
   # krd_rpa (RHOAI-only) runs alongside build-config / bundle — after okc merges
@@ -375,6 +377,12 @@ else
       jq '.steps.bundle.depends_on = ((.steps.bundle.depends_on // []) + ["okc"] | unique)' \
         "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
       echo "  bundle.depends_on: added okc (RHOAI prerequisite)" >&2
+    fi
+    if ! jq -e '.steps.bundle.depends_on | index("pull_pipelines") != null' "$PIPELINE_STATE" > /dev/null 2>&1; then
+      TMP=$(mktemp)
+      jq '.steps.bundle.depends_on = ((.steps.bundle.depends_on // []) + ["pull_pipelines"] | unique)' \
+        "$PIPELINE_STATE" > "$TMP" && mv "$TMP" "$PIPELINE_STATE"
+      echo "  bundle.depends_on: added pull_pipelines (RHOAI PR-build prerequisite)" >&2
     fi
   fi
 

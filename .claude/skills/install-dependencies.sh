@@ -297,6 +297,7 @@ else
   echo ""
   echo "Optional Konflux cluster login:"
   echo "  export EXT_OC_TOKEN=your-external-cluster-token  # stone-prd-rh01 (ODH builds)"
-  echo "  export INT_OC_TOKEN=your-internal-cluster-token  # stone-prod-p02 (RHOAI builds)"
+  echo "  export INT_OC_TOKEN=your-internal-cluster-token  # stone-prod-p02 (RHOAI push builds)"
+  echo "  export P01_OC_TOKEN=your-p01-cluster-token       # stone-prod-p01 (RHOAI pull-request builds)"
   echo ""
 fi

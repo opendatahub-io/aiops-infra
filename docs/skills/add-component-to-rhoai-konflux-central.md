@@ -64,3 +64,18 @@ The push run uses the P02 account; the PR run uses the separate P01 account
 with the same name. Konflux provisions these from each cluster's versioned
 Component. No P02 service-account token or hardcoded
 `redhat-appstudio-staginguser-pull-secret` pod override is copied to P01.
+
+Both PipelineRun files are rendered by the same script
+(`scripts/render_rhoai_pipelinerun.sh`). The push file uses the ticket's
+`architectures`; the PR file always builds `linux/x86_64`. Both include the
+`rpms-signature-scan` resource override, `build-source-image`, and
+`build-image-index`, and neither sets PipelineRun-level `timeouts`. The PR file
+also emits `version=on-pr-{{revision}}` and
+`io.openshift.tags=<component_name>` as `additional-labels`; the push file does
+not. Component-specific `build-args` are intentionally not generated and can be
+added manually when a component needs them.
+
+After the `okc` and `pull_pipelines` PRs merge, the `bundle` step verifies the
+P02 push build and then the P01 pull-request build. The PR verification opens a
+temporary `DO NOT MERGE` PR in the component repository and closes it after the
+build result is known.

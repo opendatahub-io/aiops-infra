@@ -186,17 +186,98 @@ def test_odh_keeps_existing_single_cluster_shortcut(onboarding):
     assert not _git(clone, "status", "--porcelain")
 
 
-def test_push_template_routes_to_p02_and_keeps_versioned_service_account(tmp_path):
-    source = (ROOT / "scripts/run_step_add_to_rhoai_okc.sh").read_text()
-    template = source.split('cat > "$PIPELINERUN_PATH" <<PIPELINERUN_EOF\n', 1)[1].split('\nPIPELINERUN_EOF', 1)[0]
+def _render_pipelinerun(mode: str, *extra: str) -> dict:
+    renderer = ROOT / "scripts/render_rhoai_pipelinerun.sh"
     result = subprocess.run(
-        ["bash"], input="cat <<PIPELINERUN_EOF\n" + template + "\nPIPELINERUN_EOF\n",
-        env=dict(os.environ, COMPONENT_NAME="odh-sample", VERSION_VAR="v3-7-ea-1", BRANCH_NAME="rhoai-3.7-ea.1"),
-        text=True, capture_output=True, check=True,
+        [
+            "bash",
+            str(renderer),
+            "--mode",
+            mode,
+            "--component-name",
+            "odh-sample",
+            "--version-var",
+            "v3-7-ea-1",
+            "--branch-name",
+            "rhoai-3.7-ea.1",
+            "--repo-url",
+            "https://github.com/red-hat-data-services/sample",
+            "--context-path",
+            ".",
+            "--dockerfile-path",
+            "Dockerfile.konflux",
+            "--rhoai-minor-version",
+            "3.7.0-ea.1",
+            *extra,
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
     )
-    doc = yaml.safe_load(result.stdout)
+    return yaml.safe_load(result.stdout)
+
+
+def test_push_template_routes_to_p02_and_keeps_versioned_service_account():
+    doc = _render_pipelinerun(
+        "push", "--platforms", "linux/x86_64,linux-m2xlarge/arm64"
+    )
     expression = doc["metadata"]["annotations"]["pipelinesascode.tekton.dev/on-cel-expression"]
     assert expression.startswith('konflux_cluster == "stone-prod-p02"\n&& event == "push"\n')
     assert 'target_branch == "rhoai-3.7-ea.1"' in expression
     assert doc["spec"]["taskRunTemplate"]["serviceAccountName"] == "build-pipeline-odh-sample-v3-7-ea-1"
     assert "podTemplate" not in doc["spec"]["taskRunTemplate"]
+    params = {item["name"]: item["value"] for item in doc["spec"]["params"]}
+    assert params["build-platforms"] == ["linux/x86_64", "linux-m2xlarge/arm64"]
+    assert "additional-tags" in params
+    assert "on-comment" not in doc["metadata"]["annotations"]
+    assert "timeouts" not in doc["spec"]
+    assert doc["spec"]["taskRunSpecs"][0]["pipelineTaskName"] == "rpms-signature-scan"
+
+
+def test_pull_request_and_push_templates_share_common_fields():
+    pr = _render_pipelinerun("pull-request")
+    push = _render_pipelinerun("push", "--platforms", "linux/x86_64,linux-s390x/s390x")
+
+    pr_params = {item["name"]: item["value"] for item in pr["spec"]["params"]}
+    push_params = {item["name"]: item["value"] for item in push["spec"]["params"]}
+
+    common = {
+        "git-url",
+        "revision",
+        "output-image",
+        "dockerfile",
+        "path-context",
+        "hermetic",
+        "rhoai-version",
+        "build-source-image",
+        "build-image-index",
+        "build-platforms",
+    }
+    assert common <= pr_params.keys()
+    assert common <= push_params.keys()
+    for name in common:
+        if name in {"output-image", "build-platforms"}:
+            continue
+        assert pr_params[name] == push_params[name]
+
+    assert pr["metadata"]["labels"] == push["metadata"]["labels"]
+    assert pr["spec"]["taskRunTemplate"] == push["spec"]["taskRunTemplate"]
+    assert pr["spec"]["taskRunSpecs"] == push["spec"]["taskRunSpecs"]
+    assert pr["spec"]["workspaces"] == push["spec"]["workspaces"]
+
+    # Intentional event-specific differences.
+    assert pr_params["build-platforms"] == ["linux/x86_64"]
+    assert push_params["build-platforms"] == ["linux/x86_64", "linux-s390x/s390x"]
+    assert "additional-tags" not in pr_params
+    assert "additional-tags" in push_params
+    assert pr_params["additional-labels"] == [
+        "version=on-pr-{{revision}}",
+        "io.openshift.tags=odh-sample",
+    ]
+    assert "additional-labels" not in push_params
+    assert pr_params["image-expires-after"] == "30d"
+    assert "image-expires-after" not in push_params
+    assert pr["metadata"]["annotations"]["build.appstudio.redhat.com/pull_request_number"] == (
+        "{{pull_request_number}}"
+    )
+    assert "build.appstudio.redhat.com/pull_request_number" not in push["metadata"]["annotations"]
