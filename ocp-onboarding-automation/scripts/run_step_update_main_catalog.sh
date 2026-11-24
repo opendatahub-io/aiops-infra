@@ -43,6 +43,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+DRY_RUN_ARGS=()
+if [[ "$DRY_RUN" == true ]]; then
+  DRY_RUN_ARGS=(--dry-run)
+fi
+
 
 [[ -z "$OCP_VERSION" ]] && {
   echo "ERROR: --ocp-version is required" >&2
@@ -122,43 +127,33 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
     echo "  ⚠ Catalog directory not found: $CATALOG_PATH"
     RESULTS_VERSIONS+=("rhoai-${RHOAI_VER}")
     RESULTS_STATUS+=("skipped (catalog not found)")
-    ((SKIPPED++))
+    ((++SKIPPED))
     echo
     continue
   fi
 
   # Update catalog directory
-  if [[ "$DRY_RUN" == true ]]; then
-    bash "$SCRIPT_DIR/update_catalog_directory.sh" \
-      --catalog-dir "$REPO_PATH/$CATALOG_PATH" \
-      --ocp-version "$OCP_VERSION" \
-      --dry-run
-    EXIT_CODE=0
-  else
-    if bash "$SCRIPT_DIR/update_catalog_directory.sh" \
-      --catalog-dir "$REPO_PATH/$CATALOG_PATH" \
-      --ocp-version "$OCP_VERSION"; then
-      EXIT_CODE=$?
-    else
-      EXIT_CODE=$?
-    fi
-  fi
+  EXIT_CODE=0
+  bash "$SCRIPT_DIR/update_catalog_directory.sh" \
+    --catalog-dir "$REPO_PATH/$CATALOG_PATH" \
+    --ocp-version "$OCP_VERSION" \
+    ${DRY_RUN_ARGS[@]+"${DRY_RUN_ARGS[@]}"} || EXIT_CODE=$?
 
   if [[ $EXIT_CODE == 2 ]]; then
     echo "  ℹ Already up-to-date"
     RESULTS_VERSIONS+=("rhoai-${RHOAI_VER}")
     RESULTS_STATUS+=("skipped (up-to-date)")
-    ((SKIPPED++))
+    ((++SKIPPED))
   elif [[ $EXIT_CODE != 0 ]]; then
     echo "  ERROR: Failed to update catalog"
     RESULTS_VERSIONS+=("rhoai-${RHOAI_VER}")
     RESULTS_STATUS+=("failed")
-    ((FAILED++))
+    ((++FAILED))
   else
     echo "  ✓ Updated successfully"
     RESULTS_VERSIONS+=("rhoai-${RHOAI_VER}")
     RESULTS_STATUS+=("success")
-    ((SUCCESSFUL++))
+    ((++SUCCESSFUL))
   fi
 
   echo

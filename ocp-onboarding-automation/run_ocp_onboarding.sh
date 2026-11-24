@@ -21,6 +21,7 @@
 # Options:
 #   --ocp-version VER         OCP version to onboard (required)
 #   --rhoai-versions LIST     Comma-separated RHOAI versions (required)
+#   --repo-path PATH          Path to RHOAI-Build-Config for phases 1–3
 #   --skip-phase N[,N...]     Skip specific phases (1-4)
 #   --dry-run                 Show what would be done (default)
 #   --commit                  Make commits but don't push
@@ -34,6 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Default values
 OCP_VERSION=""
+REPO_ARGS=()
 RHOAI_VERSIONS=""
 SKIP_PHASES=""
 MODE="dry-run"
@@ -57,6 +59,7 @@ Required:
   --rhoai-versions LIST     Comma-separated RHOAI versions (e.g., "3.6,3.5,3.4")
 
 Options:
+  --repo-path PATH          Path to RHOAI-Build-Config for phases 1–3
   --skip-phase N[,N...]     Skip specific phases (1-4)
   --dry-run                 Show what would be done (default)
   --commit                  Make commits but don't push
@@ -94,6 +97,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --rhoai-versions)
       RHOAI_VERSIONS="$2"
+      shift 2
+      ;;
+    --repo-path)
+      if [[ -z "${2:-}" || "$2" == --* ]]; then
+        echo "ERROR: --repo-path requires a path" >&2
+        exit 1
+      fi
+      REPO_ARGS=(--repo-path "$2")
       shift 2
       ;;
     --skip-phase)
@@ -240,19 +251,22 @@ run_phase() {
 run_phase 1 "Update RHOAI Release Branches" \
   "run_step_update_release_branches.sh" \
   --ocp-version "$OCP_VERSION" \
-  --rhoai-versions "$RHOAI_VERSIONS"
+  --rhoai-versions "$RHOAI_VERSIONS" \
+  ${REPO_ARGS[@]+"${REPO_ARGS[@]}"}
 
 # Phase 2: Update Main Branch Catalogs
 run_phase 2 "Update Main Branch Catalogs" \
   "run_step_update_main_catalog.sh" \
   --ocp-version "$OCP_VERSION" \
-  --rhoai-versions "$RHOAI_VERSIONS"
+  --rhoai-versions "$RHOAI_VERSIONS" \
+  ${REPO_ARGS[@]+"${REPO_ARGS[@]}"}
 
 # Phase 3: Generate Tekton Pipelines
 run_phase 3 "Generate Tekton PipelineRuns" \
   "run_step_generate_tekton_pipelines.sh" \
   --ocp-version "$OCP_VERSION" \
-  --rhoai-versions "$RHOAI_VERSIONS"
+  --rhoai-versions "$RHOAI_VERSIONS" \
+  ${REPO_ARGS[@]+"${REPO_ARGS[@]}"}
 
 # Phase 4: Konflux Integration (requires VPN + GitLab)
 if ! should_skip_phase 4; then

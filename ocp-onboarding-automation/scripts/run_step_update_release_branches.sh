@@ -66,6 +66,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+DRY_RUN_ARGS=()
+if [[ "$DRY_RUN" == true ]]; then
+  DRY_RUN_ARGS=(--dry-run)
+fi
+
 
 [[ -z "$OCP_VERSION" ]] && {
   echo "ERROR: --ocp-version is required" >&2
@@ -139,7 +144,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
       echo "  ⚠ Branch $BRANCH_NAME not found (local or remote), skipping"
       RESULTS_BRANCHES+=("$BRANCH_NAME")
       RESULTS_STATUS+=("skipped (branch not found)")
-      ((SKIPPED++))
+      ((++SKIPPED))
       echo
       continue
     fi
@@ -154,7 +159,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
       echo "  ERROR: Failed to checkout $BRANCH_NAME"
       RESULTS_BRANCHES+=("$BRANCH_NAME")
       RESULTS_STATUS+=("failed (checkout error)")
-      ((FAILED++))
+      ((++FAILED))
       echo
       continue
     fi
@@ -165,21 +170,11 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
   echo "  Step 1/2: Creating catalog directory..."
   CATALOG_DIR="$REPO_PATH/catalog"
 
-  if [[ "$DRY_RUN" == true ]]; then
-    bash "$SCRIPT_DIR/update_catalog_directory.sh" \
-      --catalog-dir "$CATALOG_DIR" \
-      --ocp-version "$OCP_VERSION" \
-      --dry-run
-    CATALOG_EXIT=0
-  else
-    if bash "$SCRIPT_DIR/update_catalog_directory.sh" \
-      --catalog-dir "$CATALOG_DIR" \
-      --ocp-version "$OCP_VERSION"; then
-      CATALOG_EXIT=$?
-    else
-      CATALOG_EXIT=$?
-    fi
-  fi
+  CATALOG_EXIT=0
+  bash "$SCRIPT_DIR/update_catalog_directory.sh" \
+    --catalog-dir "$CATALOG_DIR" \
+    --ocp-version "$OCP_VERSION" \
+    ${DRY_RUN_ARGS[@]+"${DRY_RUN_ARGS[@]}"} || CATALOG_EXIT=$?
 
   if [[ $CATALOG_EXIT == 2 ]]; then
     echo "  ℹ Catalog directory already up-to-date"
@@ -187,7 +182,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
     echo "  ERROR: Failed to update catalog directory"
     RESULTS_BRANCHES+=("$BRANCH_NAME")
     RESULTS_STATUS+=("failed (catalog update error)")
-    ((FAILED++))
+    ((++FAILED))
     echo
     continue
   fi
@@ -197,23 +192,12 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
   BUILD_CONFIG="$REPO_PATH/config/build-config.yaml"
 
   if [[ -f "$BUILD_CONFIG" ]]; then
-    if [[ "$DRY_RUN" == true ]]; then
-      bash "$SCRIPT_DIR/update_build_config.sh" \
-        --config-file "$BUILD_CONFIG" \
-        --ocp-version "$OCP_VERSION" \
-        --action "$ACTION" \
-        --dry-run
-      CONFIG_EXIT=0
-    else
-      if bash "$SCRIPT_DIR/update_build_config.sh" \
-        --config-file "$BUILD_CONFIG" \
-        --ocp-version "$OCP_VERSION" \
-        --action "$ACTION"; then
-        CONFIG_EXIT=$?
-      else
-        CONFIG_EXIT=$?
-      fi
-    fi
+    CONFIG_EXIT=0
+    bash "$SCRIPT_DIR/update_build_config.sh" \
+      --config-file "$BUILD_CONFIG" \
+      --ocp-version "$OCP_VERSION" \
+      --action "$ACTION" \
+      ${DRY_RUN_ARGS[@]+"${DRY_RUN_ARGS[@]}"} || CONFIG_EXIT=$?
 
     if [[ $CONFIG_EXIT == 2 ]]; then
       echo "  ℹ build-config.yaml already up-to-date"
@@ -221,7 +205,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
       echo "  ERROR: Failed to update build-config.yaml"
       RESULTS_BRANCHES+=("$BRANCH_NAME")
       RESULTS_STATUS+=("failed (build-config error)")
-      ((FAILED++))
+      ((++FAILED))
       echo
       continue
     fi
@@ -236,7 +220,7 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
       echo "  ℹ No changes to commit"
       RESULTS_BRANCHES+=("$BRANCH_NAME")
       RESULTS_STATUS+=("success (no changes)")
-      ((SKIPPED++))
+      ((++SKIPPED))
     else
       echo "  Committing changes..."
       git add catalog/ config/ || true
@@ -256,33 +240,33 @@ Co-Authored-By: OCP Onboarding Automation <noreply@redhat.com>"
             echo "  ✓ Pushed to remote"
             RESULTS_BRANCHES+=("$BRANCH_NAME")
             RESULTS_STATUS+=("success (pushed)")
-            ((SUCCESSFUL++))
+            ((++SUCCESSFUL))
           else
             echo "  ERROR: Failed to push"
             RESULTS_BRANCHES+=("$BRANCH_NAME")
             RESULTS_STATUS+=("success (committed, push failed)")
-            ((FAILED++))
+            ((++FAILED))
           fi
         else
           RESULTS_BRANCHES+=("$BRANCH_NAME")
           RESULTS_STATUS+=("success (committed)")
-          ((SUCCESSFUL++))
+          ((++SUCCESSFUL))
         fi
       else
         echo "  ERROR: Failed to commit"
         RESULTS_BRANCHES+=("$BRANCH_NAME")
         RESULTS_STATUS+=("failed (commit error)")
-        ((FAILED++))
+        ((++FAILED))
       fi
     fi
   elif [[ "$DRY_RUN" == true ]]; then
     RESULTS_BRANCHES+=("$BRANCH_NAME")
     RESULTS_STATUS+=("dry-run")
-    ((SUCCESSFUL++))
+    ((++SUCCESSFUL))
   else
     RESULTS_BRANCHES+=("$BRANCH_NAME")
     RESULTS_STATUS+=("success (changes not committed)")
-    ((SUCCESSFUL++))
+    ((++SUCCESSFUL))
   fi
 
   echo "  ✓ Completed $BRANCH_NAME"
