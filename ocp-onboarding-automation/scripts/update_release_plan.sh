@@ -1,117 +1,116 @@
 #!/usr/bin/env bash
-# Update ReleasePlan and ReleasePlanAdmission files for affected RHOAI releases.
-# This script is typically called after Konflux app creation.
-#
-# Usage:
-#   bash update_release_plan.sh \
-#     --ocp-version 5.0 \
-#     --rhoai-versions "3.6,3.5" \
-#     --krd-repo-path /path/to/konflux-release-data
-#
-# Options:
-#   --ocp-version VER         OCP version to add (required)
-#   --rhoai-versions LIST     Comma-separated RHOAI versions (required)
-#   --krd-repo-path PATH      Path to cloned konflux-release-data repo (required)
-#   --dry-run                 Show what would be changed
-
+# Add a new OCP FBC ReleasePlan to each selected release's stage and prod configuration.
 set -euo pipefail
 
 OCP_VERSION=""
 RHOAI_VERSIONS=""
 KRD_REPO_PATH=""
 DRY_RUN=false
-
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --ocp-version)      OCP_VERSION="$2"; shift 2 ;;
-    --rhoai-versions)   RHOAI_VERSIONS="$2"; shift 2 ;;
-    --krd-repo-path)    KRD_REPO_PATH="$2"; shift 2 ;;
-    --dry-run)          DRY_RUN=true; shift ;;
+    --ocp-version|--rhoai-versions|--krd-repo-path)
+      if [[ -z "${2:-}" || "$2" == --* ]]; then
+        echo "ERROR: $1 requires a value" >&2
+        exit 1
+      fi
+      case "$1" in
+        --ocp-version) OCP_VERSION="$2" ;;
+        --rhoai-versions) RHOAI_VERSIONS="$2" ;;
+        --krd-repo-path) KRD_REPO_PATH="$2" ;;
+      esac
+      shift 2
+      ;;
+    --dry-run) DRY_RUN=true; shift ;;
     *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
-[[ -z "$OCP_VERSION" ]] && {
-  echo "ERROR: --ocp-version is required" >&2
+if [[ -z "$OCP_VERSION" || -z "$RHOAI_VERSIONS" || -z "$KRD_REPO_PATH" ]]; then
+  echo "ERROR: --ocp-version, --rhoai-versions, and --krd-repo-path are required" >&2
   exit 1
-}
-
-[[ -z "$RHOAI_VERSIONS" ]] && {
-  echo "ERROR: --rhoai-versions is required" >&2
-  exit 1
-}
-
-[[ -z "$KRD_REPO_PATH" ]] && {
-  echo "ERROR: --krd-repo-path is required" >&2
-  exit 1
-}
-
-[[ ! -d "$KRD_REPO_PATH" ]] && {
-  echo "ERROR: Repository path not found: $KRD_REPO_PATH" >&2
-  exit 1
-}
-
-# Parse OCP version
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-eval "$(bash "$SCRIPT_DIR/parse_ocp_version.sh" --version "$OCP_VERSION")"
+parsed=$(bash "$SCRIPT_DIR/parse_ocp_version.sh" --version "$OCP_VERSION")
+eval "$parsed"
+cd "$KRD_REPO_PATH"
 
-# Convert RHOAI versions to array
-IFS=',' read -ra RHOAI_ARRAY <<< "$RHOAI_VERSIONS"
+source_dir=tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant
+generated_dir=tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant
+admission_dir=config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rhoai
+export TARGET_APP="rhoai-fbc-fragment-ocp-$OCP_VERSION_VAR"
 
-echo "============================================"
-echo "Update ReleasePlan for OCP Version"
-echo "============================================"
-echo "OCP version:      $OCP_VERSION_FULL"
-echo "RHOAI versions:   ${#RHOAI_ARRAY[@]} (${RHOAI_VERSIONS})"
-echo "Repository:       $KRD_REPO_PATH"
-echo "Dry run:          $DRY_RUN"
-echo "============================================"
-echo
+# Render all changes into a temporary directory before touching the checkout.
+preview=$(mktemp -d)
+trap 'rm -rf -- "$preview"' EXIT
 
-# Track results
-UPDATED_COUNT=0
-SKIPPED_COUNT=0
+stage_file() {
+  local path=$1
+  mkdir -p "$preview/$(dirname "$path")"
+}
 
-for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
-  RHOAI_VER="${RHOAI_VER#rhoai-}"
-
-  echo "Processing RHOAI ${RHOAI_VER}..."
-
-  # Find ReleasePlan files for this RHOAI version
-  # Pattern: tenants/rhoai/release-plans/*rhoai-{version}*
-  RELEASE_PLAN_DIR="$KRD_REPO_PATH/tenants/rhoai/release-plans"
-
-  if [[ ! -d "$RELEASE_PLAN_DIR" ]]; then
-    echo "  ⚠ Release plans directory not found, skipping"
-    ((SKIPPED_COUNT++))
-    continue
+IFS=',' read -ra releases <<< "$RHOAI_VERSIONS"
+for release in "${releases[@]}"; do
+  release="${release#rhoai-}"
+  if [[ ! "$release" =~ ^[0-9]+[.][0-9]+(-ea[.][0-9]+)?$ ]]; then
+    echo "ERROR: Invalid RHOAI release line: $release" >&2
+    exit 1
   fi
+  slug="${release//./-}"
+  for environment in prod stage; do
+    case "$environment" in prod) title=Prod ;; stage) title=Stage ;; esac
+    export ADMISSION_NAME="rhoai-onprem-v$slug-fbc-$environment"
+    export TARGET_PLAN="rhoai-onprem-v$slug-ocp-$OCP_VERSION_VAR-fbc-$environment"
+    source="$source_dir/v$release/${title}ReleasePlans-v$release.yaml"
+    admission="$admission_dir/$ADMISSION_NAME.yaml"
+    generated="$generated_dir/appstudio.redhat.com_v1alpha1_releaseplan_$TARGET_PLAN.yaml"
 
-  # This is a placeholder implementation
-  # The actual structure depends on konflux-release-data repository layout
-  echo "  ℹ ReleasePlan updates would be applied here"
-  echo "  Note: Actual implementation depends on konflux-release-data structure"
+    if [[ ! -f "$source" || ! -f "$admission" || ! -d "$generated_dir" ]]; then
+      echo "ERROR: Missing $environment ReleasePlan or admission configuration for RHOAI $release" >&2
+      exit 1
+    fi
 
-  if [[ "$DRY_RUN" == true ]]; then
-    echo "  [DRY RUN] Would update ReleasePlan YAML for RHOAI ${RHOAI_VER}"
-    echo "  [DRY RUN] Would add OCP ${OCP_VERSION_FULL} to supported versions"
-  fi
+    manifest=$(yq 'select(.kind == "ReleasePlan" and .metadata.name == strenv(TARGET_PLAN))' "$source")
+    if [[ -z "$manifest" ]]; then
+      manifest=$(yq eval-all '
+        [select(.kind == "ReleasePlan" and
+                (.spec.application // "" | test("^rhoai-fbc-fragment-ocp-[0-9]+$")) and
+                .metadata.labels."release.appstudio.openshift.io/releasePlanAdmission" == strenv(ADMISSION_NAME))] |
+        .[-1] | select(. != null) |
+        .metadata.name = strenv(TARGET_PLAN) |
+        .spec.application = strenv(TARGET_APP)
+      ' "$source")
+      if [[ -z "$manifest" ]]; then
+        echo "ERROR: No $environment FBC ReleasePlan template for RHOAI $release" >&2
+        exit 1
+      fi
+      stage_file "$source"
+      { cat "$source"; printf '\n---\n%s\n' "$manifest"; } > "$preview/$source"
+    fi
 
-  ((UPDATED_COUNT++))
-  echo
+    if [[ "$(printf '%s\n' "$manifest" | yq -r '.spec.application' -)" != "$TARGET_APP" ]]; then
+      echo "ERROR: $TARGET_PLAN already exists with a different application" >&2
+      exit 1
+    fi
+
+    if [[ ! -e "$generated" && ! -L "$generated" ]]; then
+      stage_file "$generated"
+      printf '%s\n' "$manifest" > "$preview/$generated"
+    fi
+
+    existing=$(yq '.spec.applications[] | select(. == strenv(TARGET_APP))' "$admission")
+    if [[ -z "$existing" ]]; then
+      stage_file "$admission"
+      yq '.spec.applications += [strenv(TARGET_APP)]' "$admission" > "$preview/$admission"
+    fi
+  done
 done
 
-# Summary
-echo "=========================================="
-echo "Summary"
-echo "=========================================="
-echo "RHOAI versions processed: ${#RHOAI_ARRAY[@]}"
-echo "Updated:                  $UPDATED_COUNT"
-echo "Skipped:                  $SKIPPED_COUNT"
-echo
-
-if [[ "$DRY_RUN" == false ]]; then
-  echo "Note: Review changes in $KRD_REPO_PATH before committing"
-fi
-
-echo "✓ ReleasePlan update completed"
+while IFS= read -r -d '' file; do
+  path="${file#"$preview/"}"
+  if [[ "$DRY_RUN" == true ]]; then
+    printf 'Would update %s\n' "$path"
+  else
+    cp "$file" "$path"
+    printf 'Updated %s\n' "$path"
+  fi
+done < <(find "$preview" -type f -print0)

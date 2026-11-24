@@ -294,11 +294,15 @@ if [[ "$ACTION" == offboard ]]; then
     exit 1
   fi
   release_data_step="$SCRIPT_DIR/scripts/run_step_offboard_release_data.sh"
-  if [[ -n "$RELEASE_DATA_PATH" && "$MODE" != dry-run ]] && ! should_skip_phase 4; then
-    bash "$release_data_step" "$RELEASE_DATA_PATH" "$OCP_VERSION" "$RHOAI_VERSIONS" --dry-run
-  fi
   offboard_args=(--ocp-version "$OCP_VERSION" --rhoai-versions "$RHOAI_VERSIONS" "${REPO_ARGS[@]}")
   main_step="$SCRIPT_DIR/scripts/run_step_offboard_main.sh"
+  remaining_consumers=true
+  if [[ -n "$RELEASE_DATA_PATH" ]] && ! should_skip_phase 1 && ! should_skip_phase 2 && ! should_skip_phase 4; then
+    remaining_consumers=$(bash "$main_step" "${offboard_args[@]}" --check-consumers)
+  fi
+  if [[ -n "$RELEASE_DATA_PATH" && "$MODE" != dry-run ]] && ! should_skip_phase 4; then
+    bash "$release_data_step" "$RELEASE_DATA_PATH" "$OCP_VERSION" "$RHOAI_VERSIONS" --dry-run "$remaining_consumers"
+  fi
   if ! should_skip_phase 2 && [[ "$MODE" != dry-run ]]; then
     bash "$main_step" "${offboard_args[@]}" ${RANGE_ARGS[@]+"${RANGE_ARGS[@]}"} --dry-run
   fi
@@ -313,7 +317,10 @@ if [[ "$ACTION" == offboard ]]; then
     fi
   fi
   if [[ -n "$RELEASE_DATA_PATH" ]] && ! should_skip_phase 4; then
-    if ! bash "$release_data_step" "$RELEASE_DATA_PATH" "$OCP_VERSION" "$RHOAI_VERSIONS" "$MODE_FLAGS"; then
+    if [[ "$MODE" != dry-run ]] && ! should_skip_phase 1 && ! should_skip_phase 2; then
+      remaining_consumers=$(bash "$main_step" "${offboard_args[@]}" --check-consumers)
+    fi
+    if ! bash "$release_data_step" "$RELEASE_DATA_PATH" "$OCP_VERSION" "$RHOAI_VERSIONS" "$MODE_FLAGS" "$remaining_consumers"; then
       echo "ERROR: Release-data offboarding failed after RHOAI-Build-Config processing." >&2
       exit 1
     fi
@@ -379,7 +386,8 @@ fi
 
 run_phase 4 "Create Konflux Application" \
   "run_step_create_konflux_app.sh" \
-  --ocp-version "$OCP_VERSION"
+  --ocp-version "$OCP_VERSION" \
+  --rhoai-versions "$RHOAI_VERSIONS"
 
 # Calculate duration
 END_TIME=$(date +%s)

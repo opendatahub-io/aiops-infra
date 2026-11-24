@@ -25,7 +25,9 @@ When other releases still use the OCP version, supply the supported range that
 should remain after offboarding. The release-data checkout is optional and
 enables cleanup of the selected release's stage and production release plans
 and admission references. Use `--commit` to record changes locally in both
-repositories. Shared Konflux resources are preserved.
+repositories. Shared Konflux resources are removed only after the workflow
+checks that no other catalog, PipelineRun, ReleasePlan, or admission references
+the OCP version.
 
 
 ## Directory Structure

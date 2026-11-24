@@ -7,6 +7,7 @@ OCP_VERSION=""
 RHOAI_VERSIONS=""
 ONBOARDED_RANGE=""
 MODE=dry-run
+CHECK_CONSUMERS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,6 +24,7 @@ while [[ $# -gt 0 ]]; do
       esac
       shift 2
       ;;
+    --check-consumers) CHECK_CONSUMERS=true; shift ;;
     --dry-run|--commit|--push) MODE="${1#--}"; shift ;;
     *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -88,11 +90,21 @@ while IFS= read -r ref; do
       continue 2
     fi
   done
+  if [[ "$ref" == refs/remotes/origin/* ]] &&
+     git merge-base --is-ancestor "$ref" "refs/heads/${ref##*/}" 2>/dev/null; then
+    # A local offboarding commit can be ahead of the cached remote branch.
+    continue
+  fi
   if git cat-file -e "$ref:catalog/$OCP_VERSION_DOTTED" 2>/dev/null; then
     REMAINING=true
     break
   fi
 done <<< "$refs"
+
+if [[ "$CHECK_CONSUMERS" == true ]]; then
+  printf '%s\n' "$REMAINING"
+  exit 0
+fi
 
 CONFIG=config/new-config.yaml
 CONFIG_CHANGE=""
@@ -126,7 +138,7 @@ esac
 if [[ "$REMAINING" == true ]]; then
   echo "Preserve shared Konflux resources for $OCP_VERSION_DOTTED. Other RHOAI releases still use them."
 else
-  echo "Shared Konflux and ReleasePlan cleanup requires release-data verification."
+  echo "Check release-data references before removing shared Konflux resources."
 fi
 
 if [[ "$MODE" == dry-run ]]; then

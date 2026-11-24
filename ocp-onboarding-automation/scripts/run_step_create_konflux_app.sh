@@ -15,6 +15,7 @@
 #
 # Options:
 #   --ocp-version VER     OCP version to onboard (required)
+#   --rhoai-versions LIST Comma-separated release lines for stage and production plans
 #   --repo-url URL        GitLab repo URL (default: konflux-release-data)
 #   --dry-run             Show what would be done without making changes
 #   --commit              Save a local commit in a temporary checkout
@@ -23,6 +24,7 @@
 set -euo pipefail
 
 OCP_VERSION=""
+RHOAI_VERSIONS=""
 REPO_URL="https://gitlab.cee.redhat.com/releng/konflux-release-data.git"
 DRY_RUN=false
 DO_PUSH=true
@@ -30,6 +32,7 @@ DO_PUSH=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ocp-version) OCP_VERSION="$2"; shift 2 ;;
+    --rhoai-versions) RHOAI_VERSIONS="$2"; shift 2 ;;
     --repo-url)    REPO_URL="$2"; shift 2 ;;
     --commit)      DO_PUSH=false; shift ;;
     --push)        DO_PUSH=true; shift ;;
@@ -74,15 +77,18 @@ if [[ "$DRY_RUN" == true ]]; then
   echo "[DRY RUN] Would perform:"
   echo "  1. Clone konflux-release-data repository"
   echo "  2. Create branch: onboard-ocp-${OCP_VERSION_DASHED}"
-  echo "  3. Generate: tenants/rhoai/applications/ocp-${OCP_VERSION_VAR}.yaml"
+  echo "  3. Generate the Konflux application configuration for ocp-${OCP_VERSION_VAR}.yaml"
   echo
   bash "$SCRIPT_DIR/generate_konflux_app_yaml.sh" \
     --ocp-version "$OCP_VERSION" \
     --dry-run | head -20
   echo "     ..."
   echo
-  echo "  4. Update: tenants/rhoai/applications/kustomization.yaml"
+  echo "  4. Update the application directory’s kustomization.yaml"
   echo "     - Add: ocp-${OCP_VERSION_VAR}.yaml to resources"
+  if [[ -n "$RHOAI_VERSIONS" ]]; then
+    echo "  Add stage and production ReleasePlans and admission entries for: $RHOAI_VERSIONS"
+  fi
   echo "  5. Commit and push changes"
   echo "  6. Create GitLab Merge Request"
   echo
@@ -115,24 +121,54 @@ git pull origin main
 
 # Create branch
 BRANCH_NAME="onboard-ocp-${OCP_VERSION_DASHED}"
-git checkout -b "$BRANCH_NAME" 2>/dev/null || git checkout "$BRANCH_NAME"
+if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
+  git checkout --track "origin/$BRANCH_NAME"
+else
+  git checkout -b "$BRANCH_NAME"
+fi
 
 echo
 
-# Generate files
-TARGET_DIR="tenants/rhoai/applications"
+# The current release-data layout uses source and generated development streams.
+TENANT_DIR=tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant
+GENERATED_DIR=tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant
 FILENAME="ocp-${OCP_VERSION_VAR}.yaml"
-
-if [[ -e "$REPO_DIR/$TARGET_DIR/$FILENAME" || -L "$REPO_DIR/$TARGET_DIR/$FILENAME" ]]; then
-  echo "Skipping existing Konflux application: $FILENAME"
-  exit 0
+TARGET_DIR=tenants/rhoai/applications
+if [[ -d "$TENANT_DIR/fbc-fragments" ]]; then
+  TARGET_DIR="$TENANT_DIR/fbc-fragments"
+  export NEW_APP="rhoai-fbc-fragment-ocp-$OCP_VERSION_VAR"
+  export NEW_OCP="$OCP_VERSION_DOTTED" NEW_OCP_ID="$OCP_VERSION_VAR"
+  if [[ ! -e "$TARGET_DIR/$FILENAME" ]]; then
+    template=$(find "$TARGET_DIR" -maxdepth 1 -type f -name 'ocp-*.yaml' | sort -V | tail -n 1)
+    if [[ -z "$template" ]]; then
+      echo "ERROR: No existing Konflux development stream template in $TARGET_DIR" >&2
+      exit 1
+    fi
+    yq '
+      .metadata.name = strenv(NEW_APP) |
+      with(select(.kind == "ProjectDevelopmentStream");
+        .spec.template.name = strenv(NEW_APP) |
+        (.spec.template.values[] | select(.name == "ocpVersion") | .value) = strenv(NEW_OCP) |
+        (.spec.template.values[] | select(.name == "ocpVersionName") | .value) = strenv(NEW_OCP_ID))
+    ' "$template" > "$TARGET_DIR/$FILENAME"
+  fi
+  mkdir -p "$GENERATED_DIR"
+  for kind in ProjectDevelopmentStream ProjectDevelopmentStreamTemplate; do
+    kind_filename=$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]')
+    generated="$GENERATED_DIR/projctl.konflux.dev_v1beta1_${kind_filename}_$NEW_APP.yaml"
+    if [[ ! -e "$generated" ]]; then
+      export STREAM_KIND="$kind"
+      yq -e 'select(.kind == strenv(STREAM_KIND)) | .metadata.namespace = "rhoai-tenant"' \
+        "$TARGET_DIR/$FILENAME" > "$generated"
+    fi
+  done
+elif [[ ! -e "$TARGET_DIR/$FILENAME" && ! -L "$TARGET_DIR/$FILENAME" ]]; then
+  echo "Generating $FILENAME..."
+  mkdir -p "$TARGET_DIR"
+  bash "$SCRIPT_DIR/generate_konflux_app_yaml.sh" \
+    --ocp-version "$OCP_VERSION" \
+    --output-file "$TARGET_DIR/$FILENAME"
 fi
-
-echo "Generating $FILENAME..."
-mkdir -p "$REPO_DIR/$TARGET_DIR"
-bash "$SCRIPT_DIR/generate_konflux_app_yaml.sh" \
-  --ocp-version "$OCP_VERSION" \
-  --output-file "$REPO_DIR/$TARGET_DIR/$FILENAME"
 
 # Update kustomization
 KUSTOMIZATION="$REPO_DIR/$TARGET_DIR/kustomization.yaml"
@@ -145,15 +181,20 @@ if [[ -f "$KUSTOMIZATION" ]]; then
   fi
 fi
 
+if [[ -n "$RHOAI_VERSIONS" ]]; then
+  bash "$SCRIPT_DIR/update_release_plan.sh" --ocp-version "$OCP_VERSION" \
+    --rhoai-versions "$RHOAI_VERSIONS" --krd-repo-path "$REPO_DIR"
+fi
+
 # Commit
 echo
 echo "Committing changes..."
-git add "$TARGET_DIR/"
+git add -A
 
 COMMIT_MSG="Onboard OCP ${OCP_VERSION_FULL} Konflux application
 
 - Added $TARGET_DIR/$FILENAME
-- Updated kustomization.yaml
+- Updated Kustomize resources and selected release plans
 
 Co-Authored-By: OCP Onboarding Automation <noreply@redhat.com>"
 
