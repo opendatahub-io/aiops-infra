@@ -11,6 +11,23 @@ This automation framework streamlines the multi-step process of adding or removi
 - **Konflux** application and component configurations
 - **GitLab** konflux-release-data (ReleasePlan/ReleasePlanAdmission)
 
+## Offboard an OCP version for selected RHOAI releases
+
+```bash
+bash run_ocp_onboarding.sh --action offboard \
+  --repo-path /path/to/RHOAI-Build-Config \
+  --release-data-path /path/to/konflux-release-data \
+  --ocp-version 5.06 --rhoai-versions 3.5 \
+  --onboarded-range '>=3.6.0 <3.7.0' --dry-run
+```
+
+When other releases still use the OCP version, supply the supported range that
+should remain after offboarding. The release-data checkout is optional and
+enables cleanup of the selected release's stage and production release plans
+and admission references. Use `--commit` to record changes locally in both
+repositories. Shared Konflux resources are preserved.
+
+
 ## Directory Structure
 
 ```

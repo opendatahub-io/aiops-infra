@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create Konflux Application and Component for a new OCP version.
 # Clones konflux-release-data, generates ocp-{version}.yaml, updates kustomization.yaml,
-# and creates a GitLab MR.
+# and prints a GitLab merge request creation URL.
 #
 # Usage:
 #   bash run_step_create_konflux_app.sh \
@@ -17,17 +17,22 @@
 #   --ocp-version VER     OCP version to onboard (required)
 #   --repo-url URL        GitLab repo URL (default: konflux-release-data)
 #   --dry-run             Show what would be done without making changes
+#   --commit              Save a local commit in a temporary checkout
+#   --push                Push the Konflux branch (default)
 
 set -euo pipefail
 
 OCP_VERSION=""
 REPO_URL="https://gitlab.cee.redhat.com/releng/konflux-release-data.git"
 DRY_RUN=false
+DO_PUSH=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ocp-version) OCP_VERSION="$2"; shift 2 ;;
     --repo-url)    REPO_URL="$2"; shift 2 ;;
+    --commit)      DO_PUSH=false; shift ;;
+    --push)        DO_PUSH=true; shift ;;
     --dry-run)     DRY_RUN=true; shift ;;
     *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -86,7 +91,10 @@ if [[ "$DRY_RUN" == true ]]; then
 fi
 
 # Real execution
-WORK_DIR="/tmp/ocp-onboarding-konflux-$$"
+WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ocp-onboarding-konflux.XXXXXX")
+if [[ "$DO_PUSH" == true ]]; then
+  trap 'rm -rf -- "$WORK_DIR"' EXIT
+fi
 REPO_DIR="$WORK_DIR/konflux-release-data"
 
 echo "Setting up working directory..."
@@ -130,12 +138,10 @@ bash "$SCRIPT_DIR/generate_konflux_app_yaml.sh" \
 KUSTOMIZATION="$REPO_DIR/$TARGET_DIR/kustomization.yaml"
 if [[ -f "$KUSTOMIZATION" ]]; then
   echo "Updating kustomization.yaml..."
-  if grep -q "$FILENAME" "$KUSTOMIZATION"; then
-    echo "  ℹ Already present"
-  else
-    # Add to resources (simple append for now)
-    echo "- $FILENAME" >> "$KUSTOMIZATION"
-    echo "  ✓ Added to resources"
+  resources=$(yq -r '.resources[]' "$KUSTOMIZATION")
+  if ! grep -Fxq -- "$FILENAME" <<< "$resources"; then
+    KUSTOMIZE_RESOURCE="$FILENAME" yq -i \
+      '.resources += [strenv(KUSTOMIZE_RESOURCE)]' "$KUSTOMIZATION"
   fi
 fi
 
@@ -157,6 +163,11 @@ else
   git commit -m "$COMMIT_MSG"
   echo "  ✓ Committed"
 
+  if [[ "$DO_PUSH" == false ]]; then
+    echo "Konflux commit saved in $REPO_DIR"
+    exit 0
+  fi
+
   echo "Pushing to GitLab..."
   if GIT_SSL_NO_VERIFY=true git push -u origin "$BRANCH_NAME" 2>&1; then
     echo "  ✓ Pushed branch: $BRANCH_NAME"
@@ -169,9 +180,6 @@ else
   fi
 fi
 
-# Cleanup
-cd /
-rm -rf "$WORK_DIR"
 
 echo
 echo "✓ Konflux application creation completed"

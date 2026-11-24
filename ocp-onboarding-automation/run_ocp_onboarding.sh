@@ -19,6 +19,7 @@
 #   GITLAB_TOKEN - GitLab personal access token
 #
 # Options:
+#   --action ACTION           onboard (default) or offboard selected releases
 #   --ocp-version VER         OCP version to onboard (required)
 #   --rhoai-versions LIST     Comma-separated RHOAI versions (required)
 #   --repo-path PATH          Path to RHOAI-Build-Config for phases 1–3
@@ -35,6 +36,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Default values
 OCP_VERSION=""
+ACTION=onboard
+RELEASE_DATA_PATH=""
 REPO_ARGS=()
 RANGE_ARGS=()
 BUILD_ARGS=()
@@ -61,8 +64,10 @@ Required:
   --rhoai-versions LIST     Comma-separated RHOAI versions (e.g., "3.6,3.5,3.4")
 
 Options:
+  --action ACTION           onboard (default) or offboard selected releases
+  --release-data-path PATH  Konflux release-data checkout for offboard dry-run or commit
   --repo-path PATH          Path to RHOAI-Build-Config for phases 1–3
-  --onboarded-range RANGE    Supported release range for a new config/new-config.yaml entry
+  --onboarded-range RANGE    Supported release range for the target OCP config entry
   --build-version VER       Full Tekton build version override for a single release line
   --skip-phase N[,N...]     Skip specific phases (1-4)
   --dry-run                 Show what would be done (default)
@@ -95,6 +100,13 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --action)
+      case "${2:-}" in
+        onboard|offboard) ACTION="$2" ;;
+        *) echo "ERROR: --action must be onboard or offboard" >&2; exit 1 ;;
+      esac
+      shift 2
+      ;;
     --ocp-version)
       OCP_VERSION="$2"
       shift 2
@@ -113,6 +125,14 @@ while [[ $# -gt 0 ]]; do
       else
         BUILD_ARGS=("$1" "$2")
       fi
+      shift 2
+      ;;
+    --release-data-path)
+      if [[ -z "${2:-}" || "$2" == --* ]]; then
+        echo "ERROR: --release-data-path requires a path" >&2
+        exit 1
+      fi
+      RELEASE_DATA_PATH="$2"
       shift 2
       ;;
     --repo-path)
@@ -190,7 +210,8 @@ case "$MODE" in
 esac
 
 # Parse OCP version for display
-eval "$(bash "$SCRIPT_DIR/scripts/parse_ocp_version.sh" --version "$OCP_VERSION")"
+parsed=$(bash "$SCRIPT_DIR/scripts/parse_ocp_version.sh" --version "$OCP_VERSION")
+eval "$parsed"
 
 # Count RHOAI versions
 IFS=',' read -ra RHOAI_ARRAY <<< "$RHOAI_VERSIONS"
@@ -262,6 +283,44 @@ run_phase() {
     fi
   fi
 }
+
+if [[ "$ACTION" == offboard ]]; then
+  if [[ -z "${REPO_ARGS[0]:-}" ]]; then
+    echo "ERROR: Offboarding requires --repo-path" >&2
+    exit 1
+  fi
+  if [[ -n "$RELEASE_DATA_PATH" && "$MODE" == push ]]; then
+    echo "ERROR: Use --commit for offboarding with --release-data-path." >&2
+    exit 1
+  fi
+  release_data_step="$SCRIPT_DIR/scripts/run_step_offboard_release_data.sh"
+  if [[ -n "$RELEASE_DATA_PATH" && "$MODE" != dry-run ]] && ! should_skip_phase 4; then
+    bash "$release_data_step" "$RELEASE_DATA_PATH" "$OCP_VERSION" "$RHOAI_VERSIONS" --dry-run
+  fi
+  offboard_args=(--ocp-version "$OCP_VERSION" --rhoai-versions "$RHOAI_VERSIONS" "${REPO_ARGS[@]}")
+  main_step="$SCRIPT_DIR/scripts/run_step_offboard_main.sh"
+  if ! should_skip_phase 2 && [[ "$MODE" != dry-run ]]; then
+    bash "$main_step" "${offboard_args[@]}" ${RANGE_ARGS[@]+"${RANGE_ARGS[@]}"} --dry-run
+  fi
+  if ! should_skip_phase 1; then
+    bash "$SCRIPT_DIR/scripts/run_step_update_release_branches.sh" \
+      "${offboard_args[@]}" --action offboard "$MODE_FLAGS"
+  fi
+  if ! should_skip_phase 2; then
+    if ! bash "$main_step" "${offboard_args[@]}" ${RANGE_ARGS[@]+"${RANGE_ARGS[@]}"} "$MODE_FLAGS"; then
+      echo "ERROR: Main offboarding failed. Check the release branches for any changes already applied." >&2
+      exit 1
+    fi
+  fi
+  if [[ -n "$RELEASE_DATA_PATH" ]] && ! should_skip_phase 4; then
+    if ! bash "$release_data_step" "$RELEASE_DATA_PATH" "$OCP_VERSION" "$RHOAI_VERSIONS" "$MODE_FLAGS"; then
+      echo "ERROR: Release-data offboarding failed after RHOAI-Build-Config processing." >&2
+      exit 1
+    fi
+  fi
+  echo "RHOAI-Build-Config offboarding $MODE completed."
+  exit 0
+fi
 
 # Phase 1: Update Release Branches
 run_phase 1 "Update RHOAI Release Branches" \

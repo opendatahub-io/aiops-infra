@@ -127,6 +127,10 @@ TOTAL_VERSIONS="${#RHOAI_ARRAY[@]}"
 SUCCESSFUL=0
 FAILED=0
 SKIPPED=0
+if [[ "$DRY_RUN" == true ]]; then
+  PREVIEW_DIR=$(mktemp -d)
+  trap 'rm -rf -- "$PREVIEW_DIR"' EXIT
+fi
 
 for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
   # Remove 'rhoai-' prefix if present
@@ -139,7 +143,9 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
 
   # Check if branch exists
   cd "$REPO_PATH"
-  if ! git rev-parse --verify "$BRANCH_NAME" &>/dev/null; then
+  BRANCH_REF="$BRANCH_NAME"
+  if ! git rev-parse --verify "$BRANCH_REF" &>/dev/null; then
+    BRANCH_REF="origin/$BRANCH_NAME"
     if ! git rev-parse --verify "origin/$BRANCH_NAME" &>/dev/null; then
       echo "  ⚠ Branch $BRANCH_NAME not found (local or remote), skipping"
       RESULTS_BRANCHES+=("$BRANCH_NAME")
@@ -150,10 +156,15 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
     fi
   fi
 
+  BRANCH_DIR="$PWD"
+
   # Checkout branch
   echo "  Checking out branch $BRANCH_NAME..."
   if [[ "$DRY_RUN" == true ]]; then
-    echo "  [DRY RUN] Would: git checkout $BRANCH_NAME"
+    BRANCH_DIR="$PREVIEW_DIR/$BRANCH_NAME"
+    mkdir -p "$BRANCH_DIR"
+    git archive "$BRANCH_REF" | tar -xf - -C "$BRANCH_DIR"
+    echo "  [DRY RUN] Previewing $BRANCH_REF"
   else
     if ! git checkout "$BRANCH_NAME" 2>/dev/null; then
       echo "  ERROR: Failed to checkout $BRANCH_NAME"
@@ -168,32 +179,34 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
 
   CHANGED_PATHS=()
 
-  # Step 1: Update catalog directory
-  echo "  Step 1/2: Creating catalog directory..."
-  CATALOG_DIR="$REPO_PATH/catalog"
+  if [[ "$ACTION" == onboard ]]; then
+    # Step 1: Update catalog directory
+    echo "  Step 1/2: Creating catalog directory..."
+    CATALOG_DIR="$BRANCH_DIR/catalog"
 
-  CATALOG_EXIT=0
-  bash "$SCRIPT_DIR/update_catalog_directory.sh" \
-    --catalog-dir "$CATALOG_DIR" \
-    --ocp-version "$OCP_VERSION" \
-    ${DRY_RUN_ARGS[@]+"${DRY_RUN_ARGS[@]}"} || CATALOG_EXIT=$?
+    CATALOG_EXIT=0
+    bash "$SCRIPT_DIR/update_catalog_directory.sh" \
+      --catalog-dir "$CATALOG_DIR" \
+      --ocp-version "$OCP_VERSION" \
+      ${DRY_RUN_ARGS[@]+"${DRY_RUN_ARGS[@]}"} || CATALOG_EXIT=$?
 
-  if [[ $CATALOG_EXIT == 2 ]]; then
-    echo "  ℹ Catalog directory already up-to-date"
-  elif [[ $CATALOG_EXIT != 0 ]]; then
-    echo "  ERROR: Failed to update catalog directory"
-    RESULTS_BRANCHES+=("$BRANCH_NAME")
-    RESULTS_STATUS+=("failed (catalog update error)")
-    ((++FAILED))
-    echo
-    continue
-  else
-    CHANGED_PATHS+=("catalog/$OCP_VERSION_DOTTED")
+    if [[ $CATALOG_EXIT == 2 ]]; then
+      echo "  ℹ Catalog directory already up-to-date"
+    elif [[ $CATALOG_EXIT != 0 ]]; then
+      echo "  ERROR: Failed to update catalog directory"
+      RESULTS_BRANCHES+=("$BRANCH_NAME")
+      RESULTS_STATUS+=("failed (catalog update error)")
+      ((++FAILED))
+      echo
+      continue
+    else
+      CHANGED_PATHS+=("catalog/$OCP_VERSION_DOTTED")
+    fi
   fi
 
   # Step 2: Update build-config.yaml
   echo "  Step 2/2: Updating build-config.yaml..."
-  BUILD_CONFIG="$REPO_PATH/config/build-config.yaml"
+  BUILD_CONFIG="$BRANCH_DIR/config/build-config.yaml"
 
   if [[ -f "$BUILD_CONFIG" ]]; then
     CONFIG_EXIT=0
@@ -219,6 +232,15 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
     echo "  ⚠ build-config.yaml not found, skipping"
   fi
 
+  if [[ "$ACTION" == offboard && -d "$BRANCH_DIR/catalog/$OCP_VERSION_DOTTED" ]]; then
+    if [[ "$DRY_RUN" == true ]]; then
+      echo "  [DRY RUN] Would remove catalog/$OCP_VERSION_DOTTED"
+    else
+      git rm -r -- "catalog/$OCP_VERSION_DOTTED"
+      CHANGED_PATHS+=("catalog/$OCP_VERSION_DOTTED")
+    fi
+  fi
+
   # Step 3: Commit changes
   if [[ "$DO_COMMIT" == true && "$DRY_RUN" == false ]]; then
     cd "$REPO_PATH"
@@ -229,11 +251,12 @@ for RHOAI_VER in "${RHOAI_ARRAY[@]}"; do
       ((++SKIPPED))
     else
       echo "  Committing changes..."
-      git add -- "${CHANGED_PATHS[@]}"
-      COMMIT_MSG="Add OCP ${OCP_VERSION_FULL} support
+      if [[ "$ACTION" == onboard ]]; then
+        git add -- "${CHANGED_PATHS[@]}"
+      fi
+      COMMIT_MSG="${ACTION} OCP ${OCP_VERSION_FULL}
 
-- Added catalog/v${OCP_VERSION_MAJOR}.${OCP_VERSION_MINOR}/ directory
-- Updated config/build-config.yaml with OCP ${OCP_VERSION_FULL}
+- Update release catalog and build configuration
 
 Co-Authored-By: OCP Onboarding Automation <noreply@redhat.com>"
 
