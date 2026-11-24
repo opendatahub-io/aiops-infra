@@ -76,7 +76,8 @@ platform list.
   konflux-central pull-request files. Push PipelineRuns do not use
   `additional-labels`.
 - `image-expires-after`: `30d`.
-- `build-platforms` is always `linux/x86_64` for pull-request builds. The
+- `build-platforms` is always `linux/x86_64` and `linux-m2xlarge/arm64` for
+  pull-request builds, matching current konflux-central pull-request files. The
   `architectures` field is still required by the onboarding schema and is used
   by the push PipelineRun, but it does not affect the PR build.
 - `prefetch-input` when `scripts/detect_prefetch_input.sh` finds a dependency

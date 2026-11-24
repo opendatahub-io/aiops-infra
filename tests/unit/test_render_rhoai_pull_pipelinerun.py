@@ -25,6 +25,9 @@ PIPELINE_REF_VALUE = (
     '{{ cel: pac.target_branch.matches("^rhoai-\\\\d+\\\\.\\\\d+(-ea\\\\.\\\\d+)?$") '
     '? pac.target_branch : "main" }}'
 )
+# Pull-request builds always use these two platforms, matching current
+# konflux-central pull-request files (e.g. odh-dashboard).
+PR_PLATFORMS = ["linux/x86_64", "linux-m2xlarge/arm64"]
 
 
 def _details(
@@ -137,7 +140,7 @@ class TestStage2PullPipeline:
         ]
         assert _param(document, "image-expires-after") == "30d"
         assert _param(document, "rhoai-version") == "3.6.0"
-        assert _param(document, "build-platforms") == ["linux/x86_64"]
+        assert _param(document, "build-platforms") == PR_PLATFORMS
         assert _param(document, "prefetch-input").strip() == (
             '[{"type": "gomod", "path": "."}]'
         )
@@ -226,7 +229,7 @@ class TestStage2PullPipeline:
             "quay.io/rhoai/odh-sample-rhel9:on-pr-{{pull_request_number}}"
         )
 
-    def test_pull_request_is_always_single_arch_and_prefetch_is_retained(
+    def test_pull_request_is_always_x86_64_and_arm64_and_prefetch_is_retained(
         self, tmp_path: Path
     ):
         document = _render(
@@ -238,7 +241,7 @@ class TestStage2PullPipeline:
             ),
             prefetch='[{"type": "gomod", "path": "."}]',
         )
-        assert _param(document, "build-platforms") == ["linux/x86_64"]
+        assert _param(document, "build-platforms") == PR_PLATFORMS
         assert _param(document, "prefetch-input").strip() == (
             '[{"type": "gomod", "path": "."}]'
         )

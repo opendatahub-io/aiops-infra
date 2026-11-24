@@ -4,9 +4,9 @@
 # The pull-request and push generators share this single template so the two
 # files cannot drift. The intentional differences are:
 #
-#   pull-request: hardcoded linux/x86_64 platform, P01 routing, on-pr tag,
-#                 image expiry, Slack failure notification, standard OCI
-#                 labels, no additional-tags
+#   pull-request: hardcoded linux/x86_64 + linux-m2xlarge/arm64 platforms,
+#                 P01 routing, on-pr tag, image expiry, Slack failure
+#                 notification, standard OCI labels, no additional-tags
 #   push:         user-selected platforms, P02 routing, branch tag,
 #                 additional-tags, no additional-labels
 #
@@ -28,8 +28,9 @@
 #     [--platforms <comma-separated-platforms>] \
 #     [--prefetch-input <json>]
 #
-# `--platforms` is required for push mode. Pull-request mode always renders the
-# single linux/x86_64 platform, regardless of the onboarding architectures.
+# `--platforms` is required for push mode. Pull-request mode always renders
+# linux/x86_64 and linux-m2xlarge/arm64, regardless of the onboarding
+# architectures.
 set -euo pipefail
 
 MODE=""
@@ -74,9 +75,10 @@ for _var in COMPONENT_NAME VERSION_VAR BRANCH_NAME REPO_URL DOCKERFILE_PATH RHOA
 done
 
 if [[ "$MODE" == "pull-request" ]]; then
-  # Pull-request builds are intentionally single-architecture. The push
-  # PipelineRun keeps the architectures selected on the onboarding ticket.
-  PLATFORMS_CSV="linux/x86_64"
+  # Pull-request builds always target the same two platforms so PR coverage
+  # matches current konflux-central pull-request files. The push PipelineRun
+  # keeps the architectures selected on the onboarding ticket.
+  PLATFORMS_CSV="linux/x86_64,linux-m2xlarge/arm64"
 fi
 [[ -n "$PLATFORMS_CSV" ]] || {
   echo "ERROR: --platforms is required for push mode." >&2

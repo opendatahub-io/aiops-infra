@@ -104,8 +104,9 @@ else
 fi
 
 # PR and push PipelineRuns share scripts/render_rhoai_pipelinerun.sh. The PR
-# mode hardcodes linux/x86_64 and P01 routing, while push keeps the
-# architectures selected on the onboarding ticket and routes to P02.
+# mode hardcodes linux/x86_64 + linux-m2xlarge/arm64 and P01 routing, while
+# push keeps the architectures selected on the onboarding ticket and routes
+# to P02.
 render_pull_pipelinerun() {
   bash "$SCRIPTS_DIR/render_rhoai_pipelinerun.sh" \
     --mode pull-request \

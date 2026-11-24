@@ -67,7 +67,8 @@ Component. No P02 service-account token or hardcoded
 
 Both PipelineRun files are rendered by the same script
 (`scripts/render_rhoai_pipelinerun.sh`). The push file uses the ticket's
-`architectures`; the PR file always builds `linux/x86_64`. Both include the
+`architectures`; the PR file always builds `linux/x86_64` and
+`linux-m2xlarge/arm64`. Both include the
 `rpms-signature-scan` resource override, `build-source-image`, and
 `build-image-index`, and neither sets PipelineRun-level `timeouts`. The PR file
 also emits `version=on-pr-{{revision}}` and

@@ -266,7 +266,7 @@ def test_pull_request_and_push_templates_share_common_fields():
     assert pr["spec"]["workspaces"] == push["spec"]["workspaces"]
 
     # Intentional event-specific differences.
-    assert pr_params["build-platforms"] == ["linux/x86_64"]
+    assert pr_params["build-platforms"] == ["linux/x86_64", "linux-m2xlarge/arm64"]
     assert push_params["build-platforms"] == ["linux/x86_64", "linux-s390x/s390x"]
     assert "additional-tags" not in pr_params
     assert "additional-tags" in push_params
