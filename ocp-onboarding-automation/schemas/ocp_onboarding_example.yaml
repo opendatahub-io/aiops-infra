@@ -1,0 +1,15 @@
+# Example OCP onboarding configuration
+# This file demonstrates the expected format for OCP version onboarding
+
+ocp_version: "5.0"
+action: onboard
+rhoai_versions:
+  - "3.6"
+  - "3.5"
+  - "3.4"
+jira_issue: "RHOAIENG-14002"
+verify_base_image: true
+dry_run: false
+notes: |
+  First OCP 5.0 onboarding for latest stable RHOAI releases.
+  This will update RHOAI 3.6, 3.5, and 3.4 to support OCP 5.0.
