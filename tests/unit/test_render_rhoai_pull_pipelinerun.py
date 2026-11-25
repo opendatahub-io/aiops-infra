@@ -16,7 +16,8 @@ SCRIPT = REPO_ROOT / "scripts" / "run_step_create_pull_pipelines.sh"
 # Parsed from konflux-central main after RHOAIENG-97051 PR #3630 and the
 # pipelineRef escape fix in PR #3682.
 EVAL_HUB_CEL = (
-    'event == "pull_request"\n'
+    'konflux_cluster == "stone-prod-p01"\n'
+    '&& (event == "pull_request" || event == "issue_comment")\n'
     "&& (files.all.exists(p, ! p.matches('^\\\\.tekton/')) "
     '|| ".tekton/odh-eval-hub-pull-request.yaml".pathChanged())'
 )
@@ -24,6 +25,9 @@ PIPELINE_REF_VALUE = (
     '{{ cel: pac.target_branch.matches("^rhoai-\\\\d+\\\\.\\\\d+(-ea\\\\.\\\\d+)?$") '
     '? pac.target_branch : "main" }}'
 )
+# Pull-request builds always use these two platforms, matching current
+# konflux-central pull-request files (e.g. odh-dashboard).
+PR_PLATFORMS = ["linux/x86_64", "linux-m2xlarge/arm64"]
 
 
 def _details(
@@ -98,7 +102,7 @@ def _pipeline_revision_for(document: dict, target_branch: str) -> str:
 
 
 def _cel_triggers(expression: str, changed_files: list[str]) -> bool:
-    assert 'event == "pull_request"' in expression
+    assert '(event == "pull_request" || event == "issue_comment")' in expression
     assert 'event == "push"' not in expression
     assert "target_branch ==" not in expression
     own_file = re.search(r'"(\.tekton/[^"]+)"\.pathChanged\(\)', expression)
@@ -126,26 +130,42 @@ class TestStage2PullPipeline:
             document["spec"]["taskRunTemplate"]["serviceAccountName"]
             == "build-pipeline-odh-eval-hub-v3-6"
         )
+        assert "podTemplate" not in document["spec"]["taskRunTemplate"]
         assert _param(document, "output-image") == (
             "quay.io/rhoai/odh-eval-hub-rhel9:on-pr-{{pull_request_number}}"
         )
+        assert _param(document, "additional-labels") == [
+            "version=on-pr-{{revision}}",
+            "io.openshift.tags=odh-eval-hub",
+        ]
         assert _param(document, "image-expires-after") == "30d"
         assert _param(document, "rhoai-version") == "3.6.0"
-        assert _param(document, "build-platforms") == [
-            "linux/x86_64",
-            "linux-m2xlarge/arm64",
-        ]
+        assert _param(document, "build-platforms") == PR_PLATFORMS
         assert _param(document, "prefetch-input").strip() == (
             '[{"type": "gomod", "path": "."}]'
         )
         assert _param(document, "hermetic") is True
         assert _param(document, "build-source-image") is True
         assert _param(document, "build-image-index") is True
-        assert annotations["pipelinesascode.tekton.dev/on-comment"] == "^/build-konflux"
         assert annotations["pipelinesascode.tekton.dev/on-cel-expression"] == EVAL_HUB_CEL
+        assert "pipelinesascode.tekton.dev/on-comment" not in annotations
         assert "pipelinesascode.tekton.dev/on-label" not in annotations
         assert "pipelinesascode.tekton.dev/on-target-branch" not in annotations
         assert "pipelinesascode.tekton.dev/on-event" not in annotations
+        task_run_specs = document["spec"]["taskRunSpecs"]
+        assert {
+            "pipelineTaskName": "rpms-signature-scan",
+            "stepSpecs": [
+                {
+                    "name": "rpms-signature-scan",
+                    "computeResources": {
+                        "requests": {"cpu": "500m", "memory": "1Gi"},
+                        "limits": {"cpu": "500m", "memory": "1Gi"},
+                    },
+                }
+            ],
+        } in task_run_specs
+        assert "timeouts" not in document["spec"]
         assert all(item["name"] != "additional-tags" for item in document["spec"]["params"])
         assert "pull-request-pipelines" not in _param(document, "output-image")
         revision = next(
@@ -209,7 +229,9 @@ class TestStage2PullPipeline:
             "quay.io/rhoai/odh-sample-rhel9:on-pr-{{pull_request_number}}"
         )
 
-    def test_multi_arch_and_prefetch_are_retained(self, tmp_path: Path):
+    def test_pull_request_is_always_x86_64_and_arm64_and_prefetch_is_retained(
+        self, tmp_path: Path
+    ):
         document = _render(
             tmp_path,
             _details(
@@ -219,12 +241,7 @@ class TestStage2PullPipeline:
             ),
             prefetch='[{"type": "gomod", "path": "."}]',
         )
-        assert _param(document, "build-platforms") == [
-            "linux/x86_64",
-            "linux-m2xlarge/arm64",
-            "linux/ppc64le",
-            "linux/s390x",
-        ]
+        assert _param(document, "build-platforms") == PR_PLATFORMS
         assert _param(document, "prefetch-input").strip() == (
             '[{"type": "gomod", "path": "."}]'
         )
@@ -251,6 +268,17 @@ class TestStage2PullPipeline:
             "pipelinesascode.tekton.dev/on-cel-expression"
         ]
         assert _cel_triggers(expression, changed_files) is expected
+
+    def test_cluster_guard_wraps_the_file_conditions(self, tmp_path: Path):
+        document = _render(tmp_path, _details())
+        expression = document["metadata"]["annotations"][
+            "pipelinesascode.tekton.dev/on-cel-expression"
+        ]
+        assert expression.startswith(
+            'konflux_cluster == "stone-prod-p01"\n'
+            '&& (event == "pull_request" || event == "issue_comment")'
+        )
+        assert "stone-prod-p02" not in expression
 
     def test_generation_pr_targets_konflux_central_main(self):
         script = SCRIPT.read_text(encoding="utf-8")

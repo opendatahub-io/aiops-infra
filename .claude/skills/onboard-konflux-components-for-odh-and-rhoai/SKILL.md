@@ -19,7 +19,7 @@ Orchestrates the complete component onboarding pipeline (idempotent re-run model
 4. `onboard-component-to-konflux-release-data` — GitLab MR to konflux-release-data **(after quay merges; also after delivery-repo for RHOAI)**
 5. `add-component-to-odh-konflux-central` **(ODH)** / `add-component-to-rhoai-konflux-central` + `create-pull-pipelines-in-rhoai-konflux-central` **(RHOAI; after krd merges)**
 6. `run-odh-konflux-onboarder-workflow` — triggered once krd+okc are both merged **(ODH only)**
-7. `integrate-component-with-bundle` — GitHub PR **(ODH: after onboarder_workflow; RHOAI: after okc merges)**
+7. `integrate-component-with-bundle` — GitHub PR **(ODH: after onboarder_workflow; RHOAI: after okc and pull_pipelines merge — verifies both P02 push and P01 PR builds)**
 7b. `krd-release-plan` (`krd_rpa`) — GitLab MR to ReleasePlanAdmission **(RHOAI only; after okc merges, alongside bundle)**
 8. `integrate-component-with-odh-operator` — GitHub PR **(after bundle merges; if is_operator=true)**
 9. `update-rhoai-product-listing` — GitLab MR, triggered after delivery-repo merges **(RHOAI only)**
@@ -43,7 +43,7 @@ No background nohup processes are used.
 **Jira:** `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
 **GitLab (VPN required):** `GITLAB_USER`, `GITLAB_TOKEN` (api + write_repository scope)
 **GitHub:** `GITHUB_USER`, `GITHUB_TOKEN` (repo + actions:write scope)
-**OpenShift:** `EXT_OC_TOKEN` (external cluster — stone-prd-rh01, ODH builds), `INT_OC_TOKEN` (internal cluster — stone-prod-p02, RHOAI builds) — each required only if no matching kubeconfig context is found for that cluster
+**OpenShift:** `EXT_OC_TOKEN` (external cluster — stone-prd-rh01, ODH builds), `INT_OC_TOKEN` (internal cluster — stone-prod-p02, RHOAI push builds), `P01_OC_TOKEN` (P01 cluster — stone-prod-p01, RHOAI pull-request builds) — each required only if no matching kubeconfig context is found for that cluster
 **Tools:** `uv`, `git`, `oc`, `skopeo`, `yamllint`, `jq`, `kustomize` (or `kubectl`)
 
 Optional overrides: `APP_INTERFACE_REPO_URL`, `KONFLUX_RELEASE_DATA_REPO_URL`,
@@ -379,6 +379,12 @@ Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8c: onboard-component-to-konflux-release-data (step key: `krd`)
 
+RHOAI registers both P01 and P02; an existing P02 Component alone is not completion.
+PR builds select P01 and push builds select P02. Both use the same versioned
+`build-pipeline-<component>-<version>` name, provisioned separately on each cluster
+from its versioned Component. Do not copy service-account tokens between clusters.
+ODH registration is unchanged.
+
 **Execute if** `krd` is in `UNBLOCKED_STEPS`.
 
 > **VPN must be active.**
@@ -419,18 +425,20 @@ EXIT_CODE=$?
 
 Writes `pipelineruns/<repo-name>/.tekton/<component-name>-pull-request.yaml` and opens the PR against `konflux-central` `main`.
 
-Versioned fields come from `target_rhoai_version` through `parse_rhoai_version.sh`. For `3.6` the PipelineRun uses application `rhoai-v3-6`, component `<component>-v3-6`, service account `build-pipeline-<component>-v3-6`, image `quay.io/rhoai/<component>-rhel9:on-pr-{{pull_request_number}}`, retention `30d`, and an on-CEL pull-request trigger. An older `target_rhoai_version` such as `3.5` keeps that older version's identifiers (`rhoai-v3-5`). Details and the pipeline-reference CEL are in `docs/skills/create-pull-pipelines-in-rhoai-konflux-central.md`.
+Versioned fields come from `target_rhoai_version` through `parse_rhoai_version.sh`. For `3.6` the PipelineRun uses application `rhoai-v3-6`, component `<component>-v3-6`, service account `build-pipeline-<component>-v3-6`, image `quay.io/rhoai/<component>-rhel9:on-pr-{{pull_request_number}}`, retention `30d`, `additional-labels` (`version=on-pr-{{revision}}`, `io.openshift.tags=<component>`), and an on-CEL pull-request/issue-comment trigger. Pull-request builds are hardcoded to `linux/x86_64` and `linux-m2xlarge/arm64`; the push PipelineRun keeps the ticket's `architectures`. Both templates are rendered by `scripts/render_rhoai_pipelinerun.sh`, so they cannot drift. An older `target_rhoai_version` such as `3.5` keeps that older version's identifiers (`rhoai-v3-5`). Details and the pipeline-reference CEL are in `docs/skills/create-pull-pipelines-in-rhoai-konflux-central.md`.
 
 Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 
 ### Step 8f: integrate-component-with-bundle (step key: `bundle`)
 
-**Execute if** `bundle` is in `UNBLOCKED_STEPS`.
+**Execute if** `bundle` is in `UNBLOCKED_STEPS` (RHOAI waits for both `okc` and `pull_pipelines`).
 
 ```bash
 OUTPUT=$(WORKDIR="$WORKDIR" PIPELINE_STATE="$PIPELINE_STATE" bash "$SCRIPTS_DIR/run_step_integrate_bundle.sh" --jira-url "$JIRA_URL")
 EXIT_CODE=$?
 ```
+
+Before raising the bundle PR, this step verifies the most recent P02 push build. For RHOAI it then calls `scripts/verify_pr_build.sh`, which creates a temporary `DO NOT MERGE` PR in the component repository, waits for the P01 pull-request build, verifies success, and closes the PR and branch. A failed or still-running build blocks bundle integration. On timeout the temporary PR is left open and recorded in `<workdir>/pr_build_verify.json` so the next run reuses it.
 
 Follows general exit contract. Exit 0 sets `NEW_PRS_RAISED="true"`.
 

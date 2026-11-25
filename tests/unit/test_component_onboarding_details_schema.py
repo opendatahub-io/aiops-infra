@@ -169,24 +169,28 @@ class TestRhoaiPullRequestComponentLabel:
         assert len(label) == 63
 
     def test_pull_pipeline_uses_versioned_development_identity(self):
+        renderer = (
+            REPO_ROOT / "scripts" / "render_rhoai_pipelinerun.sh"
+        ).read_text(encoding="utf-8")
         create_pipeline_script = (
             REPO_ROOT / "scripts" / "run_step_create_pull_pipelines.sh"
         ).read_text(encoding="utf-8")
 
+        combined = renderer + create_pipeline_script
         assert (
             "appstudio.openshift.io/application: rhoai-${VERSION_VAR}"
-            in create_pipeline_script
+            in renderer
         )
         assert (
             "appstudio.openshift.io/component: ${COMPONENT_NAME}-${VERSION_VAR}"
-            in create_pipeline_script
+            in renderer
         )
         assert (
             "serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}"
-            in create_pipeline_script
+            in renderer
         )
-        assert "pr-pipelines-${COMPONENT_NAME}" not in create_pipeline_script
-        assert "build-pipeline-pull-request-pipelines" not in create_pipeline_script
+        assert "pr-pipelines-${COMPONENT_NAME}" not in combined
+        assert "build-pipeline-pull-request-pipelines" not in combined
 
     def test_krd_still_registers_pr_pipelines_component(self):
         krd_script = (REPO_ROOT / "scripts" / "run_step_krd.sh").read_text(

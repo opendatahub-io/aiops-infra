@@ -62,33 +62,53 @@ component label is `<component_name>-<VERSION_VAR>`.
 
 ## Generated configuration
 
+The pull-request and push PipelineRuns are rendered by the same script,
+`scripts/render_rhoai_pipelinerun.sh`. Common params, task overrides, the
+service account, and the git-auth workspace are defined once. The intentional
+differences are the P01/P02 cluster routing, the event, the image tag, and the
+platform list.
+
 - Image: `quay.io/rhoai/<component_name>-rhel9:on-pr-{{pull_request_number}}`.
   This is the component delivery repository. The tag above is the only image
   tag; the params list has no `additional-tags` entry.
+- `additional-labels`: `version=on-pr-{{revision}}` and
+  `io.openshift.tags=<component_name>`, matching the majority of current
+  konflux-central pull-request files. Push PipelineRuns do not use
+  `additional-labels`.
 - `image-expires-after`: `30d`.
-- `build-platforms` from `architectures`: `x86_64` → `linux/x86_64`,
-  `arm64` → `linux-m2xlarge/arm64`, `ppc64le` → `linux/ppc64le`,
-  `s390x` → `linux/s390x`.
+- `build-platforms` is always `linux/x86_64` and `linux-m2xlarge/arm64` for
+  pull-request builds, matching current konflux-central pull-request files. The
+  `architectures` field is still required by the onboarding schema and is used
+  by the push PipelineRun, but it does not affect the PR build.
 - `prefetch-input` when `scripts/detect_prefetch_input.sh` finds a dependency
   manifest. An empty result leaves the parameter out.
 - `hermetic`, `build-source-image`, and `build-image-index` are `true`, matching
-  the current development push PipelineRun.
+  the development push PipelineRun.
 - `dockerfile` and `path-context` come from the onboarding YAML. `./` is written
   as `.`.
-- Manual builds use `pipelinesascode.tekton.dev/on-comment: "^/build-konflux"`.
-- Trigger annotations on the file are `on-comment` and `on-cel-expression`.
+- `taskRunSpecs` raises the `rpms-signature-scan` step to `500m` CPU / `1Gi`
+  memory, matching the konflux-central `all-pipelineruns` convention.
+- There is no `on-comment` annotation. Manual retriggers use the
+  `issue_comment` event.
+- Trigger annotation on the file is `on-cel-expression` only.
 
-The on-CEL expression uses the pull-request event and the same file filter as
-the development push pipeline: any change outside `.tekton/`, or a change to
-this component's pull-request PipelineRun. A change that only touches a
-different file under `.tekton/` leaves the expression false. The pull-request
-event stands in place of the push event, and the expression has no
-`target_branch` comparison. Onboarding has no field for an extra path filter
-such as a subdirectory glob.
+The on-CEL expression handles both pull-request events and `/build-konflux`
+style issue comments, and uses the same file filter as the development push
+pipeline: any change outside `.tekton/`, or a change to this component's
+pull-request PipelineRun. A change that only touches a different file under
+`.tekton/` leaves the expression false. The expression has no `target_branch`
+comparison. Onboarding has no field for an extra path filter such as a
+subdirectory glob.
+
+The outer `konflux_cluster` selector routes these builds to P01 only. The
+Repository on each cluster must expose its cluster name to PaC CEL. Coordinate
+rollout with the konflux-central routing policy (RHOAIENG-103705) and the GAP
+monitor's P01 build-status support (RHOAIENG-103869).
 
 ```yaml
 pipelinesascode.tekton.dev/on-cel-expression: |-
-  event == "pull_request"
+  konflux_cluster == "stone-prod-p01"
+  && (event == "pull_request" || event == "issue_comment")
   && (files.all.exists(p, ! p.matches('^\\.tekton/')) || ".tekton/<component-name>-pull-request.yaml".pathChanged())
 ```
 
@@ -137,3 +157,22 @@ creates the push PipelineRun on the version branch (`rhoai-3.6`, or
 read the same `target_rhoai_version`, so the application, component, and
 service account on this main-branch pull-request PipelineRun match the push
 PipelineRun for that version.
+
+Both files are rendered by `scripts/render_rhoai_pipelinerun.sh`, with the
+platform list as the only input that differs. This prevents the two templates
+from drifting.
+
+The `bundle` step depends on both `okc` and `pull_pipelines` for RHOAI. Once
+both PipelineRun PRs merge, `scripts/verify_pr_build.sh` creates a temporary
+`DO NOT MERGE` PR in the component repository, waits for the P01
+pull-request build, verifies it succeeded, and then closes the PR and deletes
+its branch. A failed or still-running PR build blocks bundle integration.
+
+The name `build-pipeline-<component_name>-<VERSION_VAR>` is unchanged between
+clusters, but service accounts are cluster-local. The krd step registers the
+versioned Component on both P01 and P02 so Konflux can provision its build
+service account and credentials independently. Do not copy a P02 service-account
+token to P01. The automation Component's account (`build-pipeline-pr-pipelines-…`)
+is not the account used by this PipelineRun. Like the current konflux-central
+files, the generated file does not hardcode the old
+`redhat-appstudio-staginguser-pull-secret` pod override.

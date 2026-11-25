@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# verify_build.sh — Check that a Konflux push build has succeeded for a component.
+# verify_build.sh — Check that Konflux builds have succeeded for a component.
 #
 # Called by run_step_integrate_bundle.sh before raising the bundle PR.
-# Queries KubeArchive for the most recent push/incoming build and verifies it succeeded.
+# 1. Queries KubeArchive on P02 for the most recent push/incoming build.
+# 2. For RHOAI, creates a temporary PR against the component repository,
+#    waits for the P01 pull-request build, and verifies it succeeded.
 #
 # Exit codes:
-#   0  Build verified (succeeded)
+#   0  Builds verified (succeeded)
 #   1  Build not found, still running, or failed — caller should exit 1
 #
 # Set ONBOARD_DRY_RUN=true to bypass (fork testing without cluster access).
@@ -17,6 +19,9 @@ JIRA_URL=""
 COMPONENT_NAME=""
 PRODUCT_CONTEXT=""
 VERSION_VAR=""
+REPO_URL=""
+REPO_BRANCH=""
+WORKDIR=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,6 +29,9 @@ while [[ $# -gt 0 ]]; do
     --component-name)  COMPONENT_NAME="$2";  shift 2 ;;
     --product-context) PRODUCT_CONTEXT="$2"; shift 2 ;;
     --version-var)     VERSION_VAR="$2";     shift 2 ;;
+    --repo-url)        REPO_URL="$2";        shift 2 ;;
+    --repo-branch)     REPO_BRANCH="$2";     shift 2 ;;
+    --workdir)         WORKDIR="$2";         shift 2 ;;
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -72,7 +80,7 @@ CURRENT_SERVER=$(oc whoami --show-server 2>/dev/null || echo "")
 if [[ "${CURRENT_SERVER%/}" != "${EXPECTED_API%/}" ]]; then
   echo "Current oc context (${CURRENT_SERVER:-none}) does not match target ($EXPECTED_API). Logging in..." >&2
   bash "$SCRIPTS_DIR/login_to_konflux_cluster.sh" "$CLUSTER_INSTANCE" || {
-    echo "ERROR: Could not log in to $CLUSTER_INSTANCE cluster. Check EXT_OC_TOKEN/INT_OC_TOKEN." >&2
+    echo "ERROR: Could not log in to $CLUSTER_INSTANCE cluster. Check EXT_OC_TOKEN/INT_OC_TOKEN/P01_OC_TOKEN." >&2
     exit 1
   }
 fi
@@ -141,7 +149,23 @@ if [[ "$SUCCEEDED" == "True" ]]; then
 PipelineRun: ${PR_NAME}
 Build URL: ${BUILD_URL}
 
-Proceeding with bundle integration." || true
+Proceeding with pull-request build verification and bundle integration." || true
+  fi
+
+  # RHOAI pull-request builds run on P01. Verify them in the same bundle step
+  # so a broken PR build blocks onboarding before the bundle PR is raised.
+  if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
+    [[ -z "$REPO_URL" ]] && {
+      echo "ERROR: --repo-url is required to verify the RHOAI pull-request build." >&2
+      exit 1
+    }
+    bash "$SCRIPTS_DIR/verify_pr_build.sh" \
+      --jira-url        "$JIRA_URL" \
+      --component-name  "$COMPONENT_NAME" \
+      --version-var     "$VERSION_VAR" \
+      --repo-url        "$REPO_URL" \
+      --repo-branch     "$REPO_BRANCH" \
+      --workdir         "$WORKDIR" || exit 1
   fi
   exit 0
 elif [[ "$SUCCEEDED" == "False" ]]; then

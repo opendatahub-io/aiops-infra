@@ -68,7 +68,7 @@ fi
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
   CLUSTER_INSTANCE="internal"
   KONFLUX_NAMESPACE="rhoai-tenant"
-  SPARSE_PATHS="tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/version"
+  SPARSE_PATHS="tenants-config/cluster/stone-prod-p01/tenants/rhoai-tenant tenants-config/auto-generated/cluster/stone-prod-p01/tenants/rhoai-tenant tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/auto-generated/cluster/stone-prod-p02/tenants/rhoai-tenant tenants-config/version"
 else
   CLUSTER_INSTANCE="external"
   KONFLUX_NAMESPACE="open-data-hub-tenant"
@@ -97,19 +97,21 @@ fi
 
 # Check if component already exists on cluster
 # Use || to prevent set -e from firing on exit 1 (component not found)
-CHECK_EXIT=0
-bash "$SCRIPTS_DIR/check_konflux_component.sh" \
-  "$KONFLUX_COMPONENT_NAME" "$KONFLUX_NAMESPACE" "$CLUSTER_INSTANCE" || CHECK_EXIT=$?
-if [[ "$CHECK_EXIT" -eq 0 ]]; then
-  echo "Konflux Component '${KONFLUX_COMPONENT_NAME}' already exists in '${KONFLUX_NAMESPACE}'."
-  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
-    --add-label "krd-mr-merged" \
-    --comment "Konflux Component '${KONFLUX_COMPONENT_NAME}' already exists in namespace '${KONFLUX_NAMESPACE}'. No action needed." || true
-  bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
-    --state "$PIPELINE_STATE" --step krd --status done
-  exit 2
-elif [[ "$CHECK_EXIT" -eq 2 ]]; then
-  echo "WARN: Could not reach ${CLUSTER_INSTANCE} cluster to check if component exists. Proceeding with MR creation." >&2
+if [[ "$PRODUCT_CONTEXT" == "ODH" ]]; then
+  CHECK_EXIT=0
+  bash "$SCRIPTS_DIR/check_konflux_component.sh" \
+    "$KONFLUX_COMPONENT_NAME" "$KONFLUX_NAMESPACE" "$CLUSTER_INSTANCE" || CHECK_EXIT=$?
+  if [[ "$CHECK_EXIT" -eq 0 ]]; then
+    echo "Konflux Component '${KONFLUX_COMPONENT_NAME}' already exists in '${KONFLUX_NAMESPACE}'."
+    uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+      --add-label "krd-mr-merged" \
+      --comment "Konflux Component '${KONFLUX_COMPONENT_NAME}' already exists in namespace '${KONFLUX_NAMESPACE}'. No action needed." || true
+    bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
+      --state "$PIPELINE_STATE" --step krd --status done
+    exit 2
+  elif [[ "$CHECK_EXIT" -eq 2 ]]; then
+    echo "WARN: Could not reach ${CLUSTER_INSTANCE} cluster to check if component exists. Proceeding with MR creation." >&2
+  fi
 fi
 
 KRD_URL="${KONFLUX_RELEASE_DATA_REPO_URL:-https://gitlab.cee.redhat.com/releng/konflux-release-data.git}"
@@ -194,17 +196,20 @@ fi
 
 # Modify RHOAI target files
 if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]]; then
-  PDS_FILE="$CLONE_DIR/$TARGET_YAML"
-  [[ ! -f "$PDS_FILE" ]] && {
-    uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
-      --comment "ERROR: ProjectDevelopmentStream-${VERSION_NAME}.yaml not found in konflux-release-data. Sprint onboarding for version '${VERSION_NAME}' may be pending." || true
-    echo "ERROR: ProjectDevelopmentStream-${VERSION_NAME}.yaml not found. Sprint onboarding pending." >&2; exit 1
-  }
+  for CLUSTER in stone-prod-p01 stone-prod-p02; do
+    PDS_FILE="$CLONE_DIR/tenants-config/cluster/$CLUSTER/tenants/rhoai-tenant/${VERSION_NAME}/ProjectDevelopmentStream-${VERSION_NAME}.yaml"
+    [[ ! -f "$PDS_FILE" ]] && {
+      echo "ERROR: $PDS_FILE not found. Sprint onboarding for ${CLUSTER}/${VERSION_NAME} pending." >&2; exit 1
+    }
+  done
 
-  if grep -q "name: ${COMPONENT_NAME}-{{.versionName}}" "$PDS_FILE" 2>/dev/null; then
-    echo "PDS entry already present — skipping."
-  else
-    PDS_ENTRY=$(cat <<'YAML_EOF'
+  for CLUSTER in stone-prod-p01 stone-prod-p02; do
+    TENANT_DIR="$CLONE_DIR/tenants-config/cluster/$CLUSTER/tenants/rhoai-tenant"
+    PDS_FILE="$TENANT_DIR/${VERSION_NAME}/ProjectDevelopmentStream-${VERSION_NAME}.yaml"
+    if grep -q "name: ${COMPONENT_NAME}-{{.versionName}}" "$PDS_FILE" 2>/dev/null; then
+      echo "PDS entry already present — skipping."
+    else
+      PDS_ENTRY=$(cat <<'YAML_EOF'
 apiVersion: appstudio.redhat.com/v1alpha1
 kind: Component
 metadata:
@@ -226,26 +231,49 @@ spec:
       url: REPO_URL_PLACEHOLDER
 YAML_EOF
 )
-    PDS_ENTRY="${PDS_ENTRY//COMPONENT_NAME_PLACEHOLDER/$COMPONENT_NAME}"
-    PDS_ENTRY="${PDS_ENTRY//CONTEXT_PATH_PLACEHOLDER/$CONTEXT_PATH_NORMALIZED}"
-    PDS_ENTRY="${PDS_ENTRY//DOCKERFILE_PATH_PLACEHOLDER/$DOCKERFILE_PATH}"
-    PDS_ENTRY="${PDS_ENTRY//REPO_URL_PLACEHOLDER/$REPO_URL}"
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-multidoc-list-item \
-      "$PDS_FILE" \
-      --doc-kind "ProjectDevelopmentStreamTemplate" \
-      --array-key "spec.resources" \
-      --yaml-string "$PDS_ENTRY" || {
-      echo "ERROR: Could not append to ProjectDevelopmentStream file." >&2; exit 1
-    }
-  fi
+      PDS_ENTRY="${PDS_ENTRY//COMPONENT_NAME_PLACEHOLDER/$COMPONENT_NAME}"
+      PDS_ENTRY="${PDS_ENTRY//CONTEXT_PATH_PLACEHOLDER/$CONTEXT_PATH_NORMALIZED}"
+      PDS_ENTRY="${PDS_ENTRY//DOCKERFILE_PATH_PLACEHOLDER/$DOCKERFILE_PATH}"
+      PDS_ENTRY="${PDS_ENTRY//REPO_URL_PLACEHOLDER/$REPO_URL}"
+      uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-multidoc-list-item \
+        "$PDS_FILE" \
+        --doc-kind "ProjectDevelopmentStreamTemplate" \
+        --array-key "spec.resources" \
+        --yaml-string "$PDS_ENTRY" || {
+        echo "ERROR: Could not append to ProjectDevelopmentStream file." >&2; exit 1
+      }
+    fi
 
-  # automation/resources.yaml
-  AUTOMATION_FILE="$CLONE_DIR/tenants-config/cluster/stone-prod-p02/tenants/rhoai-tenant/automation/resources.yaml"
-  [[ ! -f "$AUTOMATION_FILE" ]] && {
-    echo "ERROR: automation/resources.yaml not found. Sprint onboarding may be incomplete." >&2; exit 1
-  }
-  if ! grep -q "name: pr-pipelines-${COMPONENT_NAME}" "$AUTOMATION_FILE" 2>/dev/null; then
-    AUTOMATION_YAML=$(cat <<EOF
+    # automation/resources.yaml
+    AUTOMATION_FILE="$TENANT_DIR/automation/resources.yaml"
+    if [[ ! -f "$AUTOMATION_FILE" && "$CLUSTER" == "stone-prod-p02" ]]; then
+      echo "ERROR: automation/resources.yaml not found. Sprint onboarding may be incomplete." >&2; exit 1
+    fi
+    if [[ ! -f "$AUTOMATION_FILE" ]]; then
+      mkdir -p "$TENANT_DIR/automation"
+      cat > "$AUTOMATION_FILE" <<'EOF'
+---
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: Application
+metadata:
+  name: automation
+spec:
+  displayName: automation
+EOF
+    fi
+    if [[ ! -f "$TENANT_DIR/automation/kustomization.yaml" ]]; then
+      cat > "$TENANT_DIR/automation/kustomization.yaml" <<'EOF'
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - resources.yaml
+EOF
+    fi
+    uv run --script "$SCRIPTS_DIR/edit_yaml.py" insert-list-item \
+      "$TENANT_DIR/kustomization.yaml" --list-key resources --value automation/
+    if ! grep -q "name: pr-pipelines-${COMPONENT_NAME}" "$AUTOMATION_FILE" 2>/dev/null; then
+      AUTOMATION_YAML=$(cat <<EOF
 ---
 apiVersion: appstudio.redhat.com/v1alpha1
 kind: Component
@@ -265,14 +293,15 @@ spec:
       url: ${REPO_URL}
 EOF
 )
-    uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-yaml-doc \
-      "$AUTOMATION_FILE" --yaml-string "$AUTOMATION_YAML" || {
-      echo "ERROR: Could not append to automation/resources.yaml." >&2; exit 1
-    }
-    grep -q "name: pr-pipelines-${COMPONENT_NAME}" "$AUTOMATION_FILE" || {
-      echo "ERROR: Entry not found in automation/resources.yaml after append." >&2; exit 1
-    }
-  fi
+      uv run --script "$SCRIPTS_DIR/edit_yaml.py" append-yaml-doc \
+        "$AUTOMATION_FILE" --yaml-string "$AUTOMATION_YAML" || {
+        echo "ERROR: Could not append to automation/resources.yaml." >&2; exit 1
+      }
+      grep -q "name: pr-pipelines-${COMPONENT_NAME}" "$AUTOMATION_FILE" || {
+        echo "ERROR: Entry not found in automation/resources.yaml after append." >&2; exit 1
+      }
+    fi
+  done
 fi
 
 # Build manifests
@@ -290,6 +319,14 @@ fi
 # Stage and commit
 cd "$CLONE_DIR"
 git add -A
+if [[ "$PRODUCT_CONTEXT" == "RHOAI" ]] && git diff --cached --quiet; then
+  uv run --script "$SCRIPTS_DIR/update_jira_issue.py" "$JIRA_URL" \
+    --add-label "krd-mr-merged" \
+    --comment "Konflux registration for '${KONFLUX_COMPONENT_NAME}' already exists on P01 and P02. No changes needed." || true
+  bash "$SCRIPTS_DIR/update_pipeline_state.sh" \
+    --state "$PIPELINE_STATE" --step krd --status done
+  exit 2
+fi
 git commit -m "Add ${KONFLUX_COMPONENT_NAME} Component to konflux-release-data"
 
 # verify-manifests

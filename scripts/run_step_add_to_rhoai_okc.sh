@@ -118,7 +118,7 @@ eval "$(bash "$SCRIPTS_DIR/detect_prefetch_input.sh" \
   --repo-url    "$REPO_URL" \
   --context-path "$CONTEXT_PATH_NORMALIZED" 2>/dev/null)" || true
 
-# Build platform list
+# Build the platform list from the architectures selected on the ticket.
 PLATFORMS=()
 for arch in "${ARCHITECTURES[@]}"; do
   case "$arch" in
@@ -132,6 +132,7 @@ done
 [[ ${#PLATFORMS[@]} -eq 0 ]] && {
   echo "ERROR: No valid architectures found." >&2; exit 1
 }
+PLATFORMS_CSV=$(IFS=,; echo "${PLATFORMS[*]}")
 
 TEKTON_DIR=$(find "$CLONE_DIR/pipelineruns/$REPO_NAME" -maxdepth 1 -iname ".tekton" -type d 2>/dev/null | head -1 || echo "")
 [[ -z "$TEKTON_DIR" ]] && {
@@ -140,87 +141,20 @@ TEKTON_DIR=$(find "$CLONE_DIR/pipelineruns/$REPO_NAME" -maxdepth 1 -iname ".tekt
 }
 PIPELINERUN_PATH="$TEKTON_DIR/$PIPELINERUN_FILE"
 
-# Build platform YAML block
-PLATFORM_LIST=""
-for p in "${PLATFORMS[@]}"; do
-  PLATFORM_LIST+="    - ${p}"$'\n'
-done
-PLATFORM_LIST="${PLATFORM_LIST%$'\n'}"
-
-if [[ "$PREFETCH_INPUT" == "[]" ]]; then
-  PREFETCH_PARAM_BLOCK=""
-else
-  PREFETCH_PARAM_BLOCK="  - name: prefetch-input
-    value: |
-      ${PREFETCH_INPUT}"
-fi
-
-cat > "$PIPELINERUN_PATH" <<PIPELINERUN_EOF
-
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  annotations:
-    build.appstudio.openshift.io/repo: ${REPO_URL}?rev={{revision}}
-    build.appstudio.redhat.com/commit_sha: '{{revision}}'
-    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    pipelinesascode.tekton.dev/cancel-in-progress: "false"
-    pipelinesascode.tekton.dev/max-keep-runs: "3"
-    build.appstudio.openshift.io/build-nudge-files: "build/operator-nudging.yaml"
-    pipelinesascode.tekton.dev/on-cel-expression: |
-      event == "push"
-      && target_branch == "${BRANCH_NAME}"
-      && ( files.all.exists(p, !p.matches('^\\\\.tekton/')) || ".tekton/${COMPONENT_NAME}-${VERSION_VAR}-push.yaml".pathChanged() )
-  labels:
-    appstudio.openshift.io/application: rhoai-${VERSION_VAR}
-    appstudio.openshift.io/component: ${COMPONENT_NAME}-${VERSION_VAR}
-    pipelines.appstudio.openshift.io/type: build
-  name: ${COMPONENT_NAME}-${VERSION_VAR}-on-push
-  namespace: rhoai-tenant
-spec:
-  params:
-  - name: git-url
-    value: '{{source_url}}'
-  - name: revision
-    value: '{{revision}}'
-  - name: additional-tags
-    value:
-    - '{{target_branch}}-{{revision}}'
-  - name: output-image
-    value: quay.io/rhoai/${COMPONENT_NAME}-rhel9:{{target_branch}}
-  - name: rhoai-version
-    value: "${RHOAI_MINOR_VERSION}"
-  - name: dockerfile
-    value: ${DOCKERFILE_PATH}
-  - name: path-context
-    value: ${CONTEXT_PATH_NORMALIZED}
-  - name: hermetic
-    value: true
-${PREFETCH_PARAM_BLOCK}
-  - name: build-platforms
-    value:
-${PLATFORM_LIST}
-  pipelineRef:
-    params:
-    - name: url
-      value: ${RKC_URL}
-    - name: revision
-      value: '{{ target_branch }}'
-    - name: pathInRepo
-      value: pipelines/multi-arch-container-build.yaml
-    resolver: git
-  taskRunTemplate:
-    serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}
-    podTemplate:
-      imagePullSecrets:
-      - name: redhat-appstudio-staginguser-pull-secret
-  timeouts:
-    pipeline: 2h
-  workspaces:
-  - name: git-auth
-    secret:
-      secretName: '{{ git_auth_secret }}'
-PIPELINERUN_EOF
+# PR and push PipelineRuns share scripts/render_rhoai_pipelinerun.sh. Push
+# keeps the architectures selected on the onboarding ticket and routes to P02.
+bash "$SCRIPTS_DIR/render_rhoai_pipelinerun.sh" \
+  --mode push \
+  --component-name "$COMPONENT_NAME" \
+  --version-var "$VERSION_VAR" \
+  --branch-name "$BRANCH_NAME" \
+  --repo-url "$REPO_URL" \
+  --context-path "$CONTEXT_PATH_NORMALIZED" \
+  --dockerfile-path "$DOCKERFILE_PATH" \
+  --rhoai-minor-version "$RHOAI_MINOR_VERSION" \
+  --konflux-central-url "$RKC_URL" \
+  --platforms "$PLATFORMS_CSV" \
+  --prefetch-input "$PREFETCH_INPUT" > "$PIPELINERUN_PATH"
 
 # Commit and push
 bash "$SCRIPTS_DIR/git_commit_push.sh" \

@@ -74,14 +74,6 @@ CONTEXT_PATH=$(grep -m1   'context_path:'   "$YAML_FILE" | awk '{print $2}' | tr
 DOCKERFILE_PATH=$(grep -m1 'dockerfile_path:' "$YAML_FILE" | awk '{print $2}' | tr -d '"')
 TARGET_RHOAI_VERSION=$(grep -m1 'target_rhoai_version:' "$YAML_FILE" | awk '{print $2}' | tr -d '"')
 
-ARCHITECTURES=()
-while IFS= read -r arch; do
-  ARCHITECTURES+=("$arch")
-done < <(awk '/^  architectures:/{found=1;next} found && /^  - /{print $2} found && /^  [a-z]/{exit}' "$YAML_FILE")
-[[ ${#ARCHITECTURES[@]} -eq 0 ]] && {
-  mapfile -t ARCHITECTURES < <(grep -A20 'architectures:' "$YAML_FILE" | grep '^ *- ' | awk '{print $2}')
-}
-
 [[ -z "$TARGET_RHOAI_VERSION" ]] && {
   echo "ERROR: target_rhoai_version missing." >&2; exit 1
 }
@@ -101,21 +93,6 @@ fi
 RKC_URL="${RHOAI_KONFLUX_CENTRAL_REPO_URL:-https://github.com/red-hat-data-services/konflux-central.git}"
 RKC_PATH=$(echo "$RKC_URL" | sed 's|https://github.com/||;s|\.git$||')
 
-# Build platform list
-PLATFORMS=()
-for arch in "${ARCHITECTURES[@]}"; do
-  case "$arch" in
-    x86_64)  PLATFORMS+=("linux/x86_64") ;;
-    arm64)   PLATFORMS+=("linux-m2xlarge/arm64") ;;
-    ppc64le) PLATFORMS+=("linux/ppc64le") ;;
-    s390x)   PLATFORMS+=("linux/s390x") ;;
-    *)       echo "WARN: Unknown architecture '$arch' — skipping" ;;
-  esac
-done
-[[ ${#PLATFORMS[@]} -eq 0 ]] && {
-  echo "ERROR: No valid architectures found." >&2; exit 1
-}
-
 if [[ -n "$PREFETCH_INPUT_ARG" ]]; then
   PREFETCH_INPUT="$PREFETCH_INPUT_ARG"
 else
@@ -126,96 +103,22 @@ else
     --context-path "$CONTEXT_PATH_NORMALIZED" 2>/dev/null)" || true
 fi
 
-PLATFORM_LIST=""
-for p in "${PLATFORMS[@]}"; do
-  PLATFORM_LIST+="    - ${p}"$'\n'
-done
-PLATFORM_LIST="${PLATFORM_LIST%$'\n'}"
-
-if [[ -z "$PREFETCH_INPUT" || "$PREFETCH_INPUT" == "[]" ]]; then
-  PREFETCH_PARAM_BLOCK=""
-else
-  PREFETCH_PARAM_BLOCK="  - name: prefetch-input
-    value: |
-      ${PREFETCH_INPUT}"
-fi
-
-# GAP Stage 2 PR PipelineRun (RHOAIENG-97051 / konflux-central PR #3630).
-# The on-CEL file condition matches the development push pipeline's standard
-# filter, with the event changed to pull_request and the release-branch guard
-# removed. The pipeline revision selects a release branch when the PR target
-# matches rhoai-X.Y or rhoai-X.Y-ea.N, and main otherwise.
+# PR and push PipelineRuns share scripts/render_rhoai_pipelinerun.sh. The PR
+# mode hardcodes linux/x86_64 + linux-m2xlarge/arm64 and P01 routing, while
+# push keeps the architectures selected on the onboarding ticket and routes
+# to P02.
 render_pull_pipelinerun() {
-  cat <<PIPELINERUN_EOF
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  annotations:
-    build.appstudio.openshift.io/repo: ${REPO_URL}?rev={{revision}}
-    build.appstudio.redhat.com/commit_sha: '{{revision}}'
-    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
-    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    pipelinesascode.tekton.dev/cancel-in-progress: "true"
-    pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-comment: "^/build-konflux"
-    pipelinesascode.tekton.dev/on-cel-expression: |-
-      event == "pull_request"
-      && (files.all.exists(p, ! p.matches('^\\\\.tekton/')) || ".tekton/${PIPELINERUN_FILE}".pathChanged())
-  labels:
-    appstudio.openshift.io/application: rhoai-${VERSION_VAR}
-    appstudio.openshift.io/component: ${COMPONENT_NAME}-${VERSION_VAR}
-    pipelines.appstudio.openshift.io/type: build
-  name: ${COMPONENT_NAME}-on-pull-request-{{pull_request_number}}
-  namespace: rhoai-tenant
-spec:
-  params:
-  - name: git-url
-    value: '{{source_url}}'
-  - name: revision
-    value: '{{revision}}'
-  - name: output-image
-    value: quay.io/rhoai/${COMPONENT_NAME}-rhel9:on-pr-{{pull_request_number}}
-  - name: dockerfile
-    value: ${DOCKERFILE_PATH}
-  - name: path-context
-    value: ${CONTEXT_PATH_NORMALIZED}
-  - name: image-expires-after
-    value: 30d
-  - name: enable-slack-failure-notification
-    value: "false"
-  - name: hermetic
-    value: true
-  - name: rhoai-version
-    value: "${RHOAI_MINOR_VERSION}"
-${PREFETCH_PARAM_BLOCK}
-  - name: build-source-image
-    value: true
-  - name: build-image-index
-    value: true
-  - name: build-platforms
-    value:
-${PLATFORM_LIST}
-  pipelineRef:
-    resolver: git
-    params:
-    - name: url
-      value: ${RKC_URL}
-    - name: revision
-      value: '{{ cel: pac.target_branch.matches("^rhoai-\\\\d+\\\\.\\\\d+(-ea\\\\.\\\\d+)?\$") ? pac.target_branch : "main" }}'
-    - name: pathInRepo
-      value: pipelines/multi-arch-container-build.yaml
-  taskRunTemplate:
-    serviceAccountName: build-pipeline-${COMPONENT_NAME}-${VERSION_VAR}
-    podTemplate:
-      imagePullSecrets:
-      - name: redhat-appstudio-staginguser-pull-secret
-  timeouts:
-    pipeline: 8h
-  workspaces:
-  - name: git-auth
-    secret:
-      secretName: '{{ git_auth_secret }}'
-PIPELINERUN_EOF
+  bash "$SCRIPTS_DIR/render_rhoai_pipelinerun.sh" \
+    --mode pull-request \
+    --component-name "$COMPONENT_NAME" \
+    --version-var "$VERSION_VAR" \
+    --branch-name "$BRANCH_NAME" \
+    --repo-url "$REPO_URL" \
+    --context-path "$CONTEXT_PATH_NORMALIZED" \
+    --dockerfile-path "$DOCKERFILE_PATH" \
+    --rhoai-minor-version "$RHOAI_MINOR_VERSION" \
+    --konflux-central-url "$RKC_URL" \
+    --prefetch-input "$PREFETCH_INPUT"
 }
 
 if [[ "$RENDER_ONLY" -eq 1 ]]; then
